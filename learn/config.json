@@ -14,7 +14,7 @@
   "stabilni": 0.3
  },
  "rollback_runs": 2,
- "run_at_utc": "05:00",
+ "run_at_utc": "02:30",
  "cilj": "zarada",
  "_cilj": "zarada = uči iz sjenovite knjige (learn/shadow.py): pogodak je virtualni trade s našim pravilima izlaza koji je nakon troškova zaradio barem shadow.hit_ret; vrh = stari cilj (max rast u horizon_h od prvog signala). Klasa koja još nema min_rows točaka u knjizi uči po starom.",
  "shadow": {
@@ -23,6 +23,8 @@
   "lookback_h": 72,
   "keep_days": 30
  },
+ "cilj_klasa": {"stabilni": {"ret": 0.3, "h": 72}, "default": {"ret": 0.3, "h": 72}},
+ "_cilj_klasa": "9.11. (jutarnji izvještaj): stabilni i default imali su metriku pogađanja 0,0 na cilju zarada u 24 h (veliki, stariji tokeni rijetko tako brzo naprave +10% nakon troškova), pa se nije imalo iz čega učiti. Te klase uče težine na cilju: cijena (druga najviša točka) dosegne +ret u h sati. Točke bez cijena za barem pola prozora se ne broje. Model odluke (gbm) i ostale klase ostaju na cilju zarada.",
  "every_h": 6,
  "_every_h": "Težine se preračunavaju svakih every_h sati (ne samo jednom dnevno), a svaka točka vrijedi to manje što je starija (poluvijek model.half_life_d dana).",
  "model": {
@@ -43,8 +45,9 @@
  "postai": {
   "enabled": true,
   "window_h": 6,
-  "per_run": 2500,
-  "per_day": 12000
+  "per_run": 500,
+  "per_day": 2000,
+  "_9_11": "12000/dan (do ~$10/dan Haiku) nije opravdano dok oznake ne dokažu težinu u učenju; 2000/dan, najnovije objave prve."
  },
  "_postai": "AI (Claude Haiku 5.5, batch = pola cijene) čita svaku KOL i TG objavu s tokenom: poziv/spominjanje/upozorenje/reklama, plaćeno, uvjerenje 1-5, je li autor kupio. Dnevni limit per_day objava drži trošak ispod ~$1/dan.",
  "detektiv": {

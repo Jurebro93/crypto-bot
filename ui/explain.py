@@ -11,8 +11,10 @@ try:
 except Exception:  # module missing or mid-edit: fall back to the list from the time of writing
     BAD_LABELS = {"bot", "rugger", "bundler", "insider", "dev", "cex", "mev", "sniper"}
 
-# defaults of `run_wallets.py copy`
-COPY_MIN_SCORE = 50
+# 11.11. (Jure): the copy list follows the copy ranking (wallets/rang.py): proven (10+ closed tokens in 30 days),
+# copyable (median entry liquidity 15k+), Ocjena 0-100 at least COPY_MIN_SCORE, no bad label. The old copy_score
+# (wallets/pnl) no longer decides anything shown or copied.
+COPY_MIN_SCORE = 40
 COPY_MIN_CLOSED = 10
 
 
@@ -80,7 +82,8 @@ def copy_multipliers(s, labels):
 
 
 def shortlist(w, min_score=COPY_MIN_SCORE, min_closed=COPY_MIN_CLOSED):
-    """(passes, [reasons it does not]) for the copytrading list of `run_wallets.py copy`."""
+    """(passes, [reasons it does not]) for the copy list: the copy ranking's row (w["rang"], ui/data.wallets attaches
+    it) proven with min_closed+ closed tokens in 30 days, copyable, Ocjena >= min_score; no bad label."""
     s = w.get("stats") or {}
     why = []
     if not s:
@@ -88,10 +91,16 @@ def shortlist(w, min_score=COPY_MIN_SCORE, min_closed=COPY_MIN_CLOSED):
     bad = set(w.get("labels") or []) & BAD_LABELS
     if bad:
         why.append(f"oznaka {', '.join(sorted(bad))}")
-    if (s.get("closed") or 0) < min_closed:
-        why.append(f"samo {s.get('closed', 0)} zatvorenih pozicija (treba {min_closed})")
-    if (w.get("copy_score") or 0) < min_score:
-        why.append(f"copy ocjena {w.get('copy_score') or 0} < {min_score}")
+    r = w.get("rang")
+    if r is None:
+        why.append("nema zatvorenih tokena u zadnjih 30 dana (nije u rangu za kopiranje)")
+        return False, why
+    if (r.get("n") or 0) < min_closed:
+        why.append(f"samo {r.get('n') or 0} zatvorenih u 30 dana (treba {min_closed})")
+    if not r.get("copyable"):
+        why.append("nije kopirljiv: " + (r.get("why") or "likvidnost na ulazu"))
+    if (r.get("score") or 0) < min_score:
+        why.append(f"ocjena za kopiranje {r.get('score') or 0:.0f} < {min_score:g}")
     return not why, why
 
 
@@ -106,10 +115,11 @@ def organic(d):
     return [
         ("Starost", min(15, 15 * math.log10(1 + age_d) / math.log10(31)), 15, f"{age_d:.1f} dana; 30+ = max"),
         ("Likvidnost", min(15, 15 * math.log10(1 + liq_usd) / 6), 15, f"${liq_usd:,.0f}; $1M = max"),
-        ("Volumen 24h", min(25, 25 * math.log10(1 + vol_usd) / 6), 25, f"${vol_usd:,.0f}; $1M/dan = max"),
-        ("Broj transakcija", min(15, 15 * math.log10(1 + txs) / 4), 15, f"{txs} tx/24h; 10k = max"),
-        ("Omjer kupnji", 10 if 0.4 <= share <= 0.7 else 4 if 0.3 <= share <= 0.8 else 0, 10,
-         f"{share:.0%} kupnji; 40-70% = zdravo"),
+        ("Volumen 24h", 25 * min(1.0, max(0.0, math.log10(max(vol_usd, 1) / 1e3) / 3)), 25,
+         f"${vol_usd:,.0f}; od $1k/dan, $1M/dan = max"),
+        ("Broj transakcija", 15 * min(1.0, max(0.0, math.log10(max(txs, 1) / 10) / 3)), 15, f"{txs} tx/24h; od 10, 10k = max"),
+        ("Omjer kupnji", (10 if 0.4 <= share <= 0.7 else 4 if 0.3 <= share <= 0.8 else 0) if txs >= 50 else 0, 10,
+         f"{share:.0%} kupnji; 40-70% = zdravo, broji se tek od 50 tx/dan"),
         ("Wash kazna", -15 if turnover > 30 else 0, 0, f"volumen = {turnover:.1f}x likvidnost; iznad 30x = -15"),
         ("Društvene mreže", min(10, 4 * (d.get("socials") or 0) + (3 if d.get("website") else 0)), 10,
          f"{d.get('socials') or 0} mreža, web {'da' if d.get('website') else 'ne'}"),

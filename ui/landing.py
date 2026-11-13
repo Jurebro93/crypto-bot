@@ -7,6 +7,10 @@
 - Access requests: league.db table access_requests (the dashboard process is league.db's only writer). /zahtjevi lists
   them for players who may invite (ui/register.can_invite); "Pozovi" makes a single-use invite link
   (league/members.single) for that person, ready to copy or send on WhatsApp / e-mail.
+- Site log (10.11.): the block "MemeSonar je live N dana" with the last days of what the nightly 02:00 refresh found
+  new (ui/sitelog.py), each item an internal link. The rows are read in the same background count as the numbers,
+  never per request. start() also starts the watch that drops in-memory copies of public data once the night's
+  refresh has happened (refreshed()).
 """
 import os
 import re
@@ -23,6 +27,10 @@ STATIC = os.path.join(HERE, "ui", "static", "landing")
 STATS_EVERY_S = int(os.environ.get("LANDING_STATS_EVERY_S", "1800"))
 MAX_PENDING = 500            # a bot filling the form cannot fill the disk
 PER_IP_HOUR = 5
+# site log: days read from public.db per count / days with news shown. 10.11.: 3, not 4: one day is ~210 px on a phone
+# and four filled a whole screen between the numbers and the features
+LOG_READ, LOG_SHOW = 8, 3
+LOG_LINKS_MAX = 2            # blog posts named per line; the rest is "i još N", a link to the blog
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS access_requests (
@@ -100,6 +108,11 @@ def compute():
         v["players"] = len(store.users())
     except Exception:  # noqa: BLE001
         pass
+    try:   # 10.11.: the site log rows (a few rows by primary key) are kept with the numbers, so a visit reads no database
+        from ui import sitelog
+        v["log"] = sitelog.recent(LOG_READ)
+    except Exception as e:  # noqa: BLE001
+        print(f"naslovnica: dnevnik weba nije pročitan: {type(e).__name__}: {e}", flush=True)
     return {k: x for k, x in v.items() if x}
 
 
@@ -127,6 +140,18 @@ def stats():
     return v, ts
 
 
+def refreshed():
+    """The night's refresh has happened (ui/sitelog marker moved; run_web.py daily in the scheduler's process): every
+    in-memory copy of public data is dropped, the numbers and the site log are counted again and the main public
+    tables are built once, so the first visitor of the morning waits for nothing. Runs in the watch thread."""
+    from ui import public
+    public.drop_caches()
+    with _LOCK:
+        _STATS["busy"] = True
+    _refresh()
+    public.warm()
+
+
 def start():
     """Count once soon after boot (the boot itself is busy) and keep the numbers fresh."""
     def loop():
@@ -137,6 +162,11 @@ def start():
             _refresh()
             time.sleep(STATS_EVERY_S)
     threading.Thread(target=loop, daemon=True, name="landing-stats-loop").start()
+    try:   # 10.11.: one cheap look at the refresh marker a minute, in its own thread (ui/sitelog.watch)
+        from ui import sitelog
+        sitelog.watch(refreshed)
+    except Exception as e:  # noqa: BLE001 - without the watch the pages still refresh on their own cache times
+        print(f"naslovnica: praćenje noćnog osvježavanja nije pokrenuto: {type(e).__name__}: {e}", flush=True)
 
 
 # ---------- formatting ---------------------------------------------------------------------------------------------
@@ -232,7 +262,7 @@ h1{font-size:clamp(38px,7vw,68px);line-height:1.04;letter-spacing:-.04em;margin:
 .small{color:var(--mut);font-size:14px;margin-top:16px}
 .phones{display:flex;justify-content:center;align-items:flex-end;gap:22px;margin:64px auto 0;padding:0 0 10px}
 .ph{width:250px;flex:none;border-radius:34px;background:#0b1220;padding:8px;box-shadow:0 40px 80px -30px rgba(11,18,32,.35)}
-.ph img{border-radius:27px;width:100%;aspect-ratio:390/844;object-fit:cover;object-position:top}
+.ph img{border-radius:27px;width:100%;aspect-ratio:390/844;object-fit:cover;object-position:top;background:#eef2f7;color:#64748b;font-size:13px}
 .ph.side{width:215px;opacity:.95}@media(min-width:761px){.ph.main{order:2}.ph.side+.ph.side{order:3}}
 @media(max-width:760px){.phones{justify-content:flex-start;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 20px 20px;margin:48px -20px 0;
 gap:14px;scrollbar-width:none}.phones::-webkit-scrollbar{display:none}.ph,.ph.side{width:72vw;scroll-snap-align:center}}
@@ -306,6 +336,18 @@ details[open] summary:after{content:"–"}details p{color:var(--mut);margin:10px
 footer{padding:36px 0 48px;color:var(--mut);font-size:13px;text-align:center;border-top:1px solid var(--line)}
 dialog#lb{border:0;padding:0;background:transparent;max-width:96vw;max-height:94vh}dialog#lb::backdrop{background:rgba(11,18,32,.8)}
 dialog#lb img{max-width:96vw;max-height:94vh;border-radius:12px}
+.lg{max-width:720px;margin:0 auto}.lg h2{font-size:clamp(26px,3.6vw,36px)}.lg .lead{font-size:16.5px;margin-bottom:26px}
+.lg .lead a,.lgt a{color:var(--acc);font-weight:550}
+.lgl{list-style:none;margin:0;padding:0;border-top:1px solid var(--line);text-align:left}
+.lgr{display:grid;grid-template-columns:64px 1fr;gap:16px;padding:16px 2px;border-bottom:1px solid var(--line)}
+.lgr time{color:var(--mut);font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;padding-top:1px;white-space:nowrap}
+.lgn{margin:0;display:flex;flex-wrap:wrap;gap:4px 20px;font-size:15px;line-height:1.5}.lgn a{color:var(--fg);white-space:nowrap}
+.lgn a:hover,.lgt a:hover{text-decoration:underline;text-underline-offset:3px}
+.lgn a b{color:var(--good);font-weight:700;font-variant-numeric:tabular-nums;margin-left:3px}
+.lgt{margin:6px 0 0;font-size:14.5px;line-height:1.55;color:var(--mut)}.lgt:first-child{margin-top:0}
+@media(max-width:600px){.lgr{grid-template-columns:1fr;gap:6px;padding:14px 0}.lgr time{padding-top:0;font-size:13px}}
+.lgt a.lgm{color:var(--mut);font-weight:500;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
+.apst{margin-top:14px}.apst+.hero{padding-top:56px}@media(max-width:760px){.apst+.hero{padding-top:36px}}
 .mcta{position:fixed;left:14px;right:14px;bottom:14px;z-index:30;display:none;transition:opacity .2s,transform .2s}
 .mcta.h{opacity:0;transform:translateY(20px);pointer-events:none}
 @media(max-width:760px){.gsec{display:none}body{font-size:16px}.hero{padding:56px 0 8px}section{padding:64px 0}.hm{display:none}.mcta{display:flex}
@@ -392,6 +434,13 @@ T = {
             ("Koliko košta?", "Za sada ništa. Alat je besplatan dok je u ranoj fazi."),
             ("Kako dobijem pristup?", "Ispuni kratki obrazac na ovoj stranici (ime i e-mail). Kad ti otvorimo mjesto, dobiješ osobni link za registraciju."),
             ("Radi li na mobitelu?", "Da. Otvoriš link, prijaviš se jednom i alat te pamti 60 dana.")],
+        log_eye="Dnevnik", log_h="MemeSonar je live {n}.", log_h0="MemeSonar je live od danas.",
+        log_p="Svake noći u 02:00 osvježimo <a href=/hr/influenceri>ljestvicu influencera</a>, "
+              "<a href=/hr/solana-meme-coini>meme coine</a> i brojke na <a href=/hr/blog>blogu</a>. Ovdje piše što je novo.",
+        log_wait="Prvi zapis stiže nakon sljedećeg noćnog osvježavanja.",
+        log_k=dict(kols="Influenceri", calls="Izmjereni pozivi", channels="Telegram kanali", wallets="Novčanici",
+                   trades="Tradeovi novčanika", coins="Meme coini", tokens="Provjereni tokeni"),
+        log_blogs="Blogovi s novim podacima", log_posts="Novi članci", log_more="i još {n}",
         foot="Nije financijski savjet. Kripto nosi visok rizik.", feats=FEATURES, gallery=GALLERY,
         fallback=[("2 min", "novi sken"), ("24/7", "radi bez pauze"), ("7", "slojeva provjere"), ("0 €", "za sada")],
         tour=TOUR),
@@ -429,10 +478,159 @@ T = {
             ("How much does it cost?", "Nothing for now. The tool is free while it is at an early stage."),
             ("How do I get access?", "Fill in the short form on this page (name and e-mail). When we open a spot for you, you get a personal sign-up link."),
             ("Does it work on my phone?", "Yes. Open the link, log in once and the app remembers you for 60 days.")],
+        log_eye="Site log", log_h="MemeSonar has been live for {n}.", log_h0="MemeSonar went live today.",
+        log_p="Every night at 02:00 (Zagreb time) we refresh the <a href=/influencers>influencer leaderboard</a>, the "
+              "<a href=/solana-meme-coins>meme coins</a> and the numbers on the <a href=/blog>blog</a>. This is what was new.",
+        log_wait="The first entry appears after the next nightly refresh.",
+        log_k=dict(kols="Influencers", calls="Calls measured", channels="Telegram channels", wallets="Wallets",
+                   trades="Wallet trades", coins="Meme coins", tokens="Tokens checked"),
+        log_blogs="Blog posts with new data", log_posts="New posts", log_more="and {n} more",
         foot="Not financial advice. Crypto carries a high risk.", feats=FEATURES_EN, gallery=GALLERY_EN,
         fallback=[("2 min", "new scan"), ("24/7", "always on"), ("7", "layers of checks"), ("$0", "for now")],
         tour=TOUR_EN),
 }
+
+
+# ---------- site log: "MemeSonar je live N dana" -------------------------------------------------------------------
+
+# what each counted thing links to: a public page (English, Croatian) or a blog post by its English slug
+LOG_LINKS = {
+    "kols": ("/influencers", "/hr/influenceri"), "calls": "how-to-check-a-kol-track-record",
+    "channels": ("/telegram-channels", "/hr/telegram-kanali"), "wallets": "what-is-wallet-tracking",
+    "trades": "what-is-copy-trading", "coins": ("/solana-meme-coins", "/hr/solana-meme-coini"),
+    "tokens": ("/rug-check", "/hr/provjera"),
+}
+_MON_EN = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _days_words(n, lang):
+    """9 -> '9 dana', 21 -> '21 dan' (Croatian: 1, 21, 31... take the singular, 11 does not); English '1 day'."""
+    if lang == "en":
+        return f"{n} day" if n == 1 else f"{n} days"
+    return f"{n} dan" if n % 10 == 1 and n % 100 != 11 else f"{n} dana"
+
+
+def _log_date(day, lang):
+    """'2026-11-10' -> '10. 11.' / '10 Nov'."""
+    try:
+        _y, m, d = (int(x) for x in day.split("-"))
+        return f"{d} {_MON_EN[m - 1]}" if lang == "en" else f"{d}. {m}."
+    except (ValueError, IndexError):
+        return esc(day)
+
+
+def _short_title(h1):
+    """A post's headline cut to what fits a line of the log: 'What is wallet tracking? How to ...' -> 'What is wallet
+    tracking?', 'Best ... in 2026: ranked by ...' -> 'Best ... in 2026', a closing '(and why ...)' dropped."""
+    title = re.sub(r"\s*\([^()]*\)\s*$", "", h1).strip()
+    if "?" in title and title.index("?") >= 14:
+        title = title[:title.index("?") + 1]
+    elif ":" in title:
+        head, tail = (x.strip() for x in title.split(":", 1))
+        # "KOL in crypto: how to check ..." keeps the how-to, a longer head ("Best ... in 2026") is the title
+        title = head if len(head) >= 15 or not tail else tail[0].upper() + tail[1:]
+    if len(title) > 56 and title.find(" (") >= 14:   # "Što je praćenje novčanika (wallet tracking) i zašto ..."
+        title = title[:title.find(" (")]
+    if len(title) > 72:
+        title = title[:70].rsplit(" ", 1)[0] + "…"
+    return title
+
+
+def _post_link(en_slug, lang):
+    """(href, short title) of a blog post in that language, or None when the post is not there."""
+    from ui import blog
+    v = blog.get_en(en_slug, lang)
+    return (f"{blog.L[lang]['base']}/{v['slug']}", _short_title(v["h1"])) if v else None
+
+
+def _log_href(key, lang):
+    to = LOG_LINKS.get(key)
+    if isinstance(to, tuple):
+        return to[0 if lang == "en" else 1]
+    link = _post_link(to, lang) if to else None
+    return link[0] if link else None
+
+
+def _log_posts(label, slugs, lang, t, turn=0):
+    """'Novi članci: <a>…</a>, <a>…</a> i još 9' ('' when no slug resolves to a post; the tail links to the blog).
+    turn: which posts are named when there are more than LOG_LINKS_MAX (the same blocks change most nights; the names
+    should not repeat)."""
+    links = [x for x in (_post_link(sl, lang) for sl in slugs) if x]
+    if not links:
+        return ""
+    if len(links) > LOG_LINKS_MAX:
+        k = turn % len(links)
+        links = links[k:] + links[:k]
+    out = ", ".join(f"<a href={h}>{esc(tt)}</a>" for h, tt in links[:LOG_LINKS_MAX])
+    if len(links) > LOG_LINKS_MAX:
+        from ui import blog
+        out += f" <a class=lgm href={blog.L[lang]['base']}>{t['log_more'].format(n=len(links) - LOG_LINKS_MAX)}</a>"
+    return f"<p class=lgt>{label}: {out}</p>"
+
+
+def _log_row(e, lang, t, num):
+    """One day of the log as <li>, '' when that day has nothing to show."""
+    nums = ""
+    for k, lab in t["log_k"].items():
+        n, href = (e.get("added") or {}).get(k), _log_href(k, lang)
+        if n and n > 0 and href:
+            nums += f"<a href={href}>{lab}<b>+{num(n)}</b></a>"
+    try:
+        turn = int(e["day"].replace("-", "")) * LOG_LINKS_MAX   # a different set of names every day
+    except (ValueError, AttributeError):
+        turn = 0
+    body = ((f"<p class=lgn>{nums}</p>" if nums else "")
+            + _log_posts(t["log_posts"], e.get("posts") or [], lang, t)
+            + _log_posts(t["log_blogs"], e.get("blogs") or [], lang, t, turn))
+    if not body:
+        return ""
+    return f"<li class=lgr><time datetime={esc(e['day'])}>{_log_date(e['day'], lang)}</time><div>{body}</div></li>"
+
+
+def log_html(rows, lang="hr", days=None):
+    """The block "MemeSonar je live N dana": heading, one line on the nightly refresh and the last LOG_SHOW days that
+    have something new. Without rows (the job has not run yet) the heading and the line stay, with a note."""
+    lang = "en" if lang == "en" else "hr"
+    t = T[lang]
+    num = _n_en if lang == "en" else _n
+    if days is None:
+        from ui import sitelog
+        days = sitelog.live_days()
+    items = []
+    for e in rows or []:
+        try:
+            li = _log_row(e, lang, t, num)
+        except Exception as ex:  # noqa: BLE001 - one odd row must not take the block (or the page) down
+            print(f"naslovnica: redak dnevnika {e.get('day') if isinstance(e, dict) else '?'} preskočen: {ex}", flush=True)
+            li = ""
+        if li:
+            items.append(li)
+        if len(items) >= LOG_SHOW:
+            break
+    head = t["log_h"].format(n=_days_words(days, lang)) if days > 0 else t["log_h0"]
+    lst = f"<ol class=lgl>{''.join(items)}</ol>" if items else f"<p class=small>{t['log_wait']}</p>"
+    return (f"<section id=dnevnik style='padding:24px 0 72px'><div class='w center'><div class=lg>"
+            f"<div class=eyebrow>{t['log_eye']}</div><h2>{head}</h2><p class=lead>{t['log_p']}</p>{lst}</div></div></section>")
+
+
+_STRIP_ERR = [0.0]
+
+
+def _ap_strip(lang):
+    """The highlighted "trading with real money is live" block of another group (ui/apjavno.landing_strip, 10.11.).
+    '' while that module does not exist, while the Autopilot is not live, or when it fails: this page never
+    depends on it."""
+    try:
+        from ui import apjavno
+        html = apjavno.landing_strip(lang)
+    except ImportError:
+        return ""
+    except Exception as e:  # noqa: BLE001
+        if time.time() - _STRIP_ERR[0] > 3600:   # one line an hour, not one per visit
+            _STRIP_ERR[0] = time.time()
+            print(f"naslovnica: traka Autopilota nije prikazana: {type(e).__name__}: {e}", flush=True)
+        return ""
+    return f"<div class='w apst'>{html}</div>" if html and isinstance(html, str) else ""
 
 
 def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
@@ -509,6 +707,12 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
         f"<input type=hidden name=src value=\"{esc(qs.get('src', qs.get('utm_source', ''))[:40])}\">"
         f"<button class='btn p' type=submit>{t['req']}</button><p class=fine>{t['f_fine']}</p></form>")
     faq = "".join(f"<details><summary>{q}</summary><p>{a}</p></details>" for q, a in t["faq"])
+    try:   # 10.11.: "MemeSonar je live N dana" from the rows cached with the numbers (no database read here)
+        site_log = log_html(v.get("log"), lang)
+    except Exception as e:  # noqa: BLE001
+        print(f"naslovnica: dnevnik nije prikazan: {type(e).__name__}: {e}", flush=True)
+        site_log = ""
+    ap_strip = _ap_strip(lang)
 
     og_img, og_alt = P.og_card("/", lang)
     og_img = base + og_img
@@ -532,7 +736,7 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <nav class=top><div class=w><a class=brand href={home}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {P.nav_links(lang)}{switch}
 <a class=lnk href={app_href}>{app_label}</a><a class='btn p sm' href=#pristup>{t['req']}</a>{P.mobile_menu(lang)}</div></nav>
-
+{ap_strip}
 <header class=hero><div class=w>
 <span class=pill><span class=dot></span>{t['pill']}</span>
 <h1>{t['h1a']} <span class=g>{t['h1b']}</span></h1>
@@ -543,7 +747,7 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 </div></header>
 
 <section style='padding-top:40px'><div class=w>{nums_html}</div></section>
-
+{site_log}
 <section class=soft id=funkcije><div class=w><div class=center><div class=eyebrow>{t['feat_eye']}</div>
 <h2>{t['feat_h']}</h2><p class=lead>{t['feat_lead']}</p></div>
 <div class=feats>{feats}</div></div></section>

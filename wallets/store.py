@@ -126,14 +126,26 @@ def credits_since(con, since_ts):
     return con.execute("SELECT COALESCE(SUM(credits),0) FROM helius_credits WHERE ts>=?", (since_ts,)).fetchone()[0]
 
 
+SCORE_ROLES = ("manual", "smart", "top_trader", "early_buyer", "group", "insider")   # sightings worth a first score
+
+
 def queue(con, limit, now=None):
-    """Wallets due for a (re)check, best first. Never-scored wallets go by priority, scored ones by tier."""
+    """Wallets due for a (re)check, best first. Never-scored wallets go by priority, scored ones by tier.
+
+    9.11.: of 245k Helius credits spent on wallet histories in a week, 41% went to wallets that turned out profitable
+    and 59% to bots, tier D and wallets seen only as holders of some token (1,035 'holder', 1,407 'big_holder' first
+    looks). A first look now needs a sighting in SCORE_ROLES; a recheck needs tier A/B/S or a new such sighting."""
     now = now or int(time.time())
-    # rechecks of scored wallets first (cheap, and they are the ones that matter), then fresh ones by priority
-    cur = con.execute("""SELECT wallet, scored_at, labels FROM wallets
+    roles = ",".join("?" * len(SCORE_ROLES))
+    cur = con.execute(f"""SELECT wallet, scored_at, labels FROM wallets w
                          WHERE next_check IS NOT NULL AND next_check <= ? AND priority > 0
+                         AND ((scored_at IS NULL AND EXISTS (SELECT 1 FROM wallet_sightings s WHERE s.wallet = w.wallet
+                                                                   AND s.role IN ({roles})))
+                              OR tier IN ('A', 'B', 'S')
+                              OR EXISTS (SELECT 1 FROM wallet_sightings s WHERE s.wallet = w.wallet AND s.role IN ({roles})
+                                         AND s.ts > COALESCE(scored_at, 0)))
                          ORDER BY (scored_at IS NULL) ASC, COALESCE(copy_score, 0) DESC, priority DESC, last_seen DESC""",
-                      (now,))
+                      (now, *SCORE_ROLES, *SCORE_ROLES))
     out = []
     for wallet, scored_at, lab in cur:
         if set(json.loads(lab or "[]")) & {"rugger", "cex", "mev", "izbačen"}:   # izbačen: ops/prune.py stripped it

@@ -27,9 +27,9 @@ from paper import sim
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG = os.path.join(HERE, "config.json")
-KEYS = ("sl", "sl_delay_min", "tp", "trail_tiers", "sl_after_tp", "stale", "max_hold_h", "moonbag", "moon_trail", "kol_hold_min",
+KEYS = ("sl", "sl_delay_min", "panic_liq", "tp", "trail_tiers", "sl_after_tp", "stale", "max_hold_h", "moonbag", "moon_trail", "kol_hold_min",
         "kol_trail_add")
-SIM_KEYS = ("sl", "sl_delay_min", "tp", "trail_tiers", "sl_after_tp", "max_hold_h", "moonbag", "moon_trail", "moon_hold_h", "kol_hold_min",
+SIM_KEYS = ("sl", "sl_delay_min", "panic_liq", "tp", "trail_tiers", "sl_after_tp", "max_hold_h", "moonbag", "moon_trail", "moon_hold_h", "kol_hold_min",
             "kol_trail_add")
 
 
@@ -47,6 +47,7 @@ def params_of(cfg):
     p["moonbag"], p["moon_trail"] = cfg.get("moonbag", 0), cfg.get("moon_trail", 0.6)
     p["kol_hold_min"], p["kol_trail_add"] = cfg.get("kol_hold_min", 0), cfg.get("kol_trail_add", 0.0)
     p["sl_delay_min"] = cfg.get("sl_delay_min", 0) or 0
+    p["panic_liq"] = (cfg.get("panic") or {}).get("liq_drop")
     return p
 
 
@@ -55,6 +56,9 @@ def to_sim(base, params):
     c = {**base, **{k: v for k, v in params.items() if k in SIM_KEYS}}
     st = params.get("stale")
     c["stale_min"], c["stale_ret"] = (st[0], st[1]) if st else (None, 0.1)
+    if "panic_liq" in params:  # learned: null = emergency exit off, a number = its liquidity drop
+        pl = params["panic_liq"]
+        c["panic"] = {**(base.get("panic") or {}), "liq_drop": pl} if pl else None
     return c
 
 
@@ -124,7 +128,7 @@ def search(paths, base, current, ecfg, rng=None):
         g = grid[k]
         i = _index(g, current.get(k))
         allowed[k] = g if i is None else g[max(0, i - steps): i + steps + 1]
-    best = {"sl_delay_min": 0, **current}
+    best = {"sl_delay_min": 0, "panic_liq": (base.get("panic") or {}).get("liq_drop"), **current}
     wts = live_weights(paths, ecfg)
     ref = evaluate(paths, to_sim(base, best), lam, cap, wts)
     best_score = ref["score"]
@@ -173,7 +177,8 @@ def fit_profile(paths, base, current, ecfg):
     """One class: search on all paths, then check the result on each time half and on live paths.
     Returns (decision dict, new params or None)."""
     lam, cap = ecfg["lambda_loss"], ecfg.get("ret_cap", 10.0)
-    current = {"sl_delay_min": 0, **current}  # profiles learned before the stop delay existed
+    # profiles learned before the stop delay / the emergency exit existed
+    current = {"sl_delay_min": 0, "panic_liq": (base.get("panic") or {}).get("liq_drop"), **current}
     n = len(paths)
     out = {"n": n, "n_live": sum(p["src"] == "live" for p in paths),
            "n_shadow": sum(p["src"] == "shadow" for p in paths)}
@@ -241,6 +246,7 @@ def describe(params):
              (f"ako u {st[0]} min ne naraste {st[1]:.0%}, izlaz" if st else ""), f"najdulje {params['max_hold_h']} h",
              (f"moonbag {params['moonbag']:.0%} ostaje dok ne padne {params['moon_trail']:.0%} od vrha"
               if params.get("moonbag") else ""),
+             (f"hitni izlaz kad likvidnost padne {params['panic_liq']:.0%} u jednom koraku" if params.get("panic_liq") else ""),
              (f"{params['kol_hold_min']} min nakon calla influencera nema izlaza zbog mirovanja"
               + (f", trailing širi za {params['kol_trail_add']:.0%}" if params.get("kol_trail_add") else "")
               if params.get("kol_hold_min") else "")]

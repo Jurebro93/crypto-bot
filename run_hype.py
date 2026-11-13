@@ -148,6 +148,20 @@ def early_buyers_cheap(mint, n=60, now=None):
     return out
 
 
+PF_KEYS = ("boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
+           "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl", "isCurrentlyLive",
+           "liveParticipants")
+
+
+def _pumpfun_extra(pf, shape=None):
+    """9.11. (audit P56): the holder / bundler / sniper shares a signal carries: pump.fun's board when it answered,
+    otherwise what topcheck (RugCheck) and rug.db already know (topcheck/holders.pumpfun_shape), so the token
+    pop-up, confidence and learning see the same shares as Pregled. None when nothing is known: never 0."""
+    if pf:
+        return {k: pf.get(k) for k in PF_KEYS}
+    return dict(shape) if shape else None
+
+
 def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     now_ms = (now or time.time()) * 1000
     ctx = apify_context(a)
@@ -207,6 +221,12 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     if keep:
         print(f"  zadržano {len(keep)} tokena (istaknuti + razina, zadnja {pcfg['sati']} h)", file=sys.stderr)
     pairs = client.tokens("solana", list(found))
+    try:   # 9.11. (audit P56): holder shares from data already on disk (topcheck RugCheck + rug.db), no new calls
+        from topcheck import holders as tholders
+        shape = tholders.pumpfun_shape(list(found))
+    except Exception as e:  # noqa: BLE001 - a missing table never stops the scan
+        print(f"  holderi (topcheck/rug.db): {e}", file=sys.stderr)
+        shape = {}
     best = {}
     for p in pairs:
         t = p["baseToken"]["address"]
@@ -284,10 +304,7 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             f["autor_nalet"] = round(min(1.0, (bursts[t]["n"] - 1) / 3), 2)
         if t in groups10:  # only set when it happened: 3 authors in 10 min = 0.5, 5+ = full; learning sets the weight
             f["grupa_10"] = round(min(1.0, 0.5 + (groups10[t]["n"] - 3) / 4), 2)
-        extra = {"x_trend": trend, "pumpfun": {k: pf.get(k) for k in (
-            "boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
-            "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl", "isCurrentlyLive",
-            "liveParticipants")} if pf else None,
+        extra = {"x_trend": trend, "pumpfun": _pumpfun_extra(pf, shape.get(t)),
             "kol_x": kol_ca.get(t, 0), "kol_group": kol_groups.get(t), "konv": conv.get(t),
             "autor_nalet": bursts.get(t), "grupa_10": groups10.get(t)}
         rows.append({"token": t, "symbol": sym, "name": name, "pair": p.get("pairAddress"), "url": p.get("url"),
@@ -359,7 +376,8 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     if apify.enabled() and not a.no_apify:  # paid: only tokens that already look good and passed T0
         rows.sort(key=lambda r: -r["score"])
         ok = [r for r in rows if r["tier"]["t0"] != "pad"]
-        for r in [r for r in ok if r["score"] >= a.x_min_score][:a.x_top]:
+        # 11.11.: x_buzz switched off in hype/apify.json "ugaseno" (the scanner's X momentum covers it): no line a token
+        for r in ([] if apify.off("x_buzz") else [r for r in ok if r["score"] >= a.x_min_score][:a.x_top]):
             try:
                 r["x"] = xbuzz.token_buzz(r["token"], r["symbol"])
                 r["features"]["x_buzz"] = r["x"]["feature"]

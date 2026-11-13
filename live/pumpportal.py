@@ -148,6 +148,9 @@ def subscribe_msgs(tokens, wallets, prev=(set(), set())):
     return out
 
 
+_LAST_BALANCE_LOG = [0.0]
+
+
 class Feed:
     """Collects parsed rows and writes them in batches (one commit a second, not one per trade)."""
 
@@ -172,7 +175,11 @@ class Feed:
             text = str(msg)
             if "Minimum balance" in text or "only available when connecting with an API key" in text:
                 self.balance_error = True   # unfunded key: resubscribe everything at the next refresh (no restart)
-            if self.n_other < 20:   # subscription acks and errors: the first few go to the log (5.11.: 0 trades?)
+                # 9.11.: the same line came twice a minute for days (every reconnect is a new Feed); once per 30 min
+                if (now or time.time()) - _LAST_BALANCE_LOG[0] >= 1800:
+                    _LAST_BALANCE_LOG[0] = now or time.time()
+                    self.log(f"live: poruka {text[:200]} (PumpPortal podatkovni ključ treba ≥ 0.02 SOL; ponavljam svakih 30 min)")
+            elif self.n_other < 20:   # subscription acks and errors: the first few go to the log (5.11.: 0 trades?)
                 self.n_other += 1
                 self.log(f"live: poruka {text[:200]}")
         return kind
@@ -213,6 +220,12 @@ class Feed:
             return 0
         self.n_trades += len(self.trades)
         self.n_launches += len(self.launches)
+        if self.launches:
+            try:   # 11.11. (flag event_tokens, topics/hook.py): string match against the event topics, queued
+                from topics import hook as _topics
+                _topics.launches(self.launches)
+            except Exception:  # noqa: BLE001 - the feed must never notice
+                pass
         self.trades, self.launches = [], []
         self.last_flush = now
         return n
@@ -248,7 +261,7 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
         try:
             async with websockets.connect(ws_url(), ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
                 backoff = 5
-                if new_tokens:   # every new pump.fun launch: 99% die in minutes (Nicholas 5.11.), off by default
+                if new_tokens:   # every new pump.fun launch (free): on by default since 10.11. (run_live.new_tokens_on)
                     await ws.send(json.dumps({"method": "subscribeNewToken"}))
                 if migrations:   # tokens that bonded (graduated to PumpSwap): free, and these are the ones worth a look
                     await ws.send(json.dumps({"method": "subscribeMigration"}))

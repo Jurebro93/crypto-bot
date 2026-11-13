@@ -50,10 +50,14 @@ def volume_confirmed(m, cfg):
     return (m[5] or 0) * 12 >= cfg.get("potvrda_vol_x", 3.0) * m[6]
 
 
-def exits_for(cfg, ex, entry_mcap):
+def exits_for(cfg, ex, entry_mcap, key=None):
     """Exit rules for one position: the main demo's, overridden by cfg["exits_veliki"] for tokens that entered at
     or above exits_veliki_from. 6.11. (Jure): a $1M+ token does not pump in 45 minutes or die; it needs hours,
-    a tighter stop and a profit ladder, and no "nothing happens" exit."""
+    a tighter stop and a profit ladder, and no "nothing happens" exit. 9.11.: a strategy with its own "exits" in
+    config (dokazani: half at +10 %, rest at +15 %, stop −20 %, no "nothing happens") uses those."""
+    own = next((s.get("exits") for s in cfg.get("strategies", []) if s.get("key") == key and s.get("exits")), None)
+    if own:
+        return makro_guard(cfg, {**ex, **own})
     big = cfg.get("exits_veliki")
     if big and (entry_mcap or 0) >= cfg.get("exits_veliki_from", 1_000_000):
         return {**ex, **big}
@@ -144,6 +148,21 @@ def wallets_allowed(con, cfg, history=None):
     return top, out
 
 
+def _kopija(con, rid, srcs, token, now, px, mcap):
+    """Delay and fills of one copy of a proven wallet (strat 'dokazani'), kept in the position state."""
+    row = con.execute("SELECT why, signal_ts FROM positions WHERE id=?", (rid,)).fetchone()
+    why, sig_ts = (row or ("", None))
+    wallet = (why or "").split()[-1] if why else None
+    out = {"wallet": wallet, "signal_ts": sig_ts, "delay_s": (int(now) - sig_ts) if sig_ts else None,
+           "entry_px": px, "entry_mcap": mcap}
+    try:
+        from wallets import dokazani as _dok
+        out["wallet_fill"] = _dok.wallet_buy(getattr(srcs, "hype_db", None), wallet, token, sig_ts or now) if wallet else None
+    except Exception:  # noqa: BLE001
+        out["wallet_fill"] = None
+    return out
+
+
 def band_of(cfg, key, mcap):
     """Is this market cap inside the band of strategy `key` (alat_bands)? Strategies without a band take any."""
     b = (cfg.get("alat_bands") or {}).get(key)
@@ -163,6 +182,7 @@ def wanted(src, cfg, now, last_random, out_wallets=(), top_wallets=None):
             and (not top_wallets or e[2] in top_wallets)]
     out = {"novcanici": src.get("novcanici", []), "kol": src.get("kol", []),
            "top_novcanici": tops,
+           "dokazani": [e for e in src.get("dokazani", []) if now - e[1] <= fresh],
            "alat": src.get("alat", []),
            "insajderi": src.get("insajderi", []),
            "ozbiljan_projekt": src.get("ozbiljni", []), "sumnjivi_socijali": src.get("sumnjivi", []),
@@ -293,6 +313,8 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
                     reason = "lažni pool"
                 elif liq < cfg["min_liq"]:
                     reason = "premala likvidnost"
+                elif mcap < cfg.get("min_mcap", 0):   # 9.11.: Jure's rule, tokens under $30k are not analysed; a $9k
+                    reason = "premali token"            # pump.fun entry gave the KOL account a 70x in 8 min no one could sell
                 elif mcap > cfg["max_mcap"]:
                     reason = "prevelik token"
                 elif not band_of(cfg, k, mcap):
@@ -307,6 +329,8 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
                     size = (round(min(cfg["size_usd"], acc[k]["cash"]), 2) if cfg.get("cash_limit", True)
                             else cfg["size_usd"])
                     pos = sim.open_position(px, liq, int(now), size, ex)
+                    if k == "dokazani":   # 9.11.: what copying really costs: our delay and the wallet's own fill
+                        pos["kopija"] = _kopija(con, rid, srcs, tok, now, px, mcap)
                     con.execute("UPDATE positions SET symbol=?, url=?, entry_ts=?, entry_mcap=?, size_usd=?, "
                                 "status='open', state=?, last_ts=?, last_px=?, last_liq=?, pnl_usd=0, ret=0 "
                                 "WHERE id=?", (m[3], m[4], int(now), mcap, size, json.dumps(pos), int(now), px, liq,
@@ -330,7 +354,13 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
                 px, liq = 0, 0   # pair gone for hours: a rug, worth nothing (as in the main demo)
             else:
                 continue
-            sim.step(pos, px, liq, int(now), exits_for(cfg, ex, p.get("entry_mcap")))
+            ex_k = exits_for(cfg, ex, p.get("entry_mcap"), p["strat"])
+            sim.step(pos, px, liq, int(now), ex_k)
+            if pos["open"] and p["strat"] == "dokazani" and p.get("entry_ts") and (p.get("why") or "").startswith("dokazani novčanik "):
+                from kol import insiders as _ins   # the wallet we copied sold: we sell (hype.db chain_trades)
+                if _ins.sold_since(srcs.hype_db, p["token"], p["entry_ts"], {p["why"].split()[-1]}):
+                    left = pos["left"] if pos.get("left") is not None else 1.0
+                    sim.sell(pos, left, px, liq, int(now), "dokazani prodao", ex_k)
             if pos["open"] and p["strat"] == "insajderi" and insider_set and p.get("entry_ts"):
                 # the strategy's own exit: the insiders who bought before us are selling (hype.db chain_trades)
                 from kol import insiders as _ins

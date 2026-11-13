@@ -11,6 +11,8 @@ from strat import run as srun  # noqa: E402
 class Veliki(unittest.TestCase):
     def test_srednji_and_veliki_take_fresh_scored_tokens(self):
         cfg = srun.load_config()
+        for s in cfg["strategies"]:   # 9.11.: alat_mali frozen by Jure's decision; the band plumbing is what is tested
+            s.pop("frozen", None)
         now = 1_800_000_000
         ms = srun._paper_min_score()
         src = {"alat": [("A", now - 60, "demo bot kupio", 1)],

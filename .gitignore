@@ -9,3 +9,6 @@ paper/config.*.bak.json
 *.whl
 shadow/
 .hook_key
+
+# agent worktrees (local only)
+.claude/worktrees/

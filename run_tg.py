@@ -89,11 +89,10 @@ def housekeeping(con, cfg, log=print):
     poll.rebalance(con, cfg, scores, calls)
     r = tgstat.run(con, tokens, cfg["tgstat"]) if tgstat.enabled() else (0, 0, 0)
     h = history_round(con, cfg)
-    n = store.prune(con, cfg["prune_days"])
+    # 11.11.: no deletion here any more (tg/store.prune): the text retention is ops/retencija.py, the owner's switch
     store.kv_set(con, "last_discover", int(time.time()))
     con.commit()
-    log(f"tg otkrivanje: novi kandidati {found}, tgstat upiti/kandidati/objave {r}, povijest stranica/objava {h}, "
-        f"obrisano {n} starih")
+    log(f"tg otkrivanje: novi kandidati {found}, tgstat upiti/kandidati/objave {r}, povijest stranica/objava {h}")
     return scores
 
 
@@ -136,6 +135,11 @@ def cmd_status(a):
 
 
 def main(argv=None):
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("tg")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("loop")

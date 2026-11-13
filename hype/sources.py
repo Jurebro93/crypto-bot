@@ -166,21 +166,34 @@ def _handle(x):
     return None
 
 
-def ingest_kol_event(payload, db_path):
-    """Store the CAs and $tickers of one webhook event. The payload shape is not documented, so search all text."""
+def ingest_kol_event(payload, db_path, now=None):
+    """Store the CAs and $tickers of one webhook event. The payload shape is not documented, so search all text.
+    9.11. (audit P20): ts is the POST time (the snowflake in the post's own status link, as kol/collect.hook_post
+    reads it), not the time the webhook arrived: league/copy and kol/converge measure freshness from this column, and
+    a monitor that catches up delivers old posts in a burst."""
     text = " ".join(_strings(payload))
-    from kol.collect import cas_in  # skips the tail of an EVM address ("0x3ea...7777" -> "x3ea...7777")
+    from kol.collect import cas_in, hook_post  # skips the tail of an EVM address ("0x3ea...7777" -> "x3ea...7777")
     cas = cas_in(text)
     tickers = sorted({t.upper() for t in telegram._TICKER.findall(text)})
     if not cas and not tickers:
         return 0
+    now = int(now or time.time())
+    handle = _handle(payload) or ""
+    ts = min(now, hook_post(handle, now, text)[2] or now)
     con = sqlite3.connect(db_path)
     con.execute("CREATE TABLE IF NOT EXISTS kol_mentions (ts INTEGER, handle TEXT, ca TEXT, tickers TEXT, text TEXT)")
+    con.execute("CREATE INDEX IF NOT EXISTS kol_mentions_ts ON kol_mentions (ts)")   # 9.11.: read by time every second
     for ca in cas or [""]:
         con.execute("INSERT INTO kol_mentions VALUES (?,?,?,?,?)",
-                    (int(time.time()), _handle(payload) or "", ca, ",".join(tickers), text[:500]))
+                    (ts, handle, ca, ",".join(tickers), text[:500]))
     con.commit()
     con.close()
+    if cas:
+        try:   # 9.11. (audit P25): a KOL post with a CA wakes the copy loop (league/copy.wake) now, not in 20 s
+            from league import copy as _copy
+            _copy.wake()
+        except Exception:  # noqa: BLE001
+            pass
     return len(cas or [""])
 
 

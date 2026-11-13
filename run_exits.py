@@ -43,7 +43,16 @@ def cmd_fit(a):
                   f" | novo: prosjek {_pct(new['mean'])}, medijan {_pct(new['median'])}, u plusu {new['win']:.0%}")
             if r.get("applied"):
                 print(f"          {learn.describe(r['new_params'])}")
-    g = profiles.load().get("sl_grid") or {}
+    st = profiles.load()
+    t = (st.get("reality") or {}).get("target") or {}
+    if a.dry:
+        t = fit.reality(PAPER_DB, learn.load_config(), since=time.time() - learn.load_config()["live_days"] * 86400).get("target") or {}
+    if t.get("n"):
+        print(f"stop loss cilj vs stvarno: {t['n']} prvih stopova, cilj medijan {_pct(t['sl_med'])}, stvarno medijan "
+              f"{_pct(t['real_med'])}, najgorih 10% {_pct(t['worst10'])} ili gore, preko 2x cilja {t['over2x']}")
+    else:
+        print("stop loss cilj vs stvarno: još nema zatvorenih stopova")
+    g = st.get("sl_grid") or {}
     for key in ("sve", "kol"):
         t = g.get(key)
         if t and t.get("rows"):

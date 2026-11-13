@@ -27,7 +27,11 @@ def _num(x):
 
 
 def tokens_to_watch(con, now):
-    return [t for (t,) in con.execute("SELECT DISTINCT token FROM calls WHERE ts >= ? AND kind != 'warn'",
+    """Tokens with a real call (X/Telegram post or a known KOL wallet's buy) in the last 25 h. 9.11.: 17,161 of the
+    20,411 tokens snapshotted in a week had only scanner-bot posts or anonymous swaps behind them; nothing scores
+    those, so their snapshots (190k rows a week, 60-80 s of DexScreener reads a round) bought nothing."""
+    return [t for (t,) in con.execute("""SELECT DISTINCT token FROM calls WHERE ts >= ? AND kind IN ('call', 'buy')
+        AND handle NOT LIKE 'w:%' AND handle NOT IN (SELECT handle FROM kols WHERE COALESCE(bot, 0) = 1)""",
                                       (now - 25 * H,))]
 
 
@@ -63,6 +67,11 @@ def take(con, now=None, fetch=None):
                      p.get("pairAddress"), mcap / price if mcap else None, (p.get("pairCreatedAt") or 0) // 1000 or None,
                      _num((p.get("liquidity") or {}).get("usd")), now))
     con.executemany("INSERT OR REPLACE INTO snaps VALUES (?,?,?,?,?,?)", rows)
+    try:   # 11.11. dual write into events.db (events/hooks.py), type price_tick (one per token per minute, 30k+)
+        from events import hooks as _ev
+        _ev.prices(rows)
+    except Exception:  # noqa: BLE001
+        pass
     con.execute("DELETE FROM snaps WHERE ts < ?", (now - KEEP_S,))
     con.commit()
     return len(rows)

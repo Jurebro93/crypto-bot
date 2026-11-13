@@ -19,7 +19,8 @@ def enabled():
 
 def _post(msg, text):
     raw = text or ""
-    cas = sorted({c for c in reader._CA.findall(raw) if any(ch.isdigit() for ch in c)})
+    from kol.collect import cas_in
+    cas = cas_in(raw)
     fwd = None
     if getattr(msg, "fwd_from", None) and getattr(msg.fwd_from, "from_name", None):
         fwd = reader.channel_name(msg.fwd_from.from_name)

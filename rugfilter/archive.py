@@ -27,12 +27,20 @@ import os
 import sqlite3
 import time
 
-from rugfilter import collapse
+from rugfilter import collapse, relabel
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HYPE_DB = os.path.join(ROOT, "hype.db")
 MIN_AGE_H = float(os.environ.get("RUG_ARCHIVE_MIN_AGE_H", "26"))  # learning horizon is 24 h; outcome must be complete
 BATCH = int(os.environ.get("RUG_ARCHIVE_BATCH", "2000"))           # tokens per hourly run, keeps the run short
+# 9.11. (Jure, token Alice): archived as "srušen" at -84%, back at 42% of its peak a day later while the story
+# behind it was trending; the archive had no way back. Now a real collapse must still be there CONFIRM_H later
+# before the token is archived, and an archived token whose market cap (hype/tokenstatus, 6-hourly, free) climbs
+# back to RECOVER_SHARE of its peak within RECOVER_DAYS comes back into tracking and leaves the rug profile's data.
+CONFIRM_H = float(os.environ.get("RUG_ARCHIVE_CONFIRM_H", "6"))
+RECOVER_SHARE = float(os.environ.get("RUG_RECOVER_SHARE", "0.4"))
+RECOVER_DAYS = float(os.environ.get("RUG_RECOVER_DAYS", "14"))
+RECOVER_MIN_MCAP = 30000
 KINDS_REAL = ("srusen", "likvidnost")   # rugs that actually happened (the labels the rug profile learns from)
 
 SCHEMA = """
@@ -41,7 +49,11 @@ CREATE TABLE IF NOT EXISTS rug_archive (
     kind TEXT, reason TEXT, peak_mcap REAL, last_mcap REAL, peak_liq REAL, last_liq REAL, pad REAL,
     entry TEXT, removed TEXT);
 CREATE INDEX IF NOT EXISTS rug_archive_ts ON rug_archive (archived_ts);
-"""
+CREATE TABLE IF NOT EXISTS rug_watch (token TEXT PRIMARY KEY, first_ts INTEGER, kind TEXT, reason TEXT);
+CREATE TABLE IF NOT EXISTS rug_recovered (
+    token TEXT PRIMARY KEY, symbol TEXT, archived_ts INTEGER, recovered_ts INTEGER, peak_mcap REAL, mcap REAL,
+    kind TEXT, reason TEXT);
+""" + relabel.SCHEMA   # 11.11. evening: the newer versions' labels next to the stored ones (rugfilter/relabel)
 
 _cache = {"ts": 0, "path": None, "set": frozenset()}
 
@@ -75,6 +87,143 @@ def blocked(path=None, ttl=300):
 
 def forget_cache():
     _cache.update(ts=0, path=None, set=frozenset())
+    _kcache.update(ts=0, path=None, map={}, detail={})
+
+
+# 11.11. (owner's rug rule, rugfilter/collapse): the archive still CLEANS UP the same tokens (judge_legacy), but what
+# blocks as a rug is read through the label versions (rugfilter/labels): usd (11.11. noon, kind_usd), pool_v1 (PR #140,
+# rug_relabel) and sol_v2 (the SOL side, rug_relabel_sol), each from what rugfilter/relabel wrote next to the row, else
+# from the row's own peak / last numbers (collapse.judge without a series); "mehanika" is a rug in every version, an
+# archived collapse is at least a dump. Until the owner's switch rug_labels_v2_ok a row blocks when ANY version says
+# rug (kinds, kind_one). The stored rows are never rewritten; the first read logs how the versions differ.
+_kcache = {"ts": 0, "path": None, "map": {}, "detail": {}}
+_KLOGGED = set()
+
+
+def kind_usd(kind, peak_liq, last_liq):
+    """"rug" | "dump" of one archive row under the 11.11. noon rule (USD liquidity more than 50 % down): the OLD label."""
+    if kind != "srusen":
+        return "rug"
+    liq_drop = (1 - (last_liq or 0) / peak_liq) if peak_liq else None
+    return "rug" if liq_drop is not None and liq_drop > collapse.LIQ_RUG else "dump"
+
+
+def kinds_of(kind, peak_liq, last_liq, peak_mcap=None, last_mcap=None, l_kind=None, v2_kind=None, usd_kind=None):
+    """{"usd", "pool_v1", "sol_v2"} of one archive row: the relabel's labels when given (l_kind: rug_relabel or
+    rug_relabel_sol; v2_kind: rug_relabel_sol), else from the row's numbers; without market caps the plain liquidity
+    fall (from the peak) stands in for both newer versions."""
+    if kind == "mehanika":
+        return {"usd": "rug", "pool_v1": "rug", "sol_v2": "rug"}
+    usd = usd_kind if usd_kind in ("rug", "dump") else kind_usd(kind, peak_liq, last_liq)
+    l_k = l_kind if l_kind in ("rug", "dump") else None
+    v2 = v2_kind if v2_kind in ("rug", "dump") else None
+    if l_k is None or v2 is None:
+        if (last_mcap is not None and last_mcap <= 0) and (last_liq is not None and last_liq <= 0):
+            calc = {"pool_v1": "rug", "sol_v2": "rug"}   # the pair vanished
+        elif peak_mcap and last_mcap is not None and peak_liq and last_liq is not None:
+            j = collapse.judge(peak_mcap, last_mcap, peak_liq, last_liq, strict=False)
+            ks = (j or {}).get("kinds") or {}
+            calc = {"pool_v1": ks.get("pool_v1") or "dump", "sol_v2": ks.get("sol_v2") or "dump"}
+        elif kind != "srusen":
+            calc = {"pool_v1": "rug", "sol_v2": "rug"}
+        else:
+            liq_drop = (1 - (last_liq or 0) / peak_liq) if peak_liq else None
+            k = "rug" if liq_drop is not None and liq_drop >= collapse.LIQ_RUG else "dump"
+            calc = {"pool_v1": k, "sol_v2": k}
+        l_k = l_k or calc["pool_v1"]
+        v2 = v2 or calc["sol_v2"]
+    return {"usd": usd, "pool_v1": l_k, "sol_v2": v2}
+
+
+def kind_new(kind, peak_liq, last_liq, peak_mcap=None, last_mcap=None, l_kind=None, v2_kind=None, usd_kind=None):
+    """"rug" | "dump" of one archive row under the new rule alone (sol_v2); only shown until the owner's switch."""
+    return kinds_of(kind, peak_liq, last_liq, peak_mcap, last_mcap, l_kind, v2_kind, usd_kind)["sol_v2"]
+
+
+def kind_of(kind, peak_liq, last_liq, peak_mcap=None, last_mcap=None, l_kind=None, v2_kind=None, usd_kind=None,
+            strict=None):
+    """"rug" | "dump" that blocks for one archive row (rugfilter/labels.effective: the stricter of the versions until the
+    owner's switch, then sol_v2)."""
+    from rugfilter import labels
+    return labels.effective(kinds_of(kind, peak_liq, last_liq, peak_mcap, last_mcap, l_kind, v2_kind, usd_kind), strict)
+
+
+_SEL = ("SELECT a.token, a.kind, a.peak_liq, a.last_liq, a.peak_mcap, a.last_mcap, COALESCE(s.l_kind, r.new_kind), "
+        "s.new_kind, s.old_kind FROM rug_archive a "
+        "LEFT JOIN rug_relabel r ON r.token = a.token AND r.src = 'archive' "
+        "LEFT JOIN rug_relabel_sol s ON s.token = a.token AND s.src = 'archive'")
+_SEL_V1 = ("SELECT a.token, a.kind, a.peak_liq, a.last_liq, a.peak_mcap, a.last_mcap, r.new_kind, NULL, NULL "
+           "FROM rug_archive a LEFT JOIN rug_relabel r ON r.token = a.token AND r.src = 'archive'")
+_SEL_OLD = "SELECT token, kind, peak_liq, last_liq, peak_mcap, last_mcap, NULL, NULL, NULL FROM rug_archive a"
+
+
+def _rows(con, where="", args=()):
+    for sel in (_SEL, _SEL_V1, _SEL_OLD):   # older files: no rug_relabel_sol / rug_relabel yet (read-only looks)
+        try:
+            return con.execute(sel + where, args).fetchall()
+        except sqlite3.OperationalError:
+            continue
+    return []
+
+
+def kind_one(token, path=None):
+    """"rug" | "dump" of one archived token (one row, for a short process such as run_range.py), None when it is not
+    archived or the table cannot be read."""
+    path = path or HYPE_DB
+    if not os.path.exists(path):
+        return None
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+        try:
+            r = _rows(con, " WHERE a.token=?", (token,))
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    return kind_of(*r[0][1:]) if r else None
+
+
+def kinds_detail(path=None, ttl=300):
+    """{token: {"usd", "pool_v1", "sol_v2"}} of every archived token (cached with kinds())."""
+    kinds(path, ttl, log=None)   # None: no log line here, the first real reader still logs it
+    return _kcache["detail"]
+
+
+def kinds(path=None, ttl=300, log=print):
+    """{token: "rug" | "dump"} of every archived token, the label that blocks (cached `ttl` seconds); {} without the
+    table."""
+    from rugfilter import labels
+    path = path or HYPE_DB
+    now = time.time()
+    st = labels.strict()
+    if _kcache["path"] == (path, st) and now - _kcache["ts"] < ttl and (log is None or path in _KLOGGED):
+        return _kcache["map"]
+    m, detail = {}, {}
+    if os.path.exists(path):
+        try:
+            con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+            try:
+                for t, k, pl, ll, pm, lm, l_k, v2, usd in _rows(con):
+                    detail[t] = kinds_of(k, pl, ll, pm, lm, l_k, v2, usd)
+                    m[t] = labels.effective(detail[t], st)
+            finally:
+                con.close()
+        except sqlite3.Error:
+            m, detail = {}, {}
+    _kcache.update(ts=now, path=(path, st), map=m, detail=detail)
+    if m and log is not None and path not in _KLOGGED:
+        _KLOGGED.add(path)
+        n_dump = sum(1 for v in m.values() if v == "dump")
+        old_rug = [t for t, d in detail.items() if d["usd"] == "rug"]
+        unblocked = sum(1 for t in old_rug if m[t] == "dump")
+        new_only = sum(1 for t in old_rug if detail[t]["sol_v2"] == "dump")
+        by = {v: sum(1 for d in detail.values() if d[v] == "dump") for v in labels.VERSIONS}
+        log(f"rug arhiva ({'stroža oznaka, hotfix 11.11.' if st else 'nove oznake sol_v2, vlasnik potvrdio'}): "
+            f"{len(m)} tokena, blokira kao rug {len(m) - n_dump}, dump {n_dump}; stara oznaka rug {len(old_rug)}, od "
+            f"toga sada odblokirano {unblocked}; samo novo pravilo (sol_v2) bi odblokiralo {new_only}"
+            + (" (ne primjenjuje se dok vlasnik ne potvrdi preoznačavanje)" if st else "")
+            + f"; dump po verziji: usd {by['usd']}, pool_v1 {by['pool_v1']}, sol_v2 {by['sol_v2']}")
+    return m
 
 
 # ---------- judging ----------
@@ -129,7 +278,7 @@ def judge(peak_mcap, last_mcap, peak_liq, last_liq, t0=None, t0_razlog=None, ver
     if peak_mcap and peak_mcap >= collapse.MIN_PEAK_MCAP:
         if (last_mcap or 0) <= 0 and (last_liq or 0) <= 0:
             return "likvidnost", f"par nestao s DEX-a (vrh ${peak_mcap / 1000:,.1f}k)"
-        j = collapse.judge(peak_mcap, last_mcap or 0, peak_liq or None, last_liq)
+        j = collapse.judge_legacy(peak_mcap, last_mcap or 0, peak_liq or None, last_liq)   # 11.11.: cleanup unchanged
         if j:
             return ("srusen" if j["drop"] >= collapse.DROP else "likvidnost"), j["text"]
     if t0 == "pad" and t0_razlog and not t0_razlog.startswith("sliči rugovima"):
@@ -248,6 +397,55 @@ def archive(con, cands, now=None):
     return n, rows
 
 
+def confirm(con, cands, now):
+    """Real collapses (srusen / likvidnost) are archived only when still collapsed CONFIRM_H after first seen so;
+    a token that bounces back in between leaves the watch list. Rug mechanics are archived at once."""
+    now = int(now)
+    seen = dict(con.execute("SELECT token, first_ts FROM rug_watch"))
+    out, current = [], set()
+    for c in cands:
+        t, kind = c[0], c[1]
+        if kind not in KINDS_REAL:
+            out.append(c)
+            continue
+        current.add(t)
+        if t not in seen:
+            con.execute("INSERT OR REPLACE INTO rug_watch VALUES (?,?,?,?)", (t, now, kind, c[2]))
+        elif now - seen[t] >= CONFIRM_H * 3600:
+            out.append(c)
+    gone = [t for t in seen if t not in current] + [c[0] for c in out]
+    for t in gone:
+        con.execute("DELETE FROM rug_watch WHERE token=?", (t,))
+    con.commit()
+    return out
+
+
+def recover(con, now=None):
+    """Archived collapses whose market cap is back at RECOVER_SHARE of the peak (token_status, written by the
+    6-hourly status job for every token with a signal in the last 14 days) return to tracking. Returns [(token, symbol,
+    share of peak)]."""
+    now = int(now or time.time())
+    try:
+        status = {t: (m, ts) for t, m, ts in con.execute("SELECT token, mcap, checked_ts FROM token_status")}
+    except sqlite3.OperationalError:
+        return []
+    out = []
+    for t, sym, ats, peak, kind, reason in con.execute(
+            "SELECT token, symbol, archived_ts, peak_mcap, kind, reason FROM rug_archive WHERE archived_ts >= ? AND kind IN (?, ?)",
+            (now - RECOVER_DAYS * 86400, *KINDS_REAL)).fetchall():
+        mcap, checked = status.get(t, (None, None))
+        if not peak or not mcap or (checked or 0) < (ats or 0):
+            continue
+        if mcap >= RECOVER_MIN_MCAP and mcap >= RECOVER_SHARE * peak:
+            con.execute("INSERT OR REPLACE INTO rug_recovered VALUES (?,?,?,?,?,?,?,?)", (t, sym, ats, now, peak, mcap, kind, reason))
+            con.execute("DELETE FROM rug_archive WHERE token=?", (t,))
+            con.execute("DELETE FROM rug_watch WHERE token=?", (t,))
+            out.append((t, sym, mcap / peak))
+    if out:
+        con.commit()
+    return out
+
+
 def run(path=None, now=None, limit=BATCH, log=print):
     """One hourly pass. Returns (tokens archived, rows deleted)."""
     path = path or HYPE_DB
@@ -261,7 +459,14 @@ def run(path=None, now=None, limit=BATCH, log=print):
             if "no such table" in str(e):
                 return 0, 0
             raise
+        c = confirm(con, c, now or time.time())
+        try:   # 11.11. evening: the label versions next to the stored kind, from the history before the purge
+            relabel.note_archived(con, c, now)
+        except Exception as e:  # noqa: BLE001 - a label is never the reason the archive stops
+            if log:
+                log(f"rugovi: oznake rug verzija nisu zapisane ({type(e).__name__}: {e})")
         n, rows = archive(con, c, now)
+        back = recover(con, now)
     finally:
         con.close()
     forget_cache()
@@ -271,6 +476,8 @@ def run(path=None, now=None, limit=BATCH, log=print):
             kinds[k] = kinds.get(k, 0) + 1
         log(f"rugovi: arhivirano {n} tokena ({', '.join(f'{k} {v}' for k, v in kinds.items())}), obrisano {rows} "
             "redaka; više se ne prate")
+    if back and log:
+        log("rugovi: vraćeno u praćenje " + ", ".join(f"{s or t[:6]} ({sh:.0%} vrha)" for t, s, sh in back))
     return n, rows
 
 
@@ -302,6 +509,23 @@ def summary(path=None, now=None):
     finally:
         con.close()
     return out
+
+
+def recovered(token, path=None):
+    """The rug_recovered row of one mint (it was archived and came back), or None."""
+    path = path or HYPE_DB
+    if not os.path.exists(path):
+        return None
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+        con.row_factory = sqlite3.Row
+        try:
+            r = con.execute("SELECT * FROM rug_recovered WHERE token=?", (token,)).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    return dict(r) if r else None
 
 
 def get(token, path=None):
@@ -339,3 +563,7 @@ if __name__ == "__main__":   # start.sh: 2 minutes after every start, then hourl
     except Exception as e:  # noqa: BLE001
         print(f"rugovi: arhiviranje nije uspjelo: {type(e).__name__}: {e}", flush=True)
         sys.exit(1)
+    try:   # 11.11. evening: the last 7 days' rug labels again, once per relabel.RULE (rugfilter/relabel, one log block)
+        relabel.retro_once(os.path.join(disk.DATA_DIR, "hype.db"), log=lambda m: print(m, flush=True))
+    except Exception as e:  # noqa: BLE001
+        print(f"rug pravilo: ponovno označavanje nije uspjelo: {type(e).__name__}: {e}", flush=True)

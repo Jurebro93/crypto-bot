@@ -113,6 +113,28 @@ def api():
     return body
 
 
+SUGGEST_TTL_S = 120
+_ROWS = {}   # hours -> (ts, rows)
+
+
+def _rows_cached(overview, hours):
+    """token_rows(since=hours) at most once per SUGGEST_TTL_S per window. 9.11. 17:58: every /natjecanje view built
+    the rows in this (long-lived) UI process; the 1-s pollers and a rebuild on each error took it to 883 MB and the
+    memory watchdog killed it. Building them is what costs (every hype signal is read)."""
+    hit = _ROWS.get(hours)
+    if hit and time.time() - hit[0] < SUGGEST_TTL_S:
+        return hit[1]
+    rows = overview.token_rows(since=time.time() - hours * 3600)
+    _ROWS.clear()
+    _ROWS[hours] = (time.time(), rows)
+    try:
+        from ui import pagecache
+        pagecache.trim()
+    except Exception:  # noqa: BLE001
+        pass
+    return rows
+
+
 def _suggestions(qs):
     """The same tokens and ranking as the Pregled page's standout candidates (every module's verdicts combined into
     confidence), filtered by the search form."""
@@ -122,7 +144,7 @@ def _suggestions(qs):
         min_conf = float(qs.get("min") or 0)
     except ValueError:
         hours, min_conf = SUGGEST_H, 0
-    rows = overview.token_rows(since=time.time() - hours * 3600)
+    rows = _rows_cached(overview, hours)
     q = (qs.get("q") or "").strip().lower()
     if q:
         rows = [r for r in rows if q in (r["symbol"] or "").lower() or q in r["token"].lower()]
@@ -233,8 +255,8 @@ def page(qs, user):
                           usd(r["mcap"]), signed(move, "{:+.0%}"), usd(liq), ago(r["last_seen"]), act])
         b.append(f"<h2 id=prijedlozi>Prijedlozi alata</h2><p class=mut>Isti tokeni i isti poredak kao „Istaknuti kandidati” na "
                  "<a href=/>Pregledu</a>: confidence spaja hype, X, smart money, KOL, holdere, rug filter i evente. "
-                 "Tokeni koje je rug filter odbacio i tokeni koji su se u međuvremenu srušili (rug: 70%+ ispod vrha ili "
-                 "izvučena likvidnost) su skriveni osim ako ih uključiš ili tražiš po imenu; njih se ne može kupiti. "
+                 "Tokeni koje je rug filter odbacio i tokeni koji su se u međuvremenu srušili (rug: izvučena likvidnost, ili "
+                 "pad 70%+ od vrha uz prodaju deva / top holdera ili visok rug rizik) su skriveni osim ako ih uključiš ili tražiš po imenu; njih se ne može kupiti. "
                  f"Prikazano {len(srows)} (najviše {SUGGEST_MAX}). Upiši ulog u $ i klikni Kupi.</p>"
                  "<p class=mut>Prvih 20 prijedloga alat provjerava <b>svake 3 minute</b>: nova analiza u svakom skenu, "
                  "<b>stanje tržišta</b> (🚀 pumpa: ne kupuj, pričekaj · ↗ pad uz oporavak · 📉 pada · ➖ stabilno) i "

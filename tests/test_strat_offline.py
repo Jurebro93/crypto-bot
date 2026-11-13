@@ -69,9 +69,9 @@ class Strat(unittest.TestCase):
             self.assertEqual(p["size_usd"], self.cfg["size_usd"])
 
     def test_frozen_strategy_takes_no_new_entries(self):
-        # 5.11. popodne: Top novčanici unfrozen and topped up (strat/config.json "topups"), the freeze flag still works
+        # 5.11. popodne: Top novčanici topped up (strat/config.json "topups"); 9.11.: frozen again by Jure's decision
         live = [s for s in run.load_config()["strategies"] if s["key"] == "top_novcanici"][0]
-        self.assertFalse(live.get("frozen"))
+        self.assertTrue(live.get("frozen"))
         self.assertEqual(sum(t["usd"] for t in live["topups"]), 1000)
         for s in self.cfg["strategies"]:
             if s["key"] == "top_novcanici":
@@ -269,7 +269,7 @@ class Strat(unittest.TestCase):
         for s in self.cfg["strategies"]:
             self.assertIn(s["name"], body)
         self.assertIn("<svg", body)
-        self.assertEqual(len(rep), 12)   # 5 + insajderi + ozbiljan + sumnjivi + veliki račun + ekipa (5.11.) + KOL potvrđen + Telegram poziv (7.11.)
+        self.assertEqual(len(rep), 13)   # 5 + insajderi + ozbiljan + sumnjivi + veliki račun + ekipa (5.11.) + KOL potvrđen + Telegram poziv (7.11.) + dokazani (9.11.)
         self.assertEqual(rep[-1]["key"], "kol")      # the stopped-out account is last
         from report import ai, collect, render
         os.environ["REPORT_DB_DIR"] = tempfile.mkdtemp()
@@ -307,9 +307,10 @@ class TopWalletsAndBands(unittest.TestCase):
         src2 = {"novcanici": [(A, T0 - 600, "novčanik @hist", 0), (B, T0 - 30, "novčanik @hist", 0), (C, T0, "novčanik @bad", 0)]}
         w2 = run.wanted(src2, cfg, T0, 0, out2, top2)["top_novcanici"]
         self.assertEqual([e[0] for e in w2], [B])     # 10 min old buy is too late (novcanici_max_delay_s 120)
-        rows = [{"wallet": "H" * 44, "copy_score": 70, "labels": [],
+        rk = lambda w, n: {"target": w, "score": 70, "n": n, "proven": n >= 10, "copyable": True, "roi": 0.3}
+        rows = [{"wallet": "H" * 44, "ocjena": 70, "rang": rk("H" * 44, 40), "labels": [],
                  "stats": {"closed": 40, "closed_pnl_sol": 12.0, "win_rate": 0.6, "median_hold_min": 30, "last_trade_days": 0.5, "top_trade_share": 0.2}},
-                {"wallet": "L" * 44, "copy_score": 70, "labels": [],
+                {"wallet": "L" * 44, "ocjena": 70, "rang": rk("L" * 44, 5), "labels": [],
                  "stats": {"closed": 5, "closed_pnl_sol": 1.0, "win_rate": 0.6, "median_hold_min": 30, "last_trade_days": 0.5, "top_trade_share": 0.2}}]
         self.assertEqual(run.history_wallets(cfg, rows=rows, names={}), ["novčanik HHHHHH…"])   # 5 closed: not yet
 
@@ -326,3 +327,14 @@ class TopWalletsAndBands(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MinMcap(unittest.TestCase):
+    def test_config_has_the_30k_floor_and_intake_names_the_reason(self):
+        import json as _json
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cfg = _json.load(open(os.path.join(root, "strat", "config.json")))
+        self.assertEqual(cfg["min_mcap"], 30000)
+        src = open(os.path.join(root, "strat", "run.py")).read()
+        self.assertIn('mcap < cfg.get("min_mcap", 0)', src)
+        self.assertIn('"premali token"', src)

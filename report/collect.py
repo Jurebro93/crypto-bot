@@ -274,8 +274,51 @@ def collect(now=None):
     data = {"ts": now, "kol_hit_definition": f"+{hit_x:.0%} u 24 h nakon poziva", "weights": weight_changes(now), "exits": exit_changes(now), "sessions": acc,
             "kols": kols(now), "today": today_tokens(now, acc), "pulse": pulse(now), "paper": paper(now),
             "market": market(now), "koltest": koltest(now), "rules": rules(now),
-            "strategije": strategije(now), "spend": spend(now)}
+            "strategije": strategije(now), "spend": spend(now), "skener": skener(now)}
+    data["insajderi"] = insajderi(now)   # 10.11. (flag insider_copy, kol/precall.py)
+    data["momentum"] = momentum(now)     # 11.11. (flags momentum_scalp, grok_ev_gate; momentum/)
     return data
+
+
+def momentum(now):
+    """momentum_scalp's day (signals, hit rate, EV after cost, base rate, paper proof, backtest, spend) and Grok's EV
+    gate calibration (momentum/view.report_data). None while both flags are off and nothing was ever recorded."""
+    try:
+        from momentum import view
+        d = view.report_data(now)
+        if d["flag_mode"] == "off" and not d["signals_24h"] and not (d.get("grok_calibration") or {}).get("n_requests"):
+            return None
+        return d
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
+
+
+def insajderi(now):
+    """Pre-call insiders and launches from 10k (kol/precall.report_data): new candidates, the confirmed ones, their
+    paper copies and the day's cost per source. None before the first pass."""
+    try:
+        from kol import precall
+        path = db_path("early.db") if os.environ.get("REPORT_DB_DIR") else None
+        return precall.report_data(now, path=path)
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
+
+
+def skener(now):
+    """The market scanner in shadow (scan/shadow.report_data): per source found / outcomes / +20 % within 1 h and 4 h
+    / -30 % first / EV, the paper gate, lead time, today's spend per paid source. None before scan.db exists."""
+    try:
+        from scan import shadow, store
+        path = db_path("scan.db") if os.environ.get("REPORT_DB_DIR") else store.db_path()
+        con = store.ro(path)
+        if con is None:
+            return None
+        try:
+            return shadow.report_data(now, con=con)
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
 
 
 def spend(now):

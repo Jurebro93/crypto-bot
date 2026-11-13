@@ -55,7 +55,57 @@ def connect(path=None):
     con = sqlite3.connect(path or DB, timeout=60)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    have = {r[1] for r in con.execute("PRAGMA table_info(points)")}
+    for col, typ in (("max_dug", "REAL"), ("hit_dug", "INTEGER")):   # 9.11.: long target, see label_dug()
+        if col not in have:
+            con.execute(f"ALTER TABLE points ADD COLUMN {col} {typ}")
     return con
+
+
+def long_targets(cfg=None):
+    """{klasa: {"ret": x, "h": hours}}: classes that learn the weights on a longer target (learn/config.json
+    cilj_klasa). 9.11. (jutarnji izvještaj): stabilni and default had a hit metric of 0.0 on "+10% after costs in
+    24 h with our exits": big, older tokens rarely move that fast, so nothing could be learned. They learn "the price
+    reached +ret (second-highest point, so one bad print does not count) within h hours" instead. "default" = points
+    without a class."""
+    from learn import outcomes
+    return (outcomes.config().get("cilj_klasa") if cfg is None else cfg.get("cilj_klasa")) or {}
+
+
+def label_dug(con, hype_db=HYPE_DB, paper_db=PAPER_DB, now=None, cfg=None, targets=None):
+    """Second label for the classes in long_targets(): max_dug = second-highest return within h hours, hit_dug =
+    1/0, or -1 when the prices do not cover at least half of the window (no verdict: the fit skips it)."""
+    cfg = cfg or config()
+    now = now or time.time()
+    targets = long_targets() if targets is None else targets
+    if not targets:
+        return 0
+    paper, hype = _ro(paper_db), _ro(hype_db)
+    done = 0
+    try:
+        for klasa, t in targets.items():
+            h_s = t.get("h", 72) * 3600
+            where = "klasa IS NULL OR klasa='default'" if klasa == "default" else "klasa=?"
+            args = () if klasa == "default" else (klasa,)
+            due = con.execute(f"SELECT id, token, ts, price FROM points WHERE status='gotovo' AND hit_dug IS NULL AND "
+                              f"({where}) AND ts <= ? ORDER BY ts LIMIT ?", args + (int(now - h_s), cfg["max_label"])).fetchall()
+            for pid, token, ts, price in due:
+                _, raw = _path(token, ts, h_s, paper, hype, cfg["min_ticks"])
+                path = clean(raw, cfg["spike_x"])
+                if not path or not price or path[-1][0] < ts + h_s / 2:
+                    con.execute("UPDATE points SET hit_dug=-1 WHERE id=?", (pid,))
+                    continue
+                rets = sorted(p / price - 1 for _, p, _ in path)
+                mx = rets[-2] if len(rets) >= 2 else rets[-1]
+                con.execute("UPDATE points SET max_dug=?, hit_dug=? WHERE id=?",
+                            (round(mx, 4), int(mx >= t.get("ret", 0.3)), pid))
+                done += 1
+    finally:
+        for c in (paper, hype):
+            if c is not None:
+                c.close()
+    con.commit()
+    return done
 
 
 def _ro(path):
@@ -339,10 +389,16 @@ def run(path=None, hype_db=HYPE_DB, paper_db=PAPER_DB, now=None):
     try:
         new = collect(con, hype_db, paper_db, now, cfg)
         n = label(con, hype_db, paper_db, now, cfg)
+        try:
+            n_dug = label_dug(con, hype_db, paper_db, now, cfg)
+        except Exception as e:  # noqa: BLE001 - the 24 h book must not stop because of the long target
+            print(f"shadow: dugi cilj: {type(e).__name__}: {e}")
+            n_dug = 0
         pruned = prune(con, now, cfg)
-        _set_kv(con, "last_run", {"ts": int(now or time.time()), "new": new, "labeled": n, "pruned": pruned})
+        _set_kv(con, "last_run", {"ts": int(now or time.time()), "new": new, "labeled": n, "labeled_dug": n_dug,
+                                  "pruned": pruned})
         con.commit()
-        return {"new": new, "labeled": n, "pruned": pruned}
+        return {"new": new, "labeled": n, "labeled_dug": n_dug, "pruned": pruned}
     finally:
         con.close()
 
@@ -399,12 +455,13 @@ def stats(rs, cap=3.0):
 
 
 def light_rows(path=None, since=None, point=None):
-    """Only (point, kupljeno, decision, ret, hit, rug) of labelled points: no features, no path. For the dashboard,
-    which lives 24/7 (Python keeps the memory a big read once took), so it never parses thousands of JSON blobs."""
+    """Only (point, kupljeno, decision, ret, hit, rug, ts, n_pts) of labelled points: no features, no path. For the
+    dashboard, which lives 24/7 (Python keeps the memory a big read once took), so it never parses thousands of JSON
+    blobs. 12.11.: n_pts (the prices of the 24 h path) for the missed winners' reliability (ui/learnpage)."""
     con = _ro(path or DB)
     if con is None:
         return []
-    sql, args = "SELECT point, kupljeno, decision, ret, hit, rug, ts FROM points WHERE status='gotovo'", []
+    sql, args = "SELECT point, kupljeno, decision, ret, hit, rug, ts, n_pts FROM points WHERE status='gotovo'", []
     if since:
         sql += " AND ts>=?"
         args.append(int(since))
@@ -412,8 +469,8 @@ def light_rows(path=None, since=None, point=None):
         sql += " AND point=?"
         args.append(point)
     try:
-        return [{"point": a, "kupljeno": b, "decision": c, "ret": d, "hit": e, "rug": f, "ts": g}
-                for a, b, c, d, e, f, g in con.execute(sql, args)]
+        return [{"point": a, "kupljeno": b, "decision": c, "ret": d, "hit": e, "rug": f, "ts": g, "n_pts": n}
+                for a, b, c, d, e, f, g, n in con.execute(sql, args)]
     except sqlite3.OperationalError:
         return []
     finally:

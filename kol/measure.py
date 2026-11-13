@@ -28,6 +28,10 @@ class _Throttle:
 
 
 _GT = _Throttle(float(os.environ.get("KOL_GECKO_GAP", "3.0")))  # free API: ~30 requests per minute, shared per IP
+if http.cg_configured() and not os.environ.get("KOL_GECKO_GAP"):   # 10.11.: CoinGecko's paid key (event_calendar/http)
+    # 11.11.: on whether the key is set, not on the hour's budget (a long-running process outlives the hour);
+    # a call that goes to the free API is paced by the shared gate (event_calendar/http._shared) at the free pace
+    _GT = _Throttle(float(os.environ.get("CG_GAP", "0.25")))
 
 
 GECKO_POOL_LOOKUPS = int(os.environ.get("KOL_GECKO_POOL_LOOKUPS", "10"))  # per resolve round, free API
@@ -195,6 +199,16 @@ def run(con, cfg, now=None, fetch=ohlcv, verbose=False):
     now = now or int(time.time())
     stop_at = time.monotonic() + cfg.get("measure_budget_s", 480)
     toks = due(con, now, cfg["measure_tokens_per_run"])
+    if fetch is ohlcv and toks:   # 9.11.: the free GeckoTerminal limit is ours for this budget (event_calendar/http.reserve)
+        http.reserve(GECKO, cfg.get("measure_budget_s", 480))
+    try:
+        return _run(con, cfg, now, fetch, verbose, stop_at, toks)
+    finally:
+        if fetch is ohlcv:
+            http.release(GECKO)
+
+
+def _run(con, cfg, now, fetch, verbose, stop_at, toks):
     known = {r[0]: r[1:] for r in con.execute("SELECT token, pair, supply, tries FROM tokens")}
     unresolved = [t for t in toks if t not in known or (not known[t][0] and known[t][2] < 3)]
     if unresolved:

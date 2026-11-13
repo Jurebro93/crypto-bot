@@ -15,7 +15,10 @@ class NavTest(unittest.TestCase):
         hrefs = [p["href"] for _, items in html.SECTIONS for p in items]
         self.assertEqual(len(hrefs), len(set(hrefs)))
         out = html.page("x", "<h1>x</h1>", "/token/abc")
-        self.assertIn('href="/natjecanje"', out)
+        # 10.11. (Jure, prijedlog 3.5): the side menu keeps only the core items + Više; Natjecanje is one tap away on
+        # the "Više" page (and in the search), not in every page's menu any more
+        self.assertIn('href="/vise"', out)
+        self.assertIn('href="/natjecanje"', html.vise_page({})[1])
         self.assertIn('<a href="/tokens" class="on">Tokeni</a>', out)
         self.assertIn('id=q name=q', out)
 

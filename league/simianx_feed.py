@@ -13,6 +13,26 @@ from . import store
 SCHEMA = "CREATE TABLE IF NOT EXISTS simianx_used (signal_id INTEGER PRIMARY KEY, trade_id INTEGER, ts INTEGER, note TEXT)"
 
 
+def _require_signal(con, user, mint, now):
+    """10.11. (Jure: "bez ulaza bez signala", flag require_signal): a SimianX signal with no caller's call and no buy by
+    a wallet with a tier on the token is not bought while the flag applies (ValueError, logged as skipped); in shadow
+    it is bought as before and the skip it would make goes to shadow_decisions."""
+    from . import copy as lcopy, flags
+    m = flags.mode("require_signal")
+    if m == "off":
+        return
+    on, sh = flags.applies("require_signal", user, m), flags.shadowing("require_signal", user, m)
+    if not on and not sh:
+        return
+    ok, why = lcopy.signal_for(mint, now)
+    if ok:
+        return
+    if on:
+        raise ValueError(f"bez signala: {why}")
+    flags.shadow(con, "require_signal", None, mint, "ulaz", "preskočeno", {"gate": "signal", "src": "simianx",
+                                                                            "why": why})
+
+
 def run_once(con, market, now=None, on=None, sx_con=None, cfg=None):
     """-> [(user, what happened)]."""
     from trade import settings
@@ -43,6 +63,7 @@ def run_once(con, market, now=None, on=None, sx_con=None, cfg=None):
                 continue   # no price this pass: try again in 20 s while the signal is fresh
             price, liq, _, mcap = mk[s["mint"]]
             try:
+                _require_signal(con, user, s["mint"], now)   # 10.11. (Jure, flag require_signal)
                 tid = store.buy(con, user, s["mint"], s["symbol"], cfg["real_usd"], price, liq, "simianx", None, mcap)
                 from . import auto
                 auto.set_auto(con, user, tid, "tpsl", f"{100 * s['target_pct']:+.1f}%", f"{100 * s['stop_pct']:+.1f}%")

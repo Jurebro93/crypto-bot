@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS calls (
     PRIMARY KEY (tweet_id, token));
 CREATE INDEX IF NOT EXISTS calls_token ON calls (token, ts);
 CREATE INDEX IF NOT EXISTS calls_handle ON calls (handle, ts);
+CREATE INDEX IF NOT EXISTS calls_ts ON calls (ts);
 CREATE TABLE IF NOT EXISTS kols (
     handle TEXT PRIMARY KEY, name TEXT, followers INTEGER, verified INTEGER, first_seen INTEGER, last_seen INTEGER,
     score REAL, power_rel REAL, stats TEXT, updated INTEGER);
@@ -83,7 +84,8 @@ CREATE TABLE IF NOT EXISTS pair_tests (a TEXT, b TEXT, together INTEGER, expecte
 # columns added after the first release (ALTER on old files; CREATE above stays as it was for seed imports)
 MIGRATE = [("kols", "bot", "INTEGER DEFAULT 0"), ("kols", "bot_why", "TEXT"),
            ("calls", "bad", "TEXT"), ("calls", "mver", "INTEGER"), ("calls", "mtry", "INTEGER"),
-           ("calls", "msrc", "TEXT"), ("calls", "checked_ts", "INTEGER"), ("calls", "deleted_ts", "INTEGER")]
+           ("calls", "msrc", "TEXT"), ("calls", "checked_ts", "INTEGER"), ("calls", "deleted_ts", "INTEGER"),
+           ("calls", "flash_n", "INTEGER")]   # 11.11.: quick checks of a fresh X call (kol/deleted.flash_check)
 
 
 def connect(path=None):

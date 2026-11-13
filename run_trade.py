@@ -18,6 +18,8 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
+import signal
 import sqlite3
 import sys
 import time
@@ -118,10 +120,224 @@ def follow_once(con, cfg, since, now=None, quiet=False):
         p.close()
 
 
+def _trigger_probe_once(con):
+    """10.11. (Jure: "da, v1"): Jupiter Trigger step 1 when the page's button asked for it (settings
+    "trigger_probe_req" newer than the last "trigger_probe"): one createOrder request for an open real position's TP,
+    its answer recorded. Signs and sends nothing (trade/trigger.py)."""
+    raw = settings.raw(con)
+    req, done = raw.get("trigger_probe_req") or 0, (raw.get("trigger_probe") or {}).get("ts") or 0
+    if not req or req <= done:
+        return None
+    from trade import equity, trigger
+    autos = {}
+    lg = _league()
+    if lg is not None:
+        try:
+            for lid, a in lg.execute("SELECT id, auto FROM trades WHERE user=? AND status='open' AND auto IS NOT NULL",
+                                     (settings.LEAGUE_USER,)):
+                try:
+                    autos[lid] = json.loads(a)
+                except ValueError:
+                    pass
+        except sqlite3.Error:
+            pass
+        finally:
+            lg.close()
+    return trigger.probe(con, autos, wallet.address(), wallet.token_decimals,
+                         lambda: (equity.rates() or {}).get("sol_usd"))
+
+
 def _league():
     if not os.path.exists(LEAGUE_DB):
         return None
     return sqlite3.connect(f"file:{LEAGUE_DB}?mode=ro", uri=True, timeout=10)
+
+
+MIN_MCAP_USD = 30_000   # CLAUDE.md: tokens under $30k are never bought; last line of defence behind league/copy.py
+# 9.11. (audit P39): a follow needs this much demo proof before real money. 11.11. (owner's rule D, trade/edge): n >= 10
+# closed demo trades, their mean result net of cost >= +3 % and the 90 % interval's lower bound > 0 (the old "PnL > 0
+# and >= 40 % winners" is gone: 40 % is under break-even for TP +15 / SL -10)
+PROOF = {"closed": 10, "ev_min": 0.03, "ci_lo_min": 0.0}
+COPY_BOOK_WAIT_S = 5   # 9.11. (review novac): league/copy.py commits the demo trade a few ms before its follow_id and
+                       # copy_log row; a copy read in that gap looks like a manual buy with a fresh signal
+# 11.11.: the sources of the buys the page books itself (ui/pravitrade._post_buy: the owner's "ručno ...", Grok's
+# "Grok auto (MCP)"): it commits the demo trade a few ms before manual_size / manual_override in trade.db, so such a
+# trade read without its stake waits up to COPY_BOOK_WAIT_S instead of being mirrored as an automatic buy
+PAGE_SOURCES = tuple(p.rstrip("%") for p in executor.OWN_REASONS)
+
+
+def _grok_source(src):
+    """True for a Grok buy (autotrade, or a Grok request the owner approved): its limits stay hard (no override)."""
+    try:
+        from league import exitplan
+        from ui import grokauto
+        return (src or "") in (grokauto.SRC, exitplan.APPROVED_SRC)
+    except Exception:  # noqa: BLE001 - the two literal sources, should an import fail
+        return (src or "") in ("Grok auto (MCP)", "ručno: Grok odobreno (MCP)")
+
+
+REASON_MIN = 10   # = ui/pravitrade.REASON_MIN: the owner's typed reason of a buy under $30k MC, at least this long
+
+
+def _override(cfg, t):
+    """11.11. (owner: "ako se složim, ručno uvijek nadjačava sve ostalo"): (text, keys) of what the owner confirmed he
+    overrides for this manual buy on the page (settings manual_override, written by ui/pravitrade._post_buy before
+    manual_size): the text for executor.buy(override=...), the rule keys for the checks here (MIN_MCAP: "mc30k" with
+    his reason). (None, set()) for a copy or a Grok buy, whatever the settings say."""
+    src = t["source"] or ""
+    if src.startswith("copy ") or _grok_source(src):
+        return None, set()
+    o = (cfg.get("manual_override") or {}).get(str(t["id"]))
+    if not o:
+        return None, set()
+    o = o if isinstance(o, dict) else {}
+    why = o.get("why") or []
+    keys = {str(k) for k in (o.get("keys") or [])}
+    if "mc30k" in keys and len(str(o.get("reason") or "").strip()) < REASON_MIN:
+        keys.discard("mc30k")   # under $30k only with the owner's reason (the page never writes one without)
+    return ("; ".join(str(w) for w in why)[:500] if why else "nadjačano"), keys
+
+
+def _league_fresh(lg, since):
+    """New open demo trades of the real-trade account, with the columns copy trading adds when they exist."""
+    try:
+        return lg.execute("SELECT id, token, symbol, opened_ts, source, entry_mcap, follow_id, auto FROM trades "
+                          "WHERE user=? AND status='open' AND opened_ts>=?", (settings.LEAGUE_USER, since)).fetchall()
+    except sqlite3.OperationalError:
+        rows = lg.execute("SELECT id, token, symbol, opened_ts, source, NULL entry_mcap, NULL follow_id, NULL auto "
+                          "FROM trades WHERE user=? AND status='open' AND opened_ts>=?",
+                          (settings.LEAGUE_USER, since)).fetchall()
+        return rows
+
+
+def _call_ts(lg, trade_id):
+    """9.11. (audit P30/P31/P32): when the call itself was posted (copy_log.ev_ts of the entry), or None."""
+    try:
+        r = lg.execute("SELECT ev_ts FROM copy_log WHERE trade_id=? AND side='buy' AND action='ulaz'", (trade_id,)).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return r[0] if r and r[0] else None
+
+
+def _tp_pct(auto_json, default):
+    """The exit target of the demo trade in percent ("+100%" of a TP/SL rule); the page default for anything else."""
+    try:
+        a = json.loads(auto_json or "null") or {}
+    except ValueError:
+        return default
+    m = re.fullmatch(r"\+?([0-9.]+)%", (a.get("tp") or "").strip()) if a.get("mode") == "tpsl" else None
+    return float(m.group(1)) if m else default
+
+
+def _no_proof(lg, follow_id):
+    """9.11. (audit P39, CLAUDE.md "dry dok strategija ne dokaže edge u demu"): the reason this follow has not earned
+    real money yet, or None. Only consulted when live (dry mirrors collect real quotes for exactly this proof)."""
+    if follow_id is None:   # 9.11. (review novac): a copy whose follow was never booked has no proof to look up
+        return "kopija bez zapisa praćenja (follow_id); bez dokaza u demu ne ide u pravi novac"
+    from trade import edge
+    try:
+        from league import copy as lcopy
+        r = lcopy.follow_results(lg).get(follow_id)
+    except Exception:  # noqa: BLE001 - no copy tables: no proof
+        r = None
+    rets = list((r or {}).get("rets") or [])
+    ok, why, s = edge.live_proof(rets, n_min=PROOF["closed"], ev_min=PROOF["ev_min"])
+    if not ok:
+        return (f"praćenje bez dokaza u demu ({edge.proof_text(s)}: {why}; treba {PROOF['closed']}+ zatvorenih, "
+                f"EV >= {PROOF['ev_min']:+.0%} i donja granica 90 % intervala > 0)")
+    return None
+
+
+RUNUP_LIMIT = 0.10   # 10.11. (Grok MCP audit 3) = league/copy.RUNUP_DEFAULT: the real buy pays at most the call + 10 %
+
+
+def _call_limit(lg, t):
+    """10.11. (Grok MCP audit 3, flag runup_default, live only): (why, limit) of a KOL / crew copy's real buy.
+    The demo entry already skipped a token more than 10 % above its first call (league/copy._runup_gate); the real
+    swap is quoted a moment later and may pay more, so the order itself is held to the same line: limit
+    {"max_px", "call_px"} in USD per token for trade/executor (the call's price = the demo entry / (1 + its run-up)).
+    A run-up the demo trade does not know is a skip. (None, None) when the flag does not apply: the old behaviour.
+    In shadow / paper nothing is logged here: the demo gate logs the same decision (and run_trade never writes
+    league.db, whose only writer is the dashboard process)."""
+    src = t["source"] or ""
+    if not (src.startswith("copy KOL ") or src.startswith("copy ekipa ")):
+        return None, None
+    try:
+        from league import flags
+        m = flags.mode("runup_default")
+        if m == "off" or not flags.applies("runup_default", settings.LEAGUE_USER, m):
+            return None, None
+    except Exception:  # noqa: BLE001 - an unreadable flag is off
+        return None, None
+    try:
+        r = lg.execute("SELECT entry_px, runup FROM trades WHERE id=?", (t["id"],)).fetchone()
+    except sqlite3.OperationalError:   # league.db without the 10.11. columns
+        r = None
+    if not r or r[1] is None or not r[0] or r[1] <= -1:
+        return "limit cijene poziva: run-up od prvog poziva nepoznat, bez njega se ne kupuje", None
+    call_px = r[0] / (1 + r[1])
+    return None, {"max_px": call_px * (1 + RUNUP_LIMIT), "call_px": call_px}
+
+
+def _range_lot(con, lg, t, cfg):
+    """10.11. (Jure, flag range_dca): (why, size_sol, add) of a range lot's real buy. The stake is the demo lot's (its
+    USD at today's SOL price, never above size_sol: lot 2 may be smaller under the dca cap); lot 2 is one more lot of
+    lot 1's real position (add) and only while that one is open, else it is skipped (a lot 2 must never land on a
+    position the strategy does not own, e.g. the owner's own lots). Every other limit holds (manual stays False)."""
+    try:
+        size_usd = lg.execute("SELECT size_usd FROM trades WHERE id=?", (t["id"],)).fetchone()[0]
+        from trade import equity
+        sol_usd = (equity.rates() or {}).get("sol_usd")
+        sol = min(float(cfg["size_sol"]), size_usd / sol_usd) if size_usd and sol_usd else None
+    except Exception:  # noqa: BLE001 - unknown: the default stake
+        sol = None
+    if not (t["source"] or "").startswith("range lot 2"):
+        return None, sol, False
+    try:
+        r = lg.execute("SELECT lot1_id FROM range_rounds WHERE lot2_id=?", (t["id"],)).fetchone()
+    except sqlite3.OperationalError:
+        r = None
+    lot1 = con.execute("SELECT 1 FROM positions WHERE league_id=? AND status IN ('open','pending')",
+                       (r[0],)).fetchone() if r else None
+    if not lot1:
+        return "range lot 2 bez pravog lota 1 (nije kupljen ili je već prodan)", None, False
+    return None, sol, True
+
+
+def _momentum_gate():
+    """11.11. (flag momentum_scalp): the live gate again before a momentum trade becomes a real swap (momentum/gate.py:
+    >= 50 closed paper trades, EV > 0, hit rate >= 45 %). An unreadable proof refuses."""
+    try:
+        from momentum import gate
+        return gate.refusal(cached=True)
+    except Exception as e:  # noqa: BLE001 - no proof, no real money
+        return f"momentum_scalp: dokaz se ne može pročitati ({type(e).__name__})"
+
+
+def _mirrored(con, league_id):
+    """10.11. (Jure: "sekundni poslovi ne smiju čitati cijelu bazu svake sekunde"): has this demo trade its
+    positions row already? One lookup through the index on league_id (trade/aplog.INDEXES) per fresh demo trade; the
+    loop used to read every league_id in the table on every 1-second pass to answer the same question."""
+    return con.execute("SELECT 1 FROM positions WHERE league_id=? LIMIT 1", (league_id,)).fetchone() is not None
+
+
+def _exit_recon_once(con, now=None):
+    """Plan 1.5: the real exit next to the demo's for positions closed in the last 15 min (executor.exit_reconcile).
+    One getTokenSupply per newly closed token and the SOL price trade/equity already keeps; never raises."""
+    lg = None
+    try:
+        lg = _league()
+        if lg is None:
+            return 0
+        from trade import equity
+        return executor.exit_reconcile(con, lg, equity._decimals, lambda: (equity.rates() or {}).get("sol_usd"),
+                                       now=now)
+    except Exception as e:  # noqa: BLE001 - a statistic never stops the trade loop
+        print(f"trade: usporedba izlaza: {type(e).__name__}: {e}", flush=True)
+        return 0
+    finally:
+        if lg is not None:
+            lg.close()
 
 
 def follow_league_once(con, cfg, since, now=None, quiet=False):
@@ -134,26 +350,65 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
     try:
         lg.row_factory = sqlite3.Row
         try:
-            fresh = lg.execute("SELECT id, token, symbol, opened_ts, source FROM trades WHERE user=? AND status='open' "
-                               "AND opened_ts>=?", (settings.LEAGUE_USER, since)).fetchall()
+            fresh = _league_fresh(lg, since)
         except sqlite3.OperationalError:
             return   # no competition tables yet
-        have = {lid for (lid,) in con.execute("SELECT league_id FROM positions WHERE league_id IS NOT NULL")}
-        tag = "LIVE" if executor.is_live(cfg) else "DRY"
+        live = executor.is_live(cfg)
+        tag = "LIVE" if live else "DRY"
         for t in fresh:
-            if t["id"] in have:
-                continue
-            if now - t["opened_ts"] > cfg["max_signal_age_s"]:
-                con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
-                            "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(),
-                                                       "blocked", f"signal star {now - t['opened_ts']:.0f} s"))
-                con.commit()
+            if _mirrored(con, t["id"]):
                 continue
             size = (cfg.get("manual_size") or {}).get(str(t["id"]))   # "Kupi ručno" on the page sets its own stake
+            is_copy = (t["source"] or "").startswith("copy ")   # league/copy.py: "copy KOL x" / "copy wallet x" / "copy ekipa x"
+            call_ts = _call_ts(lg, t["id"])
+            if is_copy and (t["follow_id"] is None or call_ts is None) and now - t["opened_ts"] < COPY_BOOK_WAIT_S:
+                continue   # 9.11. (review novac): the copy loop is still booking follow_id / copy_log: next tick (`since` is fixed)
+            if not size and not is_copy and (t["source"] or "").startswith(PAGE_SOURCES) \
+                    and now - t["opened_ts"] < COPY_BOOK_WAIT_S:
+                continue   # 11.11.: the page is still writing its stake (and an override): next tick
+            # 11.11. (owner: "ručno uvijek nadjačava sve ostalo"): the owner's own buy he confirmed over his limits
+            ov, ov_keys = _override(cfg, t) if size and not is_copy else (None, set())
+            # 9.11. (audit P30/P31/P32): "fresh" is measured from the CALL (copy_log.ev_ts) when the copy loop wrote
+            # it, not from the demo entry; the demo may legally enter up to max_delay_min after the post
+            t0 = min(t["opened_ts"], call_ts or t["opened_ts"])
+            why = None
+            if now - t0 > cfg["max_signal_age_s"]:
+                why = f"signal star {now - t0:.0f} s"
+            elif t["entry_mcap"] is not None and t["entry_mcap"] < MIN_MCAP_USD \
+                    and not (ov and "mc30k" in ov_keys and "mc30k" not in executor.HARD_RULES):
+                # known bad only (P1/P7). 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno
+                # dobar razlog"): only his own manual buy he confirmed with a reason passes; copies, Grok, automatics never
+                why = f"MC ${t['entry_mcap']:,.0f} ispod 30k (pravilo: ispod 30k se ne kupuje)"
+            elif live and not size and (t["follow_id"] is not None or is_copy):   # a copy never passes as "manual"
+                why = _no_proof(lg, t["follow_id"])
+            limit = None
+            if not why and is_copy:   # 10.11. (Grok MCP audit 3): flag runup_default, live: limit at the call + 10 %
+                why, limit = _call_limit(lg, t)
+            rng_sol, rng_add = None, False
+            if not why and (t["source"] or "").startswith("range lot "):   # 10.11. (Jure, flag range_dca)
+                why, rng_sol, rng_add = _range_lot(con, lg, t, cfg)
+            if not why and (t["source"] or "").startswith("momentum"):     # 11.11. (Jure, flag momentum_scalp)
+                why = _momentum_gate()
+            if why:
+                con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
+                            "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(), "blocked", why))
+                con.commit()
+                # 9.11. (Jure: "samo jedan trade izvršen, zašto?"): the reason used to be only in the positions table
+                _say(f"{tag} PRESKOČENO {t['symbol'] or t['token'][:6]} ({t['source'] or 'copy'}): {why}", quiet)
+                continue
+            # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): the owner's manual
+            # buy (its own stake, never a copy) may add one more lot to a token already held; a copy never doubles one
+            kw = {"limit": limit} if limit is not None else {}
             r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
-                             league_id=t["id"], size_sol=float(size) if size else None)
+                             league_id=t["id"], size_sol=float(size) if size else rng_sol,
+                             tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15),   # 15: the page default (ui/pravitrade)
+                             add=(bool(size) and not is_copy) or rng_add,
+                             manual=bool(size) and not is_copy,   # 10.11. (Jure: "makni limit"): no day spend limit
+                             override=ov, **kw)   # 11.11.: only the SOFT limits; kill switch and balance still hold
             if r["status"] == "open":
-                _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})", quiet)
+                over = "; ".join(r.get("overridden") or []) or ov
+                _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})"
+                     + (f" uz potvrđeno nadjačavanje: {over}" if ov else ""), quiet)
             else:
                 _say(f"{tag} kupnja {t['symbol']} nije prošla: {r.get('error')}", quiet)
         for pos_id, lid, qty_raw, qty_left, sym in con.execute(
@@ -218,31 +473,88 @@ def sell_all_once(con, cfg, now=None, quiet=False):
         settings.put(con, "sell_all", 0, "bot")
 
 
+STOPPING = {"flag": False}
+
+
+def _on_term(signum, frame):
+    """9.11. (audit P11): a deploy or the watchdog sends SIGTERM; the loop finishes the pass it is in (a swap and
+    its bookkeeping) and exits at the top of the next one instead of dying mid-swap."""
+    STOPPING["flag"] = True
+    print("pravi trade: SIGTERM, završavam tekući prolaz pa izlazim", flush=True)
+
+
+def _start_equity():
+    """10.11. (Jure: graf vrijednosti walleta kroz vrijeme): the wallet is measured every 5 min by trade/equity.py in
+    its own daemon thread with its own connection, so this loop never waits for the RPC, a price or the exchange
+    rate. Whatever goes wrong there is one log line; the trading goes on without the chart."""
+    try:
+        from trade import equity
+        equity.start(DB)
+    except Exception as e:  # noqa: BLE001
+        print(f"equity: snimanje vrijednosti walleta nije pokrenuto ({type(e).__name__}: {e})", flush=True)
+
+
+def _stop_equity():
+    """10.11. (review novac): on the way out (SIGTERM from a deploy) the snapshot thread is told to stop and given
+    2 s to finish a write; Render's grace period is for the swap this loop may be finishing, not for the chart."""
+    try:
+        from trade import equity
+        equity.stop(timeout=2)
+    except Exception:  # noqa: BLE001 - exiting anyway
+        pass
+
+
 def cmd_follow(a):
     cfg = load(a.config)
     since = time.time() - cfg["max_signal_age_s"]
     print(f"Pratim račun {settings.LEAGUE_USER} (i paper.db ako je uključeno), mod "
           f"{'LIVE' if executor.is_live(cfg) else 'DRY-RUN'}, wallet {wallet.address()}")
-    beat = {"ts": 0}
-    while True:
+    try:
+        signal.signal(signal.SIGTERM, _on_term)
+    except (ValueError, OSError):   # not the main thread (tests): no handler, the loop still works
+        pass
+    if not a.once:   # one pass (cron, a check by hand) measures nothing: the snapshots belong to the loop that stays
+        _start_equity()
+    beat = {"ts": 0, "live": None}
+    while not STOPPING["flag"]:
         try:
             con = executor.connect(DB)
             cfg = load(a.config, con)
+            live_now = executor.is_live(cfg)
+            if live_now != beat["live"]:   # 9.11.: the mode is visible in the log every time it changes, not only at start
+                # 9.11. (audit P37): config.json "mode" is informative only; what decides is the switch + env + key
+                print(f"pravi trade: mod {'LIVE' if live_now else 'DRY-RUN'} (prekidač {'uključen' if cfg.get('on') else 'isključen'}, "
+                      f"TRADE_LIVE={os.environ.get('TRADE_LIVE', '')!r}, ključ {'da' if wallet.can_sign() else 'ne'}, "
+                      f"config mode={cfg.get('mode', '?')!r} samo kao napomena)", flush=True)
+                try:   # 11.11. (Jure: "pokaži iz loga da su Grokovi limiti nepromijenjeni"): the limits in force
+                    print(f"pravi trade: {limits_line(con, cfg)}", flush=True)
+                except Exception as e:  # noqa: BLE001 - a log line never stops the loop
+                    print(f"pravi trade: limiti nisu ispisani: {type(e).__name__}: {e}", flush=True)
+                beat["live"] = live_now
             if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
                 settings.put(con, "heartbeat", int(time.time()), "bot")
                 beat["ts"] = time.time()
+            _trigger_probe_once(con)          # 10.11.: Jupiter Trigger step 1, only when the owner asked (no money)
             executor.reconcile_pending(con)   # buys a crash left half-booked, matched with the wallet
             sell_all_once(con, cfg)
             sell_requests_once(con, cfg)
             if cfg.get("follow_paper"):
                 follow_once(con, cfg, since)
             follow_league_once(con, cfg, since)
+            _exit_recon_once(con)             # 10.11. (plan 1.5): demo vs real exit price of positions just closed
             con.close()
         except Exception as e:
             print(f"greška: {type(e).__name__}: {e}", file=sys.stderr)
-        if a.once:
-            return
+            try:   # 10.11. (Jure): the same error with its stack, in Sentry (the log line has only the text)
+                from ops import sentry
+                sentry.capture(e, where="run_trade.cmd_follow")
+            except Exception:  # noqa: BLE001 - the reporter must never stop the trade loop
+                pass
+        if a.once or STOPPING["flag"]:
+            break
         time.sleep(cfg["poll_s"])
+    if not a.once:
+        _stop_equity()
 
 
 def cmd_check(a):
@@ -297,7 +609,30 @@ def cmd_status(a):
             print(f"  #{i:<4} {dt.datetime.fromtimestamp(ts):%m-%d %H:%M} {sym or tok[:8]:<12} {st:<8} {extra}")
 
 
+def limits_line(con, cfg):
+    """One log line of the limits in force (settings as stored, not defaults): Grok autotrade's own, the caps every
+    automatic live buy gets (executor.LIVE_CAPS), the owner's per-token cap (his manual buys, DCA, MC orders, the Grok
+    requests he approves) and the Autopilot's per-token cap (copies; Grok autotrade too)."""
+    from ui import grokauto
+    g = grokauto.limits(con)
+    raw = settings.raw(con)
+    own = raw.get("owner_token_cap", raw.get("dca_token_cap", settings.DCA_TOKEN_CAP))
+    auto_cap = raw.get("dca_token_cap", settings.DCA_TOKEN_CAP)
+    lc = executor.LIVE_CAPS
+    return (f"limiti: Grok autotrade {g['grok_max_sol_per_trade']:g} SOL po tradeu, {g['grok_max_sol_per_day']:g} SOL "
+            f"na dan, {g['grok_max_open']} otvorene, dnevni gubitak {g['grok_max_loss_day']:g} SOL, {auto_cap:g} SOL po "
+            f"tokenu, {g.get('max_round_trips_per_token_day', 3)} kruga po tokenu na dan (stop nakon "
+            f"{grokauto.MAX_STOP_OUTS_DAY} izlaza stopom) | automatske live kupnje (LIVE_CAPS) {lc['max_sol_per_trade']:g}/{lc['max_sol_per_day']:g} SOL, "
+            f"{lc['max_open']} otvorene, gubitak {lc['max_loss_day']:g} | tvoje ručne kupnje: {own:g} SOL po tokenu, "
+            f"{cfg.get('max_sol_per_trade')} SOL po tradeu")
+
+
 def main(argv=None):
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("trade")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     p = argparse.ArgumentParser()
     p.add_argument("--config", help="default trade/config.json")
     sub = p.add_subparsers(dest="cmd", required=True)

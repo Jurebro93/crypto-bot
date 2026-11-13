@@ -11,8 +11,42 @@ from tg import reader, store
 PRIORITY = {"shill_list": 0, "kolscan": 0, "solanatracker": 0, "tgstat": 1, "channels.txt": 1, "x": 2}
 
 
-def interval(row, cfg, scores, now):
+_PACE = {"validate_ts": 0}
+
+
+def followed_channels():
+    """Telegram channels read every poll_followed_s (9.11., Jure: a small set every 1-2 s, the rest on the normal
+    schedule): the hot list from the minute check (kol/minute.hot) and the channels the real-money account follows
+    (league.db follows, target 'tg:<name>')."""
+    out = set()
+    try:   # the hot list (kol/minute.hot): channels whose calls measurably reach the target before the stop
+        from kol import minute
+        out |= set(minute.hot_list().get("tg") or [])
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from league import copy, store as lstore
+        from trade import settings
+        import os as _os
+        if not _os.path.exists(lstore.DB):
+            return out
+        con = copy._ro(lstore.DB)
+        if con is None:
+            return out
+        try:
+            con.close()
+            out |= {h[3:] for h in copy.followed_handles(settings.LEAGUE_USER, lstore.DB) if h.startswith("tg:")}
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def interval(row, cfg, scores, now, followed=()):
     name, status, last_ca_ts = row
+    if name in followed:
+        return cfg.get("poll_followed_s", 2)
     if status == "active" and ((last_ca_ts or 0) >= now - cfg["hot_hours"] * 3600
                                or scores.get(name, 0) >= cfg["hot_score"]):
         return cfg["poll_hot_s"]
@@ -27,10 +61,27 @@ def due(con, cfg, scores, now):
                        (now - cfg["recheck_dead_d"] * 86400,)).fetchall()
     order = sorted(cands, key=lambda r: PRIORITY.get((r[1] or "").split(":")[0], 3)) + dead
     validate = [n for n, _ in order][:cfg["validate_per_tick"]]
-    rows = con.execute("SELECT name, status, last_ca_ts, last_poll FROM channels "
-                       "WHERE status IN ('active','quiet','slow')").fetchall()
-    late = [(now - (lp or 0) - interval((n, s, ca), cfg, scores, now), n) for n, s, ca, lp in rows]
-    poll = [n for over, n in sorted(late, reverse=True) if over >= 0]
+    if 0 <= now - _PACE["validate_ts"] < cfg.get("validate_every_s", 10):   # the tick is 3 s now; validation stays paced
+        validate = []
+    elif validate:
+        _PACE["validate_ts"] = now
+    followed = followed_channels()
+    if followed:   # 9.11. (audit P35): a followed channel is read every poll_followed_s whatever its status; one that
+        # tg.db does not know yet (typed as tg:<name> on /pravi-trade) is added, so it is read at all (visit() moves
+        # candidate/dead to active/quiet on the first read)
+        known = {n for (n,) in con.execute("SELECT name FROM channels")}
+        store.add_candidates(con, sorted(followed - known), "follow", now)
+    rows = con.execute("SELECT name, status, last_ca_ts, last_poll, fails FROM channels "
+                       "WHERE status IN ('active','quiet','slow')" + (" OR name IN (%s)" % ",".join("?" * len(followed))
+                                                                      if followed else ""), tuple(sorted(followed))).fetchall()
+    late = []
+    for n, s, ca, lp, fl in rows:
+        iv = interval((n, s, ca), cfg, scores, now, followed)
+        if n in followed and s == "dead" and (fl or 0) >= cfg.get("max_fails", 3):
+            iv = cfg["poll_active_s"]   # 9.11. (review izvori): a followed name t.me keeps refusing (typo, private
+            #                             channel) is not hit every 2 s for ever: the t.me IP and its 429 are shared
+        late.append((now - (lp or 0) - iv, n))
+    poll = [n for over, n in sorted(late, reverse=True) if over >= 0 and n not in validate]
     return validate, poll
 
 

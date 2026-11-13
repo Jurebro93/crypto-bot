@@ -44,7 +44,7 @@ python3 run_dex.py token <adresa>               # svi parovi jednog tokena + pla
 
 `scan` piše `output/dex-<datum>.md`, `.json` i tablicu `event_tokens` u `calendar.db`.
 
-Kako radi: iz događaja uzme ime (subject) i ključne riječi, izbaci šum (mjeseci, dani, BTC, SOL i sl., popis `NOISE` u `dexscreener/match.py`) i svaki pojam pretraži jednom. Token pripada događaju ako mu je simbol jednak pojmu ili ime sadrži pojam. Odbacuje prašinu (likvidnost ispod `--min-liq`), mrtve parove (volumen ispod $100) i velike tokene (mcap iznad $500M, npr. wrapped BTC). Ostale rangira ocjenom 0-100: starost, likvidnost, volumen, broj transakcija, omjer kupnji i prodaja, kazna za volumen višestruko veći od likvidnosti (wash trading), društvene mreže, CTO, točan simbol. Prvi je "pravi", ostali "kopije". Broj holdera i kvaliteta walleta nisu tu (to radi Helius rug filter). Ako kalendar ima `token_likelihood`, događaji se obrađuju tim redom. Klijent (`dexscreener/client.py`) pokriva sve endpointe iz dokumentacije i sam usporava upite ispod limita (60 ili 300 u minuti), a odgovore kešira 60 s (`DEX_CACHE_TTL`).
+Kako radi: iz događaja uzme ime (subject) i ključne riječi, izbaci šum (mjeseci, dani, BTC, SOL i sl., popis `NOISE` u `dexscreener/match.py`) i svaki pojam pretraži jednom. Token pripada događaju ako mu je simbol jednak pojmu ili ime sadrži pojam. Odbacuje prašinu (likvidnost ispod `--min-liq`), mrtve parove (volumen ispod $100) i velike tokene (mcap iznad $500M, npr. wrapped BTC). Ostale rangira ocjenom 0-100: starost, likvidnost, volumen, broj transakcija, omjer kupnji i prodaja, kazna za volumen višestruko veći od likvidnosti (wash trading), društvene mreže, CTO, točan simbol. Prvi je "pravi", ostali "kopije". Broj holdera i kvaliteta walleta nisu tu (to radi Helius rug filter). Ako kalendar ima `token_likelihood`, događaji se obrađuju tim redom. Klijent (`dexscreener/client.py`) pokriva sve endpointe iz dokumentacije i sam usporava upite ispod limita (60 ili 300 u minuti), a odgovore kešira 60 s (`DEX_CACHE_TTL`); živi prikazi Autopilota, demo TP/SL i copy petlja idu kroz `tokens_live` s kešom 3 s (`DEX_LIVE_TTL`, najmanje 2 s, 9.11.).
 
 ## Praćenje prije eventa (`run_watch.py`)
 
@@ -208,6 +208,14 @@ razmjerno udjelu gubitnika među obrisanima (puno od 5 obrisanih). Na stranici K
 toga M gubitnika". Pozivi iz backfilla ne mogu sadržavati već obrisane objave, pa su po definiciji "preživjeli";
 živo čitanje svakih 30 min hvata objavu prije brisanja i to je glavna obrana.
 
+### Izlaz po podacima (`kol/tpsl.py`, 9.11.)
+
+Račun koji vrijedi za svaki par: trade koji uzima +TP % ili gubi SL %, uz trošak c % po krugu, na nuli je kad cilj dođe prije stopa u `(SL + c) / (TP + SL)` tradeova. Uz demo trošak od 2 %: TP 15 / SL 20 traži 63 %, TP 20 / SL 40 traži 70 %, TP 30 / SL 15 traži 38 %. Širi stop DIŽE prag; isplati se samo ako dovoljno zaustavljenih tradeova pretvori u dobitne, a to znaju samo izmjerene putanje.
+
+Minutna provjera uz svaki poziv sprema prvu minutu dodira svake razine (+5 do +100 %, −10 do −50 %) u `minute.db` (tablica `call_lv`), pa se za bilo koji par zna je li cilj došao prije stopa (ista minuta = stop). `tpsl.decide` bira par po izvoru (račun ili ekipa): najmanje 10 izmjerenih poziva, prosjek povučen prema "bez prednosti" s 10 pseudo-poziva, par izabran na starije dvije trećine poziva mora biti u plusu i na novijoj trećini, oprezna procjena mora biti barem +1 % po tradeu nakon troška, a prosjek iznad nule i na donjoj granici (prosjek minus 2 standardne pogreške). Zadnji uvjet je iz simulacije (`audit/2026-11-09/sim_tpsl.py`): izvor BEZ ikakve prednosti prolazio je u 7–30 % slučajeva samo po prosjeku, s donjom granicom u 1–9 %.
+
+Praćenje s izlazom "po podacima" (influenceri i ekipe, forma na `/pravi-trade`) pri svakom ulazu pita tu odluku: nijedan par u plusu = ulaz se preskače i piše u dnevnik kopiranja; premalo poziva = zadani TP 15 / SL −20; inače TP/SL iz podataka i zatvaranje najkasnije nakon 60 min (rok koji je mjeren). Bez ijednog API poziva. Pozivi izmjereni prije 10.11. imaju točnu minutu samo za stop −20 %: za ostale stopove računaju se oprezno (dvosmisleno = gubitak) dok ih minutna petlja ne izmjeri ponovno, što radi sama kad joj red čekanja padne ispod 40 tokena.
+
 ## Masovna sjenovita knjiga (`learn/masovno.py`, `run_learn.py masovno`)
 
 5.11. (Nicholas: "10.000 nevidljivih tradeova dnevno, demo je samo izlog"). Točke odluke u shadow.db iz filtera:
@@ -330,7 +338,7 @@ python3 run_trade.py status                    # pozicije i PnL u SOL, odvojeno 
 
 Limiti u `trade/config.json`: `size_sol`, `max_sol_per_trade`, `max_sol_per_day`, `max_open`, `min_sol_reserve` (ostaje za fee), `max_cost_pct` (price impact + fee iz quotea), `max_signal_age_s` (stari signal se ne kupuje). Datoteka `trade/STOP` je kill switch: nema novih kupnji, prodaje i dalje idu.
 
-Dry-run je zadano: dohvati se pravi quote i zapiše u `trade.db`, ništa se ne potpisuje. Live traži sve troje: `"mode": "live"` u configu, `TRADE_LIVE=1` i `SOLANA_PRIVATE_KEY` (zaseban wallet samo za bota) u env secrets servera. `SOLANA_PUBLIC_KEY` je dovoljan za dry-run. Opcijski: `JUP_API_KEY` (veći limiti), `SOLANA_RPC_URL` ili `HELIUS_API_KEY` za stanje walleta. Paketi: `pip install solders base58`.
+Dry-run je zadano: dohvati se pravi quote i zapiše u `trade.db`, ništa se ne potpisuje. Pravi swap traži sve troje: prekidač na `/pravi-trade` uključen (postavka `on`, zadano isključeno), `TRADE_LIVE=1` i `SOLANA_PRIVATE_KEY` (zaseban wallet samo za bota) u env secrets servera; polje `"mode"` u `trade/config.json` je samo napomena i ostaje `dry` (9.11., audit). Uz to `run_trade` pušta pravi novac samo praćenju s dokazom u demu (`run_trade.PROOF`: 10+ zatvorenih demo kopija, PnL > 0, 40 %+ dobitnih; ručne kupnje su izuzete), a `max_signal_age_s` se mjeri od poziva (copy_log), ne od demo ulaza. `SOLANA_PUBLIC_KEY` je dovoljan za dry-run. Opcijski: `JUP_API_KEY` (veći limiti), `SOLANA_RPC_URL` ili `HELIUS_API_KEY` za stanje walleta. Paketi: `pip install solders base58`.
 
 Prvi stvarni dry-run 2026-10-30: 0.05 SOL u pump.fun token i natrag, ukupni trošak oko 2.8%.
 

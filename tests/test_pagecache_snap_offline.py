@@ -49,15 +49,59 @@ class Snap(unittest.TestCase):
         pagecache.get(("/kol", "", None), lambda: (200, b"a"))
         self.assertEqual(os.listdir(pagecache.SNAP_DIR), [])
 
-    def test_clear_invalidates_snapshot(self):
+    def test_clear_serves_snapshot_at_once_and_refreshes(self):
+        """9.11. 19:05: after a POST's clear() the saved copy is served at once (stale) and rebuilt in the background,
+        instead of the visitor waiting for the build (60 s+ behind the heavy lock)."""
+        import gzip
         key = ("/pregled", "", None)
         pagecache.get(key, lambda: (200, b"old"))
         time.sleep(0.01)
         pagecache.clear()
         code, raw, gz = pagecache.get(key, lambda: (200, b"new"))
-        import gzip
-        self.assertEqual(raw or gzip.decompress(gz), b"new")
+        self.assertEqual(raw or gzip.decompress(gz), b"old")      # at once, from disk
+        for _ in range(200):                                        # the background refresh brings the new one
+            time.sleep(0.01)
+            with pagecache._lock:
+                hit = pagecache._store.get(key)
+            if hit and gzip.decompress(hit[3]) == b"new":
+                break
+        self.assertEqual(gzip.decompress(hit[3]), b"new")
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SnapshotAfterClearTest(unittest.TestCase):
+    """9.11. 18:08: a POST's clear() made the saved copy 'out of date' while the KOL round held the heavy lock, so
+    Pregled was a 503 for 20 min. The last-copy fallback may serve a copy from before the clear (stale_ok)."""
+
+    def setUp(self):
+        import tempfile
+        from ui import pagecache
+        self.pagecache = pagecache
+        self.saved = (pagecache.SNAP_DIR, set(pagecache._snap_paths), pagecache._cleared_at)
+        self.tmp = tempfile.mkdtemp()
+        pagecache.SNAP_DIR = self.tmp
+        pagecache._snap_paths.add("/probna")   # not /pregled: a background render from an earlier test may still write it
+        pagecache._cleared_at = 0.0
+
+    def tearDown(self):
+        import shutil
+        pc = self.pagecache
+        pc.SNAP_DIR, paths, pc._cleared_at = self.saved
+        pc._snap_paths.clear()
+        pc._snap_paths.update(paths)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_stale_ok_serves_copy_from_before_clear(self):
+        import gzip
+        import time
+        pc = self.pagecache
+        key = ("/probna", "", None)
+        pc._save_snap(key, gzip.compress(b"<html>kopija</html>"))
+        self.assertIsNotNone(pc._load_snap(key))
+        pc._cleared_at = time.time() + 1      # a POST after the save
+        self.assertIsNone(pc._load_snap(key))                  # the normal path waits for a fresh build
+        snap = pc._load_snap(key, stale_ok=True)               # the last-copy fallback does not
+        self.assertEqual(gzip.decompress(snap[3]), b"<html>kopija</html>")

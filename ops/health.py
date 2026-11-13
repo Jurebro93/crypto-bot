@@ -1,6 +1,7 @@
 """One log line with memory per process and the data disk, so Render's log shows the trend.
 
-  python3 -m ops.health            the line (start.sh runs it every 10 min)
+  python3 -m ops.health            memory watchdog + the line (start.sh: watchdog every minute, line every 10)
+  python3 -m ops.health --quiet    memory watchdog only
   python3 -m ops.health --tables   plus the biggest tables of each database over 20 MB
   python3 -m ops.health --startup  database upkeep before the loops start (ops/dbs.py)
   python3 -m ops.health --hourly   hourly database upkeep + HTTP cache trim
@@ -11,9 +12,10 @@ import sys
 from ops import dbs, disk
 
 
-def processes():
-    """[(name, MB)] of this service's Python processes, biggest first (name = run_<name>.py, or python)."""
-    out = {}
+def process_list():
+    """[(pid, name, MB)] of this service's Python processes (name = run_<name>.py, 'ui-dijete' for a page-render
+    child, or python)."""
+    out = []
     for pid in os.listdir("/proc"):
         if not pid.isdigit() or int(pid) == os.getpid():
             continue
@@ -24,12 +26,49 @@ def processes():
                 continue
             script = next((os.path.basename(c.decode()) for c in cmd[1:] if c.endswith(b".py")), None)
             name = script[4:-3] if script and script.startswith("run_") else (script or "python")
+            if name == "ui" and b"--render" in cmd:
+                name = "ui-dijete"
             with open(f"/proc/{pid}/status") as f:
                 kb = next(int(l.split()[1]) for l in f if l.startswith("VmRSS"))
         except (OSError, StopIteration, ValueError):
             continue
-        out[name] = out.get(name, 0) + kb / 1024
+        out.append((int(pid), name, kb / 1024))
+    return out
+
+
+def processes():
+    """[(name, MB)] summed per name, biggest first."""
+    out = {}
+    for _pid, name, mb in process_list():
+        out[name] = out.get(name, 0) + mb
     return sorted(out.items(), key=lambda x: -x[1])
+
+
+MEM_KILL_MB = float(os.environ.get("MEM_KILL_MB", "800"))   # one process this big is a leak on a 2 GB plan
+SPARE = {"trade": 1.5}   # the real-money process gets more room before it is restarted
+
+
+def over_limit(procs, limit_mb=None):
+    """[(pid, name, MB)] of processes a watchdog should stop: above limit_mb (SPARE[name] × for the trade process)."""
+    limit_mb = limit_mb or MEM_KILL_MB
+    return [(pid, name, mb) for pid, name, mb in procs if mb > limit_mb * SPARE.get(name, 1.0)]
+
+
+def watchdog(limit_mb=None, procs=None, kill=None, log=print):
+    """9.11. 12:30 and 12:56: the UI process grew to 1.6 GB and Render killed the WHOLE service (OOM 2 GiB), the trade
+    process with it. A single runaway process is stopped here instead (SIGTERM); start.sh's keep brings it back in
+    30 s and the rest keeps running. Returns the processes stopped."""
+    import signal
+    kill = kill or (lambda pid: os.kill(pid, signal.SIGTERM))
+    hit = over_limit(process_list() if procs is None else procs, limit_mb)
+    for pid, name, mb in hit:
+        log(f"nadzor memorije: {name} (pid {pid}) drži {mb:.0f} MB, više od {(limit_mb or MEM_KILL_MB) * SPARE.get(name, 1.0):.0f}: "
+            "gasim ga da Render ne ugasi cijeli servis; keep ga vraća za 30 s", flush=True)
+        try:
+            kill(pid)
+        except OSError as e:
+            log(f"nadzor memorije: {name} (pid {pid}) nije ugašen: {e}", flush=True)
+    return hit
 
 
 def container_split_mb():
@@ -56,6 +95,38 @@ def container_mb():
         except (OSError, ValueError):
             pass
     return None
+
+
+def container_limit_mb():
+    """The cgroup memory limit in MB (Render plan), or the machine's MemTotal when the cgroup says 'max'; None if unknown."""
+    for p in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            with open(p) as f:
+                v = f.read().strip()
+            if v != "max" and int(v) < 2**50:
+                return int(v) / 2**20
+        except (OSError, ValueError):
+            pass
+    try:
+        with open("/proc/meminfo") as f:
+            for ln in f:
+                if ln.startswith("MemTotal:"):
+                    return int(ln.split()[1]) / 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def container_free_mb():
+    """MB the processes could still take: limit minus what they hold (anon). Page cache is not counted as used, the
+    kernel drops it under pressure. None when the cgroup does not say. 9.11. 19:05: the page build waited 60 s on the
+    heavy lock behind run_dugo (29 min) and wallets score while 1.2 GB were free; the lock is about memory, so a build
+    may go next to a heavy job when there is room."""
+    limit = container_limit_mb()
+    anon, _ = container_split_mb()
+    if limit is None or anon is None:
+        return None
+    return max(0.0, limit - anon)
 
 
 def line(tables=False):
@@ -93,14 +164,31 @@ def main(argv):
         from event_calendar import http   # HTTP cache first: it shares the disk the databases need to work
         free = disk.free_mb() or 0
         n, mb = http.prune(max_mb=100 if free < 250 else None)   # tight disk: the cache gives way to the databases
-        print(f"cache: obrisano {n} datoteka, {mb:.0f} MB", flush=True)
+        try:   # 12.11.: what fills it (TTL class s/m/l/w, rpc, paid Helius and other files from before)
+            b = http.breakdown()
+            left = f"; ostalo {sum(b.values()):.0f} MB (" + ", ".join(f"{k} {v:.0f}" for k, v in b.items()) + ")"
+        except Exception:  # noqa: BLE001 - the line without it
+            left = ""
+        print(f"cache: obrisano {n} datoteka, {mb:.0f} MB{left}", flush=True)
     if "--startup" in argv:
         dbs.startup()
     elif "--hourly" in argv:
         dbs.hourly()
+        try:   # 12.11. (Jure: "Rotacija logova: najviše 7 dana ili 200 MB, gzip starijih")
+            from ops import logrot
+            logrot.rotate()
+        except Exception as e:  # noqa: BLE001 - the upkeep goes on
+            print(f"logovi: rotacija nije uspjela: {type(e).__name__}: {e}", flush=True)
         line(tables=True)
     else:
-        line(tables="--tables" in argv)
+        watchdog()
+        try:   # 12.11.: warning at 75 % / under 3 days, cache + logs cleaned by itself above 85 % (ops/diskguard)
+            from ops import diskguard
+            diskguard.check()
+        except Exception as e:  # noqa: BLE001 - the memory watchdog matters more
+            print(f"disk: provjera nije uspjela: {type(e).__name__}: {e}", flush=True)
+        if "--quiet" not in argv:   # start.sh: the watchdog runs every minute, the log line every 10 minutes
+            line(tables="--tables" in argv)
 
 
 if __name__ == "__main__":

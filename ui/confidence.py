@@ -38,8 +38,20 @@ def parts_keyed(hype=None, features=None, extra=None, rug_verdict=None, event_ro
         parts.append(("event", 6, "Pravi token nadolazećeg događaja iz kalendara."))
     pf = x.get("pumpfun") or {}
     if pf:
-        top10, bund = _pct(pf.get("top10HoldersPercent")), _pct(pf.get("bundlerOwnedPercent"))
-        if top10 < 35 and bund < 15:
+        t10, bd = pf.get("top10HoldersPercent"), pf.get("bundlerOwnedPercent")
+        top10, bund = _pct(t10), _pct(bd)
+        # 9.11. (audit P56): a share that is None is unknown, not 0: it never counts as "zdravi holderi" (+6). With one
+        # share known and bad the concentration is noted; with nothing bad known the row says "nepoznato", 0 points.
+        if t10 is None or bd is None:
+            txt = (f"top 10 drži {top10:.0f}%" if t10 is not None else "top 10 nepoznato") + ", " + (
+                f"bundleri {bund:.0f}%" if bd is not None else "bundleri nepoznato")
+            if (t10 is not None and top10 >= 35) or (bd is not None and bund >= 15):
+                parts.append(("holders_conc", 0, f"Koncentrirani holderi: {txt}. Retrospektiva ne pokazuje da to škodi, pa "
+                                                  "ne oduzima bodove; težinu uči model."))
+            else:
+                parts.append(("holders_nepoznato", 0, f"Holderi: koncentracija nepoznata ({txt}): bez podatka nema bodova "
+                                                       "za zdrave holdere."))
+        elif top10 < 35 and bund < 15:
             parts.append(("holders_ok", 6, f"Zdravi holderi: top 10 drži {top10:.0f}%, bundleri {bund:.0f}%."))
         else:
             # retrospective of 25k pump.fun tokens (31.10.): tokens with top10 > 45% went 5x MORE often (9,0% vs 4,2%)

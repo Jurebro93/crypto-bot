@@ -17,6 +17,7 @@ import time
 
 LOCK = os.environ.get("HEAVY_LOCK", "/tmp/memesonar-heavy.lock")
 PRIO_MAX_AGE = 4 * 3600   # a priority ticket older than this is stale (its holder died without cleaning up)
+WAIT_LOG_FIRST_S, WAIT_LOG_S = 120, 600   # a waiter logs after 2 min, then every 10 min (9.11., audit P63)
 
 
 def _prio_path():
@@ -67,8 +68,9 @@ def slot(wait=None, priority=False, label=None):
         t0, told = time.time(), 0
         while True:
             # 7.11. 10:40: after a deploy the 6-hourly token status waited 40+ min behind the start-up jobs and nobody
-            # could tell which one held the lock. Now the holder writes itself down and a waiter says so after 2 min.
-            if time.time() - t0 >= told + 120:
+            # could tell which one held the lock. Now the holder writes itself down and a waiter says so after 2 min,
+            # then every WAIT_LOG_S (10 min; 9.11., audit P63: a 42-min wait was 21 lines per waiter).
+            if time.time() - t0 >= told + (WAIT_LOG_FIRST_S if not told else WAIT_LOG_S):
                 told = time.time() - t0
                 print(f"brava: {label or 'posao'} čeka već {told / 60:.0f} min, drži je {holder() or 'nepoznat posao'}",
                       flush=True)
@@ -108,24 +110,88 @@ def slot(wait=None, priority=False, label=None):
                 pass
 
 
+NICE = int(os.environ.get("HEAVY_NICE", "10"))   # 9.11. 19:05: CPU at 100 % from run_dugo/wallets score starved the UI
+
+# 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): the heavy, non-urgent jobs (scoring, learning, wallet scoring,
+# calendar, long-term layer) run only in this window of Zagreb hours; by day the single CPU belongs to the Autopilot,
+# the live feeds and the pages. "from-to" with to exclusive; "" (empty) = any time, as before.
+# 9.11. (audit): default 01-06 Zagreb, the window CLAUDE.md names (teški poslovi 01–06 CET) and learn/masovno.py
+# already uses; at 00:xx deploys still come, so the heavy jobs start an hour later.
+NIGHT = os.environ.get("HEAVY_NIGHT", "1-6")
+NIGHT_TZ = "Europe/Zagreb"
+
+
+def night_hours():
+    """(from, to) Zagreb hours of the night window, or None when the window is off."""
+    try:
+        a, b = NIGHT.split("-")
+        a, b = int(a), int(b)
+    except (ValueError, AttributeError):
+        return None
+    if not NIGHT or a == b:
+        return None
+    return a, b
+
+
+def night_now(now=None):
+    """True when heavy jobs may run: inside the night window (or no window configured)."""
+    win = night_hours()
+    if win is None:
+        return True
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    h = (now or dt.datetime.now(dt.timezone.utc)).astimezone(ZoneInfo(NIGHT_TZ)).hour
+    a, b = win
+    return a <= h < b if a < b else (h >= a or h < b)   # "22-6" wraps midnight
+
+
+def wait_for_night(label=None, step=60):
+    """Block until the night window; one log line when the wait starts."""
+    if night_now():
+        return
+    win = night_hours()
+    print(f"noć: {label or 'posao'} čeka noćni prozor ({win[0]:02d}-{win[1]:02d} Zagreb)", flush=True)
+    while not night_now():
+        time.sleep(step)
+
+
+def _nicer():
+    """The child goes TO nice NICE, not down BY it. 10.11.: start.sh now starts the background loops themselves at
+    nice 10 (low keep sched ...); another 10 on top would put a heavy job, which often holds a database lock that
+    others wait for, below every light job."""
+    try:
+        now = os.nice(0)
+        if now < NICE:
+            os.nice(NICE - now)
+    except OSError:
+        pass
+
+
 def run(args, wait=None, priority=False, **kw):
-    """subprocess.run(args, **kw) under the lock; None if the lock was busy for longer than `wait` seconds."""
+    """subprocess.run(args, **kw) under the lock; None if the lock was busy for longer than `wait` seconds.
+    The child runs at a lower CPU priority (nice NICE) so the UI answers first."""
     with slot(wait, priority=priority, label=_label(args)) as got:
         if not got:
             return None
+        kw.setdefault("preexec_fn", _nicer)
         return subprocess.run(args, **kw)
 
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    priority = False
-    if argv and argv[0] == "--prio":
-        priority = True
+    priority = night = False
+    while argv and argv[0] in ("--prio", "--night"):
+        if argv[0] == "--prio":
+            priority = True
+        else:
+            night = True   # 9.11.: wait for the night window (HEAVY_NIGHT) before taking the lock
         argv = argv[1:]
     if not argv:
-        sys.exit("upotreba: python3 -m ops.heavy [--prio] SKRIPTA.py [argumenti]")
+        sys.exit("upotreba: python3 -m ops.heavy [--prio] [--night] SKRIPTA.py [argumenti]")
     if argv[0].endswith(".py") or argv[0] == "-m":
         argv = [sys.executable] + argv
+    if night:
+        wait_for_night(_label(argv))
     return run(argv, priority=priority).returncode
 
 

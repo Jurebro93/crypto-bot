@@ -280,8 +280,10 @@ class ShortProcessRoundsTest(unittest.TestCase):
                 mock.patch.object(run_kol.time, "sleep", side_effect=fake_sleep):
             with self.assertRaises(Stop):
                 run_kol.cmd_loop(argparse.Namespace(every=20, verbose=False))
-        self.assertEqual(len(calls), 1)
+        # 9.11. 18:20: the locked round, then the network-bound search in a second child outside the lock
+        self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][-1], "once")
+        self.assertEqual(calls[1][-1], "search-round")
         self.assertTrue(calls[0][1].endswith("run_kol.py"))
 
     def test_paper_scan_runs_as_a_child(self):
@@ -293,21 +295,31 @@ class ShortProcessRoundsTest(unittest.TestCase):
 class UiChildRenderTest(unittest.TestCase):
     def test_warm_pages_are_built_in_a_child(self):
         src = open(os.path.join(os.path.dirname(__file__), "..", "run_ui.py")).read()
-        self.assertIn('pagecache.warm(list(WARM), build_in_child', src)
+        self.assertIn('pagecache.warm(list(WARM), warm_build', src)   # 9.11.: warm_build skips a fresh page, else build_in_child
         import run_ui
-        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki", "/pregled"))
+        # 9.11. 19:32: /ekipe (180 s) and /kol (30 s) joined, built in this process they took it to 818 MB (watchdog)
+        # 10.11. (prijedlog 3.3): /kol/analize (pairs, correlations, together; was folded under /kol) joined them
+        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol", "/kol/analize"))
         self.assertTrue(set(run_ui.WARM) <= set(run_ui.HEAVY))
-        self.assertIn("build_in_child(path)) if path in HEAVY", src)
+        self.assertTrue(set(run_ui.SNAPSHOT_ONLY) <= set(run_ui.HEAVY))
+        self.assertIn("build_in_child(path)) if heavy_page", src)
+        self.assertIn("pagecache.get_bg(k, b, lambda: _building_html(path))) if heavy_page", src)
 
-    def test_child_failure_falls_back_to_building_here(self):
+    def test_child_failure_never_builds_here(self):
+        """9.11. (audit P33): a failed child serves the last saved copy or a 503; build() never runs in this process."""
         import run_ui
+        from ui import pagecache
 
         class R:
             returncode, stdout, stderr = 1, b"", b"boom"
         with mock.patch("subprocess.run", return_value=R()), \
-                mock.patch.object(run_ui, "build", return_value=(200, b"here")) as b:
-            self.assertEqual(run_ui.build_in_child("/"), (200, b"here"))
-        b.assert_called_once_with("/", {})
+                mock.patch.object(run_ui, "build", return_value=(200, b"here")) as b, \
+                mock.patch.object(pagecache, "_load_snap", return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()):
+            code, html = run_ui.build_in_child("/pregled")
+        self.assertEqual(code, 503)
+        self.assertIn("Pokušaj ponovno".encode(), html)
+        b.assert_not_called()
 
 
 class HeavyLockTest(unittest.TestCase):
@@ -347,12 +359,15 @@ class HeavyLockTest(unittest.TestCase):
     def test_wired_in(self):
         root = os.path.join(os.path.dirname(__file__), "..")
         sh = open(os.path.join(root, "start.sh")).read()
+        import re
         for cmd in ("run_wallets.py score", "run_calendar.py", "run_dex.py scan", "run_dugo.py once", "rugfilter.archive"):
-            self.assertIn("python3 -m ops.heavy " + ("-m " if "." in cmd.split()[0] and not cmd.endswith(".py") and "run_" not in cmd else "") + cmd, sh)
+            # 9.11. 21:40: the heavy ones carry --night (wait for the night window) between ops.heavy and the script
+            mod = "-m " if "." in cmd.split()[0] and not cmd.endswith(".py") and "run_" not in cmd else ""
+            self.assertRegex(sh, r"python3 -m ops\.heavy (--night )?" + re.escape(mod + cmd))
         self.assertIn("heavy.run(", open(os.path.join(root, "run_sched.py")).read())
         self.assertIn("heavy.run(", open(os.path.join(root, "run_kol.py")).read())
         self.assertIn("heavy.run(cmd, wait=0", open(os.path.join(root, "run_paper.py")).read())
-        self.assertIn("heavy.slot(wait=60, label=", open(os.path.join(root, "run_ui.py")).read())
+        self.assertIn("heavy.slot(wait=0, label=\"gradnja stranice\")", open(os.path.join(root, "run_ui.py")).read())   # 9.11. 19:05: no 60 s wait
 
 
 class HeavyPriorityTest(unittest.TestCase):
@@ -395,7 +410,7 @@ class SchedLightTest(unittest.TestCase):
         jobs = {j[0]: j for j in run_sched.JOBS}
         self.assertTrue(jobs["masovno"][2][-1])
         self.assertTrue(jobs["tokenstatus"][2][-1])
-        self.assertEqual(len(jobs["shadow"][2]), 2)
+        self.assertFalse(jobs["shadow"][2][2])   # shadow stays under the lock (and since 9.11. 21:40 runs at night only)
         with mock.patch("subprocess.run") as sr, mock.patch("ops.heavy.run") as hr:
             sr.return_value.returncode = 0
             hr.return_value.returncode = 0

@@ -176,11 +176,16 @@ def backfill_due(con, limit):
         GROUP BY c.token ORDER BY COUNT(*) DESC LIMIT ?""", (limit,))]
 
 
-def backfill(con, cfg, fetch, now=None):
-    """Hourly volume for up to sessions.hours_backfill tokens per run (free GeckoTerminal, shared throttle)."""
+def backfill(con, cfg, fetch, now=None, budget_s=None):
+    """Hourly volume for up to sessions.hours_backfill tokens per run (free GeckoTerminal, shared throttle), within
+    budget_s seconds (sessions.backfill_budget_s, default 60): 9.11. it held the KOL round for 10+ minutes."""
     now = now or int(time.time())
+    budget = budget_s if budget_s is not None else cfg.get("sessions", {}).get("backfill_budget_s", 60)
+    stop_at = time.monotonic() + budget
     n = 0
     for tok in backfill_due(con, cfg.get("sessions", {}).get("hours_backfill", 15)):
+        if n and time.monotonic() > stop_at:
+            break
         pair, = con.execute("SELECT pair FROM tokens WHERE token = ?", (tok,)).fetchone()
         lo, hi = con.execute("SELECT MIN(ts), MAX(ts) FROM calls WHERE token = ?", (tok,)).fetchone()
         try:

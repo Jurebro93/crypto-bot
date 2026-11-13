@@ -92,6 +92,38 @@ def _note(n):
     return f"premalo putanja ({m.group(1)} od potrebnih {m.group(2)})" if m else n
 
 
+def target_html(state, now=None):
+    """Target stop vs what our demo stops really sold at (exits/fit.reality -> target_vs_real). Fresh from paper.db
+    (a small query over stop/rug exits), the daily stored value when the database cannot be read."""
+    from exits import fit, learn
+    now = now or time.time()
+    t = None
+    c = _CACHE.get("target")
+    if c and now - c[0] < 600:
+        t = c[1]
+    else:
+        try:
+            ecfg = learn.load_config()
+            t = fit.reality(data.PAPER_DB, ecfg, since=now - ecfg["live_days"] * 86400).get("target")
+            _CACHE["target"] = (now, t)
+        except Exception as e:  # noqa: BLE001
+            print(f"izlazi: cilj vs stvarno: {type(e).__name__}: {e}")
+    t = t or (state.get("reality") or {}).get("target") or {}
+    head = "<h2 id=cilj-stop>Ciljani vs ostvareni stop loss</h2>" + tdesc(
+        "Stop loss je postavljen na cilj (npr. −20%), ali demo cijenu provjerava jednom u minuti, pa kad token padne "
+        "naglo, prodaja bude niže od cilja. Ovdje je koliko niže, na prvim stopovima zadnjih dana (stop nakon take "
+        "profita i ručne prodaje se ne broje).")
+    if not t.get("n"):
+        return head + "<div class=card>Još nema zatvorenih stopova za usporedbu.</div>"
+    bad = t["over2x"] > 0
+    line = (f"Cilj je u sredini <b>{t['sl_med']:+.0%}</b>, a stvarno smo prodali u sredini na <b>{t['real_med']:+.0%}</b>. "
+            f"Najgorih 10% stopova prodano je na {t['worst10']:+.0%} ili lošije. "
+            + (f"<span class=bad>{t['over2x']} od {t['n']} ({t['over2x_share']:.0%}) izgubilo je više od dvostrukog cilja.</span>"
+               if bad else f"Nijedan od {t['n']} nije izgubio više od dvostrukog cilja."))
+    return head + (f"<div class=card>{line}<p class=mut style='margin:6px 0 0'>Hitni izlaz (pad likvidnosti ili cijene "
+                   "preko stopa u jednom koraku) to pokušava smanjiti; učenje izlaza samo mjeri pomaže li.</p></div>")
+
+
 def sl_html(state):
     """Stop loss level x delay table from the daily exit run (exits/fit.sl_tables): where cutting a loss pays."""
     g = state.get("sl_grid") or {}
@@ -170,6 +202,7 @@ def page(qs):
                       ("Na 10x+ tokenima", "n")], rows))
 
     try:
+        b.append(target_html(state))
         b.append(sl_html(state))
     except Exception as e:  # noqa: BLE001
         print(f"izlazi: stop loss tablica: {type(e).__name__}: {e}")

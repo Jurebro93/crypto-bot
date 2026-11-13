@@ -1,0 +1,11 @@
+{
+  "_": "Skener tržišta (scan/store.DEFAULT ima sve ključeve i opise). Ovdje samo ono što vlasnik mijenja: dnevni stropovi troška i pragovi faza. 10.11. (Jure: \"važno mi je da skener radi cijeli dan\"): Helius 30k/dan (≈0,9M/mj od 10M plana). X 6 $/dan (Jure 10.11.: puna brzina). 11.11. (Jure, preporuka 4 iz analize troška): X 6 -> 3 $/dan; izmjereno 10.-11.11. skener troši ~3 $/dan (zbroj loga, ~0,006 $ po prolazu), a X zamah je samo mjerenje u sjeni dok 7 dana ne pokaže diže li x_early EV.",
+  "helius_credits_day": 30000,
+  "gt_calls_day": 150,
+  "x_usd_day": 3.0,
+  "final_stretch_min_mcap": 10000,
+  "trade_min_mcap": 30000,
+  "migrated_min_vol_h1": 30000,
+  "beta_min": 0.6,
+  "paper_min_outcomes": 30
+}

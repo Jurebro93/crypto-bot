@@ -76,8 +76,12 @@ def cmd_status(a):
 def cmd_missed(a):
     con = store.connect(DB)
     rows, thr = outcomes.rows(con)
-    for m in outcomes.missed(con, thr, hours=a.hours)[:a.top]:
+    unrel = []   # 12.11. (Jure, točka 4): pumps read from fewer than 3 snapshots, not listed
+    for m in outcomes.missed(con, thr, hours=a.hours, excluded=unrel)[:a.top]:
         print(f"{m['max_ret']:+6.0%}  {m['symbol'] or m['token'][:8]:<12} {m['klasa']:<9} T{m['razina']}  {m['reason']}")
+    if unrel:
+        from rangedca import missed as rmissed
+        print(f"{rmissed.note(len(unrel))} u snimkama: nisu na popisu")
 
 
 def cmd_model(a, con=None):
@@ -117,13 +121,20 @@ def cmd_masovno(a):
     """Mass shadow book (learn/masovno.py): today's points from the token filter, history at night, labels within
     the GeckoTerminal budget. run_sched every MASOVNO_EVERY_MIN minutes."""
     from learn import masovno
+    try:   # 11.11.: the CoinGecko key's night share (event_calendar/http): this process spends it as "masovno"
+        from event_calendar import http
+        http.set_cg_job("masovno")
+    except ImportError:
+        pass
     r = masovno.run(budget=a.budget if getattr(a, "budget", None) else None)
     if not r.get("enabled", True):
         print("masovno: isključeno (learn/config.json masovno.enabled)")
         return
     new = ", ".join(f"{k} {v}" for k, v in sorted(r["new"].items())) or "nema novih"
+    pause = r.get("pause_s") or 0
     print(f"masovno: novih točaka {new}; povijest +{r['history']}; označeno {r['labeled']} ({r['calls']} poziva"
-          f"{', noć' if r['night'] else ''})", flush=True)
+          f"{', noć' if r['night'] else ''}"
+          + (f"; pauza još {pause / 60:.0f} min: GeckoTerminal je vratio 429" if pause else "") + ")", flush=True)
 
 
 def cmd_loop(a):

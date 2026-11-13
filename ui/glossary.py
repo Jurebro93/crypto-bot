@@ -171,8 +171,9 @@ T("Udio u dobiti", "trading", "Postotak dobiti koji kod copy tradinga na burzi i
   "dobitni i gubitni.", "Kopirani trade zaradi $100, trader s 10% udjela dobije $10.",
   vidi=["copy-trading"], alias=["profit share", "profit sharing"], k="udio-u-dobiti")
 T("Rug", "osnove", "Prevara ili krah: tvorci izvuku novac ili token padne 90%+ i više se ne oporavi.",
-  "Rug pull znači da tvorac izvuče likvidnost ili proda sve svoje tokene odjednom. U alatu 💀 RUGAN znači da je cijena 70%+ "
-  "ispod vrha u zadnja 24 h ili da je likvidnost izvučena. Rugani tokeni se ne prikazuju i ne mogu se kupiti, ali alat iz "
+  "Rug pull znači da tvorac izvuče likvidnost ili proda sve svoje tokene odjednom. U alatu 💀 RUGAN znači da je likvidnost "
+  "izvučena (50 %+ ispod vrha) ili da je cijena 70%+ ispod vrha dok dev ili top holder prodaje ili je rug rizik "
+  "visok; pad bez toga je „dump nakon pumpe” (nije blok, P × 0,7). Rugani tokeni se ne prikazuju i ne mogu se kupiti, ali alat iz "
   "njih uči kako prepoznati sljedeći (stranica Učenje → Rugovi).",
   vidi=["rug-filter", "rug-profil", "likvidnost"], gdje=[("/learn", "Učenje")], alias=["rugan", "rug pull", "rugovi", "💀 rugan"])
 T("Dev", "osnove", "Tvorac tokena (developer). Njegov novčanik je napravio token.",
@@ -499,7 +500,7 @@ T("Provjera točnosti", "kol", "Alat sam provjerava predviđa li ocjena KOL-ova 
   "pratitelja. Ako ne pogađa, piše 'pada' i dobri KOL-ovi privremeno ne pojačavaju signal; broji se samo koliko ih zove "
   "zajedno. Tako se ograđujemo od ocjene koja dobro izgleda, a ništa ne predviđa.",
   "Top 20% pogodio 67%, ostali 49%, najveći po pratiteljima 53%: ocjena prolazi.",
-  vidi=["moc-poziva", "raspon-ocjene", "test-slucajnosti"], gdje=[("/kol#provjera", "KOL-ovi")],
+  vidi=["moc-poziva", "raspon-ocjene", "test-slucajnosti"], gdje=[("/kol/analize#provjera", "KOL-ovi")],
   alias=["provjera točnosti ocjene", "rekli smo / dogodilo se"])
 T("Raspon ocjene", "kol", "Između kojih brojeva je vjerojatno prava ocjena KOL-a, s obzirom na to koliko poziva imamo.",
   "Uz ocjenu pišu dva broja u zagradi, npr. 48 (35-61). Alat 100 puta nasumično ponovno složi KOL-ove pozive i svaki "
@@ -532,14 +533,14 @@ T("Tko koga kopira", "grupe", "Veliki KOL-ovi koji redovito zovu tokene tek nako
   "tko prati njega, ulazi prije gomile koju kasnije dovede veliki. Ako se često događa i obrnuto, to nije kopiranje "
   "nego isti krug ljudi.",
   "Mali račun s 3.000 pratitelja prvi na 8 tokena, veliki s 200.000 isti token medijan 49 min kasnije.",
-  vidi=["test-slucajnosti", "zvijezde-i-rastuce-zvijezde"], gdje=[("/kol#kopiraju", "KOL-ovi")],
+  vidi=["test-slucajnosti", "zvijezde-i-rastuce-zvijezde"], gdje=[("/kol/analize#kopiraju", "KOL-ovi")],
   alias=["kopira", "isti krug", "kopiraju"])
 T("Test slučajnosti", "grupe", "Provjera rade li dva KOL-a stvarno zajedno ili se njihovi pozivi poklapaju slučajno.",
   "Kad dva računa zovu puno tokena, poneki se poklope i bez dogovora. Alat izračuna koliko bi se poklapanja dobilo čistom "
   "slučajnošću (koliko tokena zove svaki i koliko se tokena u to vrijeme uopće zvalo) i usporedi sa stvarnim brojem. "
   "Par je dokazan s 3+ zajednička tokena, 3× češće od slučaja i manje od 1% šanse da je slučajno.",
   "Dva računa zajedno na 18 tokena, a slučaj bi dao 1: 20× više, dokazana ekipa.",
-  vidi=["provjera-tocnosti"], gdje=[("/kol#parovi", "KOL-ovi")], alias=["dokazano", "moguća slučajnost"])
+  vidi=["provjera-tocnosti"], gdje=[("/kol/analize#parovi", "KOL-ovi")], alias=["dokazano", "moguća slučajnost"])
 T("Moć poziva", "kol", "0-100: koliko KOL-ovi pozivi u prosjeku pomaknu cijenu i volumen.",
   "Sastoji se od: Pogodak (koliko poziva naraste 50%+ u 24 h), Rast 24 h, Rast 1 h, Volumen (koliko kupaca post dovede), "
   "Prvi (je li prvi zvao token) i Bez ruga; Kasni pozivi oduzimaju. Dok KOL nema puno izmjerenih poziva, ocjena je bliže "
@@ -602,10 +603,16 @@ T("KOL test", "kol", "7-dnevni pokus: $50 na svaki svjež KOL poziv, da vidimo i
 T("Ocjena profitabilnosti", "walleti", "0-100: koliko novčanik stvarno zarađuje (PnL, ROI, uspješnost, profit factor, 2x tradeovi).",
   "Računa se iz svih njegovih kupnji i prodaja u zadnjih 30-60 dana. Visoka ocjena = dosljedno zarađuje, a ne jednom imao "
   "sreće.", vidi=["copy-ocjena", "profit-factor"], alias=["ocjena", "raspis ocjene profitabilnosti (0-100)"])
-T("Copy ocjena", "walleti", "0-100: koliko se isplati kopirati novčanik. Profitabilnost minus kazne za stvari koje se ne daju kopirati.",
-  "Kazne: prebrzo trguje (ne stigneš ga kopirati), kupuje premale iznose, sva zarada iz jednog tradea, neaktivan, izgleda "
-  "kao bot. Copy 60+ je tier A.", vidi=["tier", "copy-lista", "ocjena-profitabilnosti"], alias=["copy", "raspis copy ocjene"])
-T("Tier", "walleti", "Razred novčanika: A (copy 60+, provjera svakih 6 h), B (dobar), C (ostali), D (bot ili u minusu).",
+T("Copy ocjena", "walleti", "0-100: koliko se isplati kopirati novčanik ili influencera (od 11.11. ocjena za kopiranje).",
+  "Računa se iz zadnjih 30 dana, samo zatvorene pozicije (kod influencera pozivi): donja granica win ratea (Wilson 90 %), "
+  "medijan povrata po tradeu, profit factor, kopirljivost (likvidnost poola kod njegovih ulaza, naš trošak za 0,1-0,15 SOL "
+  "i koliko dobitka ostane nakon našeg kašnjenja) i svježina. Ako jedan trade nosi više od pola zarade, ocjena × 0,6. "
+  "Apsolutna zarada u SOL-u nije u ocjeni. Ispod 10 zatvorenih nije dokazan; medijan likvidnosti na ulazu ispod 15k $ "
+  "znači nije kopirljivo: vidi se, ali ga Autopilot ne kopira pravim novcem.",
+  vidi=["copy-lista", "ocjena-profitabilnosti", "profit-factor"],
+  alias=["copy", "raspis copy ocjene", "ocjena za kopiranje", "za kopiranje", "kopirljivo", "koncentracija",
+         "win (donja granica)", "medijan/trade"])
+T("Tier", "walleti", "Razred novčanika za raspored provjera: A (provjera svakih 6 h), B (dobar), C (ostali), D (bot ili u minusu).",
   vidi=["copy-ocjena"])
 T("Copy lista", "walleti", "Novčanici koji prolaze sve uvjete da ih vrijedi kopirati.", alias=["na listi", "na listi?"])
 T("Profit factor", "walleti", "Ukupni dobici podijeljeni s ukupnim gubicima. Iznad 1 = zarađuje; 2 = zaradi dvostruko više nego izgubi.")
@@ -852,6 +859,16 @@ T("Kontrola strategija", "ocjene", "Nasumičan ulaz iz istog skenera, istih dana
   "Strategija koja ne pobjeđuje kontrolu po tradeu nakon troškova nema prednost, ma koliko bila u plusu (tada je cijelo "
   "tržište bilo dobro). Bez pobjede nad kontrolom nema statusa kandidat.", vidi=["kandidat", "koncentrirano", "kontrola"],
   gdje=[("/strategije", "Usporedba strategija")], alias=["nasumično", "kontrola (nasumično)", "baseline"], k="kontrola-strategija")
+T("Prednost izvora", "ocjene", "Koliko izvor ulaza (KOL pozivi, novčanici, insajderi, izbor alata) zarađuje po tradeu više od nasumičnog ulaza.",
+  "Sve strategije u Usporedbi strategija kupuju i prodaju po istim pravilima, a kontrola kupuje nasumično iz istog "
+  "skenera. Razlika prosjeka po tradeu (jedan trade najviše +300%) je prednost izvora, u postotnim bodovima. Uz nju ide "
+  "90% raspon: ako je cijeli iznad nule, izvor je bolji od nasumičnog; ako je cijeli ispod, lošiji; inače se zasad ne "
+  "razlikuje. Prije 20 zatvorenih tradeova (i u kontroli) piše „premalo podataka”. Model učenja za svaku priliku dobiva "
+  "koji izvori su token javili prije te prilike i njihovu težinu (prednost kad je raspon na jednoj strani nule, inače 0), "
+  "pa sam uči koliko im vjeruje. Računa se samo iz tradeova zatvorenih prije prilike, bez gledanja u budućnost.",
+  "KOL pozivi prosjek +4%, kontrola −2% → prednost +6 pb; raspon +1 do +11 pb → bolje od nasumičnog.",
+  vidi=["kontrola-strategija", "postotni-bodovi"], gdje=[("/learn", "Učenje"), ("/strategije", "Usporedba strategija")],
+  alias=["prednost", "izvor ulaza", "lift", "težina u modelu", "izvori ulaza"])
 T("Kandidat", "ocjene", "Strategija sa 100+ zatvorenih tradeova koja pobjeđuje kontrolu u obje polovice razdoblja i bez 5 najboljih tradeova.",
   "Kandidat znači samo: vrijedi je dalje testirati. Nije dopuštenje za pravi novac. Ostali statusi: uči (manje od 100 "
   "zatvorenih, nema presude) i ne diraj pravi novac.", vidi=["kontrola-strategija", "koncentrirano"],

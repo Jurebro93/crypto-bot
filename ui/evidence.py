@@ -73,6 +73,30 @@ def live_pair(mint):
     return max(pairs, key=lambda p: (p.get("liquidity") or {}).get("usd") or 0) if pairs else None
 
 
+def _holders_ok(pf):
+    """9.11. (audit P56): True only when BOTH shares are known and small; False when a known share is bad; None
+    (not analysed) when nothing is known: a missing number is "nepoznato", never a pass."""
+    if not pf:
+        return None
+    pct = lambda v: v / 100 if v > 100 else v  # noqa: E731
+    t10, bd = pf.get("top10HoldersPercent"), pf.get("bundlerOwnedPercent")
+    if (t10 is not None and pct(t10) >= 35) or (bd is not None and pct(bd) >= 15):
+        return False
+    if t10 is None or bd is None:
+        return None
+    return True
+
+
+def _holders_txt(pf):
+    if not pf:
+        return "nema podatka o holderima"
+    pct = lambda v: v / 100 if v > 100 else v  # noqa: E731
+    t10, bd = pf.get("top10HoldersPercent"), pf.get("bundlerOwnedPercent")
+    src = f" ({pf['izvor']})" if pf.get("izvor") else ""
+    return ((f"top10 {pct(t10):.0f}%" if t10 is not None else "top10 nepoznato") + ", "
+            + (f"bundleri {pct(bd):.0f}%" if bd is not None else "bundleri nepoznato") + src)
+
+
 def checks(mint, sig=None, det=None, rug=None, ev=None, cand=None):
     """[(label, passed True/False/None, detail)]: one row per analysis layer. None = not analysed."""
     det = det or {}
@@ -89,8 +113,7 @@ def checks(mint, sig=None, det=None, rug=None, ev=None, cand=None):
          f"{len(det.get('smart_buyers') or [])} smart walleta među prvim kupcima" if sig else "–"),
         ("KOL", None if sig is None else bool(f.get("kol_wallets", 0) >= 0.4 or f.get("kol_x") or pf.get("kolCount")),
          f"{pf.get('kolCount') or 0} KOL walleta na pump.fun" + (", objavili na X-u" if f.get("kol_x") else "") if sig else "–"),
-        ("Holderi", None if not pf else pct(pf.get("top10HoldersPercent")) < 35 and pct(pf.get("bundlerOwnedPercent")) < 15,
-         f"top10 {pct(pf.get('top10HoldersPercent')):.0f}%, bundleri {pct(pf.get('bundlerOwnedPercent')):.0f}%" if pf else "nema pump.fun podataka"),
+        ("Holderi", _holders_ok(pf), _holders_txt(pf)),
         ("Rug filter", None if not rug else rug["verdict"] in ("PROLAZI", "OPREZ"), rug["verdict"] if rug else "nije provjeren"),
         ("Event", None if not ev else any(e["role"] == "canonical" for e in ev),
          (ev[0]["event"] + (" (pravi)" if any(e["role"] == "canonical" for e in ev) else " (kopija)")) if ev else "nije vezan uz event"),
@@ -188,7 +211,8 @@ def fragment(mint):
                 [(w.get("label") or "web", w.get("url")) for w in info.get("websites") or []]
         if links:
             b.append("<p>Službeni linkovi tokena: " + " · ".join(
-                f'<a href="{esc(u)}" target=_blank rel=noopener>{esc(n)}</a>' for n, u in links if u) + "</p>")
+                f'<a href="{esc(u)}" target=_blank rel=noopener>{esc(n)}</a>' for n, u in links
+                if u and str(u).lower().startswith(("https://", "http://"))) + "</p>")   # 10.11. (pregled): no javascript:
         if (pair.get("boosts") or {}).get("active"):
             b.append(f"<p class=mut>Dev je platio {pair['boosts']['active']} DexScreener boost(ova).</p>")
         b.append(_src("dex", time.time()))
@@ -275,7 +299,7 @@ def fragment(mint):
         bad = [s for s in sg if s["role"] in ("dev", "bundler", "sniper")]
         scored = [reg[s["wallet"]] for s in good if s["wallet"] in reg]
         b.append(f"<h3>Walleti na tokenu</h3><p>{len(good)} ranih kupaca/holdera, {len(bad)} dev/bundler/snajper walleta; "
-                 f"{len(scored)} ocijenjenih" + (f", najbolji copy {max(w['copy_score'] or 0 for w in scored):.0f}" if scored else "")
+                 f"{len(scored)} ocijenjenih" + (f", najbolja ocjena za kopiranje {max(w.get('ocjena') or 0 for w in scored):.0f}" if scored else "")
                  + ".</p>" + _src("wallets"))
 
     if rug:

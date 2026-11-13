@@ -15,6 +15,7 @@ import base64
 import gzip
 import hashlib
 import hmac
+import json
 import os
 import re
 import sys
@@ -30,14 +31,19 @@ if SITE_URL:
 PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(/.*)?|solana-meme-coins(/.*)?|coin/.*|"
                          r"glossary(/.*)?|blog(/.*)?|best-crypto-tools(/.*)?|how-to-buy(/.*)?|rug-check(/.*)?|"
                          r"solana-market|meme-coin-season-index|solana-launchpads|solana-dex-volume|best-time-to-trade-crypto|"
+                         r"telegram-channels|telegram/.*|"   # 10.11. (pregled): linked from the landing log and blogs
                          r"embed/.*|static/landing/.*|share/novosti\.png)$")
 
 
 APP_URL = os.environ.get("APP_URL", "").strip().rstrip("/") if SITE_URL else ""
 if APP_URL:
     os.environ["APP_URL"] = APP_URL
+# 10.11. (Jure): the public Autopilot page is SHARED, not PUBLIC: a visitor reads it on the site and a logged-in
+# player reads it (and writes in its chat) on the app host, where the login cookie is; a PUBLIC path would send the
+# player from the app host to the site, where nobody is logged in.
 SHARED_PATH = re.compile(r"^/(static/landing/.*|hook/.*|nas-token/\d+/meta\.json|jezik|sw\.js|cekamo-deploy|healthz|"
-                         r"favicon\.ico|favicon\.svg|apple-touch-icon\.png|icon-(192|512)\.png|site\.webmanifest)$")   # served on every host
+                         r"favicon\.ico|favicon\.svg|apple-touch-icon\.png|icon-(192|512)\.png|site\.webmanifest|"
+                         r"(en/)?autopilot|autopilot/chat)$")   # served on every host
 
 
 def _host(url_or_host):
@@ -237,6 +243,11 @@ def route(path, qs):
     if path == "/izvori":
         from ui import izvori
         return izvori.page(qs)
+    if path == "/ekipe":   # 9.11.: crews and the minute check (kol/minute.py)
+        from ui import ekipe
+        return ekipe.page(qs)
+    if path == "/kol/analize":   # 10.11. (Jure, prijedlog 3.3): the analyses that were folded under /kol, one tap away
+        return kol.analize_page(qs)
     if path.startswith("/kol/"):
         return kol.kol_page(path[len("/kol/"):], qs)
     if path == "/wallets":
@@ -288,6 +299,9 @@ def route(path, qs):
     if path == "/mapa":
         from ui.html import map_page
         return map_page(qs)
+    if path in ("/vise", "/vise/sustav"):   # 10.11. (Jure, prijedlog 3.5): "Više" is a page now, not the ☰ drawer
+        from ui.html import vise_page
+        return vise_page(qs, "sustav" if path == "/vise/sustav" else None)
     if path == "/trazi":
         from ui import search
         return search.page(qs)
@@ -309,6 +323,11 @@ def _error_html():
     """Generic error text for the page; the traceback goes to the server log only (audit 4.11. §4.3)."""
     ref = hashlib.sha256(f"{time.time()}{os.getpid()}".encode()).hexdigest()[:8]
     print(f"ui-greska {ref}:\n{traceback.format_exc()}", file=sys.stderr, flush=True)
+    try:   # 10.11. (Jure): the same error in Sentry, under the mark the page and the log show
+        from ops import sentry
+        sentry.capture(where=f"ui-greska {ref}")
+    except Exception:  # noqa: BLE001 - the error page must still be shown
+        pass
     return (f"<h1>Greška</h1><p>Stranica se nije mogla složiti. Pokušaj ponovno za minutu. "
             f"<span class=mut>Oznaka za log: {ref}</span></p>")
 
@@ -344,8 +363,69 @@ def build(path, qs, lang="hr"):
     return code, i18n.translate(html).encode("utf-8")
 
 
-HEAVY = ("/tokens", "/tokens/jaki", "/pregled")   # pages that read every hype signal: built by build_in_child, never in this process
+# pages that read every hype signal (or, /ekipe and /kol, every minute candle / every call): built by build_in_child,
+# never in this process. 9.11. 19:32: /ekipe (180 s) and /kol (30 s) built here took the UI process to 818 MB, the
+# memory watchdog stopped it and every visitor saw Cloudflare's 502 and then the deploy page for a minute.
+HEAVY = ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol", "/kol/analize")
 WARM = ("/pregled", "/tokens")   # pre-rendered every few minutes; the others are built on the first visit
+SNAPSHOT_ONLY = ("/ekipe", "/kol", "/kol/analize")   # not warmed (180 s / 30 s of CPU), their last good build is kept on disk
+# 10.11.: /kol/analize holds what /kol built before (pairs, correlations, together): same child build and snapshot
+BUILDING_REFRESH_S = int(os.environ.get("UI_BUILDING_REFRESH_S", "20"))
+WARM_SKIP_FRESH_S = int(os.environ.get("UI_WARM_SKIP_FRESH_S", "240"))   # the warmer leaves a page younger than this alone
+CHILD_NICE = int(os.environ.get("UI_CHILD_NICE", "5"))   # page builds below the request threads, above the heavy jobs
+# 9.11. 22:00: the stdlib server keeps only 5 connections waiting to be accepted; with the CPU at 100 % (KOL search
+# round) the 1-2 s fragment polls of a few open Autopilot tabs overflowed it, the kernel refused the rest and Render
+# showed 502 (59 of them at 21:15 UTC) although the UI process was alive. A deeper backlog queues them instead.
+ThreadingHTTPServer.request_queue_size = int(os.environ.get("UI_BACKLOG", "128"))
+
+
+def _nice_child():
+    """Page builds run at nice CHILD_NICE: below the request threads (nice 0) and above the heavy jobs (ops/heavy
+    NICE). 9.11. 20:10: 1 CPU at 100 % (run_dugo + KOL round + a 45-s /pregled build) and every visitor's request,
+    every 1-s Autopilot fragment, waited for CPU behind the page build."""
+    try:
+        os.nice(CHILD_NICE)
+    except (OSError, AttributeError):
+        pass
+
+
+def warm_build(path):
+    """build_in_child for the warmer: when the page was built less than WARM_SKIP_FRESH_S ago (a visitor's refresh or
+    the previous pass) the cached copy is kept, instead of another 22-45 s child build next to the heavy jobs every
+    UI_WARM_EVERY_S whether anyone looked or not (9.11. 20:10, 1 CPU at 100 %). 9.11. (audit): pagecache.warm now
+    skips such a page before calling this (skip_fresh_s), so the stored copy is not re-packed with a new time; this
+    check stays as the guard for a visitor's build that landed in between."""
+    with pagecache._lock:
+        hit = pagecache._store.get((path, "", None))
+    if hit and time.time() - hit[0] < WARM_SKIP_FRESH_S:
+        return 200, gzip.decompress(hit[3])
+    return build_in_child(path)
+
+
+def _building_html(path):
+    """The 503 "being built" page: refreshes itself (meta refresh + Retry-After in _send) and offers the pages that
+    never wait (Autopilot, Natjecanje), so it is a short wait, not a dead end (9.11. 18:08-18:17: Pregled was this
+    page for 10 min and the only way on was to keep clicking)."""
+    body = (f"<h1>Stranica se trenutno slaže</h1><p>Poslužitelj je zauzet drugim poslom; stranica se gradi u pozadini "
+            f"i ova se sama osvježava za {BUILDING_REFRESH_S} s. Pokušaj ponovno za minutu ako se ne pojavi.</p>"
+            f"<p><a href=/pravi-trade>Autopilot</a> · <a href=/natjecanje>Natjecanje</a> · <a href=/>Na pregled</a></p>")
+    html = page("Stranica nije dostupna", body, path)
+    meta = f'<meta http-equiv="refresh" content="{BUILDING_REFRESH_S}">'
+    html = html.replace("<head>", "<head>" + meta, 1) if "<head>" in html else meta + html
+    return 503, i18n.translate(html).encode("utf-8")
+
+
+def _last_copy(path, why):
+    """(code, html bytes) when the child could not render `path`: the last snapshot pagecache saved on disk (served as
+    a 200 so the visitor sees data; its age shows in the page), or the self-refreshing 503 (_building_html). 9.11.
+    (audit P33): never build(path) here instead; the HEAVY pages hold ~200 MB of rows and this process also runs the
+    copy/auto-sell loop and the webhooks, so an OOM or a watchdog SIGTERM here stops real-money copies for 30 s+."""
+    snap = pagecache._load_snap((path, "", None), stale_ok=True)
+    if snap:
+        print(f"ui: {why}, služim zadnju spremljenu kopiju {path}", flush=True)
+        return 200, gzip.decompress(snap[3])
+    print(f"ui: {why}, nema spremljene kopije {path}", flush=True)
+    return _building_html(path)
 
 
 def build_in_child(path):
@@ -353,24 +433,34 @@ def build_in_child(path):
 
     The overview and the token list read every hype signal; built inside this long-lived server that memory stayed
     with it (~200 MB) and the 512 MB server ran out of memory every few minutes (1.11.). A child gives it all back
-    when it ends. Falls back to building here if the child fails."""
+    when it ends. 9.11. (audit P33): when the heavy lock stays busy for 60 s, or the child fails or times out, the
+    last saved copy (or a 503) is served instead of building here (_last_copy); this process never builds HEAVY pages."""
     import subprocess
-    from ops import heavy
+    from ops import health, heavy
     try:
-        # waits up to 60 s for another heavy job to finish (2.11.: overlaps ran the server out of memory), then goes
-        with heavy.slot(wait=60, label="gradnja stranice"):
+        # 9.11. 19:05: used to wait up to 60 s for the lock; with run_dugo (29 min) and wallets score holding it one
+        # after another, every visit to Pregled after a click waited the full minute and the browser showed the deploy
+        # page. Now: lock free -> build under it; busy but RAM for a child (UI_BUILD_FREE_MB) -> build next to the
+        # heavy job (the lock guards memory, 2.11. was a 512 MB server); busy and tight -> last copy at once.
+        with heavy.slot(wait=0, label="gradnja stranice") as got:
+            if not got:
+                free = health.container_free_mb()
+                if free is not None and free < float(os.environ.get("UI_BUILD_FREE_MB", "600")):
+                    return _last_copy(path, f"brava zauzeta ({heavy.holder() or 'nepoznat posao'}), slobodno {free:.0f} MB, "
+                                            f"dijete za {path} ne krećem")
+                print(f"ui: brava zauzeta ({heavy.holder() or 'nepoznat posao'}), slobodno "
+                      f"{free if free is None else round(free)} MB: gradim {path} bez brave", flush=True)
             r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
-                               timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
+                               timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")), preexec_fn=_nice_child)
         for ln in r.stderr.decode(errors="replace").splitlines():
             if ln.startswith("ui-tijek:"):   # where a slow build spent its time
                 print(ln, flush=True)
         if r.returncode == 0 and r.stdout:
             return 200, r.stdout
-        print(f"ui: dijete za {path} nije uspjelo ({r.returncode}): {r.stderr.decode(errors='replace')[-300:]}",
-              flush=True)
+        why = f"dijete za {path} nije uspjelo ({r.returncode}): {r.stderr.decode(errors='replace')[-300:]}"
     except subprocess.TimeoutExpired:
-        print(f"ui: dijete za {path} predugo, gradim ovdje", flush=True)
-    return build(path, {})
+        why = f"dijete za {path} predugo"
+    return _last_copy(path, why)
 
 
 def english(raw, gz, lang):
@@ -417,6 +507,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.wfile.write(body)
         if path.startswith("/admin/export/"):   # 7.11.: read-only database copy for offline analysis (EXPORT_KEY)
             return self._export(path[len("/admin/export/"):], qs)
+        if path.startswith("/api/mcp/"):   # 10.11.: the MemeSonar MCP server's data (Bearer MCP_API_KEY), no login
+            return self._mcp_get(path, qs)
+        if path == "/mcp":   # 10.11.: the hosted MCP endpoint answers POST only (no server-initiated stream)
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
         to = moved_to_site(self.headers.get("Host"), path, ok and AUTH)
         if to:
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
@@ -466,6 +564,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=600")
             self.end_headers()
             return self.wfile.write(body)
+        if path in ("/autopilot", "/en/autopilot", "/autopilot/chat", "/autopilot/zivo"):   # 10.11. (Jure): public Autopilot page, its chat and its live parts
+            return self._autopilot(path, qs, ok)
         m = re.fullmatch(r"/nas-token/(\d+)/meta\.json", path)
         if m:   # public token metadata: wallets, pump.fun and explorers read it without logging in
             from ui import nastoken
@@ -509,6 +609,55 @@ class Handler(BaseHTTPRequestHandler):
             from ui import pravitrade
             frag = pravitrade.log_fragment(self.user)
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path in ("/pravi-trade/token", "/pravi-trade/ekipa"):   # 9.11.: pop-ups, re-fetched every second while open
+            from ui import pravitrade
+            frag = (pravitrade.token_popup(self.user, qs.get("m", "")) if path == "/pravi-trade/token"
+                    else pravitrade.crew_popup(self.user, qs.get("h", "")))
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path == "/pravi-trade/preskok":
+            # 10.11. (Jure): the pop-up of one skipped buy (market cap at the call, +5/+10/+15 min, now), same access
+            # as the page; a failure is a 500 with no text and the pop-up says "nema svježih podataka" (POP_JS)
+            from ui import pravitrade
+            try:
+                frag = pravitrade.skip_popup(self.user, qs.get("m", ""), qs.get("t", ""))
+            except Exception:  # noqa: BLE001
+                _error_html()
+                return self._send(500, b"")
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path in ("/pravi-trade/pozicije", "/pravi-trade/zovu", "/pravi-trade/ideje"):   # 9.11.: live fragments
+            from ui import pravitrade
+            fn = {"/pravi-trade/pozicije": pravitrade.positions_fragment, "/pravi-trade/zovu": pravitrade.callers_fragment,
+                  "/pravi-trade/ideje": pravitrade.ideas_fragment}[path]
+            frag = fn(self.user)
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path == "/pravi-trade/prijedlozi":
+            # 11.11. (Jure, proposals/ flag proposals G21): the card's list, polled every 150 s; owner only (403 for
+            # anybody else); it only reads proposals.db (cached), a failure greys the box
+            from ui import pravitrade
+            try:
+                frag = pravitrade.proposals_fragment(self.user)
+            except Exception:  # noqa: BLE001
+                _error_html()
+                return self._send(500, b"")
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path in ("/pravi-trade/graf", "/pravi-trade/dnevnik", "/pravi-trade/preporuke"):
+            # 10.11. (Jure: graf na vrhu, dnevnik na klik, čista stranica): the header with the chart (every 45 s), the
+            # open decision log (every second) and the recommendations (once, when opened); same access as the page.
+            # A failure is a 500 with no text: the page greys the box and tries again, the trade loop never notices.
+            from ui import pravitrade
+            fn = {"/pravi-trade/graf": pravitrade.head_fragment, "/pravi-trade/dnevnik": pravitrade.dnevnik_fragment,
+                  "/pravi-trade/preporuke": pravitrade.recs_fragment}[path]
+            try:
+                frag = fn(self.user)
+            except Exception:  # noqa: BLE001
+                _error_html()   # the traceback to the log under a reference; the box only greys out
+                return self._send(500, b"")
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path.startswith(("/pravi-trade/api/", "/pravi-trade/l/", "/pravi-trade/static/")):
+            # 11.11. (Jure: Autopilot kao terminal, ui/apterm.py): the first view as JSON, the shared live tick (SSE
+            # and the 5-s poll), the chart's candles, the parts loaded on scroll and the page's static files. All
+            # read-only GETs with the page's access; a failure is a 500 with no text (the block greys out).
+            return self._apterm(path, qs)
         if path == "/pravi-trade":
             from ui import pravitrade
             try:
@@ -579,11 +728,16 @@ class Handler(BaseHTTPRequestHandler):
         key = (path, u.query, None)    # route() pages are the same for every user
         # the heaviest pages always in a child process, also when a visitor comes before the warm-up finished
         # (right after a deploy: built here they pushed this process to ~200 MB, 1.11.)
-        mk = (lambda: build_in_child(path)) if path in HEAVY and not u.query else (lambda: build(path, qs))
+        heavy_page = path in HEAVY and not u.query
+        mk = (lambda: build_in_child(path)) if heavy_page else (lambda: build(path, qs))
+        # 9.11. 19:32: a heavy page that is in neither memory nor on disk is built in the background and the visitor
+        # gets the self-refreshing "being built" page at once, instead of a request that hangs 60-180 s (Cloudflare
+        # gives up at 100 s) while the child renders
+        fetch = (lambda k, b: pagecache.get_bg(k, b, lambda: _building_html(path))) if heavy_page else pagecache.get
         if self.lang == "hr":
-            code, raw, gz = pagecache.get(key, mk)
+            code, raw, gz = fetch(key, mk)
         else:   # English = the (pre-rendered) Croatian page translated, so it is as fast as the Croatian one
-            code, raw, gz = pagecache.get(key, mk)   # cached Croatian page, then translated
+            code, raw, gz = fetch(key, mk)   # cached Croatian page, then translated
             if code == 200:
                 code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang))
         if AUTH and self.role != "admin":   # non-admins get a copy without the adm-only parts (audit 4.11. §4.2)
@@ -640,6 +794,52 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
 
+    def _mcp_auth(self):
+        """True, or the (code, json) to answer: 404 while MCP_API_KEY is not set (the API does not exist), 401 on a
+        wrong key."""
+        from ui import mcpapi
+        ok = mcpapi.authorized(self.headers.get("Authorization"))
+        if ok is None:
+            return 404, '{"error": "not found"}'
+        if not ok:
+            return 401, '{"error": "wrong or missing Authorization: Bearer <key>"}'
+        return True
+
+    def _mcp_get(self, path, qs):
+        from ui import mcpapi
+        a = self._mcp_auth()
+        if a is not True:
+            return self._send(a[0], a[1].encode("utf-8"), "application/json")
+        try:
+            code, out = mcpapi.answer(path, qs)
+        except Exception as e:  # noqa: BLE001 - a broken part answers JSON, never a traceback page
+            print(f"mcp: {path}: {type(e).__name__}: {e}", flush=True)
+            code, out = 500, json.dumps({"error": f"{type(e).__name__}"})
+        return self._send(code, out.encode("utf-8"), "application/json")
+
+    def _mcp_rpc(self):
+        from ui import mcpapi
+        a = self._mcp_auth()
+        if a is not True:
+            return self._send(a[0], a[1].encode("utf-8"), "application/json")
+        n = int(self.headers.get("Content-Length") or 0)
+        got = (self.headers.get("Authorization") or "").strip()
+        code, out = mcpapi.rpc(self.rfile.read(min(n, 200_000)), got[7:].strip() if got.lower().startswith("bearer ") else got)
+        return self._send(code, out.encode("utf-8"), "application/json")
+
+    def _mcp_post(self):
+        from ui import mcpapi
+        a = self._mcp_auth()
+        if a is not True:
+            return self._send(a[0], a[1].encode("utf-8"), "application/json")
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            body = json.loads(self.rfile.read(min(n, 100_000)) or b"{}")
+        except ValueError:
+            return self._send(400, b'{"error": "body must be JSON"}', "application/json")
+        code, data = mcpapi.trade_request(body)
+        return self._send(code, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json")
+
     def _send(self, code, body, ctype="text/html", gz=None, translated=False):
         """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""
         if (body is not None and not translated and ctype == "text/html" and getattr(self, "lang", "hr") == "en"
@@ -659,6 +859,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(out)))
         self.send_header("Cache-Control", "no-store")
+        if code == 503:   # 9.11. (audit P33, review): _last_copy's "try again in a minute" says so to the browser too
+            self.send_header("Retry-After", "60")
         self.send_header("Vary", "Accept-Encoding")
         if not getattr(self, "_index", False):
             self.send_header("X-Robots-Tag", "noindex, nofollow")
@@ -668,7 +870,10 @@ class Handler(BaseHTTPRequestHandler):
             self._admin_cookie()
             self._trade_cookie()
         self.end_headers()
-        self.wfile.write(out)
+        try:
+            self.wfile.write(out)
+        except (BrokenPipeError, ConnectionResetError):   # 9.11.: the 1-s pollers abort old requests; not an error
+            return
 
     def _admin_cookie(self):
         """cb_adm=1 for admins, so cached pages show the adm-only bits (Sustav menu, spend warnings) only to them."""
@@ -740,6 +945,10 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/hook/chain":
             self._chain_hook(u)
             return
+        if u.path == "/api/mcp/trade":   # 10.11.: a trade REQUEST from the MCP server; waits for the owner's tap
+            return self._mcp_post()
+        if u.path == "/mcp":   # 10.11.: the MCP endpoint for Grok, hosted in the app (ui/mcpapi.rpc), Bearer key
+            return self._mcp_rpc()
         if u.path == "/prijava":
             return self._login_post()
         if u.path == "/registracija":
@@ -756,6 +965,8 @@ class Handler(BaseHTTPRequestHandler):
         if need:   # e.g. a basic user posting /run/wallets by hand: refused before anything starts
             print(f"uloge: odbijeno {self.who or '-'} ({self.role}) POST {path}", flush=True)
             return self._forbidden(path, need)
+        if path.startswith("/autopilot/"):   # 10.11.: chat of the public Autopilot page (no cached page changes)
+            return self._autopilot_post(path)
         pagecache.clear()   # a run or a trade changes what the pages show
         origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
         same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
@@ -782,7 +993,24 @@ class Handler(BaseHTTPRequestHandler):
             multi = parse_qs(self._read_body(100_000).decode("utf-8", "replace"))
             form = {k: v[-1] for k, v in multi.items()}
             form["u_list"] = multi.get("u", [])
-            return self._redirect(pravitrade.post(path, form, self.user))
+            to = pravitrade.post(path, form, self.user)
+            if path in ("/pravi-trade/switch", "/pravi-trade/sellall"):
+                # 10.11. (pregled): pagecache was cleared above BEFORE the switch was saved, and the public page keeps
+                # "live" 30 s: forget both after it, so no page keeps saying "tradamo pravim novcem" once it is off
+                try:
+                    from ui import apjavno
+                    apjavno.reset_cache()
+                except Exception:  # noqa: BLE001
+                    pass
+                pagecache.clear()
+            from ui import apterm
+            apterm.forget_first()   # 11.11.: the terminal's next first view is built anew (a saved SL/TP shows at once)
+            if self.headers.get("X-Apx-Fetch") == "1":   # ap.js (Uredi SL-TP, Kupi, DCA): the answer in place
+                from json import dumps   # (do_POST imports json further down: the module name is local here)
+                # 11.11.: {"to"} and, for a buy over the owner's limits, {"warn": [reasons], "title", "what"}
+                return self._send(200, dumps(pravitrade.fetch_answer(to), ensure_ascii=False).encode("utf-8"),
+                                  "application/json")
+            return self._redirect(to)
         if same_site and path.startswith(("/natjecanje/", "/prijedlozi/")):
             n = int(self.headers.get("Content-Length") or 0)
             form = dict(parse_qsl(self.rfile.read(min(n, 100_000)).decode("utf-8", "replace")))
@@ -1020,6 +1248,58 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, landing.page_html({}, err=err, form=form, lang=lang).encode("utf-8"))
         return self._redirect(("/" if lang == "en" else "/hr") + "?poslano=1#forma")
 
+    def _autopilot(self, path, qs, ok):
+        """10.11. (Jure): /autopilot is readable without a login on every host. A visitor gets it in a light public
+        frame (Croatian, /en/autopilot through ui/i18n); a logged-in player gets it inside the app, where the chat
+        form and +1 work. /autopilot/chat is the message list alone, re-fetched by the page every 15 s."""
+        from ui import apjavno
+        if ok and path == apjavno.PATH_EN:   # inside the app the language is the player's own setting
+            return self._redirect(apjavno.PATH)
+        if not ok and qs.get("prijava") == "1":   # "Prijavi se" on the public copy: only a visitor needs the form
+            return self._redirect("/prijava?next=" + apjavno.PATH)
+        user = self.user if ok else None
+        lang = self.lang if ok else ("en" if path == apjavno.PATH_EN or qs.get("l") == "en" else "hr")
+        self._public = not ok   # a visitor gets no app cookies; a player's copy carries the form token cookie
+        # 10.11. (Jure: "da", u Google): the visitor's copy of the page is indexable; the chat fragment and the in-app copy are not
+        self._index = not ok and path in (apjavno.PATH, apjavno.PATH_EN)
+        try:
+            if path == apjavno.CHAT_PATH:
+                html = apjavno.chat_fragment(user, qs)
+            elif path == apjavno.LIVE_PATH:   # 10.11.: the live parts, re-fetched every 15 s by the page (not indexed)
+                self._index = False
+                html = apjavno.live_fragment(lang)
+            elif ok:
+                html = page(*apjavno.page(qs, user, lang, logged_in=True), path)
+            else:
+                html = apjavno.guest_html(qs, lang)
+        except Exception:
+            err = _error_html()   # the traceback goes to the server log, never to the page
+            html = page("Greška", err, path) if ok else f"<!doctype html><meta charset=utf-8><title>Greška</title>{err}"
+            return self._send(500, html.encode("utf-8"))
+        i18n.LANG.set(lang)
+        return self._send(200, i18n.translate(html).encode("utf-8"), translated=True)
+
+    def _autopilot_post(self, path):
+        """Chat of /autopilot (message, +1, hide a message): logged-in players only, with a same-site Origin and the
+        form token, as strict as the money forms (CSRF_STRICT). It sits before pagecache.clear() because a chat line
+        changes no cached page. ajax=1 (the page script): the answer is the refreshed message list, not a redirect."""
+        from ui import apjavno
+        form = dict(parse_qsl(self._read_body(20_000).decode("utf-8", "replace")))
+        origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        same_site = urlsplit(origin).netloc == self.headers.get("Host") if origin else not AUTH
+        want = csrf_token(self._session_value())
+        token_ok = not AUTH or bool(want) and hmac.compare_digest(form.get("_csrf", "").encode(), want.encode())
+        if not same_site or not token_ok:
+            print(f"csrf: odbijeno {self.who or '-'} POST {path} (origin={'da' if origin else 'prazan'})", flush=True)
+            self.send_response(403)
+            self.end_headers()
+            return
+        if form.get("ajax") != "1":
+            return self._redirect(apjavno.post(path, form, self.user))
+        ok, code = apjavno.act(path, form, self.user)
+        frag = apjavno.chat_fragment(self.user, {}, err="" if ok else code)
+        return self._send(200, i18n.translate(frag).encode("utf-8"), translated=True)
+
     def _static(self, name):
         """Screenshots of the public page: only plain file names from ui/static/landing."""
         from ui import landing
@@ -1037,6 +1317,92 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "public, max-age=86400")
         self.end_headers()
         self.wfile.write(body)
+
+    def _apterm(self, path, qs):
+        """GET /pravi-trade/api/{first,tick,candles,pnl-days,portfelj,stream}, /pravi-trade/l/<part>, /pravi-trade/static/<file>
+        (ui/apterm.py). Same access as the page (403 for anybody else); nothing here writes or trades."""
+        from ui import apterm
+        user = getattr(self, "user", None)
+        if path.startswith("/pravi-trade/static/"):
+            asset = apterm.static_asset(path[len("/pravi-trade/static/"):])
+            if not asset:
+                return self._send(404, b"", "text/plain")
+            raw, gz, ctype, ver = asset
+            zipped = "gzip" in (self.headers.get("Accept-Encoding") or "")
+            out = gz if zipped else raw
+            self.send_response(200)
+            self.send_header("Content-Type", f"{ctype}; charset=utf-8")
+            self.send_header("Content-Length", str(len(out)))
+            # the page links the file with ?v=<hash of its content>: a new deploy is a new address, so a year is safe
+            self.send_header("Cache-Control", "private, max-age=31536000, immutable" if qs.get("v") == ver else "no-cache")
+            self.send_header("ETag", f'"{ver}"')
+            self.send_header("Vary", "Accept-Encoding")
+            self.send_header("X-Robots-Tag", "noindex, nofollow")
+            if zipped:
+                self.send_header("Content-Encoding", "gzip")
+            self.end_headers()
+            try:
+                return self.wfile.write(out)
+            except (BrokenPipeError, ConnectionResetError):
+                return None
+        if path == "/pravi-trade/api/stream":
+            return self._ap_stream(qs)
+        try:
+            if path == "/pravi-trade/api/first":
+                body, ctype = (apterm.first_json(user, qs.get("m", ""), with_html=qs.get("html") == "1",
+                                                 sym=qs.get("s", ""), fresh=qs.get("fresh") == "1"), "application/json")
+            elif path == "/pravi-trade/api/tick":
+                body, ctype = apterm.tick_json(user, qs.get("m", "")), "application/json"
+            elif path == "/pravi-trade/api/token":   # 11.11.: the name of the address in the buy panel's Token field
+                d = apterm.token_info(user, qs.get("q", ""))
+                body, ctype = (None if d is None else json.dumps(d, ensure_ascii=False)), "application/json"
+            elif path == "/pravi-trade/api/candles":
+                d = apterm.candles_data(user, qs.get("m", ""), qs.get("tf", "5m"), qs.get("u", "mc"))
+                body, ctype = (None if d is None else json.dumps(d, separators=(",", ":"))), "application/json"
+            elif path in ("/pravi-trade/api/pnl-days", "/pravi-trade/api/portfelj"):   # 11.11.: read-only, cached
+                fn = apterm.pnl_days if path.endswith("pnl-days") else apterm.portfelj
+                d = fn(user, qs.get("m", "live"), qs.get("d", "30"))
+                body, ctype = (None if d is None else json.dumps(d, ensure_ascii=False, separators=(",", ":"))), "application/json"
+            elif path.startswith("/pravi-trade/l/"):
+                name = path[len("/pravi-trade/l/"):]
+                body, ctype = apterm.lazy(name, user, qs), "text/html"
+                if body == "" and name not in apterm.LAZY:   # 11.11.: "" of a known part = nothing to show now (200)
+                    return self._send(404, b"", "text/plain")
+            else:
+                return self._send(404, b"", "text/plain")
+        except Exception:  # noqa: BLE001
+            _error_html()   # the traceback to the log under a reference; the block only greys out
+            return self._send(500, b"", "text/plain")
+        if body is None:
+            return self._send(403, b"", "text/plain")
+        return self._send(200, body.encode("utf-8"), ctype)
+
+    def _ap_stream(self, qs):
+        """GET /pravi-trade/api/stream: Server-Sent Events of the shared live tick (ui/apterm.stream). At most
+        apterm.STREAM_MAX at once (each holds one thread of this server); one more gets 503 and the browser polls
+        /pravi-trade/api/tick every 5 s instead. A stream ends after apterm.STREAM_MAX_S (the browser reconnects)."""
+        from ui import apterm
+        if not apterm.can_view(getattr(self, "user", None)):
+            return self._send(403, b"", "text/plain")
+        if not apterm.stream_slot():
+            self.send_response(503)
+            self.send_header("Retry-After", str(apterm.POLL_S))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        try:
+            self.send_response(200)
+            for k, v in apterm.STREAM_HEADERS:
+                self.send_header(k, v)
+            self.end_headers()
+            for chunk in apterm.stream(qs.get("m", ""), alive=lambda: not _peer_gone(self.connection)):
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass   # the viewer left: the slot is freed below
+        finally:
+            apterm.stream_release()
+        return None
 
     def _redirect(self, location, cookie=None, code=303):
         self.send_response(code)
@@ -1077,6 +1443,18 @@ class Handler(BaseHTTPRequestHandler):
             super().log_message(fmt, *args)
 
 
+def _peer_gone(sock):
+    """True when the browser has closed an SSE connection: it never sends anything after its GET, so a readable socket
+    that peeks 0 bytes is a closed one (ui/apterm.stream asks this before every tick)."""
+    import select
+    import socket
+    try:
+        r, _w, _x = select.select([sock], [], [], 0)
+        return bool(r) and sock.recv(1, socket.MSG_PEEK) == b""
+    except (OSError, ValueError, TypeError):
+        return True
+
+
 def _bind(host, port):
     """Take the port over from deploy_wait.py (the funny deploy page that holds it while we load): tell it to let
     go, then retry the bind for a few seconds instead of failing on "address in use"."""
@@ -1096,6 +1474,11 @@ def _bind(host, port):
 
 
 def main(argv=None):
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("ui")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8050)
@@ -1118,6 +1501,14 @@ def main(argv=None):
         from league import auto
         from ui.paper import market
         threading.Thread(target=auto.loop, args=(market,), daemon=True, name="auto-sell").start()
+        # 10.11. (Jure: TP +40 % dotaknut, a prodaja se nije dogodila): the Autopilot's TP/SL every second, apart
+        # from the 20-s pass over every player's positions
+        threading.Thread(target=auto.fast_loop, args=(market,), daemon=True, name="autopilot-izlazi").start()
+        # 10.11. (Jure: MC u trenutku poziva i pomak u 5/10/15 min bez čekanja na svijeće): live samples of the skips
+        from ui import pravitrade as _pt
+        threading.Thread(target=_pt.skip_sampler_loop, daemon=True, name="preskoceni-uzivo").start()
+        # 10.11. (Jure: "DCA ide ručno, granice postavljam ručno"): the owner's dokup orders, watched every second
+        threading.Thread(target=_pt.dca_loop, daemon=True, name="dca-nalozi").start()
     # heaviest pages rendered in the background right away and every 5 min, so a visit never waits for them
     from ui import landing
     landing.start()   # live numbers of the public page, counted in the background
@@ -1135,7 +1526,9 @@ def main(argv=None):
         ga4.start()   # GA4 Data API, same key, only with GA4_PROPERTY_ID
     except Exception as e:  # noqa: BLE001
         print(f"gsc: {e}", flush=True)
-    pagecache.warm(list(WARM), build_in_child, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
+    pagecache.warm(list(WARM), warm_build, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")),
+                   skip_fresh_s=WARM_SKIP_FRESH_S)   # 9.11. (audit): the skip lives in warm(), so a kept page keeps its age
+    pagecache.snapshot(SNAPSHOT_ONLY)   # 9.11.: /ekipe and /kol keep their last good build on disk (served while rebuilt)
     if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
         import threading
         # English version: every known text of the app is translated in the background a few minutes after start

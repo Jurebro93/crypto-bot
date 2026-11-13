@@ -26,13 +26,28 @@ def _cfg():
         return {}
 
 
+def live_pairs(mints):
+    """9.11. (audit P2): DexScreener pairs through the short live cache (dexscreener/client.tokens_live, DEX_LIVE_TTL
+    3 s, never 1 s) for the demo TP/SL auto-sell and the pages; the scanners keep client.tokens (60 s). client.tokens
+    stays the seam the offline tests replace with a 2-argument stand-in, so such a stand-in is called as it is
+    (decided by its signature, not by catching TypeError, which would hide a real bug in the live path)."""
+    import inspect
+    from dexscreener import client
+    try:
+        legacy = "ttl" not in inspect.signature(client.tokens).parameters
+    except (TypeError, ValueError):
+        legacy = False
+    if legacy:
+        return client.tokens("solana", list(mints))
+    return client.tokens_live("solana", list(mints))
+
+
 def market(mints):
     """mint -> (price, liquidity, url, mcap) from the deepest pair, {} if DexScreener is unreachable."""
     if not mints:
         return {}
     try:
-        from dexscreener import client
-        pairs = client.tokens("solana", list(mints))
+        pairs = live_pairs(mints)
     except Exception:
         return {}
     best = {}
@@ -212,7 +227,8 @@ function draw(d){
  $('#open').innerHTML=rows||'<tr><td colspan=19 class=empty>Nema otvorenih pozicija.</td></tr>';
  $('#upd').textContent='osvježeno '+new Date(d.ts*1000).toLocaleTimeString()+(d.live?'':' · DexScreener nedostupan, prikaz iz baze');
 }
-async function poll(){try{const r=await fetch('/api/paper',{cache:'no-store'});if(r.ok)draw(await r.json())}catch(e){$('#upd').textContent='veza prekinuta, pokušavam ponovo…'}}
+let busy=false;
+async function poll(){if(busy)return;busy=true;try{const r=await fetch('/api/paper',{cache:'no-store'});if(r.ok)draw(await r.json())}catch(e){$('#upd').textContent='veza prekinuta, pokušavam ponovo…'}finally{busy=false}}
 poll();setInterval(poll,REFRESH*1000);
 """
 
@@ -669,6 +685,10 @@ def page(qs):
                 b.append("<b>Propušteni pobjednici:</b><ul class=r>" + "".join(
                     f"<li class=warn>{tlink(m['token'], m['symbol'])} do {m['raw_max']:+.0%}, preskočen: {esc(labels.reason(m['reason']))}</li>"
                     for m in d["missed"]) + "</ul>")
+            if d.get("missed_unreliable"):   # 12.11. (Jure, točka 4): left out of the list above, said how many
+                from rangedca import missed as rmissed
+                b.append(f"<p class=mut>Propušteni pobjednici, {esc(rmissed.note(d['missed_unreliable']))}: nisu na "
+                         "popisu.</p>")
             done = [x for x in d.get("auto") or [] if x.get("text")]
             obs = [labels.plain(x.get("text")) for x in d.get("suggestions") or []
                    if not x.get("weights") and not (d.get("auto") is not None and x.get("change"))]

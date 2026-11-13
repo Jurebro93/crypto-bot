@@ -30,6 +30,9 @@ color:var(--fg)}
 .bcat{margin:4px 0 22px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px;scrollbar-width:none}.bcat::-webkit-scrollbar{display:none}
 .bcat a{white-space:nowrap}.bcat a.on{background:var(--fg);color:#fff;border-color:var(--fg)}
 h2.s a{color:inherit}h2.s a:hover{color:var(--acc)}
+.art .blv{background:var(--soft)}.art .blv .bst{margin:0 0 10px;grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
+.art .blv .card{padding:14px 16px}.art .blv .card b{font-size:24px}.art .blv .blvm{font-weight:600;font-size:15px}
+.art .blv .card span{display:block;line-height:1.4;margin-top:4px}
 """
 
 
@@ -46,6 +49,11 @@ GLOSS = {"wallet tracker": "smart-money", "smart money": "smart-money", "sniper"
          "likvidnost": "liquidity", "pogodak": "hit-rate", "kasni pozivi": "late-call"}
 # Glossary chips under each post.
 TERMS = {
+    "best-crypto-telegram-channels": ("crypto-call", "hit-rate", "late-call", "bot-account", "rug-pull"),
+    "top-crypto-twitter-accounts-by-call-accuracy": ("kol", "crypto-call", "hit-rate", "late-call", "bot-account"),
+    "memecoin-telegram-groups-explained": ("bot-account", "sniper-bot", "smart-money", "graduation", "late-call"),
+    "how-to-spot-a-pump-fun-runner": ("pump-fun", "graduation", "sniper-bot", "bundler", "liquidity"),
+    "how-to-check-a-kol-track-record": ("kol", "crypto-call", "hit-rate", "late-call", "call-power"),
     "what-is-wallet-tracking": ("smart-money", "crypto-wallet", "sniper-bot", "insider-wallet", "copy-trading"),
     "what-is-copy-trading": ("copy-trading", "smart-money", "take-profit", "stop-loss", "roi"),
     "what-is-a-kol-in-crypto": ("kol", "crypto-call", "call-power", "hit-rate", "late-call", "bot-account"),
@@ -85,7 +93,7 @@ CATS = [
      "Korak po korak: kupnja meme coina, swap na Jupiteru, plan trgovanja, DCA i koliko košta slippage.",
      ("how-to-buy-solana-meme-coins", "how-to-use-jupiter-swap", "how-to-trade-meme-coins", "what-is-pump-fun",
       "market-cap-liquidity-slippage", "what-is-dca-in-crypto", "perps-settings-after-october-10",
-      "what-to-do-with-an-airdrop")),
+      "what-to-do-with-an-airdrop", "how-to-spot-a-pump-fun-runner")),
     ("exchanges-and-cards", "mjenjacnice-i-kartice", "Exchanges and cards", "Mjenjačnice i kartice",
      "Where to buy crypto legally in Croatia and the EU, and which cards let you spend it.",
      "Gdje legalno kupiti kripto u Hrvatskoj i EU i kojim karticama ga možeš trošiti.",
@@ -103,7 +111,9 @@ CATS = [
      "Wallet tracking, copy trading and crypto influencer (KOL) calls: what the data says works.",
      "Praćenje novčanika, copy trading i pozivi kripto influencera (KOL): što prema podacima radi.",
      ("what-is-a-kol-in-crypto", "why-big-influencer-calls-are-hard-to-trade", "influencer-clustering",
-      "what-is-wallet-tracking", "what-is-copy-trading", "tokens-sent-to-kol-wallets")),
+      "what-is-wallet-tracking", "what-is-copy-trading", "tokens-sent-to-kol-wallets",
+      "top-crypto-twitter-accounts-by-call-accuracy", "how-to-check-a-kol-track-record",
+      "best-crypto-telegram-channels", "memecoin-telegram-groups-explained")),
     ("prediction-markets", "prediction-marketi", "Prediction markets", "Prediction marketi",
      "How Polymarket markets resolve, how to read the rules and how to spot odds that move before the news.",
      "Kako se rješavaju Polymarket tržišta, kako čitati pravila i kako uočiti kvote koje se pomaknu prije vijesti.",
@@ -219,7 +229,12 @@ TOOLS_FOR = {"what-is-wallet-tracking": ("wallet-trackers",), "what-is-copy-trad
              "address-poisoning": ("crypto-wallets",), "zero-trust-support-calls": ("crypto-wallets",),
              "tokens-sent-to-kol-wallets": ("wallet-trackers", "copy-trading-platforms"),
              "fake-volume-check": ("crypto-analysis-tools", "rug-checkers"), "what-to-do-with-an-airdrop": ("crypto-wallets",),
-             "perps-settings-after-october-10": ("trading-bots",)}
+             "perps-settings-after-october-10": ("trading-bots",),
+             "best-crypto-telegram-channels": ("telegram-trading-bots", "crypto-analysis-tools"),
+             "top-crypto-twitter-accounts-by-call-accuracy": ("crypto-analysis-tools",),
+             "memecoin-telegram-groups-explained": ("telegram-trading-bots", "wallet-trackers"),
+             "how-to-spot-a-pump-fun-runner": ("trading-bots", "rug-checkers"),
+             "how-to-check-a-kol-track-record": ("crypto-analysis-tools",)}
 TOOL_NAME = {"en": {"wallet-trackers": "Best wallet trackers", "crypto-analysis-tools": "Best crypto analysis tools",
                     "trading-bots": "Best Solana trading bots", "rug-checkers": "Best rug checkers",
                     "copy-trading-platforms": "Best copy trading platforms", "crypto-wallets": "Best crypto wallets",
@@ -280,13 +295,22 @@ def views(lang):
     return [v for v in (view(p, lang) for p in _posts()) if v]
 
 
-def urls():
-    """[(path_en, path_hr or None, priority)] for the sitemap."""
-    out = [("/blog", "/hr/blog", "0.8")] + [(cat_path(c, "en"), cat_path(c, "hr"), "0.7") for c in CATS]
+def urls(with_lastmod=False):
+    """[(path_en, path_hr or None, priority)] for the sitemap; with_lastmod adds a 4th item: the day the page last
+    changed (None for the index and the category pages, which list posts and follow the day's refresh)."""
+    out = [("/blog", "/hr/blog", "0.8", None)] + [(cat_path(c, "en"), cat_path(c, "hr"), "0.7", None) for c in CATS]
+    stored = None
+    if with_lastmod:
+        try:
+            from ui import bloglive
+            stored = bloglive.blocks()
+        except Exception:  # noqa: BLE001 - then every post keeps its own date
+            stored = {}
     for p in _posts():
         h = _hr().get(p["slug"])
-        out.append((f"/blog/{p['slug']}", f"/hr/blog/{h['slug']}" if h else None, "0.7"))
-    return out
+        out.append((f"/blog/{p['slug']}", f"/hr/blog/{h['slug']}" if h else None, "0.7",
+                    lastmod(p, stored) if with_lastmod else None))
+    return out if with_lastmod else [u[:3] for u in out]
 
 
 def _og(p, lang="en"):
@@ -386,6 +410,28 @@ def _ld(obj):
     return '<script type="application/ld+json">' + json.dumps(obj).replace("</", "<\\/") + "</script>"
 
 
+def _live(en_slug, lang):
+    """The post's daily data block (ui/bloglive.py), '' when it has none or the block cannot be read."""
+    try:
+        from ui import bloglive
+        return bloglive.html(en_slug, lang)
+    except Exception as e:  # noqa: BLE001 - the post itself must always render
+        print(f"blog: dnevni podaci za {en_slug} nisu prikazani: {type(e).__name__}: {e}", flush=True)
+        return ""
+
+
+def lastmod(p, stored=None):
+    """'YYYY-MM-DD' the post last changed: its own date (or 'updated'), or the night its daily numbers last changed.
+    10.11.: the sitemap gave every post today's date every day; a date that is always today tells a crawler nothing.
+    stored: ui.bloglive.blocks() read once by a caller that asks for every post."""
+    day = p.get("updated", p["date"])
+    try:
+        from ui import bloglive
+        return max(day, bloglive.modified(p.get("en", p["slug"]), stored) or "")
+    except Exception:  # noqa: BLE001
+        return day
+
+
 def page(slug, lang="en"):
     """HTML of one post in that language, or None."""
     from ui.public import _shell
@@ -400,7 +446,7 @@ def page(slug, lang="en"):
     url = f"{_base()}{t['base']}/{slug}"
     jsonld = _ld({"@context": "https://schema.org", "@graph": [
         {"@type": "BlogPosting", "headline": p["h1"], "description": p["desc"], "datePublished": p["date"],
-         "dateModified": p.get("updated", p["date"]), "mainEntityOfPage": url, "image": _base() + _og(p, lang),
+         "dateModified": lastmod(p), "mainEntityOfPage": url, "image": _base() + _og(p, lang),
          "inLanguage": lang, "keywords": ", ".join(p["kw"]), "author": {"@type": "Organization", "name": "MemeSonar"},
          "publisher": {"@type": "Organization", "name": "MemeSonar"}},
         {"@type": "BreadcrumbList", "itemListElement": [
@@ -413,7 +459,7 @@ def page(slug, lang="en"):
     body = (f"<article class=art><section class=ph1><div class=crumb><a href={t['base']}>{t['crumb']}</a> · "
             f"{crumb_cat}</div><h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'], lang)} · {p['mins']} "
             f"{t['read']} · {t['by']}</div><figure class=bcov>{svg(p, lang)}</figure><div class=tldr><b>{t['short']}</b><p>{p['tldr']}</p></div></section>"
-            f"{_link_terms(p['body'], lang)}{_tools(p['en'], lang)}<div class=lock><p>{t['lock']}</p>"
+            f"{_link_terms(p['body'], lang)}{_live(p['en'], lang)}{_tools(p['en'], lang)}<div class=lock><p>{t['lock']}</p>"
             f"<a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div><p class=note>{t['note']}</p></article>"
             f"{_chips(p['en'], lang)}<h2 class=s>{t['next']}</h2><div class=bl>{''.join(_card(r, lang) for r in rel[:3])}</div>")
     en = f"/blog/{p['en']}"

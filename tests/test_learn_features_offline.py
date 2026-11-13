@@ -43,14 +43,16 @@ class FitWeights(unittest.TestCase):
 class KolCycleOrder(unittest.TestCase):
     def test_webhook_before_scoring(self):
         import run_kol
-        src = open(os.path.join(ROOT, "run_kol.py")).read()
-        steps = src.split("for step in (")[1].split("):")[0]
-        names = [s.strip() for s in steps.replace("\n", "").split(",") if s.strip()]
-        self.assertLess(names.index("cmd_chain"), names.index("cmd_search"))
+        # 9.11. 21:40: the round's steps are the tuples run_kol.NIGHT_STEPS (full) / DAY_STEPS (light by day)
+        names = list(run_kol.NIGHT_STEPS)
         self.assertLess(names.index("cmd_chain"), names.index("cmd_score"))
         self.assertLess(names.index("cmd_converge"), names.index("cmd_score"))
-        self.assertLess(names.index("cmd_measure"), names.index("cmd_search"))   # network waits go last
+        # 9.11. 18:20: the network-bound search is not a step of the locked round any more (cmd_search_round)
+        self.assertNotIn("cmd_search", names)
+        self.assertNotIn("cmd_search", run_kol.DAY_STEPS)
+        self.assertEqual(list(run_kol.DAY_STEPS[:6]), names[:6])   # the cheap, fresh steps come first in both
         self.assertTrue(hasattr(run_kol, "cmd_chain"))
+        self.assertTrue(hasattr(run_kol, "cmd_search_round"))
 
 
 class ValidateThrottle(unittest.TestCase):

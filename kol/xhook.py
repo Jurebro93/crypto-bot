@@ -9,6 +9,7 @@ few raw payloads (kv xhook_samples) so the shape can be confirmed in the log.
 """
 import json
 import os
+import sqlite3
 import time
 import urllib.request
 
@@ -44,6 +45,20 @@ def handles(con, cfg):
     from kol import bots, discover, reach
     bad = bots.handles(con)
     out = []
+    try:   # 9.11.: the hot list (kol/minute.hot, minute.db) goes first: measured +10 % before the stop on recent calls
+        from kol import minute as _minute
+        hot = list(_minute.hot_list().get("x") or [])
+    except Exception:  # noqa: BLE001
+        hot = []
+    try:   # the X accounts the real-money account follows (single or as a crew) must arrive within seconds
+        from league import copy as _copy
+        from trade import settings as _settings
+        followed = sorted(h for h in _copy.followed_handles(_settings.LEAGUE_USER) if not h.startswith("tg:"))
+    except Exception:  # noqa: BLE001
+        followed = []
+    for h in followed + hot:
+        if h not in bad and h not in out:
+            out.append(h)
     for (h,) in con.execute("SELECT handle FROM watch ORDER BY score DESC"):
         if h not in bad and h not in out:
             out.append(h)
@@ -134,16 +149,84 @@ def _tweets(payload):
     return []
 
 
-def ingest(payload, kol_db=None, now=None, log=print):
-    """Webhook POST -> kol.db calls (source 'x_hook'). Returns the number of new calls."""
+def spool_dir(kol_db=None):
+    """9.11. (audit P3): payloads that could not be written (kol.db locked by the scoring round for minutes) wait here,
+    next to the real kol.db file (realpath: start.sh symlinks it into $DATA_DIR), and drain() copies them in."""
+    from kol import store
+    return os.path.join(os.path.dirname(os.path.realpath(kol_db or store.DB)), "xhook_spool")
+
+
+def spool(payload, kol_db=None, now=None, log=print):
+    """Write one raw payload to the spool; returns the file path (None when even that fails)."""
+    try:
+        d = spool_dir(kol_db)
+        os.makedirs(d, exist_ok=True)
+        # pid + random tail: two dashboard threads in the same millisecond must not overwrite each other (review izvori)
+        path = os.path.join(d, f"{int((now or time.time()) * 1000)}-{os.getpid()}-{os.urandom(4).hex()}.json")
+        with open(path, "w") as f:
+            json.dump(payload, f)
+        log(f"xhook: kol.db zauzet, objava čeka u spoolu ({os.path.basename(path)})")
+        return path
+    except OSError as e:
+        log(f"xhook: spool nije uspio: {e}")
+        return None
+
+
+def drain(kol_db=None, now=None, log=print, max_files=200):
+    """Spooled payloads -> kol.db (run_kol collect, after the writer is free). Returns the number of new calls;
+    a file stays when kol.db is still locked."""
+    d = spool_dir(kol_db)
+    try:
+        names = sorted(os.listdir(d))[:max_files]
+    except OSError:
+        return 0
+    n = 0
+    for name in names:
+        path = os.path.join(d, name)
+        try:
+            with open(path) as f:
+                payload = json.load(f)
+        except (OSError, ValueError):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            continue
+        try:
+            n += ingest(payload, kol_db, now, log, _spool=False)
+        except sqlite3.OperationalError:
+            break   # still locked: next collect
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    if n:
+        log(f"xhook: {n} poziva iz spoola")
+    return n
+
+
+def ingest(payload, kol_db=None, now=None, log=print, _spool=True):
+    """Webhook POST -> kol.db calls (source 'x_hook'). Returns the number of new calls. 9.11. (audit P3/P25): when
+    kol.db is locked (score.run holds a write transaction for minutes) the payload goes to the spool and 0 comes back,
+    so the dashboard answers 200 and nothing is lost; new calls wake the copy loop (league/copy.wake)."""
     from kol import collect, store
-    con = store.connect(kol_db or store.DB)
+    try:
+        con = store.connect(kol_db or store.DB)
+    except sqlite3.OperationalError:
+        if _spool and spool(payload, kol_db, now, log) is not None:
+            return 0
+        raise
     try:
         tweets = _tweets(payload)
         calls = []
         for t in tweets:
             calls += collect.calls_from_tweet(t, source="x_hook")
-        n = collect.save(con, calls)
+        try:
+            n = collect.save(con, calls)
+        except sqlite3.OperationalError:
+            if _spool and calls and spool(payload, kol_db, now, log) is not None:
+                return 0
+            raise
         try:   # the first few raw payloads, for confirming the shape in the log / on the page
             k = con.execute("SELECT value FROM kv WHERE key='xhook_samples'").fetchone()
             samples = json.loads(k[0]) if k else []
@@ -154,9 +237,24 @@ def ingest(payload, kol_db=None, now=None, log=print):
             con.execute("INSERT INTO kv VALUES ('xhook_count', '1') ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1")
         except Exception:  # noqa: BLE001
             pass
-        con.commit()
+        try:
+            con.commit()
+        except sqlite3.OperationalError:
+            if _spool and calls and spool(payload, kol_db, now, log) is not None:
+                return 0
+            raise
         if n:
             log(f"xhook: {n} novih poziva iz {len(tweets)} objava")
+            try:   # 9.11. (audit P25): the copy loop runs now, not at its next 20-second tick
+                from league import copy as _copy
+                _copy.wake()
+            except Exception:  # noqa: BLE001
+                pass
+            try:   # 11.11. (Jure, flag fast_path G24): a followed influencer's call -> a fast_check (fast/enqueue)
+                from fast import enqueue as _fast
+                _fast.from_calls(calls)
+            except Exception:  # noqa: BLE001 - never fails the webhook
+                pass
         return n
     finally:
         con.close()

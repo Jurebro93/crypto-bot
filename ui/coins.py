@@ -160,6 +160,21 @@ def refresh():
     return n
 
 
+def age_s(now=None):
+    """Seconds since the list was last stored; None when it never was (10.11.: the daily 02:00 job reads the list
+    again only when it is older than an hour, run_web.py)."""
+    con = _ro(DB)
+    if con is None:
+        return None
+    try:
+        r = con.execute("SELECT MAX(updated) FROM coins").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        con.close()
+    return (now or time.time()) - r[0] if r and r[0] else None
+
+
 def start():
     def loop():
         time.sleep(int(os.environ.get("COINS_DELAY_S", "90")))
