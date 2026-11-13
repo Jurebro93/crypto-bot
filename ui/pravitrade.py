@@ -2808,8 +2808,10 @@ def token_popup(user, mint, now=None):
             f'{esc(h[3:] if h.startswith("tg:") else "@" + h)} ({esc(ago(ts)[0])})' for h, ts in callers[:8]) + "</p>")
     if top.get("state") and (top["state"] or {}).get("advice"):
         b.append(f'<p class=mut>Svježa provjera alata: {esc(top["state"]["advice"])}</p>')
-    b.append(f'<p><a href="https://dexscreener.com/solana/{quote(mint)}" target=_blank rel=noopener>DexScreener ↗</a> · '
-             f'<a href="/token/{quote(mint)}">cijela stranica tokena</a></p>')
+    # 13.11. (Jure: "trebao bi se učitavati ovaj graf"): on the Autopilot page this button (and the token links) loads
+    # the token into the chart above and closes the pop-up (ui/static/ap/ap.js); elsewhere it opens the token page
+    b.append(f'<p><a class=ap-buy href="/token/{quote(mint)}" data-sel="{esc(mint)}">Prikaži na grafu</a> · '
+             f'<a href="https://dexscreener.com/solana/{quote(mint)}" target=_blank rel=noopener>DexScreener ↗</a></p>')
     if ok or owner:
         b.append(_buy_form(mint, cfg, "tpsl", owner) if ok else
                  '<p class=mut style="font-size:13px">Gumb za kupnju je skriven dok token ne prolazi provjere.</p>')
