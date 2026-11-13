@@ -22,7 +22,7 @@ def B(*a, **k):
 post(
     "what-is-wallet-tracking", "sto-je-pracenje-novcanika", "Praćenje novčanika",
     "Što je praćenje novčanika (wallet tracking) i zašto većina 'smart moneyja' nije pametna",
-    "Što je wallet tracking? Kako pratiti Solana novčanike, uz stvarne podatke | MemeSonar",
+    "Što je wallet tracking? Kako pratiti Solana novčanike uz podatke | MemeSonar",
     "Wallet tracking znači pratiti što određeni Solana novčanici kupuju i prodaju. Pratili smo 469 novčanika: samo 11 "
     "od 50 aktivnih bilo je u plusu. Kako pronaći one koje vrijedi pratiti.", 7,
     "Praćenje novčanika znači gledati kupnje i prodaje određenih adresa na blockchainu, da bi učio od tradera koji su "
@@ -466,7 +466,7 @@ koristi sustav. To je najjeftiniji način da saznaš radi li tvoj plan.</p>
 post(
     "what-is-dca-in-crypto", "sto-je-dca", "Osnove",
     "Što je DCA u kriptu? Postupno ulaganje u meme coine, s primjerom",
-    "Što je DCA u kriptu? Postupno ulaganje (dollar-cost averaging) objašnjeno | MemeSonar",
+    "Što je DCA u kriptu? Postupno ulaganje objašnjeno na primjeru | MemeSonar",
     "DCA znači kupovati fiksan iznos u pravilnim razmacima umjesto odjednom. Primjer: $500 odjednom naspram 10 x $50, "
     "na tokenu koji pada i na tokenu koji se ruga.", 5,
     "DCA (dollar-cost averaging, postupno ulaganje) znači kupovati isti iznos u fiksnim razmacima, na primjer $50 svakih "
@@ -732,7 +732,7 @@ odluku donose emocije. Vidi <a href=/hr/blog/kako-trgovati-meme-coinima>kako trg
 post(
     "how-to-use-jupiter-swap", "kako-koristiti-jupiter-swap", "Vodiči",
     "Kako koristiti Jupiter swap na Solani: postavke koje štede novac",
-    "Kako koristiti Jupiter swap (jup.ag): slippage, priority fee, limit nalozi | MemeSonar",
+    "Kako koristiti Jupiter swap: slippage, priority fee, limit nalozi | MemeSonar",
     "Praktični vodič za Jupiter swap: spajanje novčanika, provjera tokena, postavke slippagea i priority feeja, limit "
     "nalozi i DCA te greške koje najviše koštaju.", 6,
     "Jupiter (jup.ag) je agregator swapova na Solani: dijeli tvoj nalog po bazenima da dobiješ najbolju cijenu. Spoji "
@@ -845,7 +845,7 @@ TAX_SRC = ("mišljenje Porezne uprave 410-01/17-08/29 (19. 3. 2018.), obavijest 
 post(
     "crypto-cards-croatia", "kripto-kartice-hrvatska", "Kartice",
     "Kripto kartice u Hrvatskoj (2026.): koje rade, koliko koštaju i porezna zamka",
-    "Najbolje kripto kartice u Hrvatskoj 2026.: Revolut, Crypto.com, Bybit, Bitpanda | MemeSonar",
+    "Najbolje kripto kartice u Hrvatskoj 2026.: Revolut, Crypto.com, Bybit | MemeSonar",
     "Koje kripto debitne kartice možeš koristiti u Hrvatskoj 2026.? Revolut, Crypto.com, Bybit EU, Bitpanda, Kraken i "
     "OKX uspoređeni po licenci, naknadama i cashbacku, i zašto je svako plaćanje prodaja kripta.", 7,
     "Hrvatska je u europodručju i EGP-u, pa ovdje rade EU kripto kartice: Revolutova kripto kartica, Crypto.com Visa, "
@@ -904,7 +904,7 @@ neoporezivu dobit u oporezivu.</li>
 post(
     "crypto-tax-croatia", "porez-na-kriptovalute", "Porez",
     "Porez na kriptovalute u Hrvatskoj (2026.): 12%, pravilo dvije godine i prijava JOPPD-om",
-    "Porez na kriptovalute 2026.: stopa 12%, pravilo dvije godine, JOPPD korak po korak | MemeSonar",
+    "Porez na kriptovalute 2026.: stopa 12%, pravilo dvije godine, JOPPD | MemeSonar",
     "Kako se oporezuju kriptovalute u Hrvatskoj: 12% na dobit, neoporezivo nakon dvije godine, zamjena kripta za kripto "
     "se ne oporezuje, gubici unutar godine i prijava JOPPD-om do kraja veljače. S primjerima.", 8,
     "U Hrvatskoj se dobit od prodaje kripta oporezuje po stopi od 12% (bez prireza od 2024.), samo kad ga zamijeniš za "
@@ -1053,7 +1053,7 @@ savjetnikom. Pravila za fizičke osobe: <a href=/hr/blog/porez-na-kriptovalute>p
 post(
     "why-big-influencer-calls-are-hard-to-trade", "zasto-je-tesko-trgovati-pozive-velikih-influencera", "Influenceri",
     "Zašto je tako teško trgovati pozive najvećih kripto influencera (i gdje je prilika)",
-    "Zašto ne uspijeva kopiranje velikih kripto influencera: sniper botovi, prioritetne naknade | MemeSonar",
+    "Zašto kopiranje velikih influencera ne uspijeva: snajperi i naknade | MemeSonar",
     "Pozive velikih influencera gledaju tisuće ljudi i sniper botovi koji plaćaju veću naknadu da kupe prvi. Kako rade "
     "prioritetne naknade i Jito napojnice i zašto rastuće zvijezde daju više prostora.", 7,
     "Kad slavni influencer objavi token, tisuće pratitelja i deseci botova pokušavaju kupiti u istoj sekundi. Botovi "

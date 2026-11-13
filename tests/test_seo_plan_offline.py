@@ -117,7 +117,7 @@ class Honest(unittest.TestCase):
         self.assertIn("FAQPage", html)
         self.assertIn("Month by month", html)
         self.assertIn("Best and worst call", html)
-        self.assertIn("(X / Twitter): crypto calls track record", html)
+        self.assertIn("<title>@goodguy on X: crypto calls, track record", html)   # 13.11.: within ~60 characters
         self.assertNotIn("noindex", html)
         self.assertNotIn("FRESH", html)                                  # members only
         hr = public.route("/hr/influencer/goodguy")[1].decode()

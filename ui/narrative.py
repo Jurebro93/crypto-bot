@@ -235,8 +235,13 @@ def za_protiv(keyed, scored=None, n=4):
     return za, protiv
 
 
-def za_protiv_line(za, protiv):
-    """"Za: ozbiljan projekt, smart walleti, rug prolazi. Protiv: ništa zabilježeno." as (za_text, protiv_text)."""
+def za_protiv_line(za, protiv, html=False):
+    """"Za: ozbiljan projekt, smart walleti, rug prolazi. Protiv: ništa zabilježeno." as (za_text, protiv_text).
+    html=True (the token page): escaped, every name in its own <span>, so the English page translates each name once
+    instead of every combination of names (13.11., ui/i18n)."""
+    if html:
+        one = lambda xs, none: (", ".join(f"<span>{esc(x)}</span>" for x in xs) + ".") if xs else f"<span>{none}</span>"
+        return one(za, "ništa izmjereno."), one(protiv, "ništa zabilježeno.")
     return ((", ".join(za) + ".") if za else "ništa izmjereno.", (", ".join(protiv) + ".") if protiv else "ništa zabilježeno.")
 
 

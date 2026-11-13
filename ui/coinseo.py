@@ -159,7 +159,7 @@ T = {
         slip_sub="Manje tokena od prikazane cijene, bazen s konstantnim produktom, prije naknada",
         slip_cols=("Iznos kupnje", "Manje tokena od prikazanog"),
         safe_h="Prije kupnje: provjera sigurnosti", safe_link="Cijela provjera ruga za {sym} →",
-        r_title="Je li {name} ({sym}) siguran? Provjera ruga: {ok} od {n} provjera prošlo | MemeSonar",
+        r_title="Je li {name} ({sym}) siguran? Provjera ruga: prošlo {ok} od {n} | MemeSonar",
         r_desc="Provjera ruga za {sym} iz podataka na blockchainu: mint i freeze authority, najveći holderi, udio "
                "developera, likvidnost, holderi i starost. Prošlo {ok} od {n}. Osvježava se svaka 3 sata.",
         r_h1="Je li {sym} siguran? Provjera ruga",

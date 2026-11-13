@@ -1343,7 +1343,8 @@ def token(mint, qs):
     elif qs.get("ok"):
         b.append(f'<p class="tkp-msg">{esc(qs["ok"])} <a href="/natjecanje#moj">Vidi svoj račun na Natjecanju</a></p>')
     b.append('<a class="tkp-back" href="/tokens">Tokeni</a>')
-    sub = R.cat(name + " · " if name and name != sym else "",
+    # 13.11.: the name is a name (translate=no): in English it is a placeholder, not a new sentence per token (ui/i18n)
+    sub = R.cat(R.raw(f"<bdi translate=no>{esc(name)}</bdi> · ") if name and name != sym else "",
                 R.raw(f'<button type="button" class="tkp-cp" data-copy="{esc(mint)}" title="Kopiraj adresu {esc(mint)}">'
                       f'<span class="tkp-cl">{esc(_short_addr(mint))}</span><span class="tkp-ci" aria-hidden="true"></span></button>'))
     right = ""
@@ -1360,10 +1361,10 @@ def token(mint, qs):
                                              (top or {}).get("verdict"), h1, zone_x)
         sentence = narrative.token_sentence(why, word, zone_x, why_bad, h1)
         za, protiv = narrative.za_protiv(keyed, parts)
-        zt, pt = narrative.za_protiv_line(za, protiv)
+        zt, pt = narrative.za_protiv_line(za, protiv, html=True)
         lbl = R.cat(R.dot(kind) if kind in ("warn", "bad") else "", f"Pouzdanost {conf} · šansa za skok {sn}")
         panel = (f'<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">{lbl}</div><div class="ms-name">{esc(word)}</div>'
-                 f'<p>{esc(sentence)}</p><div class="tkp-go"><b>Za:</b> {esc(zt)} <b>Protiv:</b> {esc(pt)}</div></div>')
+                 f'<p>{esc(sentence)}</p><div class="tkp-go"><b>Za:</b> {zt} <b>Protiv:</b> {pt}</div></div>')
     else:
         panel = (f'<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">Bez analize</div><div class="ms-name">'
                  f'{"Na popisu " + esc(dlist) if dlist else "Nije u analizi"}</div><p>'
@@ -1376,7 +1377,7 @@ def token(mint, qs):
     actions = ('<div class="tkp-btns"><button type="button" class="tkp-btn p" data-buy'
                + (' aria-disabled="true"' if locked else "") + '>Kupi</button>'
                f'<button type="button" class="tkp-btn s" data-copy="{esc(mint)}"><span class="tkp-cl">Kopiraj adresu</span></button></div>'
-               f'<p class="tkp-links">{buy_txt}<br>{_token_links(mint, url, dead)}</p>')
+               f'<p class="tkp-links"><span>{buy_txt}</span><br>{_token_links(mint, url, dead)}</p>')
     chart = tokenchart.chart_html(mint, sym or "", now)
     if chart:
         b.append(f'<div class="tkp-g2 a"><div>{chart}</div><div>{panel}{actions}</div></div>')
@@ -1485,7 +1486,7 @@ def _layers_html(mint, ev, sigs, rugs, pc, best, role, opened):
             rows.append([esc(labels.feat(k)), (f"{val:.2f}", val, "n"), (f"{wt:g}", wt, "n"), (f"{pts:.1f}", pts, "n"),
                          bar(pts, 100 * wt / tot if wt else 1), (f'<span class=mut>{esc(FEATURE.get(k, ""))}</span>', "", "wrap")])
         b.append(f"<p>Zadnji signal {ts(last['ts'])[0]} UTC, ocjena <b>{last['score']}</b>, otkud je došao: "
-                 f"{esc(labels.sources(last['sources']))}. Ocjena = Σ(signal × težina) / Σ težina izmjerenih signala × 100; "
+                 f"<span>{esc(labels.sources(last['sources']))}</span>. Ocjena = Σ(signal × težina) / Σ težina izmjerenih signala × 100; "
                  f"provjera koja nije rađena (npr. X buzz) ne ulazi ni u zbroj ni u nazivnik.</p>")
         b.append(table(["Signal", ("Vrijednost 0-1", "n"), ("Težina", "n"), ("Doprinos", "n"), "", ("Što mjeri", "wrap")], rows))
         b.append(f"<p>Zbroj doprinosa: <b>{sum(r[3][1] for r in rows):.1f}</b> <span class=mut>(spremljeno {last['score']})</span></p>")

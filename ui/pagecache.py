@@ -45,7 +45,7 @@ def trim():
     mem.trim()
 
 
-def _render(key, build):
+def _render(key, build, light=False):
     """Render once even when several threads ask at the same moment (0.5 CPU can't afford doing it twice)."""
     with _lock:
         ev = _inflight.get(key)
@@ -59,7 +59,7 @@ def _render(key, build):
         if hit:
             return hit
     try:
-        return _build(key, build)
+        return _build(key, build, light)
     finally:
         if mine:
             with _lock:
@@ -118,17 +118,29 @@ def _load_snap(key, stale_ok=False):
     return (time.time() - FRESH_S - 1, 200, None, gz) if gz else None
 
 
-def _build(key, build):
-    with _build_slots:
+class _NoSlot:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _build(key, build, light=False):
+    # light: the English copy of a cached page (a text walk that may wait for translations, 13.11.): it holds no rows,
+    # so it does not take the one build slot the heavy page builds share
+    with (_NoSlot() if light else _build_slots):
         t0 = time.time()
-        code, raw = build()
+        res = build()
         dt = time.time() - t0
+    code, raw = res[0], res[1]
+    keep = res[2] if len(res) > 2 else True   # 13.11.: an English copy still partly Croatian is served, not kept
     entry = _pack(code, raw)
-    del raw
+    del raw, res
     trim()
     if dt > SLOW_S:
         print(f"ui: {key[0]} se gradio {dt:.1f} s", flush=True)
-    if code == 200:
+    if code == 200 and keep:
         _save_snap(key, entry[3])
         with _lock:
             _store[key] = entry
@@ -141,9 +153,9 @@ def _build(key, build):
     return entry
 
 
-def _refresh(key, build):
+def _refresh(key, build, light=False):
     try:
-        _render(key, build)
+        _render(key, build, light)
     except Exception as e:  # noqa: BLE001 - 5.11.: used to be silent, so a page could stay stale for days
         print(f"pagecache: osvježavanje {key[0]} palo: {type(e).__name__}: {str(e)[:120]}", flush=True)
     finally:
@@ -151,8 +163,9 @@ def _refresh(key, build):
             _busy.discard(key)
 
 
-def get(key, build):
-    """(code, raw, gz) for `key`; build() -> (code, raw bytes) renders the page. Only 200 answers are stored."""
+def get(key, build, light=False):
+    """(code, raw, gz) for `key`; build() -> (code, raw bytes[, keep]) renders the page. Only 200 answers are stored,
+    and not those with keep=False."""
     now = time.time()
     with _lock:
         hit = _store.get(key)
@@ -170,11 +183,11 @@ def get(key, build):
     if hit and age < FRESH_S:
         return hit[1:]
     if start_bg:
-        threading.Thread(target=_refresh, args=(key, build), daemon=True, name="page-refresh").start()
+        threading.Thread(target=_refresh, args=(key, build, light), daemon=True, name="page-refresh").start()
         return hit[1:]
     if hit and age < STALE_S:      # someone else is already refreshing it
         return hit[1:]
-    return _render(key, build)[1:]   # older than STALE_S: rebuilt now, so a broken build shows its error, not old data
+    return _render(key, build, light)[1:]   # older than STALE_S: rebuilt now, so a broken build shows its error, not old data
 
 
 def get_bg(key, build, placeholder):
