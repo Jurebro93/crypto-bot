@@ -333,11 +333,13 @@ def safety(token, market=None):
     return why or (risk[0] if risk else None)
 
 
-def safety_ex(token, market=None):
+def safety_ex(token, market=None, info=None):
     """(why, risk). why: a check nothing overrides (price, bonded, the pool gates, a collapse, the rug archive, mint /
     freeze authority, RugCheck rugged, honeypot). risk: the rug RISK ratings (supply concentration, the rug filter's
     ODBAČEN / VISOK RIZIK verdict; 10.11. BOXCAT: the verdict was not checked here before) that fresh Grok evidence
-    may override at half size (ui/kandidati.py, the same rule get_trade_candidates shows)."""
+    may override at half size (ui/kandidati.py, the same rule get_trade_candidates shows).
+    info (13.11.): a dict filled with what the check read (sym, mcap, tables: the topcheck / rug filter rows), so a
+    refusal can name the concrete findings (rug_detail) and the page the symbol, without reading them twice."""
     from league import copy
     mk = (market or copy.market)({token}) or {}
     m = mk.get(token)
@@ -346,6 +348,8 @@ def safety_ex(token, market=None):
     if copy._dex_pair_empty(m):
         return "DexScreener ima par, ali trenutno bez cijene/likvidnosti", []
     price, liq, _, mcap = m[:4]
+    if info is not None:
+        info.update(sym=(m[4] if len(m) > 4 and isinstance(m[4], str) else None) or None, mcap=mcap)
     c = copy.CFG
     if copy._bonding_curve(m):
         return "token je još na pump.fun krivulji; uzimaju se samo bondani", []
@@ -375,10 +379,143 @@ def safety_ex(token, market=None):
         archived = src.archived()
     except Exception:  # noqa: BLE001
         archived = frozenset()
-    rv = kandidati.rug_view(token, mcap, liq, src, filters.rug_tables(), archived)
+    tables = filters.rug_tables()
+    if info is not None:
+        info["tables"] = tables
+    rv = kandidati.rug_view(token, mcap, liq, src, tables, archived)
     if rv["hard"]:
         return f"rug: {rv['hard'][0]}", []
     return None, rv["risk"]
+
+
+# 13.11. (Jure: "Zašto je zapelo"; 5qaP…pump refused at 11:36 and 11:56 UTC with only "rug check: pao (topcheck)"):
+# a rug RISK refusal names what the check found (rug_detail) and what Grok must do, in that order (risk_refusal).
+# topcheck/safety.judge's checks that can make a RISK (mint, freeze, RugCheck "rugged" and honeypot are hard, never
+# overridden, kandidati.rug_view), most telling first, with the English Grok reads (the number from the check's text)
+TC_RISK = (("lp", r"samo (\d+(?:[.,]\d+)?)\s*%", "LP locked or burned only {0}%: the liquidity can be pulled"),
+           ("holderi", r"drži (\d+(?:[.,]\d+)?)\s*%", "the top 10 holders hold {0}% (pools excluded)"),
+           ("dev", r"drži (\d+(?:[.,]\d+)?)\s*%", "the dev still holds {0}%"),
+           ("rugfilter", r"^rug filter: (.+)$", "rug filter rejected it: {0}"),
+           ("volumen", r"wash (\d+(?:[.,]\d+)?)/100", "fake volume: wash score {0}/100"))
+# the scanner's other rug RISK reasons (league/copy._concentration, scan/filters.rug_filter_why) in English
+RISK_EN = ((r"koncentriran supply: top 10 holdera drži (.+?)% \(granica (.+?)%\)",
+            "supply concentration: the top 10 holders hold {0}% (limit {1}%)"),
+           (r"koncentriran supply: jedan klaster walleta drži (.+?)% \(granica (.+?)%\)",
+            "supply concentration: one wallet cluster holds {0}% (limit {1}%)"),
+           (r"koncentriran supply: bundle (.+?)% u bloku kreacije \(granica (.+?)%\)",
+            "supply concentration: {0}% bundled in the creation block (limit {1}%)"),
+           (r"koncentriran supply: insajderi drže (.+?)% \(granica (.+?)%\)",
+            "supply concentration: insiders hold {0}% (limit {1}%)"),
+           (r"koncentriran supply: dev drži (.+?)% \(granica (.+?)%\)",
+            "supply concentration: the dev holds {0}% (limit {1}%)"),
+           (r"rug filter: visok rizik(?:, ocjena (\S+)/100)?(.*)$", "rug filter: high risk{0}{1}"),
+           (r"rug filter: odbačen \((.+)\)$", "rug filter: rejected ({0})"))
+TC_PAO = "rug check: pao"
+MAX_REASONS = 3
+
+
+def _risk_en(text):
+    import re
+    for rx, en in RISK_EN:
+        m = re.match(rx, text)
+        if m:
+            g = [x or "" for x in m.groups()]
+            if en.startswith("rug filter: high risk"):
+                g[0] = f", score {g[0]}/100" if g[0] else ""
+            return en.format(*g)
+    return text
+
+
+def _topcheck_reasons(row):
+    """[(hr, en)] of a topcheck row's failed RISK checks (TC_RISK order, then any other failed check), then
+    RugCheck's own danger risks: what made its verdict 'pao'."""
+    import re
+    s = (row or {}).get("safety") or {}
+    checks = s.get("checks") if isinstance(s, dict) else None
+    out = []
+    if isinstance(checks, dict):
+        order = [k for k, _rx, _en in TC_RISK] + [k for k in checks if k not in [k2 for k2, _r, _e in TC_RISK]]
+        tmpl = {k: (rx, en) for k, rx, en in TC_RISK}
+        for k in order:
+            st = checks.get(k)
+            if not (isinstance(st, (list, tuple)) and len(st) >= 2 and st[0] == "fail" and st[1]):
+                continue
+            hr = str(st[1])
+            rx, en = tmpl.get(k, (None, None))
+            m = re.search(rx, hr) if rx else None
+            out.append((hr, en.format(m.group(1)) if m else hr))
+    elif isinstance(s, dict):
+        out += [(str(f), str(f)) for f in s.get("fails") or [] if f]
+    for d in ((row or {}).get("rc") or {}).get("danger") or []:
+        if d:
+            out.append((f"RugCheck upozorava: {d}", f"RugCheck danger: {d}"))
+    seen, uniq = set(), []
+    for hr, en in out:
+        if hr not in seen:
+            seen.add(hr)
+            uniq.append((hr, en))
+    return uniq
+
+
+def rug_detail(token, risk, tables=None):
+    """13.11.: (Croatian, English) of the rug RISK ratings `risk` of a token with the concrete findings, at most
+    MAX_REASONS of them: "rug check: pao (topcheck)" becomes its failed checks from the topcheck row (LP lock, top 10
+    holders, dev, rug filter, volume, RugCheck's danger risks); a concentration or rug filter reason is already
+    concrete and stays as it is. ("rug provjera (topcheck): LP zaključan ili spaljen samo 5%…", "rug check
+    (topcheck) failed: LP locked or burned only 5%…")."""
+    if tables is None:
+        try:
+            from scan import filters
+            tables = filters.rug_tables()
+        except Exception:  # noqa: BLE001 - the bare reasons then
+            tables = ({}, {})
+    tc = (tables or ({}, {}))[0] or {}
+    hr_parts, en_parts, left = [], [], MAX_REASONS
+    for r in risk or []:
+        if left <= 0:
+            break
+        r = str(r)
+        if r.startswith(TC_PAO):
+            got = _topcheck_reasons(tc.get(token))[:left]
+            if got:
+                hr_parts.append("rug provjera (topcheck): " + "; ".join(h for h, _e in got))
+                en_parts.append("rug check (topcheck) failed: " + "; ".join(e for _h, e in got))
+                left -= len(got)
+            else:
+                hr_parts.append("rug provjera (topcheck) pala (pojedinosti provjere nisu dostupne)")
+                en_parts.append("rug check (topcheck) failed (its details are not available)")
+                left -= 1
+            continue
+        hr_parts.append(r)
+        en_parts.append(_risk_en(r))
+        left -= 1
+    return " · ".join(hr_parts), " · ".join(en_parts)
+
+
+def _sol_hr(x):
+    """0.075 -> "0,075" (the page's decimal comma)."""
+    return f"{x:g}".replace(".", ",")
+
+
+def risk_refusal(token, risk, amount, cap, tables=None, has_evidence=False):
+    """13.11. (Jure: "Zašto je zapelo"): (English for the MCP answer, Croatian for the page and the log) of a buy
+    refused for a rug RISK rating. Without fresh evidence: what was found, then the exact order (evidence FIRST, then
+    the retry within GROK_FRESH_S at most `cap` SOL). With evidence but over `cap`: the size Grok may retry with."""
+    from ui import kandidati
+    hr, en = rug_detail(token, risk, tables)
+    fresh = kandidati.GROK_FRESH_S // 60
+    if has_evidence:
+        return ((f"rug risk overridden by your fresh evidence, but only at half size: retry execute_trade now with "
+                 f"amount at most {cap:g} SOL (you asked {amount:g}); rug: {en}"),
+                (f"preveliki ulog uz rug rizik ({hr}): Grok ima svjež dokaz, ali smije najviše {_sol_hr(cap)} SOL "
+                 f"(pola svog uloga), tražio je {_sol_hr(amount)}"))
+    return ((f"safety check failed: rug risk rating ({en}). This is a rating, not a confirmed rug. To buy it anyway: "
+             f"FIRST send fresh evidence for this token: submit_x_features naming known callers / large accounts or "
+             f"growing organic authors, or submit_signal_opinion with verdict kupi; THEN retry execute_trade within "
+             f"{fresh} min with amount at most {cap:g} SOL (half size: half of grok_max_sol_per_trade). Evidence sent "
+             "after a refusal does not buy by itself: the retry is yours."),
+            (f"{hr}. Grok smije kupiti samo uz svjež dokaz (X značajke ili mišljenje „kupi”) iz zadnjih {fresh} min i "
+             f"najviše {_sol_hr(cap)} SOL."))
 
 
 def event_topic(token):
@@ -450,18 +587,23 @@ def execute(body, now=None, wait_s=None, market=None):
                          "Autopilot page); send require_approval=true to queue the trade for the owner"}
         row = {"ts": int(now), "side": side, "token": tok, "amount": amount, "reason": reason}
 
-        def reject(why, code=409, hr=None):
+        def reject(why, code=409, hr=None, extra=None):
             # 12.11.: why = the MCP's English reason; hr = the same in Croatian for the page and the log
-            _log(tcon, dict(row, status="rejected", why=why, **({"why_hr": hr} if hr else {})))
+            # 13.11.: extra = what else the log row keeps (the rug risk found) and the answer says (what to do next)
+            _log(tcon, dict(row, status="rejected", why=why, **({"why_hr": hr} if hr else {}),
+                            **{k: v for k, v in (extra or {}).items() if k != "next"}))
             print(f"grok auto: odbijeno {side} {tok[:6]} {amount:g}: {hr or why}", flush=True)
-            return code, {"status": "rejected", "reason": why}
+            ans = {"status": "rejected", "reason": why}
+            if (extra or {}).get("next"):
+                ans["next"] = extra["next"]
+            return code, ans
         lcon = lstore.connect()
         try:
             copy.ensure(lcon)
             if side == "sell":
                 ids = [str(i) for (i,) in tcon.execute("SELECT id FROM positions WHERE token=? AND status='open'", (tok,))]
                 if not ids:
-                    return reject("no open position in that token")
+                    return reject("no open position in that token", hr="u tom tokenu nema otvorene pozicije")
                 req = dict(settings.raw(tcon).get("sell_req") or {})
                 for pid in ids:
                     req[pid] = min(1.0, max(0.01, amount))
@@ -475,39 +617,58 @@ def execute(body, now=None, wait_s=None, market=None):
                              "tx_status": (tx or {}).get("status") or "submitted"}
             # buy
             if not st["active"]:
-                return reject(f"paused until midnight Zagreb: {st['pause_reason']}")
+                return reject(f"paused until midnight Zagreb: {st['pause_reason']}",
+                              hr=f"stoji do ponoći (Zagreb): {st['pause_reason']}")
             if maybe_pause(tcon, now, lcon):
-                return reject("paused until midnight Zagreb: the day's loss limit was reached")
+                return reject("paused until midnight Zagreb: the day's loss limit was reached",
+                              hr="stao do ponoći (Zagreb): dosegnuta granica dnevnog gubitka")
             lim, u = limits(tcon), usage(tcon, now, lcon)
             if not 0 < amount <= lim["grok_max_sol_per_trade"] + 1e-12:
-                return reject(f"amount must be 0-{lim['grok_max_sol_per_trade']:g} SOL (grok_max_sol_per_trade)", 400)
+                return reject(f"amount must be 0-{lim['grok_max_sol_per_trade']:g} SOL (grok_max_sol_per_trade)", 400,
+                              hr=(f"ulog {_sol_hr(amount)} SOL, najviše {_sol_hr(lim['grok_max_sol_per_trade'])} SOL "
+                                  "po kupnji"))
             if u["spent_sol"] + amount > lim["grok_max_sol_per_day"] + 1e-9:
                 return reject(f"day limit: {u['spent_sol']:g} SOL spent today, at most {lim['grok_max_sol_per_day']:g} "
-                              "(grok_max_sol_per_day)")
+                              "(grok_max_sol_per_day)",
+                              hr=f"dnevni limit: danas već {_sol_hr(u['spent_sol'])} SOL, najviše "
+                                 f"{_sol_hr(lim['grok_max_sol_per_day'])} SOL na dan")
             held = {r[0] for r in lcon.execute(
                 f"SELECT DISTINCT token FROM trades WHERE status='open' AND id IN ({','.join('?' * len(_league_ids(tcon))) or 'NULL'})",
                 _league_ids(tcon))}
             if tok not in held and u["open"] >= lim["grok_max_open"]:
-                return reject(f"{u['open']} Grok positions open, at most {lim['grok_max_open']} (grok_max_open)")
+                return reject(f"{u['open']} Grok positions open, at most {lim['grok_max_open']} (grok_max_open)",
+                              hr=f"otvoreno je već {u['open']} Grokovih pozicija, najviše {lim['grok_max_open']}")
             # 12.11. (owner's order point 4): more rounds in one token (open, close, open again, DCA lots) within
             # max_round_trips_per_token_day, none after MAX_STOP_OUTS_DAY stop-outs, the token at most dca_token_cap
             for blk in (round_block(tcon, lcon, tok, amount, now), token_cap_block(tcon, lcon, tok, amount)):
                 if blk:
                     return reject(blk[0], hr=blk[1])
-            why, risk = safety_ex(tok, market)
+            info = {}
+            why, risk = safety_ex(tok, market, info)
+            if info.get("sym"):
+                row["sym"] = str(info["sym"])[:24]
+            if info.get("mcap"):
+                row["mcap"] = round(float(info["mcap"]))
             if why:
-                return reject(f"safety check failed: {why}")
+                return reject(f"safety check failed: {why}", hr=f"sigurnosna provjera: {why}")
             if risk:   # 10.11. (Jure: "ako je BOXCAT označen kao rug, ipak slušaj Groka"): a measured override
                 from ui import kandidati
                 ev = kandidati.override_now(tok, now)
-                if not ev:
-                    return reject(f"safety check failed: {risk[0]} (a rug risk rating: fresh evidence of yours from the "
-                                  "last 30 min can override it at half size: submit_x_features naming known callers / "
-                                  "large accounts or growing organic authors, or submit_signal_opinion kupi)")
                 cap = round(lim["grok_max_sol_per_trade"] * kandidati.OVERRIDE_SIZE, 6)
+                # 13.11. (Jure: "Zašto je zapelo"): the concrete findings, the order of the steps and the size Grok may
+                # retry with, in English for Grok and in Croatian for the page (the rule itself is unchanged)
+                if not ev:
+                    en, hr = risk_refusal(tok, risk, amount, cap, info.get("tables"))
+                    return reject(en, hr=hr, extra={
+                        "rug_risk": risk[:3],
+                        "next": {"steps": ["submit_x_features or submit_signal_opinion (verdict kupi) for this token",
+                                           f"execute_trade buy again within {kandidati.GROK_FRESH_S // 60} min"],
+                                 "max_amount_sol": cap}})
                 if amount > cap + 1e-12:
-                    return reject(f"rug risk overridden by your fresh evidence, but only at half size: at most {cap:g} "
-                                  f"SOL (rug: {risk[0]})", 400)
+                    en, hr = risk_refusal(tok, risk, amount, cap, info.get("tables"), has_evidence=True)
+                    return reject(en, 400, hr=hr, extra={"rug_risk": risk[:3],
+                                                         "next": {"steps": ["execute_trade buy again now"],
+                                                                  "max_amount_sol": cap}})
                 row["override"] = {"rug_risk": risk[0], "strength": ev["strength"]}
                 reason = row["reason"] = (f"[Grok nadjačao rug ocjenu: {risk[0]}] " + reason)[:300]
             # 11.11. (flag grok_ev_gate, momentum/evgate.py): EV = p_tp x TP - (1 - p_tp) x SL - cost > 0
@@ -516,7 +677,7 @@ def execute(body, now=None, wait_s=None, market=None):
                 row["ev_gate"] = {k: g.get(k) for k in ("mode", "p_tp", "strategy", "ev", "break_even_p")}
                 if g.get("reject"):
                     evgate_mark(cal_id, "rejected")
-                    return reject(g["reject"])
+                    return reject(g["reject"], hr=_ev_hr(g))
             opening = not round_info(tcon, lcon, tok, now)["open"]
             if opening:   # 12.11.: a new round starts from its own entry
                 m = ((market or copy.market)({tok}) or {}).get(tok)
@@ -530,9 +691,9 @@ def execute(body, now=None, wait_s=None, market=None):
             try:
                 pravitrade._post_buy(lcon, tcon, {"token": tok, "sol": f"{amount:g}", "exit": "tpsl", "tp": tp, "sl": sl},
                                      settings.owner(), src=SRC)
-            except ValueError as e:
+            except ValueError as e:   # the buy path's reasons are Croatian already
                 evgate_mark(cal_id, "rejected")
-                return reject(str(e))
+                return reject(str(e), hr=str(e))
             evgate_mark(cal_id, "executed")
             tid = lcon.execute("SELECT MAX(id) FROM trades WHERE user=? AND token=? AND id>?",
                                (settings.LEAGUE_USER, tok, before)).fetchone()[0]
@@ -579,6 +740,21 @@ def _ev_gate(body, tok, amount, market, tcon, now):
         return None, None
 
 
+def _ev_hr(g):
+    """13.11.: the EV gate's refusal in Croatian for the page (the MCP keeps the gate's English, momentum/evgate)."""
+    st = g.get("strategy") or "other"
+    if g.get("p_tp") is None:
+        return "EV vrata: Grok nije poslao p_tp (svoju vjerojatnost da TP dođe prije SL-a) i strategiju"
+    if not g.get("levels"):
+        return f"EV vrata: strategija {st} nema TP/SL za ovaj token"
+    ev, be = g.get("ev"), g.get("break_even_p")
+    if ev is not None and g.get("reject") and "< +" in str(g["reject"]):
+        return (f"EV vrata: očekivana zarada {ev * 100:+.2f} % ispod praga (p_tp {g['p_tp']:.2f}"
+                + (f", isplati se od {be:.2f}" if be is not None else "") + ")")
+    return (f"EV vrata: Grokov izmjereni učinak za strategiju {st} još nije dokaz (treba 10+ izmjerenih ishoda i "
+            "pouzdano pozitivan prosjek)")
+
+
 def evgate_mark(cal_id, status):
     if cal_id:
         try:
@@ -586,6 +762,174 @@ def evgate_mark(cal_id, status):
             evgate.mark(cal_id, status)
         except Exception:  # noqa: BLE001
             pass
+
+
+# ---------- 13.11. (Jure: "Mogu li se pozicije groka jasnije prikazat"): the data of the Grok card on the page ------
+
+APPROVED_SRC = "ručno: Grok odobreno (MCP)"   # = league/exitplan.APPROVED_SRC: a Grok request the owner approved
+ATTEMPTS_S = 86400   # the card groups the attempts of the last 24 h by token
+LEGACY_EN = (   # the English of refusals logged before 13.11. (no why_hr) in Croatian, for the page
+    (r"rug risk overridden by your fresh evidence, but only at half size: at most (\S+) SOL \(rug: (.+)\)$",
+     "preveliki ulog uz rug rizik ({1}): uz Grokov svjež dokaz najviše {0} SOL (pola uloga)"),
+    (r"amount must be 0-(\S+) SOL", "ulog najviše {0} SOL po kupnji (Grokov limit)"),
+    (r"day limit: (\S+) SOL spent today, at most (\S+)", "dnevni limit: danas već {0} SOL, najviše {1} SOL na dan"),
+    (r"(\d+) Grok positions open, at most (\d+)", "otvoreno je već {0} Grokovih pozicija, najviše {1}"),
+    (r"paused until midnight Zagreb: (.+)$", "stoji do ponoći (Zagreb): {0}"),
+    (r"no open position in that token", "u tom tokenu nema otvorene pozicije"),
+    (r"safety check failed: (.+)$", "sigurnosna provjera: {0}"),
+)
+
+
+def is_grok_src(reason):
+    """True for a position / lot Grok opened: autotrade (SRC) or a request the owner approved (APPROVED_SRC)."""
+    r = str(reason or "")
+    return r.startswith("Grok auto") or r == APPROVED_SRC
+
+
+def why_hr(r, tables=None, cap=None):
+    """13.11.: the Croatian refusal of a log row for the page: its why_hr, else made from the English of a row logged
+    before 13.11. (a rug risk refusal with the concrete findings from the topcheck row, read through `tables`)."""
+    import re
+    if r.get("why_hr"):
+        return str(r["why_hr"])
+    w = str(r.get("why") or "")
+    if " (a rug risk rating" in w and w.startswith("safety check failed: "):
+        risk = w[len("safety check failed: "):].split(" (a rug risk rating")[0]
+        hr, _en = rug_detail(r.get("token"), [risk], tables)
+        size = f"najviše {_sol_hr(cap)} SOL" if cap else "najviše pola svog uloga po kupnji"
+        return (f"{hr}. Grok smije kupiti samo uz svjež dokaz (X značajke ili mišljenje „kupi”) iz zadnjih 30 min i "
+                f"{size}.")
+    for rx, hr in LEGACY_EN:
+        m = re.search(rx, w)
+        if m:
+            return hr.format(*[g.replace(".", ",") if re.fullmatch(r"\d+\.\d+", g) else g for g in m.groups()])
+    return w
+
+
+def attempts(rows, now=None, window_s=ATTEMPTS_S):
+    """13.11.: Grok's buy / sell attempts of the last window_s grouped by token, the token with the newest attempt
+    first: [{"token", "sym", "last": newest row, "earlier": how many before it, "executed": how many executed}]."""
+    now = now or time.time()
+    out = {}
+    for r in rows:   # log_rows: newest first
+        if r.get("side") not in ("buy", "sell") or not r.get("token") or now - (r.get("ts") or 0) > window_s:
+            continue
+        g = out.get(r["token"])
+        if g is None:
+            out[r["token"]] = {"token": r["token"], "sym": r.get("sym"), "last": r, "earlier": 0,
+                               "executed": int(r.get("status") == "executed")}
+            continue
+        g["earlier"] += 1
+        g["executed"] += int(r.get("status") == "executed")
+        g["sym"] = g["sym"] or r.get("sym")
+    return list(out.values())
+
+
+def _exit_word(reason):
+    """A real sale's order reason in a word or two for the card ("stop", "TP", "trailing", ...)."""
+    import re
+    t = str(reason or "").lower()
+    for rx, word in ((r"trail", "trailing"), (r"time", "time stop"), (r"break-?even", "break-even"),
+                     (r"\bsl\b|_sl\b|stop", "stop"), (r"\btp\d*\b|take profit", "TP"),
+                     (r"gumb|ručn|prodaj sve", "ručno"), (r"grok", "Grok")):
+        if re.search(rx, t):
+            return word
+    return str(reason or "")[:40] or "izlaz"
+
+
+def closed_rounds(tcon, now=None, start=None):
+    """13.11.: Grok's rounds on the real-trade account closed today (Zagreb day), newest first. Positions Grok opened
+    (is_grok_src), per token and mode; a lot opened while an earlier one of the round was still open is a DCA lot of
+    that round, as round_info counts them. [{"token", "sym", "mode", "start", "end", "sol_in", "sol_back", "fees_sol",
+    "pnl_sol", "pnl_pct", "lots", "exit", "auto"}]: pnl = what came back - what went in - every order's fee."""
+    now = now or time.time()
+    start = _day_start(now) if start is None else start
+    toks = [t for (t,) in tcon.execute("SELECT DISTINCT token FROM positions WHERE status='closed' AND closed_ts>=? "
+                                       "AND (reason LIKE 'Grok auto%' OR reason=?)", (int(start), APPROVED_SRC))]
+    out = []
+    for tok in toks:
+        rows = tcon.execute("SELECT id, symbol, mode, opened_ts, closed_ts, status, sol_in, sol_back, reason FROM positions "
+                            "WHERE token=? ORDER BY opened_ts, id", (tok,)).fetchall()
+        rounds = {}
+        for pid, sym, mode, ots, cts, st, sin, sback, why in rows:
+            if not is_grok_src(why):
+                continue
+            mode = mode or "dry"
+            cur = rounds.setdefault(mode, [])
+            end = cts if st == "closed" else None
+            if cur and (cur[-1]["_end"] is None or (ots or 0) < cur[-1]["_end"]):
+                r = cur[-1]
+                r["ids"].append(pid)
+                r["_end"] = None if end is None or r["_end"] is None else max(r["_end"], end)
+            else:
+                r = {"token": tok, "sym": sym, "mode": mode, "start": ots or 0, "ids": [pid], "_end": end,
+                     "sol_in": 0.0, "sol_back": 0.0, "auto": False}
+                cur.append(r)
+            r["sol_in"] += sin or 0.0
+            r["sol_back"] += sback or 0.0
+            r["auto"] = r["auto"] or str(why or "").startswith("Grok auto")
+            r["sym"] = r["sym"] or sym
+        for rs in rounds.values():
+            for r in rs:
+                if r["_end"] is None or r["_end"] < start:
+                    continue
+                q = ",".join("?" * len(r["ids"]))
+                fees = (tcon.execute(f"SELECT COALESCE(SUM(fee_lamports), 0) FROM orders WHERE position_id IN ({q})",
+                                     r["ids"]).fetchone()[0] or 0) / 1e9
+                last = tcon.execute(f"SELECT reason FROM orders WHERE position_id IN ({q}) AND side='sell' "
+                                    "ORDER BY ts DESC, id DESC LIMIT 1", r["ids"]).fetchone()
+                pnl = r["sol_back"] - r["sol_in"] - fees
+                out.append({"token": tok, "sym": r["sym"], "mode": r["mode"], "start": r["start"], "end": r["_end"],
+                            "sol_in": round(r["sol_in"], 6), "sol_back": round(r["sol_back"], 6), "fees_sol": round(fees, 6),
+                            "pnl_sol": round(pnl, 6), "pnl_pct": round(pnl / r["sol_in"] * 100, 2) if r["sol_in"] else None,
+                            "lots": len(r["ids"]), "exit": _exit_word(last[0] if last else ""), "auto": r["auto"]})
+    out.sort(key=lambda r: -(r["end"] or 0))
+    return out
+
+
+RETRY_HINT_S = 3 * 3600   # a rug-risk refusal this recent makes Grok's new evidence on the token answer with a hint
+
+
+def _rug_refused(r):
+    """A logged buy refused for a rug RISK rating (13.11. rows carry rug_risk; older ones only the English text)."""
+    return (r.get("side") == "buy" and r.get("status") == "rejected"
+            and bool(r.get("rug_risk") or "a rug risk rating" in str(r.get("why") or "")))
+
+
+def retry_hint(token, now=None):
+    """13.11. (Jure: "Zašto je zapelo"; 5qaP…pump: Grok sent its X evidence at 11:57, a minute after the second
+    refusal, and never asked again): the answer of submit_x_features / submit_signal_opinion on a token refused for a
+    rug RISK rating in the last RETRY_HINT_S while autotrade is on says whether that evidence now lets the buy pass
+    and with how much. Only words: the rule (kandidati.override_now, half of grok_max_sol_per_trade) is unchanged.
+    None when there is nothing to say."""
+    now = now or time.time()
+    try:
+        tcon = settings.connect()
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        if not state(tcon, now)["on"]:
+            return None
+        last = next((r for r in log_rows(tcon, 300) if r.get("token") == token and _rug_refused(r)
+                     and now - (r.get("ts") or 0) <= RETRY_HINT_S), None)
+        if not last:
+            return None
+        from ui import kandidati
+        cap = round(limits(tcon)["grok_max_sol_per_trade"] * kandidati.OVERRIDE_SIZE, 6)
+        fresh = kandidati.GROK_FRESH_S // 60
+        ev = kandidati.override_now(token, now)
+    finally:
+        tcon.close()
+    when = time.strftime("%H:%M UTC", time.gmtime(last.get("ts") or 0))
+    if ev:
+        return {"may_retry": True, "max_amount_sol": cap, "within_min": fresh,
+                "note": (f"your buy of this token was refused at {when} for a rug risk rating; this fresh evidence now "
+                         f"counts FOR it: retry execute_trade (side buy, require_approval false) within {fresh} min "
+                         f"with amount at most {cap:g} SOL. Nothing buys by itself.")}
+    return {"may_retry": False, "max_amount_sol": cap, "within_min": fresh,
+            "note": (f"your buy of this token was refused at {when} for a rug risk rating, and this evidence does not "
+                     "lift it: it needs known callers or large accounts named, growing organic momentum (score > 0 or "
+                     "x_early), or an opinion kupi / dobar, and your newest piece on the token must not be against it")}
 
 
 def portfolio_part(tcon, now=None):

@@ -486,9 +486,22 @@ def positions_data(tcon, cfg, now=None, live=None):
                     "plan": (plans.get(tok) or {}).get(mode), "fields": (plans.get(tok) or {}).get("fields"),
                     "opened_ts": max(r[3] or 0 for r in lots), "pending": pend, "has_demo": bool(first[10]),
                     "note": _slim(next((notes[("p", i)] for i in ids if ("p", i) in notes), None) or notes.get(("t", tok))),
+                    # 13.11. (Jure: "pozicije groka jasnije"): a Grok position for the Grok card ("auto": autotrade,
+                    # "approved": a request the owner approved), None for anything else
+                    "grok": _grok_kind(r[5] for r in lots),
                     "rule": rule})
     out.sort(key=lambda p: (p["paper"], -(p["opened_ts"] or 0)))
     return out
+
+
+def _grok_kind(reasons):
+    """"auto" when a lot of the position is Grok's autotrade, "approved" when one is a Grok request the owner approved
+    (ui/grokauto.is_grok_src), else None."""
+    from ui import grokauto
+    rs = [str(x or "") for x in reasons]
+    if any(x.startswith("Grok auto") for x in rs):
+        return "auto"
+    return "approved" if any(grokauto.is_grok_src(x) for x in rs) else None
 
 
 def _pnl_sol(lots, mc_now, avg):
@@ -517,7 +530,7 @@ def orders_data(tcon, cfg, positions):
         ex = (o.get("exit") or "tpsl")
         out.append({"kind": "limit", "word": "Limit kupnja", "id": str(o.get("id")), "token": o.get("token"),
                     "sym": o.get("sym") or short(o.get("token") or ""), "mc": o.get("mc"), "sol": o.get("sol"),
-                    "status": "čeka do " + time.strftime("%d.%m. %H:%M", time.localtime(o.get("until") or 0)),
+                    "status": "čeka do " + _dmhm(o.get("until") or 0),
                     # 11.11.: with an exit the plan's default stop; trailing / time stop go with the order's buy
                     "note": (f"TP {o.get('tp') or 'zadani'} · SL {o.get('sl') or (plan_sl0(cfg) if o.get('tp') or o.get('trail') or o.get('time') else pt._sl0(cfg))}"
                              + (f" · trailing {o['trail']:g} %" if o.get("trail") else "")
@@ -1738,7 +1751,8 @@ def _top_html(d, tcon, cfg, owner):
             con.close()
     req = pt._safe("mcp", pt._mcp_requests, tcon, owner)
     # 10.11.: Grok's autotrade while it is on, with its red "Ugasi" (a kill switch stays in sight, never lazy)
-    grok = pt._safe("grok-auto", pt._grok_auto_live, tcon, owner)
+    # 13.11.: the Grok card shows Grok's open positions from the same first view as the table (live MC through ap.js)
+    grok = pt._safe("grok-auto", pt._grok_auto_live, tcon, owner, d.get("positions"))
     link = ""
     if owner:   # the wallet's setup steps live in "Postavke i dijagnostika"; until it is ready the bar leads there
         try:
@@ -2100,11 +2114,17 @@ def kupiti_html(tcon, cfg, owner, now):
             f'{waiting}{live_rows}{skoro}{sug}{rec}')
 
 
-def _hm(ts):
+def _hm(ts, fmt="%H:%M"):
     """HH:MM in Zagreb (the page's clock)."""
     import datetime
     from zoneinfo import ZoneInfo
-    return datetime.datetime.fromtimestamp(ts, ZoneInfo("Europe/Zagreb")).strftime("%H:%M")
+    return datetime.datetime.fromtimestamp(ts, ZoneInfo("Europe/Zagreb")).strftime(fmt)
+
+
+def _dmhm(ts):
+    """"13.11. 14:05" in Zagreb. 13.11. (Jure: the Grok block showed UTC): the limit orders' deadline and the closed
+    positions' time used the server's zone (time.localtime: UTC on Render), an hour off the owner's clock."""
+    return _hm(ts, "%d.%m. %H:%M")
 
 
 def _count(n, one, many):
@@ -2303,7 +2323,7 @@ def povijest_html(tcon, cfg, owner, now, page_no=1):
         paper = mode != "live"
         out.append(f'<div class="apx-tr apx-hist{" is-paper" if paper else ""}"><span data-l="Token">{_sel_btn(tok, sym or short(tok))}'
                    f'{BADGE_PAPER if paper else BADGE_LIVE}</span>'
-                   f'<span class=n data-l="Zatvoreno">{esc(time.strftime("%d.%m. %H:%M", time.localtime(cts or ots or 0)))}</span>'
+                   f'<span class=n data-l="Zatvoreno">{esc(_dmhm(cts or ots or 0))}</span>'
                    f'<span class=n data-l="Uloženo">{redak.sol(sin, 3)}</span><span class=n data-l="Vraćeno">{redak.sol(sback, 4)}</span>'
                    f'<span class="n {_tone(pnl)}" data-l="PnL">{redak.sol(pnl, 4, sign=True)}<small>{_pct(pp)}</small></span>'
                    f'<span data-l="Izvor">{esc(src_kind(why))}<small>{esc(pt._who(why) or "")}</small>{ov}</span>'

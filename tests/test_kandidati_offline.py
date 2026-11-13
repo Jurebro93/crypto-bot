@@ -727,7 +727,8 @@ class Execute(unittest.TestCase):
                 mock.patch("rugfilter.archive.blocked", lambda *a, **k: frozenset()):
             code, out = t.ask(MINT, 0.05)
             self.assertEqual(out["status"], "rejected")
-            self.assertIn("koncentriran supply", out["reason"])
+            # 13.11.: the MCP answer is English (the page keeps the Croatian, grokauto.risk_refusal)
+            self.assertIn("supply concentration: the top 10 holders hold 70% (limit 60%)", out["reason"])
             self.assertIn("half size", out["reason"])
             assistnotes.submit_signal_opinion(t.con, "k", MINT, "kupi", 0.8, "dva velika KOL-a upravo zovu")
             code, out = t.ask(MINT, 0.1)

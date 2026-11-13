@@ -1667,14 +1667,32 @@ def _event_tool(name, a, kid):
         return {"error": str(e)}
 
 
+def _retry_hint(d, token):
+    """13.11. (Jure: "Zašto je zapelo"): evidence on a token whose autotrade buy was just refused for a rug risk
+    rating answers whether it now lets the buy pass (ui/grokauto.retry_hint); the stored evidence is never touched."""
+    if not isinstance(d, dict) or "error" in d or not MINT.fullmatch(str(token or "")):
+        return d
+    try:
+        from ui import grokauto
+        h = grokauto.retry_hint(str(token))
+    except Exception as e:  # noqa: BLE001 - a hint never costs the stored evidence its answer
+        print(f"mcp: savjet za ponovnu kupnju nije složen: {type(e).__name__}: {e}", flush=True)
+        h = None
+    return dict(d, autotrade_retry=h) if h else d
+
+
 def _tool(name, args, kid="local"):
     """(result dict, is_error) of one tool call."""
     args = args if isinstance(args, dict) else {}
     if name in NOTE_TOOLS:
         d = _note_tool(name, args, kid)
+        if name == "submit_signal_opinion":
+            d = _retry_hint(d, args.get("token"))
         return d, "error" in d
     if name in ("submit_x_features", "get_x_features"):
         d = _xfeat_tool(name, args, kid)
+        if name == "submit_x_features" and (args.get("subject_kind") or "token") == "token":
+            d = _retry_hint(d, args.get("subject") or args.get("token"))
         return d, "error" in d
     if name in ("get_trade_candidates", "get_grok_tasks"):   # 10.11. ui/kandidati.py, read-only
         from ui import kandidati
