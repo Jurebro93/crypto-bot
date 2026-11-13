@@ -233,7 +233,8 @@ class Rules(unittest.TestCase):
         self.assertIn("ocjena", rules.entry_check(self.rng(score=0.69), 52.0))
         self.assertIsNone(rules.entry_check(self.rng(score=0.65), 52.0, min_score=0.6))
         self.assertIn("pada", rules.entry_check(self.rng(m={"ch_5m": -0.03}), 52.0))
-        self.assertIn("kupnje", rules.entry_check(self.rng(m={"buy_share_5m": 0.49}), 52.0))
+        self.assertIn("kupnje", rules.entry_check(self.rng(m={"buy_share_5m": 0.44}), 52.0))   # 13.11.: prag 0.45
+        self.assertIsNone(rules.entry_check(self.rng(m={"buy_share_5m": 0.46}), 52.0))
         self.assertIn("volumen", rules.entry_check(self.rng(m={"vol_ratio": 0.49}), 52.0))
         self.assertIn("nepoznat", rules.entry_check(self.rng(m={"buy_share_5m": None}), 52.0))
         self.assertEqual(rules.entry_check(self.rng(active=False, why="slab volumen"), 52.0), "slab volumen")
