@@ -104,6 +104,20 @@ def wanted(now=None, paper_db=None, strat_db=None, hype_db=None, kol_db=None, le
     sc = _ro(strat_db or os.path.join(ROOT, "strat.db"))
     for (t,) in _q(sc, "SELECT DISTINCT token FROM positions WHERE status='open'"):
         open_tokens.add(t)
+    # 13.11. (owner's order point 2: stop / trailing fired ~5 % under their level): the real Autopilot account's open
+    # lots and every token with an active exit plan are our positions too, so their trades come in sub-second for the
+    # plan's stop and trailing (league/exitplan.fresh_prices). As open positions they keep the feed past the day's
+    # budget and are never dropped as too hot; at most LIVE_CAPS max_open real tokens + the planned demo ones.
+    lc = _ro(league_db or os.path.join(ROOT, "league.db"))
+    try:
+        from trade import settings as _ts
+        real_user = _ts.LEAGUE_USER
+    except Exception:  # noqa: BLE001
+        real_user = "pravi-trade"
+    for (t,) in _q(lc, "SELECT DISTINCT token FROM trades WHERE status='open' AND user=?", (real_user,)):
+        open_tokens.add(t)
+    for (t,) in _q(lc, "SELECT DISTINCT token FROM exit_plans WHERE status='active'"):
+        open_tokens.add(t)
     tokens += sorted(open_tokens)
     hc = _ro(hype_db or os.path.join(ROOT, "hype.db"))
     for (t,) in _q(hc, "SELECT mint FROM live_launches WHERE pool = 'migration' AND ts >= ? ORDER BY ts DESC LIMIT 60",
@@ -121,7 +135,6 @@ def wanted(now=None, paper_db=None, strat_db=None, hype_db=None, kol_db=None, le
             wallets += json.loads(v).get("wallets") or []
         except ValueError:
             pass
-    lc = _ro(league_db or os.path.join(ROOT, "league.db"))
     for (w,) in _q(lc, "SELECT DISTINCT target FROM follows WHERE kind='wallet' AND active=1"):
         if w not in wallets:
             wallets.insert(0, w)

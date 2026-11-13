@@ -34,7 +34,18 @@ CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, position_id INTEGER, token TEXT, side TEXT, mode TEXT,
     amount_in INTEGER, amount_out INTEGER, cost_pct REAL, status TEXT, reason TEXT, error TEXT, signature TEXT,
     request_id TEXT, route TEXT, code INTEGER, fee_lamports INTEGER, prio_lamports INTEGER);
+CREATE TABLE IF NOT EXISTS exit_fills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, position_id INTEGER, event_id INTEGER, plan_id INTEGER,
+    token TEXT, symbol TEXT, trigger TEXT, level_px REAL, seen_px REAL, mc_ratio REAL, px_src TEXT, px_age_s REAL,
+    trigger_ts REAL, sent_ts REAL, done_ts REAL, fill_px REAL, slip_level_pct REAL, slip_seen_pct REAL,
+    sent_after_s REAL, latency_s REAL, cap_pct REAL, cap_result TEXT, status TEXT, signature TEXT, mode TEXT);
+CREATE INDEX IF NOT EXISTS exit_fills_event ON exit_fills (event_id, position_id);
 """
+# exit_fills (13.11., owner's order point 2: "Jučerašnji live izlazi imali su ~5 % slip preko triggera"): one row per
+# real sale that mirrors an exit plan's trigger (run_trade._exit_fill): the trigger's level and the price the
+# executor saw (league.db exit_events), when the order went out and when it came back, the fill in USD per token and
+# the slip against both, and how the protective slippage try went. *_px are USD per token; mc_ratio = market cap per
+# unit of price, so the page and the log can say it in market cap.
 NEW_COLS = {"positions": [("league_id", "INTEGER"), ("fees_sol", "REAL DEFAULT 0"),
                           # 10.11. (plan 1.5): the demo's exit price next to the real one, and how far apart
                           ("demo_exit_px", "REAL"), ("real_exit_px", "REAL"), ("exit_slip_pct", "REAL"),
@@ -261,18 +272,25 @@ def reserve_sol(cfg, n_positions):
     return max(cfg.get("min_sol_reserve", 0), RESERVE_FLOOR_SOL, n_positions * SELL_COST_SOL)
 
 
-def _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct, limit=None):
+def _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct, limit=None, slippage_bps=None):
     try:
-        o = jupiter.order(input_mint, output_mint, amount_raw, taker=wallet.address(), route=route)
+        if slippage_bps:   # 13.11.: only an exit's capped first try (sell(slip_cap_pct)); fakes keep their signature
+            o = jupiter.order(input_mint, output_mint, amount_raw, taker=wallet.address(), route=route,
+                              slippage_bps=slippage_bps)
+        else:
+            o = jupiter.order(input_mint, output_mint, amount_raw, taker=wallet.address(), route=route)
     except Exception as e:
+        # 13.11.: no_answer = the endpoint itself is down, so an exit's fallback does not wait on it a second time
         return {"status": "failed", "retry": True, "error": f"{ROUTE_HR[route]} ne odgovara ({type(e).__name__})",
-                "amount_in": amount_raw}
+                "amount_in": amount_raw, "no_answer": True}
     res = {"amount_in": int(o.get("inAmount") or amount_raw), "amount_out": int(o.get("outAmount") or 0),
            "cost_pct": jupiter.cost_pct(o), "request_id": o.get("requestId"), "error": None,
            "fee_lamports": jupiter.fee_lamports(o), "prio_lamports": int(o.get("prioritizationFeeLamports") or 0),
            "error_code": o.get("errorCode")}
     if not res["amount_out"]:
-        return {**res, "status": "failed", "retry": True, "error": o.get("error") or "nema rute"}
+        hs = o.get("http_status") if isinstance(o, dict) else None
+        return {**res, "status": "failed", "retry": True, "error": o.get("error") or "nema rute",
+                "http_status": hs, "no_answer": bool(hs and (hs == 429 or hs >= 500))}
     if max_cost_pct is not None and res["cost_pct"] is not None and res["cost_pct"] > max_cost_pct:
         return {**res, "status": "blocked", "error": f"trošak {res['cost_pct']}% > {max_cost_pct}%"}
     if limit is not None:   # 10.11. (Grok MCP audit 3): the price this very order pays, before anything is signed
@@ -345,14 +363,17 @@ def _pump(input_mint, output_mint, amount_raw, live):
             "fee_lamports": 0, "cost_pct": None, "error": None}
 
 
-def swap(input_mint, output_mint, amount_raw, live, max_cost_pct=None, routes=ROUTES, limit=None):
+def swap(input_mint, output_mint, amount_raw, live, max_cost_pct=None, routes=ROUTES, limit=None, slippage_bps=None):
     """One swap (live) or one quote (dry), route by route until one works. Returns {status, route, amount_in,
     amount_out, cost_pct, fee_lamports, error, tried, attempts, fee_total, ...}.
     attempts = every route's own result (its signature and the fee it was charged), fee_total = the sum of the fees
-    of all attempts: a failed first try that landed onchain still cost money (audit 4.11. C09)."""
+    of all attempts: a failed first try that landed onchain still cost money (audit 4.11. C09).
+    slippage_bps (13.11.): Jupiter routes only (PumpPortal has its own SLIPPAGE_PCT), see sell(slip_cap_pct)."""
     tried, res, attempts = [], None, []
     for route in routes:
         res = (_pump(input_mint, output_mint, amount_raw, live) if route == "pump" else
+               _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct, limit, slippage_bps)
+               if slippage_bps else
                _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct, limit) if limit is not None
                else _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct))
         res["route"] = route
@@ -608,8 +629,62 @@ def _sell_wait(con, position_id, now):
     return max(0, rows[0][0] + min(SELL_BACKOFF_MAX_S, 5 * 2 ** (n - 1)) - now)
 
 
-def sell(con, cfg, position_id, frac=1.0, close=False, now=None, reason=""):
-    """Sell frac of the originally bought quantity (close=True sells everything left)."""
+# 13.11. (owner's order point 2: "zaštitni slippage prag pri triggeru ... bez gašenja sigurnosnih provjera"): an exit
+# plan's sale is first sent with at most this slippage under the quote (Jupiter routes; trade config
+# "exit_slip_cap_pct" overrides, 0 = off). A stop that cannot fill is worse than slippage: when that try surely did
+# not swap (no route, not landed, slippage exceeded), the normal swap with Jupiter's own slippage goes out at once.
+EXIT_SLIP_CAP_PCT = 3.0
+_CAP_UNSUPPORTED = {}   # route -> True once Jupiter refused the slippageBps parameter itself (HTTP 400): not sent again
+
+
+def exit_cap_pct(cfg):
+    """The protective slippage of an exit's first try in percent, None when off."""
+    try:
+        v = float(cfg.get("exit_slip_cap_pct", EXIT_SLIP_CAP_PCT))
+    except (TypeError, ValueError):
+        v = EXIT_SLIP_CAP_PCT
+    return v if v > 0 else None
+
+
+def _capped_swap(token, amount, live, cfg, cap_pct):
+    """13.11.: the exit's swap with the protective slippage first. Returns (result, {"cap_pct", "result"}).
+    The fallback (the normal swap, every route) goes out only when the capped try surely did not swap: status failed
+    with retry (no quote, not landed, 6001 slippage exceeded); an unknown outcome (Jupiter never answered after the
+    signed transaction was sent) is returned as it is, so nothing is sold twice (sell's backoff and the wallet check
+    of the next pass decide). One route only (the first Jupiter route that takes the parameter): in a crash the
+    fallback must not wait behind a second capped try. A route that did not answer at all is not asked again in the
+    fallback."""
+    routes = tuple(r for r in routes_for(cfg) if r != "pump" and not _CAP_UNSUPPORTED.get(r))[:1]
+    info = {"cap_pct": cap_pct, "result": None}
+    if not routes:
+        info["result"] = "preskočeno (Jupiter ne prima slippageBps)"
+        return swap(token, jupiter.SOL, amount, live, None, routes_for(cfg)), info
+    first = swap(token, jupiter.SOL, amount, live, None, routes, slippage_bps=int(round(cap_pct * 100)))
+    if first["status"] in ("ok", "dry"):
+        info["result"] = "ok"
+        return first, info
+    if first["status"] != "failed" or not first.get("retry"):
+        info["result"] = f"pao, ishod nepoznat ({first.get('error')}): bez slijepog ponavljanja"
+        return first, info
+    for a in first.get("attempts") or []:
+        if a.get("http_status") == 400 and a.get("route"):   # the parameter itself refused: do not send it again
+            _CAP_UNSUPPORTED[a["route"]] = True
+    skip = {a.get("route") for a in first.get("attempts") or [] if a.get("no_answer")}
+    rest = tuple(r for r in routes_for(cfg) if r not in skip) or routes_for(cfg)
+    res = swap(token, jupiter.SOL, amount, live, None, rest)
+    res["attempts"] = list(first.get("attempts") or []) + list(res.get("attempts") or [])
+    res["tried"] = list(first.get("tried") or []) + list(res.get("tried") or [])
+    res["fee_total"] = sum(a.get("fee_lamports") or 0 for a in res["attempts"])
+    info["result"] = f"pao ({first.get('error')}), odmah normalni slippage: {res['status']}"
+    return res, info
+
+
+def sell(con, cfg, position_id, frac=1.0, close=False, now=None, reason="", slip_cap_pct=None):
+    """Sell frac of the originally bought quantity (close=True sells everything left).
+    slip_cap_pct (13.11., owner's order point 2): an exit's protective slippage on the first try (_capped_swap); the
+    result then carries "slip_cap" {cap_pct, result}. Every check stays as it was (a real position needs the key
+    and TRADE_LIVE, the backoff after failed tries, the wallet's balance before a full sale). The result also
+    carries t_sent / t_done (unix s, float): when the swap request went out and when its answer came."""
     now = now or time.time()
     token, mode, qty, left, sol_back = con.execute(
         "SELECT token, mode, qty_raw, qty_left, sol_back FROM positions WHERE id=?", (position_id,)).fetchone()
@@ -637,7 +712,13 @@ def sell(con, cfg, position_id, frac=1.0, close=False, now=None, reason=""):
                       "VALUES (?,?,?,?,?,?,?,?,?)", (int(now), position_id, token, "sell", mode, amount, "pending", reason, None))
     intent = cur.lastrowid
     con.commit()
-    res = swap(token, jupiter.SOL, amount, live, None, routes_for(cfg))
+    t_sent = time.time()
+    if slip_cap_pct:
+        res, cap = _capped_swap(token, amount, live, cfg, slip_cap_pct)
+        res["slip_cap"] = cap
+    else:
+        res = swap(token, jupiter.SOL, amount, live, None, routes_for(cfg))
+    res["t_sent"], res["t_done"] = t_sent, time.time()
     con.execute("DELETE FROM orders WHERE id=? AND status='pending'", (intent,))
     fees = (res.get("fee_total", res.get("fee_lamports")) or 0) / LAMPORTS   # dry: the quote's estimate (P67)
     if res["status"] in ("ok", "dry"):

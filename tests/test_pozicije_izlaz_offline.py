@@ -36,8 +36,10 @@ class Base(unittest.TestCase):
         from ui import league as uleague, prijedlog
         self.tmp = tempfile.TemporaryDirectory()
         d = self.tmp.name
+        from trade import wake
         self._saved = (run_trade.LEAGUE_DB, run_trade.DB, settings.DB, store.DB, uleague.market, collapse.check,
-                       uleague._symbol, prijedlog.live_market, os.environ.get("TRADE_OWNER"))
+                       uleague._symbol, prijedlog.live_market, os.environ.get("TRADE_OWNER"), wake.PATH)
+        wake.PATH = os.path.join(d, "WAKE")   # 13.11.: an exit of the real account rings run_trade (trade/wake.py)
         run_trade.LEAGUE_DB = store.DB = os.path.join(d, "league.db")
         run_trade.DB = settings.DB = os.path.join(d, "trade.db")
         self.con = executor.connect(settings.DB)
@@ -56,8 +58,9 @@ class Base(unittest.TestCase):
     def tearDown(self):
         from rugfilter import collapse
         from ui import league as uleague, prijedlog
+        from trade import wake
         (run_trade.LEAGUE_DB, run_trade.DB, settings.DB, store.DB, uleague.market, collapse.check,
-         uleague._symbol, prijedlog.live_market, owner) = self._saved
+         uleague._symbol, prijedlog.live_market, owner, wake.PATH) = self._saved
         if owner is None:
             os.environ.pop("TRADE_OWNER", None)
         else:

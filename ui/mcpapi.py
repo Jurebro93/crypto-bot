@@ -1032,7 +1032,16 @@ TOOLS += [
                      "trigger time_stop_min), max_stop_pct (12.11.: the widest stop this plan accepts, percent below "
                      "the average entry, e.g. 12 = never wider than -12 %: a wider stop in the plan is rejected with "
                      "the numbers; without a stop the plan gets -max_stop_pct when that is tighter than the stop it "
-                     "would keep; sl_default still holds on top), reason (one line). Runs under the "
+                     "would keep; sl_default still holds on top), breakeven_after_tp1 (13.11.: true = once TP1 has "
+                     "sold, the stop of the REST moves to break-even: the average entry + breakeven_buffer_pct %, "
+                     "default the round-trip cost of the rest, trade/cost.round_trip; never lower than the stop in "
+                     "force, so never wider than sl_default; paper and live alike; needs take_profits with TP1 under "
+                     "the whole position; get_exit_events shows a row trigger breakeven with the new stop, and the "
+                     "stop that later fires is trigger stop with note break-even), breakeven_buffer_pct (optional, "
+                     "0-50, percent above the average entry instead of the cost; TP1 must be above it), reason (one "
+                     "line). A stop or trailing fires on the lower of the market quote and the newest on-chain trade "
+                     "PumpPortal saw (13.11.), and the real sell goes out within a second with a protective "
+                     "slippage first (falls back to the normal swap at once when that fails). Runs under the "
                      "flag exit_plans: paper = executed only on the demo account autopilot-paper, logged for the real "
                      "one; live = both. The owner's switch exit_plan_live (live = on) executes a plan on the REAL "
                      "account for a Grok autotrade position (every lot bought by your execute_trade "
@@ -1059,14 +1068,25 @@ TOOLS += [
                                 "description": "percent NET of the round-trip cost (needs time_stop_min)"},
              "max_stop_pct": {"type": "number", "minimum": 1, "maximum": 99,
                               "description": "the widest stop accepted, percent below the average entry (12 = -12 %)"},
+             "breakeven_after_tp1": {"type": "boolean", "default": False,
+                                     "description": "after TP1 sold, the rest's stop moves to the entry + cost"},
+             "breakeven_buffer_pct": {"type": "number", "minimum": 0, "maximum": 50,
+                                      "description": "break-even level in percent above the average entry (default: "
+                                                     "the round-trip cost of the rest)"},
              "reason": {"type": "string"}}}},
          "required": ["token_address", "plan"]}},
     {"name": "get_exit_events", "annotations": _READ,
      "description": ("Executed exit-plan triggers since since_ts (unix s), newest first: plan_id, account, token, "
-                     "trigger (tp1, tp2, trailing, stop, time_stop, time_stop_min), price, market cap, share sold, PnL in "
+                     "trigger (tp1, tp2, trailing, stop, time_stop, time_stop_min; breakeven = the stop moved to "
+                     "break-even after TP1, nothing sold), price, market cap, share sold, PnL in "
                      "USD of the "
                      "demo side, mode (izvršeno = executed, sjena = logged only), stale (the price was older than 60 s), "
-                     "and the real sell's cost/slippage %, tx signature and status when it landed."),
+                     "note (break-even on a stop that was at break-even), 13.11.: level_px (the level crossed, USD per "
+                     "token), px_src (tržište = market quote, pumpportal = newest on-chain trade) and px_age_s of "
+                     "the price that crossed it, trig_ts, "
+                     "and the real sell's cost/slippage %, tx signature and status when it landed, with fills: the "
+                     "fill price and market cap, slip vs the level and vs the price seen in %, seconds from the "
+                     "trigger to the order and to its answer, and the protective slippage try."),
      "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"},
                                                       "limit": {"type": "integer", "minimum": 1, "maximum": 500}}}},
     {"name": "get_research", "annotations": _READ,

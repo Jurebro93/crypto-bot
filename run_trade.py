@@ -24,7 +24,7 @@ import sqlite3
 import sys
 import time
 
-from trade import executor, jupiter, settings, wallet
+from trade import executor, jupiter, settings, wake, wallet
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "trade.db")  # own file, see run_hype.DB
@@ -340,9 +340,150 @@ def _exit_recon_once(con, now=None):
             lg.close()
 
 
+EXIT_EVENT_MAX_AGE_S = 300   # 13.11.: an exit plan's trigger this recent is the reason of a demo sale run_trade mirrors
+
+
+def _exit_trigger(con, lg, pos_id, token, now):
+    """13.11. (owner's order point 2): the exit plan's trigger behind a demo sale of the real account (league.db
+    exit_events: newest executed sale of the token on LEAGUE_USER within EXIT_EVENT_MAX_AGE_S, written by
+    league/exitplan.run_once) that this position has not measured yet (exit_fills), as a dict; None otherwise (a
+    manual sale, the lot's own TP/SL, an older database without the table)."""
+    try:
+        r = lg.execute("SELECT * FROM exit_events WHERE token=? AND user=? AND mode='izvršeno' AND share > 0 "
+                       "AND ts >= ? ORDER BY id DESC LIMIT 1",
+                       (token, settings.LEAGUE_USER, int(now) - EXIT_EVENT_MAX_AGE_S)).fetchone()
+    except sqlite3.Error:
+        return None
+    if r is None:
+        return None
+    ev = dict(r) if hasattr(r, "keys") else None
+    if not ev:
+        return None
+    try:
+        if con.execute("SELECT 1 FROM exit_fills WHERE event_id=? AND position_id=?", (ev["id"], pos_id)).fetchone():
+            return None
+    except sqlite3.Error:
+        return None
+    return ev
+
+
+def _first_try(con, pos_id, ev):
+    """True while no sell of this position was tried since the trigger: only the first try gets the protective
+    slippage (a retry after a failure goes straight with Jupiter's own slippage)."""
+    t0 = int(ev.get("trig_ts") or ev.get("ts") or 0) - 1
+    return con.execute("SELECT 1 FROM orders WHERE position_id=? AND side='sell' AND ts>=? LIMIT 1",
+                       (pos_id, t0)).fetchone() is None
+
+
+def _exit_px_inputs(token, live):
+    """(SOL/USD, the token's decimals) for the fill price of an exit, without waiting on the network for the SOL
+    price (trade/equity.sol_usd_cached). Decimals: pump.fun mints have 6, otherwise the process' cache, and on a live
+    sale one RPC (after the swap, so it delays no sale). Unknown parts are None (the fill is then not priced)."""
+    from trade import equity
+    sol = equity.sol_usd_cached()
+    dec = 6 if token.endswith("pump") else equity._DEC.get(token)
+    if dec is None and live:
+        try:
+            dec = equity._decimals(token)
+        except Exception:  # noqa: BLE001 - RPC down: the fill stays unpriced, the sale itself is done
+            dec = None
+    return sol, dec
+
+
+def _mc(px, ratio):
+    if px is None:
+        return "?"
+    return f"MC ${px * ratio:,.0f}" if ratio else f"${px:.6g}"
+
+
+def _exit_fill(con, pos_id, sym, token, ev, r, live, quiet=False):
+    """13.11. (owner's order point 2: "Provjeri zašto nastaje toliki zaostatak"): one exit_fills row and one log line
+    per real sale behind an exit plan's trigger: the trigger's level and the price the executor saw (and from which
+    feed, how old), how long after the trigger the order went out and its answer came, the fill in USD per token
+    (SOL out x SOL/USD over the tokens sold) and the slip against the level and against the price seen, and the
+    protective slippage try. Never raises (a measurement never stops the trade loop)."""
+    try:
+        sol, dec = _exit_px_inputs(token, live)
+        fill = None
+        if sol and dec is not None and r.get("amount_in") and r.get("amount_out"):
+            fill = (r["amount_out"] / executor.LAMPORTS) * sol / (r["amount_in"] / 10 ** int(dec))
+        level, seen = ev.get("level_px"), ev.get("price")
+        ratio = ev["mcap"] / ev["price"] if ev.get("mcap") and ev.get("price") else None
+        t0 = ev.get("trig_ts") or ev.get("ts")
+        sent = r["t_sent"] - t0 if r.get("t_sent") and t0 else None
+        lat = r["t_done"] - t0 if r.get("t_done") and t0 else None
+        sl_lvl = (fill / level - 1) * 100 if fill and level else None
+        sl_seen = (fill / seen - 1) * 100 if fill and seen else None
+        cap = r.get("slip_cap") or {}
+        con.execute("INSERT INTO exit_fills (ts, position_id, event_id, plan_id, token, symbol, trigger, level_px, "
+                    "seen_px, mc_ratio, px_src, px_age_s, trigger_ts, sent_ts, done_ts, fill_px, slip_level_pct, "
+                    "slip_seen_pct, sent_after_s, latency_s, cap_pct, cap_result, status, signature, mode) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (int(time.time()), pos_id, ev.get("id"), ev.get("plan_id"), token, sym, ev.get("trigger"), level,
+                     seen, ratio, ev.get("px_src"), ev.get("px_age_s"), t0, r.get("t_sent"), r.get("t_done"), fill,
+                     sl_lvl, sl_seen, sent, lat, cap.get("cap_pct"), cap.get("result"), r.get("status"),
+                     r.get("signature"), "live" if live else "dry"))
+        con.commit()
+
+        def pct(v):
+            return f"{v:+.1f} %" if v is not None else "?"
+
+        def sec(v):
+            return f"+{v:.2f} s" if v is not None else "?"
+        src = ev.get("px_src") or "?"
+        age = f", {ev['px_age_s']:.0f} s" if ev.get("px_age_s") is not None else ""
+        text = (f"izlaz {sym or token[:6]} {ev.get('trigger')} (plan #{ev.get('plan_id')}): "
+                f"razina {_mc(level, ratio)}, viđeno {_mc(seen, ratio)} ({src}{age}), nalog {sec(sent)} nakon "
+                f"okidača, ispunjeno {_mc(fill, ratio)} ({pct(sl_lvl)} od razine, {pct(sl_seen)} od viđenog), gotovo "
+                f"{sec(lat)}"
+                + (f"; zaštitni slippage {cap['cap_pct']:g} %: {cap.get('result')}" if cap.get("cap_pct") else ""))
+        _say(text, quiet)
+    except Exception as e:  # noqa: BLE001
+        print(f"trade: mjerenje izlaza {sym or token[:6]}: {type(e).__name__}: {e}", flush=True)
+
+
+def _league_sells(con, cfg, lg, now, quiet=False):
+    """The real positions that mirror the real-trade account's demo trades: a closed demo trade -> sell everything,
+    a demo trade sold in part -> sell the same share (the share still held, qty / bought qty, is the share kept).
+    13.11. (owner's order point 2): run FIRST in every pass, so a stop never waits behind a buy; a sale behind an exit
+    plan's trigger is sent with the protective slippage on its first try (executor.exit_cap_pct, live positions only;
+    a failed try falls back to the normal swap at once) and measured (_exit_fill). Returns how many sells were tried."""
+    tried = 0
+    for pos_id, lid, qty_raw, qty_left, sym, token, mode in con.execute(
+            "SELECT id, league_id, qty_raw, qty_left, symbol, token, mode FROM positions WHERE status='open' "
+            "AND league_id IS NOT NULL").fetchall():
+        d = lg.execute("SELECT status, size_usd, entry_eff, qty, note FROM trades WHERE id=?", (lid,)).fetchone()
+        if d is None:
+            continue
+        if d["status"] == "closed":
+            frac, close, why = 1.0, True, d["note"] or "demo izlaz"
+        else:
+            bought = d["size_usd"] / d["entry_eff"] if d["entry_eff"] else 0
+            keep = min(1.0, d["qty"] / bought) if bought else 1.0
+            have_frac = qty_left / qty_raw if qty_raw else 0
+            if have_frac - keep < 0.05:
+                continue
+            frac, close, why = have_frac - keep, False, "djelomična prodaja (demo)"
+        live = mode == "live"
+        ev = _exit_trigger(con, lg, pos_id, token, now)
+        cap = executor.exit_cap_pct(cfg) if ev and live and _first_try(con, pos_id, ev) else None
+        kw = {"slip_cap_pct": cap} if cap else {}
+        r = executor.sell(con, cfg, pos_id, frac, close=close, now=now, reason=why, **kw)
+        tried += 1
+        if r["status"] in ("ok", "dry"):
+            _say(f"{r['status'].upper()} PRODAJA {sym} -> {r['amount_out'] / executor.LAMPORTS:.4f} SOL", quiet)
+            if ev:
+                _exit_fill(con, pos_id, sym, token, ev, r, live, quiet)
+        elif r["status"] not in ("noop", "wait"):
+            _say(f"prodaja {sym} nije prošla: {r.get('error')}; pokušavam opet", quiet)
+    return tried
+
+
 def follow_league_once(con, cfg, since, now=None, quiet=False):
     """Mirror the competition account "pravi-trade": its new open trades -> buys, its (partial) exits -> sells.
-    The share still held in the demo trade (qty / bought qty) is the share kept of the real position."""
+    The share still held in the demo trade (qty / bought qty) is the share kept of the real position.
+    13.11. (owner's order point 2): the sells go FIRST (_league_sells), and once more after the buys when a buy was
+    tried (a swap can take seconds; an exit that fired meanwhile does not wait for the next pass)."""
     now = now or time.time()
     lg = _league()
     if lg is None:
@@ -353,6 +494,8 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             fresh = _league_fresh(lg, since)
         except sqlite3.OperationalError:
             return   # no competition tables yet
+        _league_sells(con, cfg, lg, now, quiet)
+        bought = 0
         live = executor.is_live(cfg)
         tag = "LIVE" if live else "DRY"
         for t in fresh:
@@ -399,6 +542,7 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): the owner's manual
             # buy (its own stake, never a copy) may add one more lot to a token already held; a copy never doubles one
             kw = {"limit": limit} if limit is not None else {}
+            bought += 1
             r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
                              league_id=t["id"], size_sol=float(size) if size else rng_sol,
                              tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15),   # 15: the page default (ui/pravitrade)
@@ -411,25 +555,8 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                      + (f" uz potvrđeno nadjačavanje: {over}" if ov else ""), quiet)
             else:
                 _say(f"{tag} kupnja {t['symbol']} nije prošla: {r.get('error')}", quiet)
-        for pos_id, lid, qty_raw, qty_left, sym in con.execute(
-                "SELECT id, league_id, qty_raw, qty_left, symbol FROM positions WHERE status='open' "
-                "AND league_id IS NOT NULL").fetchall():
-            d = lg.execute("SELECT status, size_usd, entry_eff, qty, note FROM trades WHERE id=?", (lid,)).fetchone()
-            if d is None:
-                continue
-            if d["status"] == "closed":
-                r = executor.sell(con, cfg, pos_id, close=True, now=now, reason=d["note"] or "demo izlaz")
-            else:
-                bought = d["size_usd"] / d["entry_eff"] if d["entry_eff"] else 0
-                keep = min(1.0, d["qty"] / bought) if bought else 1.0
-                have_frac = qty_left / qty_raw if qty_raw else 0
-                if have_frac - keep < 0.05:
-                    continue
-                r = executor.sell(con, cfg, pos_id, have_frac - keep, now=now, reason="djelomična prodaja (demo)")
-            if r["status"] in ("ok", "dry"):
-                _say(f"{r['status'].upper()} PRODAJA {sym} -> {r['amount_out'] / executor.LAMPORTS:.4f} SOL", quiet)
-            elif r["status"] not in ("noop", "wait"):
-                _say(f"prodaja {sym} nije prošla: {r.get('error')}; pokušavam opet", quiet)
+        if bought:   # 13.11.: an exit that fired while the buys were in flight
+            _league_sells(con, cfg, lg, max(now, time.time()), quiet)
     finally:
         lg.close()
 
@@ -517,6 +644,7 @@ def cmd_follow(a):
         _start_equity()
     beat = {"ts": 0, "live": None}
     while not STOPPING["flag"]:
+        rung = wake.stamp()   # 13.11.: an exit rung during this pass starts the next one at once (wake.nap below)
         try:
             con = executor.connect(DB)
             cfg = load(a.config, con)
@@ -534,13 +662,15 @@ def cmd_follow(a):
             if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
                 settings.put(con, "heartbeat", int(time.time()), "bot")
                 beat["ts"] = time.time()
+            # 13.11. (owner's order point 2): the Autopilot's mirror FIRST, and in it its exits first: a stop or a
+            # trailing that just sold the demo lot goes out before anything else this pass does
+            follow_league_once(con, cfg, since)
             _trigger_probe_once(con)          # 10.11.: Jupiter Trigger step 1, only when the owner asked (no money)
             executor.reconcile_pending(con)   # buys a crash left half-booked, matched with the wallet
             sell_all_once(con, cfg)
             sell_requests_once(con, cfg)
             if cfg.get("follow_paper"):
                 follow_once(con, cfg, since)
-            follow_league_once(con, cfg, since)
             _exit_recon_once(con)             # 10.11. (plan 1.5): demo vs real exit price of positions just closed
             con.close()
         except Exception as e:
@@ -552,7 +682,9 @@ def cmd_follow(a):
                 pass
         if a.once or STOPPING["flag"]:
             break
-        time.sleep(cfg["poll_s"])
+        # 13.11. (owner's order point 2): poll_s at most; an exit of the real account (league/exitplan, league/auto
+        # fast loop: trade/wake.ring) ends the nap within wake.STEP_S
+        wake.nap(cfg["poll_s"], since=rung)
     if not a.once:
         _stop_equity()
 
