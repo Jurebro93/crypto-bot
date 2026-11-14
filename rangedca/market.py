@@ -36,6 +36,35 @@ Universe (table mkt), cheapest first:
   promote      a known token that a source sees passing the filter NOW (its own numbers) is due at once, whatever it
                waited for (11.11.: add() never moved next_ts, so a token put aside a day under 30k or 2 h under 50k
                stayed aside while GeckoTerminal saw it pass ~30 times a round: "prolazi filter 33, primljeno 0")
+  14.11. večer (owner: "Želim više tradeova"; the backtest: a token is in an active range ~6 % of the time, so the
+  number of range trades follows the number of LIVE tokens watched). Measured from the sandbox 14.11. 13:20-14:00 UTC:
+  the Render log's universe of 8,875 held 41 watched; 5,012 "nema cijene" are PumpPortal migrations that DexScreener
+  no longer lists (two fresh migrations sampled: MC $1 and $17, liquidity $1 and $12: junk launches, not asked too
+  early, they are asked 6 h after migrating); every GeckoTerminal list together (104 requests) held 61 tokens passing
+  the market filter, the 12 Jupiter lists 177 tokens in the band (MC/liquidity, bonded), 73 of them with volume 1 h
+  >= $5k; GeckoTerminal + Jupiter 88 passing at once. The PumpSwap top pages by 24 h volume were mostly drained pumps
+  (126 of 200 under $15k liquidity, pages 1-4 not one passing); the trending lists (1 h, 6 h, 24 h) held 35-40 each.
+  jup          Jupiter's token lists (tokens/v2/{toptraded,toptrending,toporganicscore}/{interval}, 100 tokens each,
+               free, no key: lite-api.jup.ag, never the swap key JUP_API_KEY), JUP_LISTS, ONE list a pass in turn so
+               the whole set is read every JUP_EVERY_S (15 min), at most JUP_DAY a day (hour-sliced): every DEX at
+               once (PumpSwap, Raydium, Meteora, ...), the token's MC, liquidity, buy + sell volume of the hour and
+               its pool's age; launchpad tokens only once graduated (bonded), tokenized stocks / RWA / LST skipped.
+               Measured: 7 lists held 78 of the 80 passing tokens of all 12 (toptraded 1h 40, toptrending 24h +14,
+               toporganicscore 1h +8, toptraded 5m +6, toporganicscore 5m +4, toporganicscore 24h +3, toptrending 1h
+               +3). A token that passes is due now (promote); one that only misses the volume or the age is put
+               in the universe to be asked again then; other rows are not stored (MC out of the band is most of them)
+  gt           (14.11. večer) the round is the trending lists of 1 h, 6 h and 24 h (GT_TREND_PAGES pages each), then
+               the top pools and the PumpSwap pools by 24 h transactions (GT_TOP_PAGES / GT_DEX_PAGES): the same 16
+               requests held 38 passing tokens where the old set (more top-volume and PumpSwap-volume pages) held 19.
+               It is asked GT_REQ_PASS pages a pass and resumes where it stopped (a 60-s pass never waits a minute on
+               GeckoTerminal), only the requests really sent are charged, and it stops at the first page that fails
+               or that another job holds. The Render log's "15 upita, 20 poolova": 15 charged, one page answered:
+               the key's hour slice was spent, so the round went to the free GeckoTerminal (measured from here: a
+               429 every ~8 requests at 27 a minute, and the minute loop reserves the free host), and every page
+               after the first came back empty but was charged. Now, while the CoinGecko key's hour slice is spent
+               (the day's is not), the round waits for the next hour (range is a priority job of the key, so it is
+               served first then); without a key, or with the day's calls gone, it asks the free host GT_REQ_PASS_FREE
+               pages a pass and stops at the first 429.
 Source priority of a token: event > missed > market (and the signal pass above them all, rangedca/view.source_of).
 Market filter (a market token): bonded, MC $30k-$5M (14.11.: was $50k; the owner's floor is 30k), liquidity >= $15k,
 volume 1 h >= $5k (14.11.: was $10k; a token that ranges trades calmly), at least 6 h old. An
@@ -69,6 +98,13 @@ sends at most MAX_REQ_PASS 20). 12.11. (5 minutes for every liquid token): measu
 910 requests since midnight (~2,000 a day); at that size the change adds ~70 a day (one batch every ~4 passes instead
 of every 5). Worst case, 400 liquid tokens: 14 batches every ~248 s = ~4,900 a day + discovery <= 1,500, hence
 DEX_DAY 6500 (~4.5 a minute against the free 300; DexScreener costs nothing, the cap only guards the rate limit).
+14.11. večer (svemir), a day before -> after, every cap unchanged: DexScreener refresh + discovery ~2,000 (41 watched)
+-> ~2,000-3,500 (120-200 watched: 1-2 batches a pass); DexScreener lists 480 -> 480; Jupiter 0 -> 672 (JUP_DAY 700,
+free); GeckoTerminal list 192 charged (most of it never answered on the free host) -> at most 192, only what went
+out; GeckoTerminal seeds of market tokens at most SEED_DAY 20 (of RANGE_GT_DAY 60) -> the same, up to 12 of them for
+new tokens without history. A live run from the sandbox (14.11. ~14:00 UTC, 10 passes, Jupiter + the free
+GeckoTerminal + DexScreener lists only, no scanner / hype / calls / migrations): 60 watched after 20 minutes (jup 52,
+gt 29, dex_liste 11), 22 DexScreener requests.
 Nothing here trades. range_dca may enter a market / event token only on the demo account (paper), while its flag
 (range_market / event_tokens) is paper; never on the real account (rangedca/trade.py). A missed token: the demo
 account while range_missed is paper; the real account only while it is live AND >= 20 closed demo rounds of source
@@ -110,12 +146,36 @@ GT_DAY = int(os.environ.get("RANGE_MKT_GT_DAY", "200"))
 # under 50k and one page of GeckoTerminal's top pools (20) an hour found almost nothing else. Now GT_TOP_PAGES pages of
 # the top pools by 24 h volume + GT_TREND_PAGES of trending (1 h and 6 h) every GT_EVERY_S: 20 pools a request, their
 # numbers admit a pool without a DexScreener request. ~10 requests every 2 h = ~120 a day of the shared 3000.
-GT_TOP_PAGES = int(os.environ.get("RANGE_MKT_GT_PAGES", "6"))
-GT_TREND_PAGES = int(os.environ.get("RANGE_MKT_GT_TREND_PAGES", "2"))
+# 14.11. večer (svemir, measured: module text): trending 1 h / 6 h / 24 h x 4 pages + 2 top + 2 PumpSwap pages by 24 h
+# transactions = the same 16 requests a round (192 a day), twice the passing tokens
+GT_TREND_DURATIONS = tuple(x.strip() for x in os.environ.get("RANGE_MKT_GT_TREND_DUR", "1h,6h,24h").split(",") if x.strip())
+GT_TOP_PAGES = int(os.environ.get("RANGE_MKT_GT_PAGES", "2"))
+GT_TREND_PAGES = int(os.environ.get("RANGE_MKT_GT_TREND_PAGES", "4"))
+GT_SORT = os.environ.get("RANGE_MKT_GT_SORT", "h24_tx_count_desc")   # 14.11. večer: by volume = drained pumps first
 # 14.11. (owner: tokens that survived the crash): the PumpSwap dex's top pools by 24 h volume, every age (the trending
 # lists are mostly hours old); measured 14.11. 07:50 UTC: of its 219 top pools 30 were in MC 30k-5M with $15k+
 GT_DEX = os.environ.get("RANGE_MKT_GT_DEX", "pumpswap")
-GT_DEX_PAGES = int(os.environ.get("RANGE_MKT_GT_DEX_PAGES", "6"))
+GT_DEX_PAGES = int(os.environ.get("RANGE_MKT_GT_DEX_PAGES", "2"))
+# 14.11. večer: GeckoTerminal pages a pass (the round resumes next pass): the key's pace is 0.25 s, the free host's
+# 3.5 s (a whole round of 16 on the free host held a 60-s run_range pass for a minute)
+GT_REQ_PASS = int(os.environ.get("RANGE_MKT_GT_REQ_PASS", "6"))
+GT_REQ_PASS_FREE = 2
+# 14.11. večer (svemir): Jupiter's token lists, free and keyless (module text). One list a pass, every list once in
+# JUP_EVERY_S; 7 lists x 96 = 672 a day <= JUP_DAY. lite-api answers a few calls a second per IP (x-ratelimit
+# headers; the swap path uses api.jup.ag with its own key), so one call a minute or two is nothing to it
+JUP_URL = os.environ.get("RANGE_MKT_JUP_URL", "https://lite-api.jup.ag/tokens/v2")
+JUP_LISTS = tuple(x.strip() for x in os.environ.get(
+    "RANGE_MKT_JUP_LISTS", "toptraded/1h,toptrending/24h,toporganicscore/1h,toptraded/5m,toporganicscore/5m,"
+                           "toporganicscore/24h,toptrending/1h").split(",") if x.strip())
+JUP_EVERY_S = int(os.environ.get("RANGE_MKT_JUP_EVERY_S", "900"))
+JUP_DAY = int(os.environ.get("RANGE_MKT_JUP_DAY", "700"))
+JUP_PAUSE_S = 600          # after an error / 429 from Jupiter the lists rest this long
+JUP_SKIP_TAGS = frozenset(("stocks", "rwa", "lst"))   # tokenized shares, real-world assets, staked SOL: not memes
+# 14.11. večer: GeckoTerminal seeds (run_range.py) for a newly watched market token with volume 1 h >= this that has no
+# 6 h of history yet: its range is computed at once instead of 6 h later; only while the market's seed day has more
+# than SEED_NEAR_RESERVE left (those stay for tokens close to an entry). Inside SEED_DAY and RANGE_GT_DAY, no new cap
+EARLY_SEED_VOL_H1 = float(os.environ.get("RANGE_MKT_EARLY_SEED_VOL_H1", "20000"))
+SEED_NEAR_RESERVE = 8
 # a watched token stays while it keeps these (admission needs MIN_VOL_H1 / MIN_LIQ): one quiet hour no longer drops it
 # 14.11.: 3k (was 5k) = the range's own floor (detect min_vol_h1, trade/cost.VOL_FLOOR), under the new 5k admission
 KEEP_VOL_H1 = float(os.environ.get("RANGE_MKT_KEEP_VOL_H1", "3000"))
@@ -147,7 +207,8 @@ CURVE_DEX = ("pumpfun", "pump-fun", "moonshot", "moonit", "launchlab", "raydium-
 DAY_KEYS = (("dexscreener", "mkt_dex_day", lambda: DEX_DAY),
             ("od toga otkrivanje", "mkt_disc_day", lambda: DISC_DAY),
             ("dexscreener liste", "mkt_lists_day", lambda: LISTS_DAY),
-            ("gt", "mkt_gt_day", lambda: GT_DAY), ("birdeye", "mkt_bird_day", lambda: BIRDEYE_DAY))
+            ("gt", "mkt_gt_day", lambda: GT_DAY), ("birdeye", "mkt_bird_day", lambda: BIRDEYE_DAY),
+            ("jupiter", "mkt_jup_day", lambda: JUP_DAY))   # 14.11. večer (svemir)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS mkt (token TEXT PRIMARY KEY, via TEXT, src TEXT, first_seen INTEGER, checked_ts INTEGER,
@@ -186,25 +247,47 @@ class Net:
                 pass
         return out
 
-    def gt_pools(self, n_req=None):
-        """Trending (1 h, 6 h) and the top pools by 24 h volume, page by page, at most n_req requests. None when
-        another job holds the shared GeckoTerminal host (11.11.: the first round got 0 pools from 10 requests that
-        way): nothing was asked, the round waits for a free minute."""
+    def gt_pools(self, n_req=None, start=0, deadline=None):
+        """The round's pages (gt_plan) from `start`, at most n_req requests: a Fetched list of pools (sent = requests
+        that went out, done = pages answered in order, stop = why it stopped early). None when another job holds the
+        shared GeckoTerminal host before the first page (11.11.: the first round got 0 pools from 10 requests that
+        way): nothing was asked, the round waits for a free minute. 14.11. večer: it stops at the first page another
+        job holds (get_json answers None, nothing sent), at the first error (a 429 pauses every process on the host:
+        asking on would only lengthen the pause) and at `deadline` (monotonic)."""
         from event_calendar import http
         if http.reserved_by_other(f"{GT}/pools") > 0:
             return None
-        out = []
-        reqs = [("/trending_pools", {"page": pg, "duration": d}) for d in ("1h", "6h") for pg in range(1, GT_TREND_PAGES + 1)]
-        reqs += [("/pools", {"page": pg, "sort": "h24_volume_usd_desc"}) for pg in range(1, GT_TOP_PAGES + 1)]
-        reqs += [(f"/dexes/{GT_DEX}/pools", {"page": pg, "sort": "h24_volume_usd_desc"})   # 14.11.: every age, bonded
-                 for pg in range(1, GT_DEX_PAGES + 1)]
-        for path, params in reqs[:n_req if n_req is not None else len(reqs)]:
+        out = Fetched()
+        plan = gt_plan()
+        end = len(plan) if n_req is None else min(len(plan), start + n_req)
+        for path, params in plan[start:end]:
+            if deadline is not None and time.monotonic() >= deadline:
+                out.stop = "vrijeme prolaza"
+                break
+            if http.cooling(f"{GT}{path}") > 0:   # after a 429 every process pauses: never sleep in the pass
+                out.stop = "pauza nakon 429"
+                break
             try:
-                d = http.get_json(f"{GT}{path}", params, ttl=600, headers={"Accept": "application/json"}, retries=1)
-                out += list((d or {}).get("data") or [])
-            except Exception:  # noqa: BLE001
-                pass
+                d = http.get_json(f"{GT}{path}", params, ttl=600, headers={"Accept": "application/json"}, retries=0)
+            except Exception as e:  # noqa: BLE001
+                out.sent += 1
+                out.stop = f"greška {getattr(e, 'code', None) or type(e).__name__}"
+                break
+            if d is None:
+                out.stop = "zauzet"
+                break
+            out.sent += 1
+            out.done += 1
+            out += [p for p in (d.get("data") or []) if isinstance(p, dict)]
         return out
+
+    def jup_list(self, name):
+        """One Jupiter token list (JUP_URL/{category}/{interval}, up to 100 tokens; free, keyless: the swap key
+        JUP_API_KEY is never sent here). Raises on an HTTP error (a 429 included)."""
+        from event_calendar import http
+        d = http.get_json(f"{JUP_URL}/{name}", {"limit": 100}, ttl=300, timeout=10,
+                          headers={"Accept": "application/json"}, retries=0)
+        return [t for t in (d or []) if isinstance(t, dict)]
 
     def birdeye_list(self):
         key = os.environ.get("BIRDEYE_API_KEY")
@@ -221,10 +304,41 @@ class Net:
         return list(((d or {}).get("data") or {}).get("tokens") or [])
 
 
+class Fetched(list):
+    """14.11. večer: what one discovery call brought plus its cost: sent (requests that went out: charged), done
+    (pages answered in order: where the next pass resumes), stop (why it stopped early, "" when it did not)."""
+
+    def __init__(self, *a):
+        super().__init__(*a)
+        self.sent = self.done = 0
+        self.stop = ""
+
+
+def gt_plan():
+    """[(path, params)] of one GeckoTerminal discovery round, the most yielding first (14.11. večer, measured): the
+    trending pools of every GT_TREND_DURATIONS, page by page; the top pools; the GT_DEX (PumpSwap) pools by GT_SORT."""
+    reqs = [("/trending_pools", {"page": pg, "duration": d}) for d in GT_TREND_DURATIONS
+            for pg in range(1, GT_TREND_PAGES + 1)]
+    reqs += [("/pools", {"page": pg, "sort": GT_SORT}) for pg in range(1, GT_TOP_PAGES + 1)]
+    reqs += [(f"/dexes/{GT_DEX}/pools", {"page": pg, "sort": GT_SORT}) for pg in range(1, GT_DEX_PAGES + 1)]
+    return reqs
+
+
 def _f(x):
     try:
         return float(x) if x is not None else None
     except (TypeError, ValueError):
+        return None
+
+
+def _iso_ts(x):
+    """An ISO time ("2026-11-14T09:27:24Z") -> unix s, None when unreadable."""
+    if not x:
+        return None
+    try:
+        from datetime import datetime
+        return int(datetime.fromisoformat(str(x).replace("Z", "+00:00")).timestamp())
+    except ValueError:
         return None
 
 
@@ -261,7 +375,8 @@ def spend_line(con, now, log=print):
                                               else "") for name, key, cap in DAY_KEYS]
     line = (f"range watchlist trošak ({last}): " + ", ".join(parts)
             + f"; signalni prolaz dexscreener {used('sig_dex_day')}, gt sjeme {used('gt_day')}/{data.GT_DAY} "
-              f"(tržište {used('mkt_seed_day')}/{SEED_DAY}), helius {used('helius_day')} kredita; iz hype skena bez "
+              f"(tržište {used('mkt_seed_day')}/{SEED_DAY}, od toga rano {used('mkt_seed_early_day')}), helius "
+              f"{used('helius_day')} kredita; iz hype skena bez "
               f"troška {used('mkt_reuse_day')} snimki")
     log(line)
     return line
@@ -564,6 +679,23 @@ def gt_row(p):
     return tok, (a.get("name") or "").split(" / ")[0][:20] or None, created, s
 
 
+def jup_row(t):
+    """A Jupiter token (tokens/v2 list) -> (token, symbol, created_ts, snapshot dict like data.snap_of), or None
+    (no address, or a tokenized stock / RWA / LST: JUP_SKIP_TAGS). Volume 1 h = the hour's buy + sell volume; a
+    launchpad token (pump.fun, letsbonk, ...) is bonded only once it graduated (graduatedPool); its age is the
+    graduation's (the pool DexScreener and GeckoTerminal date), else the first pool's."""
+    tok = t.get("id")
+    if not tok or JUP_SKIP_TAGS & set(t.get("tags") or ()):
+        return None
+    s1 = t.get("stats1h") or {}
+    liq = _f(t.get("liquidity")) or 0.0
+    created = _iso_ts(t.get("graduatedAt")) or _iso_ts((t.get("firstPool") or {}).get("createdAt"))
+    s = {"price": _f(t.get("usdPrice")), "mcap": _f(t.get("mcap")) or _f(t.get("fdv")), "liq": liq,
+         "vol_h1": (_f(s1.get("buyVolume")) or 0.0) + (_f(s1.get("sellVolume")) or 0.0),
+         "bonded": bool(liq > 0 and (not t.get("launchpad") or t.get("graduatedPool")))}
+    return tok, (t.get("symbol") or "")[:20] or None, created, s
+
+
 def cg_day_text(con, now):
     """The shared CoinGecko day in one phrase: the key's calls today of CG_DAILY_CALLS (all jobs) and the range list's
     own GT requests of GT_DAY; without the key, the free GeckoTerminal."""
@@ -582,16 +714,36 @@ def cg_day_text(con, now):
 
 
 def gt_requests():
-    """GeckoTerminal requests of one discovery round (trending 1 h + 6 h pages, top-volume pages, 14.11. the PumpSwap
-    dex's top pages)."""
-    return 2 * GT_TREND_PAGES + GT_TOP_PAGES + GT_DEX_PAGES
+    """GeckoTerminal requests of one discovery round (gt_plan: the trending pages of every duration, the top pages,
+    the PumpSwap dex's pages)."""
+    return len(GT_TREND_DURATIONS) * GT_TREND_PAGES + GT_TOP_PAGES + GT_DEX_PAGES
 
 
 N_LISTS = 5   # 14.11.: DexScreener list requests a round (profiles, boosts latest / top, takeovers, profile updates)
+DISC_NET_S = 10   # 14.11. večer: the network discovery of one pass (lists, Jupiter, GeckoTerminal pages) stops here
 
 
-def discover_lists(con, now, net, log):
-    """DexScreener lists, GeckoTerminal pools and Birdeye's list, each on its own cadence and day cap."""
+def gt_route():
+    """14.11. večer: how the GeckoTerminal round may ask now. "key": the CoinGecko key serves this job now (range is
+    one of its priority jobs); "hour": the key is set and the day has calls left, but this hour's slice is spent: the
+    round waits for the next hour instead of taking the free host the minute loop lives on; "free": no key, or the
+    day's calls are gone: the free host, GT_REQ_PASS_FREE pages a pass."""
+    try:
+        from event_calendar import http
+        if not http.cg_configured():
+            return "free"
+        if http.cg_key():
+            return "key"
+        used, cap = http.cg_used()
+        return "free" if used >= cap else "hour"
+    except Exception:  # noqa: BLE001 - unreadable budget: the free host, carefully
+        return "free"
+
+
+def discover_lists(con, now, net, log, deadline=None):
+    """DexScreener lists, Jupiter's lists (14.11. večer), GeckoTerminal pools and Birdeye's list, each on its own
+    cadence and day cap. deadline (monotonic): this pass's network discovery stops there (the GeckoTerminal round
+    resumes next pass)."""
     n = 0
     if (now - (data.kv_get(con, "mkt_lists_ts") or 0) >= LISTS_EVERY_S
             and slice_left(con, "mkt_lists_day", LISTS_DAY, now) >= N_LISTS):
@@ -601,43 +753,8 @@ def discover_lists(con, now, net, log):
         for it in net.lists() or []:
             if isinstance(it, dict) and it.get("chainId") == "solana" and it.get("tokenAddress"):
                 n += add(con, it["tokenAddress"], "dex_liste", now)
-    gt_req = gt_requests()
-    left = slice_left(con, "mkt_gt_day", GT_DAY, now)
-    pools = None
-    if now - (data.kv_get(con, "mkt_gt_ts") or 0) >= GT_EVERY_S and left >= 2:
-        n_req = min(gt_req, left)
-        try:
-            pools = net.gt_pools(n_req)
-        except TypeError:   # an injected net without the n_req argument (tests of the first version)
-            pools = net.gt_pools()
-        if pools is None:   # the host is held by another job: not charged, asked again next pass
-            if now - (data.kv_get(con, "mkt_gt_busy_log") or 0) >= 3600:
-                data.kv_put(con, "mkt_gt_busy_log", int(now))
-                log("range tržište GT: GeckoTerminal drži drugi posao, runda čeka slobodnu minutu")
-        else:
-            data.kv_put(con, "mkt_gt_ts", int(now))
-            data.day_add(con, "mkt_gt_day", n_req, now)
-            _meter("coingecko", "range tržište", n_req)
-    if pools is not None:
-        got = ok_n = new_n = 0
-        for p in pools or []:
-            g = gt_row(p) if isinstance(p, dict) else None
-            if not g:
-                continue
-            got += 1
-            tok, sym, created, s = g
-            ok, why, wait = check(s, created, "market", now)
-            ok_n += int(ok)
-            k = add(con, tok, "gt", now, symbol=sym, created_ts=created, due=now if ok else now + wait,
-                    nums={"mcap": s["mcap"], "liq": s["liq"], "vol_h1": s["vol_h1"]}, promote=ok)   # 14.11.: due now
-            new_n += k
-            n += k
-        real = ""
-        if got:   # 11.11. (Jure): more GT pages only if the shared day has room after the first two real rounds
-            k = int(data.kv_get(con, "mkt_gt_real") or 0) + 1
-            data.kv_put(con, "mkt_gt_real", k)
-            real = f" (prava runda {k})" if k <= 2 else ""
-        log(f"range tržište GT: {n_req} upita, {got} poolova, novih {new_n}, prolazi filter {ok_n}{real}; {cg_day_text(con, now)}")
+    n += discover_jup(con, now, net, log)
+    n += discover_gt(con, now, net, log, deadline)
     if (os.environ.get("BIRDEYE_API_KEY") and now - (data.kv_get(con, "mkt_bird_ts") or 0) >= BIRD_EVERY_S
             and slice_left(con, "mkt_bird_day", BIRDEYE_DAY, now) >= 1):
         data.kv_put(con, "mkt_bird_ts", int(now))
@@ -652,6 +769,157 @@ def discover_lists(con, now, net, log):
         except Exception as e:  # noqa: BLE001
             log(f"range tržište: Birdeye: {type(e).__name__}")
     return n
+
+
+def _jup_hour(con, now, log):
+    """The Jupiter counters of this UTC hour (kv mkt_jup_hour); at the first call of a new hour the last hour's line
+    is logged (one line an hour, not one a list)."""
+    h = int(now // 3600 * 3600)
+    hr = data.kv_get(con, "mkt_jup_hour") or {}
+    if hr.get("h") != h:
+        if hr.get("h"):
+            log(jup_line(con, hr, now))
+        hr = {"h": h, "req": 0, "fail": 0, "rows": 0, "new": 0, "ok": [], "err": ""}
+    return hr
+
+
+def jup_line(con, hr, now):
+    """"range tržište Jupiter (sat HH UTC): N upita, M tokena, novih K, prolazi filter P; danas X/JUP_DAY"."""
+    err = f", greške {hr.get('fail')} ({hr.get('err')})" if hr.get("fail") else ""
+    return (f"range tržište Jupiter (sat {time.gmtime(hr.get('h') or now).tm_hour:02d} UTC): {hr.get('req', 0)} upita, "
+            f"{hr.get('rows', 0)} tokena, novih {hr.get('new', 0)}, prolazi filter {len(hr.get('ok') or [])}{err}; "
+            f"danas {data.day_used(con, 'mkt_jup_day', now)}/{JUP_DAY} (besplatno)")
+
+
+def discover_jup(con, now, net, log):
+    """14.11. večer (svemir): one Jupiter list a pass in turn (JUP_LISTS), so every list is read once in JUP_EVERY_S,
+    inside JUP_DAY (hour-sliced). A token whose own numbers pass the market filter is due now (promote); one that only
+    misses the volume or the age goes into the universe for then; the rest (MC out of the band, on the curve, thin
+    liquidity) is not stored. An error or a 429 rests the lists JUP_PAUSE_S. A stand-in net without jup_list (the
+    offline tests) asks nothing. Returns the new universe rows."""
+    fn = getattr(net, "jup_list", None)
+    if fn is None or not JUP_LISTS or now < (data.kv_get(con, "mkt_jup_pause") or 0):
+        return 0
+    if now - (data.kv_get(con, "mkt_jup_ts") or 0) < JUP_EVERY_S / len(JUP_LISTS) - SLACK_S:
+        return 0
+    if slice_left(con, "mkt_jup_day", JUP_DAY, now) < 1:
+        return 0
+    i = int(data.kv_get(con, "mkt_jup_i") or 0) % len(JUP_LISTS)
+    data.kv_put(con, "mkt_jup_ts", int(now))
+    data.day_add(con, "mkt_jup_day", 1, now)
+    _meter("jupiter", "range tržište liste")
+    hr = _jup_hour(con, now, log)
+    hr["req"] += 1
+    try:
+        rows = fn(JUP_LISTS[i]) or []
+    except Exception as e:  # noqa: BLE001 - discovery is best effort
+        data.kv_put(con, "mkt_jup_pause", int(now + JUP_PAUSE_S))
+        hr["fail"] += 1
+        hr["err"] = f"{JUP_LISTS[i]}: {getattr(e, 'code', None) or type(e).__name__}"
+        data.kv_put(con, "mkt_jup_hour", hr)
+        return 0
+    data.kv_put(con, "mkt_jup_i", (i + 1) % len(JUP_LISTS))
+    n, ok_toks = 0, set(hr.get("ok") or [])
+    for t in rows:
+        g = jup_row(t) if isinstance(t, dict) else None
+        if not g:
+            continue
+        tok, sym, created, s = g
+        hr["rows"] += 1
+        ok, why, wait = check(s, created, "market", now)
+        if not ok and not why.startswith(("volumen", "mlađi")):
+            continue
+        if ok:
+            ok_toks.add(tok)
+        n += add(con, tok, "jup", now, symbol=sym, created_ts=created, due=now if ok else now + wait,
+                 nums={"mcap": s["mcap"], "liq": s["liq"], "vol_h1": s["vol_h1"]}, promote=ok)
+    hr["new"] += n
+    hr["ok"] = sorted(ok_toks)
+    data.kv_put(con, "mkt_jup_hour", hr)
+    return n
+
+
+def _gt_round_add(con, now, pools):
+    """The pools of one GeckoTerminal call into the universe: (pools read, new rows, passing the filter)."""
+    got = ok_n = new_n = 0
+    for p in pools or []:
+        g = gt_row(p) if isinstance(p, dict) else None
+        if not g:
+            continue
+        got += 1
+        tok, sym, created, s = g
+        ok, why, wait = check(s, created, "market", now)
+        ok_n += int(ok)
+        new_n += add(con, tok, "gt", now, symbol=sym, created_ts=created, due=now if ok else now + wait,
+                     nums={"mcap": s["mcap"], "liq": s["liq"], "vol_h1": s["vol_h1"]}, promote=ok)   # 14.11.: due now
+    return got, new_n, ok_n
+
+
+def discover_gt(con, now, net, log, deadline=None):
+    """The GeckoTerminal round (gt_plan) every GT_EVERY_S, GT_REQ_PASS pages a pass (GT_REQ_PASS_FREE on the free
+    host), resumed next pass where it stopped (kv mkt_gt_idx); only the requests that went out are charged; while
+    the CoinGecko key's hour slice is spent it waits for the next hour (gt_route). One line when the round is done:
+    "range tržište GT: N upita, M poolova, novih K, prolazi filter P[, zastoji Z (zadnji: why)]; CoinGecko ...".
+    A stand-in net whose gt_pools takes no `start` (the first versions' tests) asks the whole round at once."""
+    total = gt_requests()
+    idx = int(data.kv_get(con, "mkt_gt_idx") or 0)
+    if idx >= total:
+        idx = 0
+    if not idx and now - (data.kv_get(con, "mkt_gt_ts") or 0) < GT_EVERY_S:
+        return 0
+    left = slice_left(con, "mkt_gt_day", GT_DAY, now)
+    if left < 1:
+        return 0
+    route = gt_route()
+    if route == "hour":
+        if now - (data.kv_get(con, "mkt_gt_hour_log") or 0) >= 3600:
+            data.kv_put(con, "mkt_gt_hour_log", int(now))
+            log("range tržište GT: satni dio CoinGecko ključa potrošen, runda čeka sljedeći sat (besplatni GeckoTerminal "
+                f"ostaje minutnoj petlji); {cg_day_text(con, now)}")
+        return 0
+    n_req = min(GT_REQ_PASS if route == "key" else GT_REQ_PASS_FREE, total - idx, left)
+    try:
+        pools = net.gt_pools(n_req, start=idx, deadline=deadline)
+    except TypeError:   # an injected net of the first versions: the whole round at once
+        idx, n_req = 0, min(total, left)
+        try:
+            pools = net.gt_pools(n_req)
+        except TypeError:
+            pools = net.gt_pools()
+    if pools is None:   # the host is held by another job: not charged, asked again next pass
+        if now - (data.kv_get(con, "mkt_gt_busy_log") or 0) >= 3600:
+            data.kv_put(con, "mkt_gt_busy_log", int(now))
+            log("range tržište GT: GeckoTerminal drži drugi posao, runda čeka slobodnu minutu")
+        return 0
+    sent, done = getattr(pools, "sent", n_req), getattr(pools, "done", n_req)
+    stop = getattr(pools, "stop", "")
+    if sent:
+        data.day_add(con, "mkt_gt_day", sent, now)
+        _meter("coingecko", "range tržište", sent)
+    got, new_n, ok_n = _gt_round_add(con, now, pools)
+    rnd = data.kv_get(con, "mkt_gt_round") or {}
+    rnd = {"sent": int(rnd.get("sent") or 0) + sent, "pools": int(rnd.get("pools") or 0) + got,
+           "new": int(rnd.get("new") or 0) + new_n, "ok": int(rnd.get("ok") or 0) + ok_n,
+           "stops": int(rnd.get("stops") or 0) + int(bool(stop)), "why": stop or rnd.get("why") or ""}
+    # a page that failed (sent, no answer) is not asked again this round (a page that always fails never stalls it);
+    # one another job held, or the pass had no time for, is asked next pass
+    idx += done + int(stop.startswith("greška"))
+    if idx < total:
+        data.kv_put(con, "mkt_gt_idx", idx)
+        data.kv_put(con, "mkt_gt_round", rnd)
+        return new_n
+    data.kv_put(con, "mkt_gt_idx", 0)
+    data.kv_put(con, "mkt_gt_round", {})
+    data.kv_put(con, "mkt_gt_ts", int(now))
+    real = ""
+    if rnd["pools"]:   # 11.11. (Jure): more GT pages only if the shared day has room after the first two real rounds
+        k = int(data.kv_get(con, "mkt_gt_real") or 0) + 1
+        data.kv_put(con, "mkt_gt_real", k)
+        real = f" (prava runda {k})" if k <= 2 else ""
+    stops = f", zastoji {rnd['stops']} (zadnji: {rnd['why']})" if rnd["stops"] else ""
+    log(f"range tržište GT: {rnd['sent']} upita, {rnd['pools']} poolova, novih {rnd['new']}, prolazi filter "
+        f"{rnd['ok']}{stops}{real}; {cg_day_text(con, now)}")
+    return new_n
 
 
 # ---------- the pass ----------------------------------------------------------------------------------------------------
@@ -778,7 +1046,9 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
         if now - (data.kv_get(con, "mkt_free_ts") or 0) >= FREE_EVERY_S:
             data.kv_put(con, "mkt_free_ts", int(now))
             stats["new"] += from_pulse(con, now, hype_db) + from_calls(con, now) + from_ranged(con, now)
-        stats["new"] += discover_lists(con, now, net, log)
+        # 14.11. večer: the network discovery has its own few seconds (DISC_NET_S); the refresh keeps PASS_BUDGET_S
+        stats["new"] += discover_lists(con, now, net, log, deadline=time.monotonic() + DISC_NET_S)
+        t_end = max(t_end, time.monotonic() + PASS_BUDGET_S - DISC_NET_S)
     if missed_on:
         stats["new"] += missed.from_missed(con, now, log)
     ev = from_events(con, now, topics_db) if event_on else set()
@@ -933,8 +1203,31 @@ def universe_line(con, now, log=print, every_s=3600):
     text = (f"range tržište svemir: {sum(1 for _ in con.execute('SELECT 1 FROM mkt'))} tokena "
             f"({', '.join(f'{k} {n}' for k, n in sorted(vias.items(), key=lambda kv: -kv[1]))}); prati {w}, čeka provjeru "
             f"{due}, odgođeno {wait}; razlozi: {top or '-'}")
+    # 14.11. večer (CLAUDE.md: cost per source and what it brought): the watched tokens and the active ranges by the
+    # source that found them (a token found by several counts for each)
+    w_by, a_by = by_source(con)
+    if w_by:
+        text += "; prati po izvoru: " + ", ".join(f"{k} {n}" for k, n in sorted(w_by.items(), key=lambda kv: (-kv[1], kv[0])))
+        text += "; aktivni rasponi po izvoru: " + (", ".join(f"{k} {n}" for k, n in sorted(
+            a_by.items(), key=lambda kv: (-kv[1], kv[0]))) or "-")
     log(text)
     return text
+
+
+def by_source(con):
+    """({via: watched tokens}, {via: watched tokens with an active range}) of the market list (14.11. večer)."""
+    w_by, a_by = {}, {}
+    try:
+        rows = con.execute("SELECT m.via, COALESCE(r.active, 0) FROM mkt m LEFT JOIN ranges r ON r.token = m.token "
+                           "WHERE m.watched = 1").fetchall()
+    except sqlite3.Error:
+        return {}, {}
+    for via, act in rows:
+        for v in (via or "?").split(","):
+            w_by[v] = w_by.get(v, 0) + 1
+            if act:
+                a_by[v] = a_by.get(v, 0) + 1
+    return w_by, a_by
 
 
 def prune(con, now, keep_tokens=()):
@@ -953,6 +1246,8 @@ def cost_today(con, now):
     """{source: {"used", "cap"}} of today, for get_range_candidates and run_range.py status."""
     out = {name: {"used": data.day_used(con, key, now), "cap": cap()} for name, key, cap in DAY_KEYS}
     out["gt sjeme (tržište)"] = {"used": data.day_used(con, "mkt_seed_day", now), "cap": SEED_DAY}
+    out["od toga rano (bez 6 h povijesti)"] = {"used": data.day_used(con, "mkt_seed_early_day", now),
+                                               "cap": SEED_DAY - SEED_NEAR_RESERVE}   # 14.11. večer
     out["dexscreener signalni prolaz"] = {"used": data.day_used(con, "sig_dex_day", now), "cap": None}
     out["iz hype skena (besplatno)"] = {"used": data.day_used(con, "mkt_reuse_day", now), "cap": None}
     return out

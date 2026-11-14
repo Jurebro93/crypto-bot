@@ -398,8 +398,11 @@ class Faza1(unittest.TestCase):
         self.assertFalse(market.check(s2, now - 86400, "market", now, keep=True)[0])
 
     def test_gt_round_asks_every_page_within_the_day_cap(self):
-        # 14.11.: + the PumpSwap dex's top pages (GT_DEX_PAGES) in the same round
-        self.assertEqual(market.gt_requests(), 2 * market.GT_TREND_PAGES + market.GT_TOP_PAGES + market.GT_DEX_PAGES)
+        # 14.11.: + the PumpSwap dex's top pages (GT_DEX_PAGES) in the same round; 14.11. večer (svemir): trending of
+        # every GT_TREND_DURATIONS (1 h, 6 h, 24 h; was 1 h and 6 h)
+        self.assertEqual(market.gt_requests(), len(market.GT_TREND_DURATIONS) * market.GT_TREND_PAGES
+                         + market.GT_TOP_PAGES + market.GT_DEX_PAGES)
+        self.assertEqual(market.gt_requests(), len(market.gt_plan()))
         self.assertLessEqual(market.gt_requests() * 86400 // market.GT_EVERY_S, market.GT_DAY)
 
 
