@@ -98,15 +98,17 @@ class Universe(RDB):
         from event_calendar import http
         asked = []
         with mock.patch.object(http, "reserved_by_other", lambda url: 0), \
+                mock.patch.object(http, "cooling", lambda url: 0), \
                 mock.patch.object(http, "get_json", lambda url, params=None, **k: asked.append((url, params)) or
                                   {"data": []}):
             market.Net().gt_pools()
         dex = [p for u, p in asked if u.endswith(f"/dexes/{market.GT_DEX}/pools")]
         self.assertEqual(market.GT_DEX, "pumpswap")
         self.assertEqual([p["page"] for p in dex], list(range(1, market.GT_DEX_PAGES + 1)))
-        self.assertTrue(all(p["sort"] == "h24_volume_usd_desc" for p in dex))
-        self.assertEqual(len(asked), market.gt_requests())                  # 4 trending + 6 top + 6 PumpSwap = 16
-        self.assertEqual(market.gt_requests(), 16)                          # 14.11. popodne: 6 PumpSwap pages (was 5)
+        # 14.11. večer (svemir, measured: by 24 h volume the PumpSwap top pages were drained pumps): by 24 h transactions
+        self.assertTrue(all(p["sort"] == "h24_tx_count_desc" for p in dex))
+        self.assertEqual(len(asked), market.gt_requests())   # 14.11. večer: 12 trending (1 h/6 h/24 h) + 2 top + 2 PumpSwap
+        self.assertEqual(market.gt_requests(), 16)                          # the same 16 a round as before
         self.assertLessEqual(market.gt_requests() * 86400 // market.GT_EVERY_S, market.GT_DAY)   # 192 <= 200
 
     def test_the_dexscreener_lists_add_takeovers_and_profile_updates(self):

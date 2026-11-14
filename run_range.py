@@ -48,6 +48,10 @@ market list (rangedca/market.drop_archived); a token with an open range round ke
 detection also computes the token's crash-survivor check (rangedca/survivor.check: >= 24 h old, MC at most 45 % under
 the level 24 h ago, back in an active range), kept in the range JSON ("survivor", shown by get_range_candidates and
 read by the demo profile's entry), and the pass line counts the survivors in a range ("preživjeli pad u rasponu N").
+14.11. večer (owner: "Želim više tradeova"; svemir, rangedca/market.py: Jupiter's lists, the GeckoTerminal round
+fixed): the market list watches more new tokens, and each waited 6 h of snapshots before it could have a range; a
+market / event / missed token without that history, trading >= market.EARLY_SEED_VOL_H1 an hour, now gets its
+GeckoTerminal seed at once (_early_seed: at most SEED_DAY - SEED_NEAR_RESERVE a day, hour-sliced, inside the same caps).
 """
 import argparse
 import os
@@ -92,6 +96,23 @@ def _near_entry(res, candles, snap, now, has_gt):
         return False
     proto = detect.analyze(candles, now, snap, {"min_hist_h": 2})
     return bool(proto.get("active") and proto.get("pos_pct") is not None and proto["pos_pct"] <= 30)
+
+
+def _early_seed(con, res, snap, now, has_gt):
+    """14.11. večer (svemir: more watched tokens, each waited 6 h of 5-minute snapshots before it could have a range):
+    a market / event / missed token without 6 h of history, never seeded, trading at least market.EARLY_SEED_VOL_H1 an
+    hour, gets its GeckoTerminal seed now (its range is computed in this pass), only while the market's seed day has
+    more than market.SEED_NEAR_RESERVE left: those stay for the tokens close to an entry (_near_entry). Inside
+    SEED_DAY, RANGE_GT_DAY and GT_PER_PASS: no new cap; hour-sliced (market.slice_left: the tokens found in the
+    evening get theirs too); never while the CoinGecko key's hour slice is spent (the free GeckoTerminal is the minute
+    loop's: market.gt_route)."""
+    from rangedca import data, market
+    share = market.SEED_DAY - market.SEED_NEAR_RESERVE
+    return bool(not has_gt and res.get("status") == "premalo podataka"
+                and ((snap or {}).get("vol_h1") or 0) >= market.EARLY_SEED_VOL_H1
+                and data.day_used(con, "mkt_seed_day", now) < share
+                and market.slice_left(con, "mkt_seed_early_day", share, now) > 0
+                and market.gt_route() != "hour")
 
 
 def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), net=None):
@@ -210,17 +231,23 @@ def _one_token(con, tok, now, full, open_toks, pinned, m_flip, n_flip, srcs, see
     if full:
         res = detect.analyze(candles, now, snap)
         pool = (snap or {}).get("pool")
+        early = False
         if src == "signal":
             want = res["status"] == "premalo podataka" and _minimums_met(snap)
         else:   # 11.11.: a market / event token only close to an entry, inside its own day cap
             has_gt = con.execute("SELECT 1 FROM gt_candles WHERE token=?", (tok,)).fetchone() is not None
-            want = (data.day_used(con, "mkt_seed_day", now) < market.SEED_DAY and _minimums_met(snap)
-                    and _near_entry(res, candles, snap, now, has_gt))
+            want = data.day_used(con, "mkt_seed_day", now) < market.SEED_DAY and _minimums_met(snap)
+            if want:   # 14.11. večer (svemir): or a new high-volume token without 6 h of history (_early_seed)
+                near = _near_entry(res, candles, snap, now, has_gt)
+                early = not near and _early_seed(con, res, snap, now, has_gt)
+                want = near or early
         if want and seeds < data.GT_PER_PASS and pool:
             if data.seed(con, tok, pool, now, fetch=gt_fetch):
                 seeds += 1
                 if src != "signal":
                     data.day_add(con, "mkt_seed_day", 1, now)
+                    if early:
+                        data.day_add(con, "mkt_seed_early_day", 1, now)
                 candles, snap = data.series(con, tok, now)
                 res = detect.analyze(candles, now, snap)
         # 11.11. (the owner's decision 1): the ATR of every range, whatever range_flip's mode: the hard stop of
