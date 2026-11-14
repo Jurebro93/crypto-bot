@@ -159,6 +159,128 @@ def live_capped(cfg):
     return out
 
 
+# 14.11. (owner: "nema više demo ... idemo s pravim novcem"; his answers: "0,1 SOL po tradeu", "dnevni gubitak 0,5 SOL",
+# "najviše 10 otvorenih", "100 tradeova dnevno"): while his switch trade/settings "pravi_novac_sve" is on, every
+# AUTOMATIC live buy is held to these INSTEAD of LIVE_CAPS and the page's own limits (LIVE_CAPS stay Grok autotrade's
+# money limits and hold, unchanged, while the switch is off). max_open counts EVERY live position (all strategies, the
+# owner's and Grok's lots too: one global 10); max_buys_day and max_sol_per_day count the automatic real buys of the
+# Zagreb day (OWN_REASONS apart, as auto_spent); max_loss_day is the day's realized result of every live position, fees
+# included (day_pnl): at -0.5 SOL no new automatic real buy until the next Zagreb day, open positions keep their exits.
+# max_sol_per_day 11 = 100 x 0.1 SOL plus room for a buy whose swap took a little more. trade/config.json
+# "pravi_novac_sve" may set lower values, never higher (switch_capped takes the smaller). The owner's manual buys are
+# not held by them (manual=True keeps his settings, 11.11.).
+SWITCH_CAPS = {"size_sol": 0.1, "max_sol_per_trade": 0.1, "max_open": 10, "max_buys_day": 100, "max_loss_day": 0.5,
+               "max_sol_per_day": 11.0}
+
+
+def switch_on(con):
+    """The owner's switch pravi_novac_sve, read from this trade.db connection (unreadable = off)."""
+    return settings.pravi_novac_sve(con=con)
+
+
+def switch_caps(cfg=None):
+    """SWITCH_CAPS, each the smaller of the code's and trade/config.json "pravi_novac_sve"'s (cfg = merged settings)."""
+    own = (cfg or {}).get("pravi_novac_sve")
+    own = own if isinstance(own, dict) else {}
+    out = {}
+    for k, v in SWITCH_CAPS.items():
+        try:
+            out[k] = min(type(v)(own[k]), v) if own.get(k) is not None else v
+        except (TypeError, ValueError):
+            out[k] = v
+    return out
+
+
+def switch_capped(cfg):
+    """The settings an automatic real buy under the switch is checked with: SWITCH_CAPS replace the stake, the day's
+    spend and loss and the open count (the reserve, the cost cap and the rest stay the owner's)."""
+    out = dict(cfg)
+    caps = switch_caps(cfg)
+    for k in ("max_sol_per_trade", "max_open", "max_loss_day", "max_sol_per_day", "max_buys_day"):
+        out[k] = caps[k]
+    out["size_sol"] = caps["size_sol"]
+    return out
+
+
+def auto_buys(con, now, mode="live", tz=None):
+    """Automatic buys today (Zagreb day) in this mode: what SWITCH_CAPS max_buys_day counts (open, closed or in
+    flight; refused and failed ones are not buys)."""
+    return con.execute("SELECT COUNT(*) FROM positions WHERE opened_ts>=? AND mode=? "
+                       "AND status IN ('open','closed','pending') AND COALESCE(reason, '') NOT LIKE ? "
+                       "AND COALESCE(reason, '') NOT LIKE ?", (_day_start(now, tz), mode, *OWN_REASONS)).fetchone()[0] or 0
+
+
+def strategy_of(source):
+    """The strategy behind a demo trade's source (league.db trades.source = the real position's reason), in the words
+    of the flags: copies of the owner's follows "kopiranje", insider wallets "insider_copy", the fast path, momentum,
+    range, proposals, SimianX; the owner's own and Grok's buys "ručno" / "grok"."""
+    s = (source or "").strip()
+    low = s.lower()
+    if low.startswith("ručno"):
+        return "ručno"
+    if low.startswith("grok auto"):
+        return "grok"
+    if low.startswith("copy ") and low.endswith("(fast)") or low.startswith("fast path"):
+        return "fast_path"
+    if low.startswith("copy wallet insajder prije poziva"):
+        return "insider_copy"
+    if low.startswith("copy "):
+        return "kopiranje"
+    if low.startswith("momentum"):
+        return "momentum_scalp"
+    if low.startswith("range lot"):
+        return "range_dca"
+    if low.startswith("prijedlog"):
+        return "proposals"
+    if low.startswith("simianx"):
+        return "simianx"
+    return (s.split(":")[0].split(" ")[0] or "?")[:30]
+
+
+def switch_status(con, now, cfg=None, tz=None):
+    """The switch's day in numbers (trade.db only, no network): {"on", "buys", "max_buys_day", "open", "max_open",
+    "pnl", "max_loss_day", "spent", "max_sol_per_day", "stopped", "by": {strategy: {"buys", "pnl", "open"}}}. pnl =
+    day_pnl (every live position closed today, every fee of the day); per strategy the closed positions' SOL back
+    minus in and their own fees."""
+    caps = switch_caps(cfg)
+    start = _day_start(now, tz)
+    by = {}
+    for reason, st, opened, closed, sin, sback, fees in con.execute(
+            "SELECT reason, status, opened_ts, closed_ts, sol_in, sol_back, fees_sol FROM positions WHERE mode='live' "
+            "AND ((opened_ts>=? AND status IN ('open','closed','pending')) OR (status='closed' AND closed_ts>=?) "
+            "OR status IN ('open','pending'))", (start, start)).fetchall():
+        d = by.setdefault(strategy_of(reason), {"buys": 0, "pnl": 0.0, "open": 0})
+        if (opened or 0) >= start:
+            d["buys"] += 1
+        if st in ("open", "pending"):
+            d["open"] += 1
+        if st == "closed" and (closed or 0) >= start:
+            d["pnl"] += (sback or 0) - (sin or 0) - (fees or 0)
+    n_open = con.execute("SELECT COUNT(DISTINCT COALESCE(token, '#' || id)) FROM positions WHERE status IN "
+                         "('open','pending') AND mode='live'").fetchone()[0]
+    pnl = day_pnl(con, now, "live", tz)
+    return {"on": switch_on(con), "buys": auto_buys(con, now, "live", tz), "max_buys_day": caps["max_buys_day"],
+            "open": n_open, "max_open": caps["max_open"], "pnl": pnl, "max_loss_day": caps["max_loss_day"],
+            "spent": auto_spent(con, now, "live", tz), "max_sol_per_day": caps["max_sol_per_day"],
+            "size_sol": caps["size_sol"], "stopped": pnl <= -caps["max_loss_day"], "by": by}
+
+
+def switch_line(st):
+    """One Croatian log line of switch_status (the daily summary run_trade prints)."""
+    def sol(v):
+        return f"{v:+.3f}".replace(".", ",")
+
+    def g(v):
+        return f"{v:g}".replace(".", ",")
+    parts = [f"{k}: kupnji {v['buys']}, otvoreno {v['open']}, {sol(v['pnl'])} SOL"
+             for k, v in sorted(st["by"].items(), key=lambda kv: (-kv[1]["buys"], kv[0]))]
+    return (f"PRAVI NOVAC danas: kupnji {st['buys']}/{st['max_buys_day']}, otvoreno {st['open']}/{st['max_open']}, "
+            f"ostvareno {sol(st['pnl'])} SOL (stop -{g(st['max_loss_day'])} SOL"
+            + (", DOSEGNUT: nove automatske kupnje stoje do sljedećeg dana" if st["stopped"] else "")
+            + f"), potrošeno {st['spent']:.2f}/{g(st['max_sol_per_day'])} SOL".replace(".", ",")
+            + (" | po strategiji: " + "; ".join(parts) if parts else ""))
+
+
 def live_spent(con, now, tz=None):
     """SOL put into EVERY live buy today (the owner's own included): what LIVE_CAPS max_sol_per_day limits."""
     return con.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE opened_ts>=? AND mode='live' "
@@ -188,8 +310,14 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
     asked only when the checks before it are through."""
     if os.path.exists(STOP_FILE):
         yield HARD, "stop", "kill switch (trade/STOP)"
-    if live and not manual:   # 11.11.: the owner's own buy keeps his settings (Jure 10.11.: "makni limit")
+    # 14.11.: the owner's switch pravi_novac_sve: an automatic live buy is held to SWITCH_CAPS (each refusal names its
+    # cap); with the switch off, LIVE_CAPS exactly as before
+    sw = live and not manual and switch_on(con)
+    if sw:
+        cfg = switch_capped(cfg)
+    elif live and not manual:   # 11.11.: the owner's own buy keeps his settings (Jure 10.11.: "makni limit")
         cfg = live_capped(cfg)
+    cap = "strop pravi_novac_sve " if sw else ""
     mode = "live" if live else "dry"
     if token is not None and not add:   # T22: an auto follow and a manual follow of the same coin = one real position
         dup = con.execute("SELECT id FROM positions WHERE token=? AND mode=? AND status IN ('open','pending')",
@@ -197,16 +325,26 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
         if dup:
             yield SOFT, "dup", f"već postoji otvorena pozicija u ovom tokenu (#{dup[0]})"
     if size_sol <= 0 or size_sol > cfg["max_sol_per_trade"]:
-        yield (HARD if size_sol <= 0 else SOFT), "stake", f"{size_sol} SOL iznad limita {cfg['max_sol_per_trade']}"
+        yield (HARD if size_sol <= 0 else SOFT), "stake", (f"{cap}max_sol_per_trade: " if sw and size_sol > 0 else "") + \
+            f"{size_sol} SOL iznad limita {cfg['max_sol_per_trade']}"
     tz = cfg.get("day_tz")
+    if sw:
+        n_buys = auto_buys(con, now, mode, tz)
+        if n_buys >= cfg["max_buys_day"]:
+            yield SOFT, "max_buys_day", (f"{cap}max_buys_day: danas već {n_buys} automatskih pravih kupnji od "
+                                         f"{cfg['max_buys_day']}; nove sutra (Zagreb)")
     if not manual:
         spent = auto_spent(con, now, mode, tz)
         if spent + size_sol > cfg["max_sol_per_day"] + 1e-9:
-            yield SOFT, "day_spend", f"dnevni limit automatskih kupnji: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
+            yield SOFT, "day_spend", (f"{cap}max_sol_per_day: " if sw else "") + \
+                f"dnevni limit automatskih kupnji: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
     if "max_loss_day" in cfg:
         lost = day_pnl(con, now, mode, tz)
         if lost <= -cfg["max_loss_day"]:
-            yield SOFT, "day_loss", f"dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} SOL: stop do ponoći"
+            yield SOFT, "day_loss", ((f"{cap}max_loss_day: dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} "
+                                      "SOL: nove automatske kupnje stoje do sljedećeg dana (Zagreb), otvorene pozicije "
+                                      "zadržavaju izlaze") if sw else
+                                     f"dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} SOL: stop do ponoći")
     n_open = con.execute("SELECT COUNT(*) FROM positions WHERE status IN ('open','pending') AND mode=?",
                          (mode,)).fetchone()[0]
     # 10.11. (Jure: dokupnja u istu poziciju): a token bought in two lots is one position against max_open; the
@@ -217,7 +355,8 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
         "SELECT 1 FROM positions WHERE token=? AND mode=? AND status IN ('open','pending') LIMIT 1",
         (token, mode)).fetchone() is not None
     if n_tok >= cfg["max_open"] and not held:
-        yield SOFT, "max_open", f"{n_tok} otvorenih pozicija"
+        yield SOFT, "max_open", (f"{cap}max_open: {n_tok} otvorenih pravih pozicija (sve strategije zajedno), najviše "
+                                 f"{cfg['max_open']}" if sw else f"{n_tok} otvorenih pozicija")
     if live:
         if balance is None:
             balance = wallet.sol_balance(wallet.address())
@@ -519,10 +658,14 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
     cost and edge lines, the swap's cost cap), the HARD ones hold (kill switch, wallet balance, no route to sell back).
     The text is the lot's positions.override; the result's "overridden" lists the SOFT reasons that were passed."""
     now, live = now or time.time(), is_live(cfg)
+    sw = live and not manual and switch_on(con)   # 14.11.: the owner's switch pravi_novac_sve
+    if sw:   # the stake of every automatic real buy under the switch: 0.1 SOL (a strategy's smaller lot stays smaller)
+        caps = switch_caps(cfg)
+        size_sol = min(size_sol or caps["size_sol"], caps["max_sol_per_trade"])
     mode, size_sol = "live" if live else "dry", size_sol or cfg["size_sol"]
     ov = bool(override) and manual
-    if live and not manual:   # 11.11. (owner's rule C): an automatic stake above the live cap is cut to it; the
-        size_sol = min(size_sol, LIVE_CAPS["max_sol_per_trade"])   # owner's own amount is refused by gate_buy instead
+    if live and not manual and not sw:   # 11.11. (owner's rule C): an automatic stake above the live cap is cut to it;
+        size_sol = min(size_sol, LIVE_CAPS["max_sol_per_trade"])   # the owner's own amount is refused by gate_buy instead
     why, passed = _gate(con, cfg, size_sol, now, live, token=token, add=add, manual=manual, override=ov)
     if not why and cfg.get("sell_check", True):
         why = sell_check(token, size_sol, cfg.get("max_cost_pct"), cfg.get("tp_default") if tp_pct is None else tp_pct,

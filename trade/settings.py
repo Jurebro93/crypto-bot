@@ -176,16 +176,6 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
                           "na +0,60 $ neto od prosječnog ulaza, ostatak na +15 % / gornjoj zoni, stop ATR −17 do −25 % od "
                           "lota 1, nikad token koji je u 24 h pao više od 45 %; do 10 rundi po tokenu dnevno; cilj 100 "
                           "tradeova dnevno"),
-    # 14.11. popodne (Jure: "Ja sada ne govorim o demu ... Želim da se to sve radi s pravim novcem, nema više demo"):
-    # an OWNER SWITCH (live = on, default off, only the owner's tap moves it; never an automatic order). Range part
-    # (rangedca/trade.profile, scalp_live): uživo = the REAL account LEAGUE_USER trades range_dca's scalp profile
-    # (rules.SCALP: lot 1 60 % + DCA 40 % at -10 %, the whole position out at a fixed net USD target after the real
-    # costs, the focus list of 10 tokens, up to 10 rounds a token a day) WITHOUT range_dca's paper-proof gate, inside
-    # the trade settings and trade/executor's caps (LIVE_CAPS, the kill switch, the wallet, the rug archive, MC 30k,
-    # bonded only); its exits run as exit plans on the real account (league/exitplan.scalp_live)
-    "pravi_novac_sve": ("G33", "Pravi novac (vlasnik 14.11.): pravi račun trguje range scalp (lot 1 60 % + DCA 40 % "
-                               "na −10 %, cijela pozicija van na neto cilju u $ nakon stvarnih troškova, 10 tokena u "
-                               "fokusu, do 10 rundi po tokenu dnevno) bez paper dokaza, unutar limita izvršitelja"),
 }
 # 12.11. (owner: "zadano shadow ili paper"): a flag's mode while the owner has never set it; every other flag is off
 FLAG_DEFAULTS = {"x_call_scalp": "shadow"}
@@ -200,8 +190,7 @@ NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najvi
               "range_demo": "demo pravila range-a (14.11.) nikad ne trguju pravim novcem (samo demo račun)"}
 # 11.11.: owner switches: "live" means on, without a backtest or paper days (live_refusal lets them through); they
 # never move on their own, only the owner's tap on the page sets them
-OWNER_SWITCHES = frozenset({"exit_plan_live", "rug_labels_v2_ok", "live_trades_retention", "tg_text_retention",
-                            "pravi_novac_sve"})
+OWNER_SWITCHES = frozenset({"exit_plan_live", "rug_labels_v2_ok", "live_trades_retention", "tg_text_retention"})
 # what "uživo" does, per owner switch (the page /pravi-trade; one without a note gets the exit-plan text)
 OWNER_SWITCH_NOTES = {
     "rug_labels_v2_ok": "Tvoj prekidač: „uživo” uključuje nove rug oznake (bez backtesta); svaki drugi mod ostavlja "
@@ -210,11 +199,30 @@ OWNER_SWITCH_NOTES = {
                              "mod samo mjeri i piše u log što bi se obrisalo i koliko MB.",
     "tg_text_retention": "Tvoj prekidač: „uživo” uključuje brisanje teksta (noću 01-06, red objave ostaje); svaki drugi "
                          "mod samo mjeri i piše u log što bi se obrisalo i koliko MB.",
-    "pravi_novac_sve": "Tvoj prekidač: „uživo” = pravi račun trguje range scalp PRAVIM NOVCEM bez paper dokaza (ulog, "
-                       "dnevni gubitak, broj pozicija i dnevna potrošnja iz Limita i stropova izvršitelja; kill switch, "
-                       "stanje walleta, rug arhiva, MC 30k i samo bondani ostaju tvrdi); svaki drugi mod: pravi račun "
-                       "ne trguje scalp, demo račun da.",
 }
+# 14.11. (owner: "Ja sada ne govorim o demu ... nema više demo ... idemo s pravim novcem"): ONE owner switch, "uživo" =
+# on, default off, only his tap on /pravi-trade (set_flag refuses anybody else). On: every automatic strategy whose
+# flag is paper or live trades the REAL account (LEAGUE_USER) without the demo proofs, within trade/executor's
+# SWITCH_CAPS; x_call_scalp (no account) and Grok autotrade (its own switch) stay out. Off: exactly as before.
+SWITCH_ALL = "pravi_novac_sve"
+# Range part (rangedca/trade.profile, scalp_live): the real account trades range_dca's scalp profile (rules.SCALP: lot 1
+# 60 % + DCA 40 % at -10 %, the whole position out at a fixed net USD target after the real costs, the focus list of
+# 10 tokens, up to 10 rounds a token a day); its exits run as exit plans on the real account (league/exitplan.scalp_live)
+FLAGS[SWITCH_ALL] = ("P14", "Pravi novac za sve strategije (vlasnik 14.11.): svaka automatska strategija u paper ili "
+                            "live modu kupuje pravim novcem, bez dokaza u demu, unutar stropova (0,1 SOL po tradeu, "
+                            "10 otvorenih, 100 kupnji dnevno, dnevni gubitak 0,5 SOL); range trguje scalp (lot 1 60 % "
+                            "+ DCA 40 % na −10 %, cijela pozicija van na neto cilju u $, 10 tokena, do 10 rundi dnevno)")
+OWNER_SWITCHES = OWNER_SWITCHES | {SWITCH_ALL}
+OWNER_SWITCH_NOTES[SWITCH_ALL] = ("Tvoj prekidač: „uživo” = sve strategije trguju pravim novcem (i one s negativnim "
+                                  "izmjerenim EV-om); svaki drugi mod = kao prije, pravi novac samo s dokazom u demu.")
+
+
+def pravi_novac_sve(con=None, path=None):
+    """True while the owner's switch pravi_novac_sve is on (mode "live"); never raises (unreadable = off)."""
+    try:
+        return flag(SWITCH_ALL, con, path) == "live"
+    except Exception:  # noqa: BLE001
+        return False
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
 PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
@@ -506,6 +514,10 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     cur = flag_state(con)[name]
     if mode == cur["mode"]:
         return cur
+    if mode == "live" and name == SWITCH_ALL and not is_owner(who):
+        # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
+        # chat order, an applied suggestion or any other code path
+        raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")
     if mode == "live":
         why = live_refusal(con, name, paper, now)
         if why:

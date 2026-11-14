@@ -75,6 +75,7 @@ Autopilot's default stop). status() says per position whether its plan runs live
 the shadow, and why (the Autopilot page, get_portfolio_status).
 """
 import json
+import math
 import re
 import sqlite3
 import time
@@ -459,6 +460,102 @@ def is_panel(plan):
     return bool(plan) and str(plan.get("client") or "").startswith(PANEL_SRC)
 
 
+# 14.11. (owner: "nema više demo ... idemo s pravim novcem"; trade/settings "pravi_novac_sve"): a plan whose client starts
+# with SWITCH_SRC executes on the REAL account (LEAGUE_USER) whatever exit_plans' mode, and keeps executing after the
+# owner switches pravi_novac_sve off (a stop is never dropped while its position is open; the owner's "Pauziraj exit
+# planove" still pauses it). Two kinds: a strategy's own plan for a real-account entry under the switch (fast path,
+# proposals) and the protective stop (switch_stop, ensure_switch_stops) every automatic real-account position gets at
+# its entry when no plan is active on the token. Neither is "in force" (in_force_tokens): the lot's own TP/SL and the
+# strategy's own exits (momentum, range) keep running exactly as before; the plan only adds what it holds, its stop
+# above all.
+SWITCH_SRC = "pravi_novac_sve:"
+SWITCH_SWEEP_S = 5   # the sweep for positions without a plan (range lots and anything an entry hook missed)
+_SWEEP = {"ts": 0.0}
+
+
+def is_switch(plan):
+    return bool(plan) and str(plan.get("client") or "").startswith(SWITCH_SRC)
+
+
+def switch_live(plan, user):
+    """True when a switch plan executes on the real account (see SWITCH_SRC)."""
+    try:
+        from trade import settings as ts
+        return is_switch(plan) and user == ts.LEAGUE_USER
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def switch_client(client, user, on=None):
+    """The client a strategy's plan gets: SWITCH_SRC in front for the real account while the switch is on."""
+    try:
+        from trade import settings as ts
+        if user == ts.LEAGUE_USER and (ts.pravi_novac_sve() if on is None else on):
+            return f"{SWITCH_SRC} {client}"
+    except Exception:  # noqa: BLE001
+        pass
+    return client
+
+
+# the owner's own and Grok's lots keep their own exits (a panel plan, Grok's default plan): no protective stop over them
+OWN_SOURCES = ("ručno", "Grok auto")
+
+
+def switch_stop(con, token, user=None, now=None, log=print):
+    """The protective stop of a real-account position under pravi_novac_sve: a stop-only plan (accounts [user]) at the
+    position's own stop when it has one (current_stop_px: an auto SL, a range round's stop; one looser than sl_default
+    is held at -sl_default, the widest a plan may have), else -min(DEFAULT_PLAN_SL, sl_default) from the average
+    entry. Only when the token has no active plan (one plan per token: an existing plan is never replaced here).
+    Returns the plan id or None."""
+    from trade import settings as ts
+    user = user or ts.LEAGUE_USER
+    try:
+        if active(con, token):
+            return None
+        lots = _lots(con, user, token)
+        avg = _avg(lots) if lots else None
+        if not avg:
+            return None
+        floor = sl_floor()
+        pct = -min(DEFAULT_PLAN_SL, floor)
+        cur = current_stop_px(con, user, token, lots)
+        if cur and cur > 0:
+            pct = max((cur / avg - 1) * 100, -floor)
+        pct = math.ceil(pct * 100 - 1e-6) / 100   # 2 decimals, rounded toward the tighter side (never looser)
+        plan = {"accounts": [user], "stop": {"at_pct": pct},
+                "reason": f"pravi_novac_sve: zaštitni stop {round(pct, 1):+g} % (pravi račun, server-side)"}
+        got = set_plan(con, token, plan, floor, client=f"{SWITCH_SRC} zaštitni stop", now=now)
+        log(f"plan izlaza: {token[:6]} dobio zaštitni stop {round(pct, 1):+g} % (pravi_novac_sve, plan "
+            f"#{got['plan_id']})")
+        return got["plan_id"]
+    except (ValueError, sqlite3.Error) as e:
+        log(f"plan izlaza: {token[:6]} bez zaštitnog stopa: {e}")
+        return None
+
+
+def ensure_switch_stops(con, now=None, log=print, every=SWITCH_SWEEP_S):
+    """While pravi_novac_sve is on: every open real-account token of an automatic strategy (not the owner's own, not
+    Grok's) without an active plan gets switch_stop. At most every `every` seconds. [token]."""
+    from trade import settings as ts
+    now = now or time.time()
+    if every and now - _SWEEP["ts"] < every:
+        return []
+    _SWEEP["ts"] = now
+    if not ts.pravi_novac_sve() or paused():
+        return []
+    ensure(con)
+    rows = con.execute("SELECT t.token, GROUP_CONCAT(COALESCE(t.source, ''), char(31)) FROM trades t WHERE t.user=? "
+                       "AND t.status='open' AND NOT EXISTS (SELECT 1 FROM exit_plans p WHERE p.token=t.token AND "
+                       "p.status='active') GROUP BY t.token", (ts.LEAGUE_USER,)).fetchall()
+    out = []
+    for tok, srcs in rows:
+        if any(s.startswith(OWN_SOURCES) for s in (srcs or "").split(chr(31))):
+            continue
+        if switch_stop(con, tok, ts.LEAGUE_USER, now=int(now), log=log):
+            out.append(tok)
+    return out
+
+
 def panel_live(plan, user):
     """True when a panel plan executes on the real account by the owner's switch exit_plan_live (whoever bought the
     position's lots: the owner set its exit himself)."""
@@ -513,6 +610,9 @@ def execution(user, lots, m=None, plan=None):
     if real and grok_live(user, lots):
         return {"mode": "live", "executes": True, "real_account": True,
                 "why": "exit_plan_live: Grok autotrade pozicija izvršava se na pravom računu"}
+    if real and switch_live(plan, user):   # 14.11.: the plan of a real-account entry under pravi_novac_sve
+        return {"mode": "live", "executes": True, "real_account": True,
+                "why": "pravi_novac_sve: plan pozicije pravog računa izvršava se na pravom računu"}
     why = {"paper": "exit_plans je paper: na pravom računu samo zapis (sjena), izvršava se na demo računu "
                     "autopilot-paper; zadani TP/SL pozicije ostaje",
            "shadow": "exit_plans je u sjeni: samo zapis, zadani TP/SL ostaje",
@@ -542,7 +642,8 @@ def in_force_tokens(con, user):
             return set()
         ensure(con)
         rows = [(t, cl) for t, pl, cl in con.execute("SELECT token, plan, client FROM exit_plans WHERE status='active'")
-                if user in _scope(json.loads(pl or "{}"))]
+                if user in _scope(json.loads(pl or "{}"))
+                and not str(cl or "").startswith(SWITCH_SRC)]   # 14.11.: a switch plan only adds, never replaces
         if on:
             return {t for t, _cl in rows}
         return {t for t, cl in rows if (sc and str(cl or "").startswith(SCALP_SRC))
@@ -855,7 +956,14 @@ def run_once(con, market, now=None):
             ensure_live_plans(con, now)
         except Exception as e:  # noqa: BLE001 - the plans that exist keep running
             print(f"plan izlaza: zadani planovi: {type(e).__name__}: {e}", flush=True)
-    if (m == "off" and not sw and not sc) or paused():
+    try:   # 14.11. (pravi_novac_sve): a protective stop for every automatic real-account position without a plan
+        ensure_switch_stops(con, now)
+    except Exception as e:  # noqa: BLE001 - the plans that exist keep running
+        print(f"plan izlaza: zaštitni stopovi: {type(e).__name__}: {e}", flush=True)
+    if m == "off" and not sw and not sc and con.execute(
+            "SELECT 1 FROM exit_plans WHERE status='active' AND client LIKE ? LIMIT 1", (SWITCH_SRC + "%",)).fetchone() is None:
+        return []
+    if paused():
         return []
     plans = [dict(r) for r in con.execute("SELECT * FROM exit_plans WHERE status='active'")]
     if not plans:
@@ -889,6 +997,8 @@ def run_once(con, market, now=None):
                 on, via = True, LIVE_FLAG
             if not on and sc and scalp_live(p, user):   # 14.11. popodne: a range scalp round's plan
                 on, via = True, SCALP_FLAG
+            if not on and switch_live(p, user):   # 14.11.: a real-account plan set under pravi_novac_sve
+                on, via = True, "pravi_novac_sve"
             if not on and is_scalp(p):   # switch off: rangedca's own exits sell it; no shadow (its state stays clean)
                 continue
             if not (on or sh):

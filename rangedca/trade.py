@@ -322,7 +322,8 @@ def allowed(rng, user, now=None):
     never trade real money); never LEAGUE_USER, whatever the flags say. 11.11. (range_missed G27): a token whose first
     source is "missed" (rangedca/missed.py): the demo account while range_missed is paper or live; LEAGUE_USER only
     while range_missed is live AND gate.missed_refusal() is None (>= 20 closed demo rounds of source missed, EV
-    proof), checked again here (a hand edit of the flag never buys with real money)."""
+    proof), checked again here (a hand edit of the flag never buys with real money). 14.11. popodne: while the owner's
+    switch pravi_novac_sve is on, LEAGUE_USER trades every source whose flag is paper or live (NEVER_LIVE included)."""
     srcs = (rng or {}).get("sources") or [(rng or {}).get("source") or "signal"]
     if "signal" in srcs:
         return True
@@ -331,10 +332,12 @@ def allowed(rng, user, now=None):
         first = next((s for s in market.SRC_ORDER if s in srcs), None)
         if user == ts.LEAGUE_USER and first == "missed" and missed_live(now):
             return True
-        if user == ts.LEAGUE_USER and scalp_live():   # 14.11. popodne: never a source whose flag is NEVER_LIVE
+        if user == ts.LEAGUE_USER and scalp_live():
+            # 14.11. popodne (owner: "Sve strategije" on real money): under his switch pravi_novac_sve the real account
+            # trades every source whose own flag is paper or live, the NEVER_LIVE ones (range_market, event_tokens)
+            # included: the switch is his override of that rule; off is still off
             fl = _flags()
-            return any(s in market.WATCH_FLAG and market.WATCH_FLAG[s] not in ts.NEVER_LIVE
-                       and fl.mode(market.WATCH_FLAG[s]) == "live" for s in srcs)
+            return any(fl.mode(market.WATCH_FLAG[s]) in ("paper", "live") for s in srcs if s in market.WATCH_FLAG)
         return False
     fl = _flags()
     return any(fl.mode(market.WATCH_FLAG[s]) in ("paper", "live") for s in srcs if s in market.WATCH_FLAG)

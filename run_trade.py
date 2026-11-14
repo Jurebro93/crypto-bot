@@ -314,6 +314,109 @@ def _momentum_gate():
         return f"momentum_scalp: dokaz se ne može pročitati ({type(e).__name__})"
 
 
+# 14.11. (owner: "Ja sada ne govorim o demu ... idemo s pravim novcem"; trade/settings "pravi_novac_sve"): while his
+# switch is on, every automatic demo trade of the real account is a real buy without the demo proof (PROOF, the
+# momentum gate), within trade/executor.SWITCH_CAPS. The hard rules are asked once more right here, on the real buy
+# itself (they hold switch or not in the strategies; here they hold whatever a strategy did): the rug archive, a known
+# MC of $30k+, a live DexScreener pair (bonded only, never the pump.fun curve) with liquidity $15k+ and no rug, and a
+# server-side stop behind the position (an exit plan that executes on the real account, the lot's own SL, or the
+# strategy's own exit engine: momentum, range). The kill switch, the wallet balance and reserve, the swap cost cap and
+# one real position per token are trade/executor's (buy_checks, swap), as for every buy.
+SWITCH_STOP_WAIT_S = 10    # a stop the strategy writes right after its demo buy (momentum, range): wait for it this long
+SWITCH_QUOTE_WAIT_S = 20   # DexScreener did not answer: try again on the next passes for this long, then refuse
+SWITCH_SUMMARY_S = 600     # the switch's day summary in the log this often while it is on
+_switch_log = {"ts": 0.0, "day": None}
+
+
+def _switch_market(tokens):
+    """The live quote of the hard re-check (league/copy.market: DexScreener's 3-s live cache, Jupiter for the curve)."""
+    from league import copy as lcopy
+    return lcopy.market(tokens)
+
+
+def _no_stop(lg, t):
+    """None when the demo lot behind this real buy has a server-side stop, else why not (Croatian)."""
+    try:
+        a = json.loads(t["auto"] or "null") or {}
+    except (ValueError, TypeError):
+        a = {}
+    if a.get("mode") == "smart" or (a.get("mode") == "tpsl" and a.get("sl_px")):
+        return None   # league/auto runs the lot's own stop every second
+    try:
+        from league import exitplan
+        p = exitplan.active(lg, t["token"], ro=True)
+        if p and settings.LEAGUE_USER in exitplan._scope(p["plan"]) \
+                and (p["state"].get("stop_px") or {}).get(settings.LEAGUE_USER):
+            lots = [dict(r) for r in lg.execute("SELECT * FROM trades WHERE user=? AND token=? AND status='open'",
+                                                (settings.LEAGUE_USER, t["token"]))]
+            if exitplan.execution(settings.LEAGUE_USER, lots, plan=p)["executes"]:
+                return None
+    except Exception:  # noqa: BLE001 - an unreadable plan is no plan
+        pass
+    src = t["source"] or ""
+    try:
+        if src.startswith("momentum") and lg.execute("SELECT 1 FROM momentum_trades WHERE trade_id=? AND status='open'",
+                                                     (t["id"],)).fetchone():
+            return None   # momentum/trade.exits_once: stop -10 % every second
+        if src.startswith("range lot") and lg.execute("SELECT 1 FROM range_rounds WHERE status='open' AND (lot1_id=? OR "
+                                                      "lot2_id=?)", (t["id"], t["id"])).fetchone():
+            return None   # rangedca/trade.exits_once: the round's hard stop every second
+    except sqlite3.Error:
+        pass
+    return "bez server-side stopa (plan izlaza na pravom računu, vlastiti SL ili izlaz strategije): bez stopa nema pravog novca"
+
+
+def _switch_hard(lg, t, now, market_fn=None):
+    """(why or None, wait) of the hard rules on an automatic real buy under pravi_novac_sve (see above). wait: not yet
+    decided (a stop or a quote that is still coming), the next pass asks again."""
+    tok, src = t["token"], t["source"] or ""
+    if _grok_source(src) or src.startswith("Grok auto"):
+        return "Grokova kupnja ide samo njegovim putem (vlastiti prekidač i limiti), nikad kroz pravi_novac_sve", False
+    try:
+        from rugfilter import archive
+        if tok in archive.blocked():
+            return "token je u arhivi rugova: ne trguje se i ne naoružava", False
+    except Exception:  # noqa: BLE001 - unreadable archive: the rug check below and the strategies' guards decide
+        pass
+    if t["entry_mcap"] is None:
+        return "MC nepoznat: automatska kupnja pravim novcem samo uz poznat MC od 30k naviše", False
+    m = ((market_fn or _switch_market)([tok]) or {}).get(tok)
+    if not m or not m[0]:
+        return "nema žive cijene (DexScreener): ne kupujem naslijepo", now - t["opened_ts"] < SWITCH_QUOTE_WAIT_S
+    from league import copy as lcopy
+    from trade import cost
+    if lcopy._bonding_curve(m) or lcopy._dex_pair_empty(m):
+        return "token je na pump.fun krivulji ili bez DexScreener para: kupuju se samo bondani", False
+    if (m[3] or 0) < MIN_MCAP_USD:
+        return f"MC ${m[3] or 0:,.0f} ispod 30k (pravilo: ispod 30k se ne kupuje)", False
+    why = cost.liq_block(m[1])
+    if why:
+        return why, False
+    col = lcopy._rugged(tok, m[3], m[1])
+    if col:
+        return f"token je rugan ({col['text']})", False
+    why = _no_stop(lg, t)
+    if why:
+        return why, now - t["opened_ts"] < SWITCH_STOP_WAIT_S
+    return None, False
+
+
+def _switch_summary(con, cfg, now=None, force=False):
+    """14.11.: the switch's day summary line (executor.switch_line) every SWITCH_SUMMARY_S while it is on, and the last
+    one of a Zagreb day when the next starts. Never raises."""
+    now = now or time.time()
+    try:
+        day = executor._day_start(now, cfg.get("day_tz"))
+        if _switch_log["day"] is not None and day != _switch_log["day"]:
+            print(f"pravi trade: kraj dana, {executor.switch_line(executor.switch_status(con, day - 1, cfg))}", flush=True)
+        _switch_log["day"] = day
+        if force or now - _switch_log["ts"] >= SWITCH_SUMMARY_S:
+            _switch_log["ts"] = now
+            print(f"pravi trade: {executor.switch_line(executor.switch_status(con, now, cfg))}", flush=True)
+    except Exception as e:  # noqa: BLE001 - a log line never stops the loop
+        print(f"pravi trade: sažetak pravi_novac_sve nije ispisan: {type(e).__name__}: {e}", flush=True)
+
+
 def _mirrored(con, league_id):
     """10.11. (Jure: "sekundni poslovi ne smiju čitati cijelu bazu svake sekunde"): has this demo trade its
     positions row already? One lookup through the index on league_id (trade/aplog.INDEXES) per fresh demo trade; the
@@ -498,6 +601,7 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
         bought = 0
         live = executor.is_live(cfg)
         tag = "LIVE" if live else "DRY"
+        sw = live and settings.pravi_novac_sve(con=con)   # 14.11.: the owner's switch, read once per pass
         for t in fresh:
             if _mirrored(con, t["id"]):
                 continue
@@ -522,16 +626,24 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 # known bad only (P1/P7). 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno
                 # dobar razlog"): only his own manual buy he confirmed with a reason passes; copies, Grok, automatics never
                 why = f"MC ${t['entry_mcap']:,.0f} ispod 30k (pravilo: ispod 30k se ne kupuje)"
-            elif live and not size and (t["follow_id"] is not None or is_copy):   # a copy never passes as "manual"
-                why = _no_proof(lg, t["follow_id"])
+            elif live and not size and (t["follow_id"] is not None or is_copy) and not sw:   # a copy never passes as
+                why = _no_proof(lg, t["follow_id"])   # "manual"; 14.11.: pravi_novac_sve buys without the demo proof
             limit = None
             if not why and is_copy:   # 10.11. (Grok MCP audit 3): flag runup_default, live: limit at the call + 10 %
                 why, limit = _call_limit(lg, t)
             rng_sol, rng_add = None, False
             if not why and (t["source"] or "").startswith("range lot "):   # 10.11. (Jure, flag range_dca)
                 why, rng_sol, rng_add = _range_lot(con, lg, t, cfg)
-            if not why and (t["source"] or "").startswith("momentum"):     # 11.11. (Jure, flag momentum_scalp)
+            if not why and (t["source"] or "").startswith("momentum") and not sw:   # 11.11. (flag momentum_scalp)
                 why = _momentum_gate()
+            auto_sw = sw and not size   # 14.11.: an automatic real buy under pravi_novac_sve (the owner's own: as before)
+            strat = executor.strategy_of(t["source"])
+            if not why and auto_sw:
+                why, wait = _switch_hard(lg, t, now)
+                if why and wait:
+                    continue   # its stop / quote is still being written: the next pass asks again (`since` is fixed)
+                if why:
+                    _say(f"PRAVI NOVAC: {strat} {t['symbol'] or t['token'][:6]} odbijeno (tvrdo pravilo): {why}", quiet)
             if why:
                 con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
                             "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(), "blocked", why))
@@ -553,8 +665,16 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 over = "; ".join(r.get("overridden") or []) or ov
                 _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})"
                      + (f" uz potvrđeno nadjačavanje: {over}" if ov else ""), quiet)
+                if auto_sw and r.get("mode") == "live":   # 14.11.: one line per automatic real buy, then the day so far
+                    c = r.get("cost_pct")
+                    c_txt = f"{c:.1f}" if isinstance(c, (int, float)) else "?"
+                    _say(f"PRAVI NOVAC: {strat} kupuje {t['symbol'] or t['token'][:6]} "
+                         f"{r['amount_in'] / executor.LAMPORTS:.3f} SOL (procjena troška {c_txt} %)", quiet)
+                    _switch_summary(con, cfg, now, force=True)
             else:
                 _say(f"{tag} kupnja {t['symbol']} nije prošla: {r.get('error')}", quiet)
+                if auto_sw:   # a cap's refusal names the cap (executor.buy_checks: "strop pravi_novac_sve <cap>")
+                    _say(f"PRAVI NOVAC: {strat} {t['symbol'] or t['token'][:6]} odbijeno: {r.get('error')}", quiet)
         if bought:   # 13.11.: an exit that fired while the buys were in flight
             _league_sells(con, cfg, lg, max(now, time.time()), quiet)
     finally:
@@ -659,6 +779,18 @@ def cmd_follow(a):
                 except Exception as e:  # noqa: BLE001 - a log line never stops the loop
                     print(f"pravi trade: limiti nisu ispisani: {type(e).__name__}: {e}", flush=True)
                 beat["live"] = live_now
+            sw_now = settings.pravi_novac_sve(con=con)   # 14.11.: the owner's switch, in the log when it changes
+            if sw_now != beat.get("sw"):
+                if sw_now or beat.get("sw") is not None:
+                    print(f"pravi trade: prekidač pravi_novac_sve {'UKLJUČEN' if sw_now else 'isključen'}"
+                          + (f" ({'radi: mod LIVE' if live_now else 'čeka mod LIVE: Autopilot, TRADE_LIVE i ključ'}); "
+                             f"{switch_caps_text(cfg)}" if sw_now else "; pravi novac opet samo s dokazom u demu"),
+                          flush=True)
+                beat["sw"] = sw_now
+                if sw_now:
+                    _switch_summary(con, cfg, force=True)
+            elif sw_now:
+                _switch_summary(con, cfg)
             if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
                 settings.put(con, "heartbeat", int(time.time()), "bot")
                 beat["ts"] = time.time()
@@ -756,7 +888,16 @@ def limits_line(con, cfg):
             f"tokenu, {g.get('max_round_trips_per_token_day', 3)} kruga po tokenu na dan (stop nakon "
             f"{grokauto.MAX_STOP_OUTS_DAY} izlaza stopom) | automatske live kupnje (LIVE_CAPS) {lc['max_sol_per_trade']:g}/{lc['max_sol_per_day']:g} SOL, "
             f"{lc['max_open']} otvorene, gubitak {lc['max_loss_day']:g} | tvoje ručne kupnje: {own:g} SOL po tokenu, "
-            f"{cfg.get('max_sol_per_trade')} SOL po tradeu")
+            f"{cfg.get('max_sol_per_trade')} SOL po tradeu"
+            + (f" | pravi_novac_sve UKLJUČEN: {switch_caps_text(cfg)}" if settings.pravi_novac_sve(con=con) else ""))
+
+
+def switch_caps_text(cfg):
+    """14.11.: the caps of the automatic real buys under pravi_novac_sve (executor.switch_caps), in words."""
+    c = executor.switch_caps(cfg)
+    return (f"stropovi {c['max_sol_per_trade']:g} SOL po tradeu, najviše {c['max_open']} otvorenih, "
+            f"{c['max_buys_day']} kupnji dnevno, {c['max_sol_per_day']:g} SOL dnevno, dnevni gubitak "
+            f"-{c['max_loss_day']:g} SOL (Zagreb dan)")
 
 
 def main(argv=None):

@@ -9,8 +9,10 @@
 - Ručna kupnja vlasnika nadjačava limite (ulog, strop po tokenu, broj pozicija, dnevni gubitak, trošak, SL) uz okvir
   upozorenja i njegovu potvrdu; kill switch, stanje walleta, rug i Autopilot isključen ostaju tvrdi (11.11.).
   Novi pump.fun tokeni se ne kupuju dok su na krivulji; kupuju se bondani.
-- Pravi novac: trade/config.json ostaje "dry" dok strategija ne dokaže edge u demu. SOLANA_PRIVATE_KEY se nikad ne
-  kopira u sandbox. PumpPortal novčanik za podatke drži samo male iznose (strop LIVE_MAX_TRADES_DAY).
+- Pravi novac (14.11., vlasnik): kad vlasnik uključi prekidač pravi_novac_sve, sve strategije trguju pravim novcem
+  unutar stropova: 0,1 SOL po tradeu, najviše 10 otvorenih, 100 tradeova dnevno, dnevni gubitak 0,5 SOL. Bez
+  prekidača pravi novac samo uz dokaz u demu. SOLANA_PRIVATE_KEY se nikad ne kopira u sandbox. PumpPortal novčanik
+  za podatke drži samo male iznose (strop LIVE_MAX_TRADES_DAY).
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.

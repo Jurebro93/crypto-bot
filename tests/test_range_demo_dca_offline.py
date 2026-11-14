@@ -352,9 +352,10 @@ class RealAccount(TradeBase):
         return r
 
     def test_the_switch_is_an_owner_switch_and_off_by_default(self):
-        self.assertEqual(settings.FLAGS["pravi_novac_sve"][0], "G33")
+        self.assertEqual(settings.FLAGS["pravi_novac_sve"][0], "P14")   # one switch for all strategies (noc/live)
+        self.assertIn("range trguje scalp", settings.FLAGS["pravi_novac_sve"][1])
         self.assertIn("pravi_novac_sve", settings.OWNER_SWITCHES)
-        self.assertIn("PRAVIM NOVCEM", settings.OWNER_SWITCH_NOTES["pravi_novac_sve"])
+        self.assertIn("pravim novcem", settings.OWNER_SWITCH_NOTES["pravi_novac_sve"])
         self.assertEqual(settings.flag("pravi_novac_sve", self.con), "off")
         self.assertIsNone(settings.live_refusal(self.con, "pravi_novac_sve"))   # only the owner's tap moves it
         self.assertIn("range_demo", settings.NEVER_LIVE)                     # the demo profile itself never live
@@ -363,6 +364,18 @@ class RealAccount(TradeBase):
         cfg = settings.merged({"size_sol": 0.1}, self.con)
         self.assertEqual((cfg["range_scalp_trades_day"], cfg["range_scalp_target_usd"]), (100, 0.6))
         self.assertIn("range_scalp_trades_day", settings.LIMITS)
+
+    def test_switch_on_the_real_account_also_trades_market_and_event_tokens(self):
+        """14.11. popodne (owner: "Sve strategije"): under the switch a token only the market list / an event brought
+        is traded by the real account too (NEVER_LIVE overridden by the switch); off: never."""
+        self.mode("paper", "range_market")
+        rng = dict(self.drng(), sources=["market"], source="market")
+        self.assertFalse(trade.allowed(rng, LU, self.now))
+        self.assertTrue(trade.allowed(rng, PU, self.now))
+        self.switch()
+        self.assertTrue(trade.allowed(rng, LU, self.now))
+        self.mode("off", "range_market")
+        self.assertFalse(trade.allowed(rng, LU, self.now))                  # the source's own flag off: never
 
     def test_switch_off_the_real_account_is_untouched(self):
         self.assertIsNone(trade.profile(LU))
