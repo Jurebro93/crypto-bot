@@ -290,6 +290,16 @@ class Fixture(unittest.TestCase):
         cov = self.out["coverage"]["wallet"]
         self.assertEqual(cov["liq_unknown_sources"], 1)
         self.assertEqual(cov["liq_src"]["snimka"], 14)
+        # 11.11. (Jure): the summary line says how many PROVEN wallets have an unknown entry liquidity
+        self.assertEqual(cov["liq_unknown_proven"], 1)
+        line = next(x for x in self.logs if x.startswith("rang za kopiranje: ") and "prije" not in x)
+        self.assertIn(f"nepoznata likvidnost 1 od {cov['proven']} dokazanih", line)
+        self.assertEqual(rang.unknown_text({"liq_unknown_proven": 4, "proven": 10}),
+                         "nepoznata likvidnost 4 od 10 dokazanih (40%): iznad 30%, treba backfill povijesne likvidnosti "
+                         "(Helius / GT)")
+        self.assertEqual(rang.unknown_text({"liq_unknown_proven": 3, "proven": 10}),
+                         "nepoznata likvidnost 3 od 10 dokazanih (30%)")
+        self.assertEqual(rang.unknown_text({"liq_unknown_proven": 0, "proven": 0}), "nepoznata likvidnost 0 od 0 dokazanih (0%)")
 
     def test_influencers(self):
         k = {r["target"]: r for r in self.out["kols"]}

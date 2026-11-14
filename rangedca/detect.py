@@ -417,6 +417,9 @@ FLIP = {
     "touch_tol": 0.03,    # a retest touch: a swing low within the flip zone +-3 %; a close under its low x 0.97 fails
     "touches": 2,
     "hold_s": 24 * 3600,  # a flip / pause state ends 24 h after its break
+    # 11.11. (Jure: "retest nakon flipa skratiti s 24 h na 4-6 h"): a flip candidate without its 2 retests this long
+    # after the break is no flip: back to the range of the last 24 h (the old hold_s kept it blocked for a day)
+    "retest_s": 5 * 3600,
     "max_gap_s": 3600,    # a previous pass older than this: its zones are stale, no break is read against them
     "alt_min_h": 1.0,     # the range after a break needs >= 1 h of candles after it
     "res_tol": 0.03,      # resume: the new range's range_high_top <= the resistance's top x 1.03
@@ -524,6 +527,27 @@ def retest_touches(zone, candles, t_from, now, cfg=None):
             and lo <= p["px"] <= hi and p["ts"] != cs[0][0]]   # the first candle is where the window starts, no swing
 
 
+def reclaim(zone, candles, t_from, now, atr_px=None, cfg=None):
+    """11.11. (Jure: "nastavak iz pauze kad se cijena vrati iznad otpora uz volumen"): the first 5-minute bar starting
+    at or after t_from (the break bar's end) that closes above the resistance's top by the break margin, max(brk_pct
+    x top, brk_atr x ATR), with volume >= brk_vol_x x the median 5-minute volume (the same test as a confirmed break):
+    {"ts", "end", "close", "level", "vol_x"}, else None."""
+    c = _fcfg(cfg)
+    if not zone or not zone.get("top"):
+        return None
+    level = zone["top"] + max(c["brk_pct"] * zone["top"], c["brk_atr"] * (atr_px or 0))
+    bs = bars(candles, c["bar_s"], now)
+    vols = [b[5] for b in bs if b[5] > 0]
+    med = statistics.median(vols) if vols else 0.0
+    if med <= 0:
+        return None
+    for b in bs:
+        if b[0] >= t_from and b[4] > level and b[5] / med >= c["brk_vol_x"]:
+            return {"ts": int(b[0]), "end": int(b[0] + c["bar_s"]), "close": b[4], "level": level,
+                    "vol_x": round(b[5] / med, 2)}
+    return None
+
+
 def post_range(candles, now, t_from, snap=None, cfg=None):
     """The range computed from the candles since t_from (the break) only: analyze() over that window, with a minimum
     history of alt_min_h (1 h), the window's first candle not taken for a swing point (it is where the window starts,
@@ -604,6 +628,15 @@ def flip_step(prev, res, candles, now, snap=None, cfg=None):
             st["touches"] = [p["ts"] for p in retest_touches(z, cs, b["ts"], now, c)]
             if len(st["touches"]) >= c["touches"]:
                 go("flipped", f"stari vrh je novo dno ({len(st['touches'])} retesta bez zatvaranja ispod)", since=now)
+            elif now - int(b["end"]) > c["retest_s"]:
+                go("normal", f"flip nije potvrđen u {c['retest_s'] / 3600:g} h od proboja ({len(st['touches'])}/"
+                   f"{c['touches']} retesta): opet raspon zadnja 24 h", since=now, brk=None, zone=None, touches=[],
+                   alt=None)
+    if st["state"] == "paused":   # 11.11. (Jure): back above the resistance with volume = the pause is over
+        r = reclaim(st["zone"], cs, int(st["brk"]["end"]), now, a, c)
+        if r:
+            go("normal", f"nastavak: povratak iznad otpora (zatvaranje {r['close']:.6g} iznad {r['level']:.6g}, "
+               f"volumen {r['vol_x']}x): opet raspon zadnja 24 h", since=now, brk=None, zone=None, touches=[], alt=None)
     if st["state"] in ("paused", "flipped", "resumed"):
         alt = post_range(cs, now, st["brk"]["ts"], snap, cfg)
     if st["state"] == "paused" and has_pair(alt) and \

@@ -202,9 +202,11 @@ def flip_view(fl, rng=None):
 FLIP_RULES = ("range_flip (G26): a 5-minute close beyond the range by max(2 %, 1 x ATR) with volume >= 1.5 x the "
               "median 5-minute volume is a confirmed break. Up: the old top zone is the candidate for the new bottom, "
               "no entries until 2 retests (swing lows within it +-3 %) without a close under it x 0.97 (then the range "
-              "after the break trades). Down: paused, no lot 1 / lot 2, the old bottom zone is the resistance, resumed "
-              "when a range formed after the break has its top <= the resistance x 1.03. A state ends 24 h after its "
-              "break. Stop: range_low_low - 1.5 x ATR(14 x 15 min), 5-20 % under range_low_low (11.11., the owner's "
+              "after the break trades); without them within 5 h of the break it is no flip (back to normal). Down: "
+              "paused, no lot 1 / lot 2, the old bottom zone is the resistance; resumed when a range formed after the "
+              "break has its top <= the resistance x 1.03, or back to normal when a 5-minute close is above the "
+              "resistance by the break margin with volume >= 1.5 x the median. A state ends 24 h after its break. "
+              "Stop: range_low_low - 1.5 x ATR(14 x 15 min), 5-20 % under range_low_low (11.11., the owner's "
               "decision 1: every account's stop now, range_flip or not; x 0.85 only while ATR is unknown).")
 
 

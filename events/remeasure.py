@@ -59,13 +59,13 @@ def _spend(econ, now, n, key="remeasure_night"):
 
 def cap_left(econ, now, cap=NIGHT_CAP):
     """Requests this night may still make: the night cap minus what was used, and with the CoinGecko key never past
-    half of the paid day."""
+    the night's share of the paid day (event_calendar/http.cg_night_cap, 40 %, 11.11.; was half)."""
     left = cap - used(econ, now)
     try:
         from event_calendar import http
         if http.cg_key():
-            day_cap = int(float(os.environ.get("CG_DAILY_CALLS", "3000")))
-            left = min(left, day_cap // 2 - http.cg_used())
+            # 11.11.: cg_used() is (used, cap); the int minus a tuple raised, the except hid it, the cap never held
+            left = min(left, http.cg_night_cap() - http.cg_used()[0])
     except Exception:  # noqa: BLE001
         pass
     return max(0, left)

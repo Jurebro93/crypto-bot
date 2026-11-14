@@ -56,6 +56,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WINDOW_D = 30
 MIN_N = 10                   # closed tokens (calls) for "dokazan"
 MIN_LIQ_USD = 15_000         # median pool liquidity at his entries; below = "nije kopirljivo"
+# 11.11. (Jure): over this share of the PROVEN wallets with an unknown entry liquidity, the history is to be filled
+# from a Helius / GT backfill instead of leaving them not copyable; the summary line says when (no call is made here)
+UNKNOWN_BACKFILL_SHARE = 0.30
 CONC_MAX, CONC_MULT = 0.50, 0.6
 HALF_LIFE_D = 7.0
 Z90 = 1.645                  # one-sided 90 % (Wilson lower bound)
@@ -764,9 +767,20 @@ def coverage(rows):
         lag[r.get("lag_src")] = lag.get(r.get("lag_src"), 0) + 1
     return {"sources": len(rows), "entries": ent, "liq_known": known, "liq_src": src,
             "liq_unknown_sources": sum(1 for r in rows if r.get("liq") is None),
+            "liq_unknown_proven": sum(1 for r in rows if r["proven"] and r.get("liq") is None),
             "below_liq": sum(1 for r in rows if r.get("liq") is not None and r["liq"] < MIN_LIQ_USD),
             "lag": lag, "avail_known": sum(r.get("avail_n") or 0 for r in rows),
             "proven": sum(1 for r in rows if r["proven"]), "copyable": sum(1 for r in rows if r["copyable"])}
+
+
+def unknown_text(c):
+    """11.11. (Jure: "javi koliko novčanika ima nepoznato za likvidnost"): the proven sources with an unknown entry
+    liquidity, their share and, over UNKNOWN_BACKFILL_SHARE, that the backfill is due."""
+    n, p = c.get("liq_unknown_proven") or 0, c.get("proven") or 0
+    share = n / p if p else 0.0
+    return (f"nepoznata likvidnost {n} od {p} dokazanih ({share:.0%})"
+            + (f": iznad {UNKNOWN_BACKFILL_SHARE:.0%}, treba backfill povijesne likvidnosti (Helius / GT)"
+               if p and share > UNKNOWN_BACKFILL_SHARE else ""))
 
 
 def _cov_line(name, c):
@@ -848,7 +862,8 @@ def run(con, now=None, paths=None, log=print, once_key=KV_BEFORE_AFTER):
     clear()
     if log:
         log(f"rang za kopiranje: {cov_w['sources']} novčanika ({cov_w['proven']} dokazanih, {cov_w['copyable']} "
-            f"kopirljivih), {cov_k['sources']} influencera ({cov_k['proven']} dokazanih, {cov_k['copyable']} kopirljivih)")
+            f"kopirljivih; {unknown_text(cov_w)}), {cov_k['sources']} influencera ({cov_k['proven']} dokazanih, "
+            f"{cov_k['copyable']} kopirljivih; {unknown_text(cov_k)})")
         if block:
             log(block)
     return {"wallets": rows_w, "kols": rows_k, "block": block, "coverage": {"wallet": cov_w, "kol": cov_k}}

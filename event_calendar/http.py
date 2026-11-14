@@ -237,6 +237,13 @@ def cg_allow(st, job, now, cap=None, night=None):
     return True, ""
 
 
+def cg_night_cap(cap=None):
+    """Calls the key may serve to a night job before 06:00 Zagreb: CG_NIGHT_SHARE (0.4) of the day's budget
+    (11.11., Jure: the 3000 were gone by 02:38 UTC to the night jobs; PR #133). events/remeasure.cap_left reads it."""
+    cap = cg_cap() if cap is None else cap
+    return int(cap * _env_f("CG_NIGHT_SHARE", 0.4))
+
+
 def cg_used(today=None):
     """(calls through the key today (UTC), the day's budget)."""
     st = _cg_read() if today is None else _cg_read_day(today)

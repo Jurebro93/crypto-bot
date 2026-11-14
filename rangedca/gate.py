@@ -134,9 +134,11 @@ def by_source(path=None):
 # Live only past the backtest of today's rules vs the new ones (flip / pause / volatility stop) over the real range
 # tokens, run every night by rangedca/backtest.run_server and kept in range.db kv flip_backtest: the new rules' max
 # drawdown must not be larger than today's (Jure 11.11.: "ide live samo ako ne pogoršava DD"), with at least
-# FLIP_MIN_ROUNDS rounds of today's rules on FLIP_MIN_TOKENS tokens (with fewer the comparison proves nothing) and a
+# FLIP_MIN_ROUNDS rounds of BOTH rule sets on FLIP_MIN_TOKENS tokens (with fewer the comparison proves nothing) and a
 # result not older than FLIP_MAX_AGE_S. The reason always names PnL and false entries of both.
-FLIP_MIN_ROUNDS = 10
+# 11.11. (Jure: "backtest ponoviti tek kad bude >= 30 runda; 12 token-dana je premalo za bilo kakav zaključak, i stara
+# i nova pravila"): 30 (was 10 of today's rules only)
+FLIP_MIN_ROUNDS = 30
 FLIP_MIN_TOKENS = 3
 FLIP_MAX_AGE_S = 3 * 86400
 _FCACHE = {"at": 0.0, "path": None, "val": None}
@@ -175,9 +177,10 @@ def flip_refusal(path=None, now=None, cached=False):
         tail = f"; staro: {_side(old)}; novo: {_side(new)}"
         if now - (r.get("ts") or 0) > FLIP_MAX_AGE_S:
             why = f"range_flip: backtest je star {(now - (r.get('ts') or 0)) / 86400:.1f} dana (najviše 3)" + tail
-        elif (old.get("rounds") or 0) < FLIP_MIN_ROUNDS or (r.get("tokens") or 0) < FLIP_MIN_TOKENS:
-            why = (f"range_flip: premalo podataka ({old.get('rounds') or 0} rundi starih pravila na {r.get('tokens') or 0} "
-                   f"tokena, treba {FLIP_MIN_ROUNDS} na {FLIP_MIN_TOKENS})" + tail)
+        elif (min(old.get("rounds") or 0, new.get("rounds") or 0) < FLIP_MIN_ROUNDS
+              or (r.get("tokens") or 0) < FLIP_MIN_TOKENS):
+            why = (f"range_flip: premalo podataka (rundi: staro {old.get('rounds') or 0}, novo {new.get('rounds') or 0} "
+                   f"na {r.get('tokens') or 0} tokena, treba {FLIP_MIN_ROUNDS} za oba na {FLIP_MIN_TOKENS})" + tail)
         elif (new.get("max_dd_sol") or 0) > (old.get("max_dd_sol") or 0) + 1e-9:
             why = "range_flip: novi DD veći od starog" + tail
     _FCACHE.update(at=now, path=path, val=why)

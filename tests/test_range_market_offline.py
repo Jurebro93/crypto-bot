@@ -418,3 +418,30 @@ class GtBusy(unittest.TestCase):
         self.assertEqual(data.day_used(con, "mkt_gt_day", now), 0)
         self.assertTrue(any("drži drugi posao" in x for x in logs))
 
+    def test_round_line_tells_the_shared_coingecko_day(self):
+        """11.11. (Jure): more GT pages only if the day has room after the first two real rounds: every round says
+        how much of the shared CoinGecko day is gone."""
+        from unittest import mock
+        from event_calendar import http
+        con = data.connect(os.path.join(tempfile.mkdtemp(), "range.db"))
+        market.ensure(con)
+        logs = []
+        pool = {"attributes": {"name": "X / SOL"}, "relationships": {"base_token": {"data": {"id": "solana_M1"}}}}
+
+        class Net:
+            def lists(self):
+                return []
+
+            def gt_pools(self, n_req=None):
+                return [pool]
+        now = 1794346000 + 12 * 3600
+        data.kv_put(con, "mkt_lists_ts", now)
+        with mock.patch.dict(os.environ, {"COINGECKO_API_KEY": "k"}), \
+                mock.patch.object(http, "cg_used", lambda today=None: (3000, 3000)), \
+                mock.patch.object(market, "gt_row", lambda p: ("M1", "X", now - 86400, {"mcap": 1e5, "liq": 3e4, "vol_h1": 2e4})):
+            market.discover_lists(con, now, Net(), logs.append)
+        line = next(x for x in logs if x.startswith("range tržište GT:"))
+        self.assertIn("(prava runda 1)", line)
+        self.assertIn("CoinGecko ključ danas 3000/3000 (potrošen: ostatak dana besplatni GT)", line)
+        self.assertIn(f"range lista {market.gt_requests()}/{market.GT_DAY}", line)
+
