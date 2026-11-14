@@ -44,7 +44,7 @@ def summarize(rows):
         return {"n": 0, "hits": 0, "hit_rate": None, "sl_first": None, "ev_pct": None, "avg_cost_pct": None,
                 "break_even_hit": None}
     hits = sum(int(r["hit"]) for r in rows)
-    sims = [r["sim_ret"] for r in rows if r.get("sim_ret") is not None]
+    sims = [r["sim_ret"] for r in rows if rules.plausible(r.get("sim_ret"))]   # 14.11.: a bad tick is no result
     costs = [r["cost"] for r in rows if r.get("cost") is not None]
     c = sum(costs) / len(costs) if costs else rules.round_trip_cost()
     return {"n": n, "hits": hits, "hit_rate": round(hits / n, 3),

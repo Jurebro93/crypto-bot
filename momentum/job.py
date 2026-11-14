@@ -74,7 +74,7 @@ def resolve_signals(con, now):
     n = 0
     end_s = rules.RULES["time_s"]
     for s in data.open_signals(con):
-        path = data.snap_rows(con, s["token"], s["ts"] + 1, s["ts"] + end_s)
+        path = rules.clean_path(data.snap_rows(con, s["token"], s["ts"] + 1, s["ts"] + end_s), s["price"])   # 14.11.
         over = now >= s["ts"] + end_s
         if over and (not path or path[-1][0] < s["ts"] + end_s):
             path = path + [(s["ts"] + end_s, path[-1][1] if path else s["price"])]   # the last price we saw stands
