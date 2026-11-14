@@ -5,7 +5,8 @@ Layout: on a desktop (>= 1024 px) two columns, the chart and the tables on the l
 right (~35 %); below 1024 px one column, the panel opens as a bottom sheet from a sticky "Kupi / Prodaj" bar.
   1. chart of the selected token (TradingView Lightweight Charts, self-hosted ui/static/ap, Apache-2.0 with the
      TradingView attribution under the chart): candles 1m/5m/15m/1h from data we already store (rangedca.data.series:
-     range.db snaps + hype.db token_pulse + GeckoTerminal / minute.db candles), MC or price, lines for my average
+     range.db snaps + hype.db token_pulse + GeckoTerminal / minute.db candles; 14.11.: a thin series is filled by one
+     capped GeckoTerminal request in a background thread, ui/apgraf.py), MC or price, lines for my average
      entry, the DCA orders, SL (red), TP (green) and the rangedca zones as bands with their computed_ts;
      the header above it: symbol, MC, 5m/1h/24h, liquidity, 1h volume, buys/sells 5m, rug badge.
   2. the order panel: Kupi / Prodaj tabs posting to the SAME routes with the same field names as before
@@ -42,6 +43,7 @@ import time
 from urllib.parse import quote
 
 from trade import executor, settings
+from ui import apgraf
 from ui import pravitrade as pt
 from ui import redak
 from ui.html import esc, short
@@ -62,7 +64,8 @@ ZOVU_EVERY_S = 15        # "Tko sada zove" feed inside "Koga pratimo"
 DNEVNIK_EVERY_S = 5
 STALE_S = 60             # older data shows a yellow badge
 CANDLE_TTL_S = 20
-CANDLE_KEEP = 6          # token series kept in memory (RAM: ~1-2 MB at most)
+CANDLE_KEEP = 8          # token series kept in memory (RAM: ~1-2 MB at most; the 1h view's hour candles count too)
+YOUNG_BARS = 6           # fewer candles than this on the chosen TF: the chart says why and which TF shows more
 WANT_TTL_S = 30          # a token a viewer looks at stays in the shared tick this long after the last ask
 WANT_MAX = 4             # tokens beyond the open positions in the shared tick
 HIST_PAGE = 20
@@ -920,6 +923,7 @@ def reset():
         _RUG.clear()
         _PNL.clear()
         _PORT.clear()
+    apgraf.reset()
 
 
 def tick_json(user, mint=""):
@@ -1008,6 +1012,37 @@ def _series(mint, hours, now):
     return cs, snap
 
 
+def _forget_series(mint):
+    """New candles of `mint` were stored (ui/apgraf): its cached series are read again on the next poll."""
+    with _LOCK:
+        for k in [k for k in _CANDLES if k[0] == mint]:
+            _CANDLES.pop(k, None)
+
+
+apgraf.on_store(_forget_series)
+
+
+def _hour_series(mint, hours, now):
+    """GeckoTerminal hour candles of the token (range.db gt_hours, filled by ui/apgraf for the 1h view); cached."""
+    key = (mint, "h1")
+    with _LOCK:
+        hit = _CANDLES.get(key)
+    if hit and now - hit[0] < CANDLE_TTL_S:
+        return hit[1]
+    from rangedca import data as rdata
+    con = rdata.ro()
+    try:
+        rows = rdata.hour_rows(con, mint, int(now - hours * 3600) - 3600, now) if con is not None else []
+    except sqlite3.Error:
+        rows = []
+    finally:
+        if con is not None:
+            con.close()
+    with _LOCK:
+        _CANDLES[key] = (now, rows, None)
+    return rows
+
+
 def bucket(candles, step, mult=1.0, vols=None):
     """Minute candles [(ts, o, h, l, c, v, ...)] -> [{time, open, high, low, close}] in buckets of `step` seconds,
     every value x mult (the supply for market cap). vols: a list that gets each bucket's volume in USD, aligned with
@@ -1027,6 +1062,76 @@ def bucket(candles, step, mult=1.0, vols=None):
             if vols is not None:
                 vols.append(float(v) if v is not None else None)
     return out
+
+
+def merge_hours(bars, vols, hours_rows, mult=1.0):
+    """The 1h view: bars from our minutes (bucket) merged with GeckoTerminal hour candles (gt_hours). GT's candle for
+    every hour before its newest one (complete, real OHLCV), ours for the newer hours (fresher than the fetch), GT's
+    newest where we have no minute of that hour. Returns (bars, vols), aligned."""
+    if not hours_rows:
+        return bars, vols
+    gt = {int(c[0]) - int(c[0]) % 3600: c for c in hours_rows}
+    newest = max(gt)
+    mine = {b["time"]: (b, v) for b, v in zip(bars, vols)}
+    out_b, out_v = [], []
+    for t in sorted(set(gt) | set(mine)):
+        if t in gt and (t < newest or t not in mine):
+            c = gt[t]
+            out_b.append({"time": t, "open": float(c[1]) * mult, "high": float(c[2]) * mult, "low": float(c[3]) * mult,
+                          "close": float(c[4]) * mult})
+            out_v.append(float(c[5]) if len(c) > 5 and c[5] is not None else None)
+        else:
+            out_b.append(mine[t][0])
+            out_v.append(mine[t][1])
+    return out_b, out_v
+
+
+def _svijeca(n):
+    """"je 1 svijeća" / "su 2 svijeće" / "je 5 svijeća" (Croatian: 2-4 take "su ... svijeće", 12-14 do not)."""
+    few = n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14)
+    return f"su {n} svijeće" if few else f"je {n} svijeća"
+
+
+def _fill_state(mint, step, hours, now, cs, bars, lv):
+    """The chart's history fill (ui/apgraf): None when the stored series covers the view, else {state, kind, why,
+    note} (state "dohvacam": the browser asks again in a few seconds). Never waits for a request."""
+    made = lv.get("created_ms")
+    born = int(made / 1000) if made else None
+    nd = apgraf.need(step, hours, now, cs, bars, born)
+    if nd is None:
+        return None
+    kind, why = nd
+    state = apgraf.request(mint, kind, why, now, hint=lv.get("pair"), bg=pt.BG_REFRESH)
+    return {"state": state, "kind": kind, "why": why, "note": apgraf.note(state)}
+
+
+def _young(tf, bars, cs, now, born, fill):
+    """Fewer than YOUNG_BARS candles on the chosen TF while a smaller TF would show more (a young token, or one we hold
+    only minutes of): {first_ts, bars, tf, more, counts, pick, why, bars_txt, note}, else None. pick: the largest
+    smaller TF with YOUNG_BARS+ candles (else the one with most); the browser shows it for this token only.
+    None while the history is being fetched (the answer after it decides)."""
+    if len(bars) >= YOUNG_BARS or not cs or (fill and fill.get("state") == "dohvacam"):
+        return None
+    step = TFS.get(tf, TFS["5m"])[0]
+    counts = {}
+    for k, (st, hrs) in TFS.items():
+        if st < step:
+            t0 = now - hrs * 3600
+            counts[k] = len({int(c[0]) - int(c[0]) % st for c in cs if c[0] >= t0})
+    more = [k for k in counts if counts[k] > len(bars)]
+    if not more:
+        return None
+    ok = [k for k in more if counts[k] >= YOUNG_BARS]
+    pick = ok[-1] if ok else max(more, key=lambda k: counts[k])
+    more = ok or more   # the note names the TFs worth a tap
+    first = int(cs[0][0])
+    when = _hm(first) if _hm(first, "%Y%m%d") == _hm(now, "%Y%m%d") else _dmhm(first)
+    young = born is not None and first - born <= 3600
+    why = f"Token je mlad (prvi podaci {when})" if young else f"Podaci za token tek od {when}"
+    bars_txt = f"na {tf} {_svijeca(len(bars))}"
+    note = f"{why}: {bars_txt} — {'/'.join(more)} {'pokazuje' if len(more) == 1 else 'pokazuju'} više"
+    return {"first_ts": first, "bars": len(bars), "tf": tf, "more": more, "counts": counts, "pick": pick, "why": why,
+            "bars_txt": bars_txt, "note": note}
 
 
 def _zones(mint):
@@ -1079,6 +1184,15 @@ def candles_data(user, mint, tf="5m", unit="mc", now=None):
     mult = supply if unit == "mc" else 1.0
     vols = []
     out = bucket(cs, step, mult, vols)
+    hrs = _hour_series(mint, hours, now) if step >= 3600 else []
+    if hrs:
+        out, vols = merge_hours(out, vols, hrs, mult)
+    # 14.11. (owner: "Graf ne prikazuje dobro", YoungBull on 1h: one candle and a cut one): a thin series asks for its
+    # history (ui/apgraf, background) and a view with only a few candles says why and which TF shows more
+    lv = _cached_row(mint, now, max_age=900) or {}
+    born = int(lv["created_ms"] / 1000) if lv.get("created_ms") else None
+    fill = _fill_state(mint, step, hours, now, cs, out, lv)
+    young = _young(tf if tf in TFS else "5m", out, cs, now, born, fill)
     conv = (lambda x: x) if unit == "mc" else (lambda x: x / supply if x and supply else None)
     lines = []
     for p in fv["positions"]:
@@ -1098,10 +1212,13 @@ def candles_data(user, mint, tf="5m", unit="mc", now=None):
     zones_mc = zones
     if zones:
         zones = {**zones, "bands": [{**b, "lo": conv(b["lo"]), "hi": conv(b["hi"])} for b in zones["bands"]]}
+    data_ts = int(cs[-1][0]) if cs else (int(hrs[-1][0]) if hrs else None)
+    firsts = ([int(cs[0][0])] if cs else []) + ([int(out[0]["time"])] if out else [])
     return {"mint": mint, "tf": tf if tf in TFS else "5m", "unit": unit, "ts": int(now),
-            "data_ts": int(cs[-1][0]) if cs else None, "candles": out[-2000:],
+            "data_ts": data_ts, "candles": out[-2000:],
             "vol": [round(v, 2) if v is not None else None for v in vols[-2000:]], "supply": supply,
-            "lines": [ln for ln in lines if ln["value"]], "zones": zones, "zones_mc": zones_mc}
+            "lines": [ln for ln in lines if ln["value"]], "zones": zones, "zones_mc": zones_mc,
+            "first_ts": min(firsts) if firsts else None, "born": born, "fill": fill, "young": young}
 
 
 # ---------- PnL by day (GET /pravi-trade/api/pnl-days), 11.11. (Jure: "po danima profit and loss") -----------------
@@ -2061,7 +2178,7 @@ def page(qs, user, full=False):
                  'aria-label="Graf svijeća. Miš ili dodir pokazuje podatke svijeće; strelice lijevo i desno idu svijeću po '
                  f'svijeću.">{_skel(1) if sel else ""}'
                  + ('' if sel else '<p class=apx-empty>Nema odabranog tokena.</p>') + '</div>'
-                 '<p class=apx-zinfo id=apx-zinfo></p>'
+                 '<p class="apx-zinfo apx-cnote" id=apx-cnote aria-live=polite></p><p class=apx-zinfo id=apx-zinfo></p>'
                  '<p class=apx-attr>Graf: <a href="https://www.tradingview.com/" target=_blank rel=noopener>TradingView Lightweight '
                  'Charts™</a> · Copyright (c) 2025 TradingView, Inc. · podaci: naše snimke (DexScreener, GeckoTerminal)</p></div>')
         tabs = ('<div class=apx-tabs role=tablist>'

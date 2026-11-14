@@ -135,6 +135,8 @@ def live_market(tokens, fetch=None):
         # 11.11. (Jure: "da nisam krivo pastao adresu"): the name the buy panel shows for an address (ui/apterm.token_info)
         bt = pr.get("baseToken") or {}
         out[t].update(symbol=bt.get("symbol"), name=bt.get("name"), created_ms=pr.get("pairCreatedAt"))
+        # 14.11. (ui/apgraf.py): the pair = GeckoTerminal's pool, for the chart's history without another lookup
+        out[t]["pair"] = pr.get("pairAddress")
     return out
 
 

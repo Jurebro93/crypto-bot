@@ -44,6 +44,11 @@
   }
   try { S.tf = localStorage.getItem('apx.tf') || '5m'; S.unit = localStorage.getItem('apx.unit') || 'mc'; } catch (e) { /* private mode */ }
   if (!['1m', '5m', '15m', '1h'].includes(S.tf)) S.tf = '5m';
+  // 14.11. (Jure: "Graf ne prikazuje dobro", YoungBull on 1h: one candle): a young token shows the TF that has its
+  // candles (S.tfFor, for that token only, with the reason under the chart); the owner's saved TF (S.tfPref) stays,
+  // and a TF he taps while on a token is his for it (S.tfPin)
+  S.tfPref = S.tf; S.tfFor = {}; S.tfPin = {}; S.tfWhy = {};
+  const tfButtons = () => { for (const b of $$('[data-tf]')) b.classList.toggle('on', b.dataset.tf === S.tf); };
   const STEP = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600 };
 
   // ---- numbers, the same words as the server (ui/apterm.mc = pravitrade._usd_short, ui/redak.pct / sol) ----
@@ -406,8 +411,34 @@
       series.attachPrimitive(bands);
       cTip = interact({ box, chart, series: () => series, n: () => cData.length, index: t => cIdx.get(tkey(t)),
         time: i => cData[i].time, value: i => cData[i].close, html: candleTip, say: candleSay });
+      // the owner's own pan or zoom (a drag, a pinch, the wheel; a tap for the tooltip is not one): fitBars leaves it
+      let px = null;
+      box.addEventListener('pointerdown', e => { px = [e.clientX, e.clientY]; }, { passive: true });
+      box.addEventListener('pointermove', e => { if (px && e.buttons && Math.hypot(e.clientX - px[0], e.clientY - px[1]) > 8) S.panTs = Date.now(); }, { passive: true });
+      addEventListener('pointerup', () => { px = null; }, { passive: true });
+      box.addEventListener('wheel', () => { S.panTs = Date.now(); }, { passive: true });
     }
     await loadCandles();
+  }
+  // 14.11. (Jure: "Graf ne prikazuje dobro": YoungBull on 1h, one candle in the middle and a fragment cut at the left
+  // edge): the view was fitted only when the token or the TF changed, so a later read could leave a candle half outside
+  // it. Now after every read: up to FEW candles keep the width of FEW + 2 (a candle stays a candle, the newest with room
+  // on its right); up to FIT_MAX all of them are fitted with half a candle of room at both edges; a longer series is
+  // fitted when it is new (token, TF, or it just grew past FIT_MAX: the history arrived), else moved only so its
+  // newest candle is whole. The owner's own pan or zoom of the last PAN_HOLD_MS is left alone.
+  const FEW = 12, FIT_MAX = 60, PAN_HOLD_MS = 60000;
+  function fitBars(n) {
+    const ts = chart.timeScale(), fit = S.fit || ((S.lastN || 0) < FIT_MAX && n >= FIT_MAX);
+    const held = Date.now() - (S.panTs || 0) < PAN_HOLD_MS;
+    S.fit = false; S.lastN = n;
+    if (!n || (held && !fit)) return;
+    if (n <= FEW) ts.setVisibleLogicalRange({ from: n - 0.5 - FEW, to: n + 1.5 });
+    else if (n < FIT_MAX) ts.setVisibleLogicalRange({ from: -1, to: n });   // half a candle of room at both edges
+    else if (fit) ts.fitContent();
+    else {
+      const r = ts.getVisibleLogicalRange();
+      if (r && (r.to < n - 0.5 || r.from > n - 1.5)) ts.scrollToRealTime();
+    }
   }
   // the candle's tooltip: time, open / high / low / close (MC or price, as the switch), the candle's change, its
   // volume when we have one, and how far its close is from my average entry, my SL and my TP
@@ -449,6 +480,11 @@
       if (!r.ok) throw new Error(String(r.status));
       const c = await r.json();
       if (want.join() !== [S.m, S.tf, S.unit].join()) { cAgain = true; return; }
+      const y = c.young;
+      if (y && y.pick && y.pick !== S.tf && !S.tfPin[S.m] && !S.tfFor[S.m]) {   // a young token: its TF, this token only
+        S.tfFor[S.m] = y.pick; S.tfWhy[S.m] = `${y.why}: ${y.bars_txt}, zato prikazujem ${y.pick}.`;
+        S.tf = y.pick; S.fit = true; tfButtons(); cAgain = true; return;
+      }
       cUnit = c.unit;
       for (const b of $$('[data-unit]')) b.classList.toggle('on', b.dataset.unit === c.unit);
       series.applyOptions({ priceFormat: { type: 'custom', minMove: c.unit === 'mc' ? 1 : 1e-12, formatter: c.unit === 'mc' ? fMc : fPx } });
@@ -466,10 +502,20 @@
       if (zi) {
         const z = c.zones;
         zi.textContent = z ? `Zone raspona (rangedca, ${z.status || ''}) izračunate ${new Date(z.computed_ts * 1000).toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' })}`
-          : (data.length ? '' : 'Za ovaj token još nemamo svijeće: snimke se skupljaju dok ga bot prati.');
+          : (data.length || (c.fill && c.fill.note) ? '' : 'Za ovaj token još nemamo svijeće: snimke se skupljaju dok ga bot prati.');
       }
+      // why the chart is short (a young token, the history being fetched, today's cap), under the chart
+      const cn = $('#apx-cnote');
+      if (cn) cn.textContent = [(S.tfFor[S.m] === S.tf && S.tfWhy[S.m]) || (y && y.note), c.fill && c.fill.note].filter(Boolean).join(' ');
       zoneSelects(c.zones_mc);
-      if (S.fit) { chart.timeScale().fitContent(); S.fit = false; }
+      fitBars(data.length);
+      // the history is on its way (ui/apgraf, a background request): asked again in a few seconds, not in 30
+      clearTimeout(S.fillT);
+      if (c.fill && c.fill.state === 'dohvacam') {
+        const k = want.join();
+        S.fillN = S.fillK === k ? S.fillN + 1 : 1; S.fillK = k;
+        if (S.fillN <= 20) S.fillT = setTimeout(() => { if (k === [S.m, S.tf, S.unit].join()) loadCandles(); }, 4000);
+      } else S.fillK = null;
       if (ageEl) { ageEl.dataset.ts = c.data_ts || 0; if (!c.data_ts) { ageEl.textContent = 'nema svijeća'; ageEl.classList.add('old'); } }
       age();
     } catch (e) {
@@ -856,6 +902,7 @@
     if (!m || m === S.m) return;
     const f = form(), sol = f && f.elements.sol.value, foc = f && f.contains(document.activeElement) ? document.activeElement.name : '';
     S.m = m; S.fit = true;
+    S.tf = S.tfFor[m] || S.tfPref; tfButtons();
     lastBar = null;   // the tick must not draw the new token's MC onto the old token's last candle
     try { history.replaceState(null, '', '?m=' + encodeURIComponent(m)); } catch (e) { /* file:// */ }
     const box = $('#apx-chart'); if (box) box.dataset.m = m;
@@ -1343,8 +1390,9 @@
     if ((b = g('[data-pu]'))) { PN.u = b.dataset.pu; pnlSave(); pnlDraw(); return; }
     if ((b = g('[data-pv]'))) { PN.v = b.dataset.pv; pnlSave(); pnlLoad(); return; }
     if ((b = g('[data-tf]'))) {
-      S.tf = b.dataset.tf; S.fit = true;
-      for (const x of $$('[data-tf]')) x.classList.toggle('on', x === b);
+      S.tf = b.dataset.tf; S.tfPref = S.tf; S.fit = true;
+      if (S.m) { S.tfPin[S.m] = true; delete S.tfFor[S.m]; }   // his tap wins over a young token's TF
+      tfButtons();
       try { localStorage.setItem('apx.tf', S.tf); } catch (x) { /* no storage */ }
       if (chart) loadCandles(); else chartInit();
       return;
@@ -1382,7 +1430,7 @@
   // what is on the first screen now; the rest after the token's chart (go, below), so they do not race it
   for (const el of $$('[data-x-src]')) if (shown(el) && inView(el)) watch(el);
   try { const t = sessionStorage.getItem('apx.tab'); if (t && t !== 'pozicije' && !S.hash) showTab(t); } catch (e) { /* no storage */ }
-  for (const b of $$('[data-tf]')) b.classList.toggle('on', b.dataset.tf === S.tf);
+  tfButtons();
   for (const b of $$('[data-unit]')) b.classList.toggle('on', b.dataset.unit === S.unit);
   setSide('buy'); hints(); costEst(); age(); tokCheck(true);
   scrollHash();
