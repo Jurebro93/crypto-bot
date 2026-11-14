@@ -217,6 +217,22 @@ OWNER_SWITCH_NOTES[SWITCH_ALL] = ("Tvoj prekidač: „uživo” = sve strategije
                                   "izmjerenim EV-om); svaki drugi mod = kao prije, pravi novac samo s dokazom u demu.")
 
 
+# 14.11. navečer (owner: "Zaprati sve influencere koji su u zadnjih 5 poziva imali barem 10% profita ... vidi na volete
+# isto ... izlazi na 10% profita"; kol/zadnjih5.py): an owner switch, "uživo" = the Autopilot account follows every
+# influencer and wallet whose last 5 measured calls / buys reached +10 % (strict 5/5), exit tp 10% and the default stop,
+# refreshed after a start and nightly. Default off. On top of it the runner itself turns ONE type on (settings
+# zadnjih5_auto) only while that type's walk-forward is in the plus after the real costs on 30+ trades.
+ZADNJIH5 = "prati_zadnjih5"
+FLAGS[ZADNJIH5] = ("P15", "Zadnjih 5: prati influencere i novčanike čijih je zadnjih 5 poziva / kupnji doseglo +10 %, "
+                          "ulaz na svaki njihov sljedeći, izlaz na +10 % uz zadani stop; bez prekidača runner sam "
+                          "uključuje vrstu samo kad je njen walk-forward nakon troškova u plusu na 30+ tradeova")
+OWNER_SWITCHES = OWNER_SWITCHES | {ZADNJIH5}
+OWNER_SWITCH_NOTES[ZADNJIH5] = ("Tvoj prekidač: „uživo” = Autopilot prati sve izvore koji trenutno prolaze pravilo "
+                                "zadnjih 5 (influenceri i novčanici, najviše 50 po vrsti), izlaz +10 % i zadani stop; "
+                                "svaki drugi mod = runner prati samo vrstu kojoj je izmjereni EV nakon troškova > 0 "
+                                "na 30+ tradeova (log „zadnjih 5: odluka”).")
+
+
 def pravi_novac_sve(con=None, path=None):
     """True while the owner's switch pravi_novac_sve is on (mode "live"); never raises (unreadable = off)."""
     try:

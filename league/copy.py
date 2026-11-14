@@ -159,9 +159,13 @@ def members_of(target):
 
 
 def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode="", tp="", sl="", once=False,
-           max_mcap=None, max_runup=None, min_callers=1):
+           max_mcap=None, max_runup=None, min_callers=1, hold_s=None, from_eff=True, grace=True, src=None):
     """Start following (or update an existing follow of the same target). Returns the follow id.
     once (KOLs only): enter their next call, then stop following by itself.
+    14.11. (kol/zadnjih5.py: the live exit must be the measured one), "tpsl" only: hold_s = every copy is sold at the
+    market this many seconds after its entry when neither level was touched (auto "until"); from_eff False = the
+    levels from the copy's entry price, not the effective entry (fee + impact); grace False = never the stop_grace
+    sleep; src = the tool that owns the follow (fast/sources leaves such follows to their own exit).
     9.11. (Jure): kind 'ekipa' = a crew of X/Telegram accounts (target 'a,b,tg:c'): one entry per token as soon as
     min_callers of them have called it (1 = the first caller), only while the token is under max_mcap and the price is
     not more than max_runup above where it was at the call. max_mcap / max_runup also work on a single KOL."""
@@ -213,6 +217,16 @@ def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode
         if tp_px is None and sl_px is None:
             raise ValueError("upiši barem TP ili SL (npr. 100% i -30%)")
         ex.update(tp=tp or "", sl=sl or "")
+        if hold_s:
+            if not 60 <= int(hold_s) <= 7 * 86400:
+                raise ValueError("najdulje držanje mora biti između 1 min i 7 dana")
+            ex["hold_s"] = int(hold_s)
+        if not from_eff:
+            ex["from_eff"] = False
+        if not grace:
+            ex["no_grace"] = True
+    if src:
+        ex["src"] = str(src)
     row = con.execute("SELECT id FROM follows WHERE user=? AND kind=? AND target=? AND active=1",
                       (user, kind, target)).fetchone()
     if row:
@@ -292,7 +306,8 @@ def _describe_exit(ex, sl0=None):
     if ex.get("mode") == "tpsl":   # no stop typed: the default one at the entry (default_sl)
         s += " (" + ", ".join(p for p in (f"TP {ex.get('tp')}" if ex.get("tp") else "",
                                           f"SL {ex.get('sl')}" if ex.get("sl") else
-                                          f"SL {sl0} zadani" if sl0 else "SL zadani") if p) + ")"
+                                          f"SL {sl0} zadani" if sl0 else "SL zadani",
+                                          f"najdulje {int(ex['hold_s']) // 60} min" if ex.get("hold_s") else "") if p) + ")"
     return s
 
 
@@ -1404,9 +1419,11 @@ def _enter(con, auto, mk, todo, now, paths=None):
             if mode in ("smart", "mirror_smart"):
                 auto.set_auto(con, f["user"], tid, "smart")
             elif mode == "tpsl":
-                # 9.11. (audit): no explicit stop -> DEFAULT_SL; levels from the effective entry (fee + impact)
+                # 9.11. (audit): no explicit stop -> DEFAULT_SL; levels from the effective entry (fee + impact).
+                # 14.11. (kol/zadnjih5.py): a follow may ask for the levels from the entry price and a time exit
                 auto.set_auto(con, f["user"], tid, "tpsl", f["exit"].get("tp", ""),
-                              f["exit"].get("sl") or default_sl(f["user"]), from_eff=True)
+                              f["exit"].get("sl") or default_sl(f["user"]), from_eff=f["exit"].get("from_eff", True),
+                              hold_s=f["exit"].get("hold_s") or None)
             elif mode == "podaci" and dx and dx.get("ok"):
                 # the pair was measured over the hour after the call: the position is closed at the end of that hour
                 auto.set_auto(con, f["user"], tid, "tpsl", f"{dx['tp']}%", f"-{dx['sl']}%", from_eff=True,
@@ -1423,7 +1440,7 @@ def _enter(con, auto, mk, todo, now, paths=None):
                 exit_note = f"; izlaz: Smart sell (TP/SL nije primjenjiv: {e})"
             except ValueError as e2:
                 exit_note = f"; BEZ automatskog izlaza ({e2})"
-        if _grace_at_entry(con, f, tid, liq) == "on":   # 10.11. (Grok MCP audit 4): flag stop_grace, proven only
+        if not f["exit"].get("no_grace") and _grace_at_entry(con, f, tid, liq) == "on":   # 10.11.: flag stop_grace
             exit_note += f"; stop miruje prvih {GRACE_S // 60} min (osim kod ruga)"
         if _switch_all() and f["user"] == _autopilot_user()[0]:
             # 14.11. (pravi_novac_sve): a real-account copy goes to real money without the demo proof, so it gets its
