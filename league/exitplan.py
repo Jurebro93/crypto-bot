@@ -470,6 +470,27 @@ def panel_live(plan, user):
         return False
 
 
+# 14.11. popodne (owner: "sve s pravim novcem"; rangedca/trade.plan_sync): the plan of a real-account range scalp round
+# (client "range scalp: #id", accounts [LEAGUE_USER]) executes on the real account while the owner's switch
+# pravi_novac_sve is live, whatever exit_plans' mode; it only sells (TP1 / rest / trailing / stop of the round)
+SCALP_SRC = "range scalp:"
+SCALP_FLAG = "pravi_novac_sve"
+
+
+def is_scalp(plan):
+    return bool(plan) and str(plan.get("client") or "").startswith(SCALP_SRC)
+
+
+def scalp_live(plan, user):
+    """True when a range scalp plan executes on the real account by the owner's switch pravi_novac_sve."""
+    try:
+        from trade import settings as ts
+        from . import flags
+        return is_scalp(plan) and user == ts.LEAGUE_USER and flags.mode(SCALP_FLAG) == "live"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def execution(user, lots, m=None, plan=None):
     """{"mode": live | paper | shadow | off, "executes": bool, "real_account": bool, "why"} of a plan on one account:
     live = the plan sells on the real account (exit_plans live, or exit_plan_live for a Grok autotrade position or a
@@ -486,6 +507,9 @@ def execution(user, lots, m=None, plan=None):
     if real and panel_live(plan, user):   # 11.11.: the owner's own exit from the panel
         return {"mode": "live", "executes": True, "real_account": True,
                 "why": "exit_plan_live: plan iz panela (uz kupnju ili spremljen SL/TP) izvršava se na pravom računu"}
+    if real and scalp_live(plan, user):   # 14.11. popodne: a range scalp round's plan under pravi_novac_sve
+        return {"mode": "live", "executes": True, "real_account": True,
+                "why": "pravi_novac_sve: plan range scalp runde izvršava se na pravom računu"}
     if real and grok_live(user, lots):
         return {"mode": "live", "executes": True, "real_account": True,
                 "why": "exit_plan_live: Grok autotrade pozicija izvršava se na pravom računu"}
@@ -513,14 +537,16 @@ def in_force_tokens(con, user):
         m = flags.mode("exit_plans")   # cached reads first: the 1-s exit loop asks this for every account
         on = m != "off" and flags.applies("exit_plans", user, m)
         sw = not on and user == ts.LEAGUE_USER and flags.mode(LIVE_FLAG) == "live"
-        if not (on or sw) or paused():
+        sc = not on and user == ts.LEAGUE_USER and flags.mode(SCALP_FLAG) == "live"   # 14.11. popodne
+        if not (on or sw or sc) or paused():
             return set()
         ensure(con)
         rows = [(t, cl) for t, pl, cl in con.execute("SELECT token, plan, client FROM exit_plans WHERE status='active'")
                 if user in _scope(json.loads(pl or "{}"))]
         if on:
             return {t for t, _cl in rows}
-        return {t for t, cl in rows if str(cl or "").startswith(PANEL_SRC) or grok_live(user, _lots(con, user, t))}
+        return {t for t, cl in rows if (sc and str(cl or "").startswith(SCALP_SRC))
+                or (sw and (str(cl or "").startswith(PANEL_SRC) or grok_live(user, _lots(con, user, t))))}
     except Exception:  # noqa: BLE001
         return set()
 
@@ -823,12 +849,13 @@ def run_once(con, market, now=None):
     ensure(con)
     m = flags.mode("exit_plans")
     sw = flags.mode(LIVE_FLAG) == "live"   # 11.11.: Grok autotrade positions on the real account (grok_live)
+    sc = flags.mode(SCALP_FLAG) == "live"   # 14.11. popodne: range scalp rounds on the real account (scalp_live)
     if sw and not paused():
         try:
             ensure_live_plans(con, now)
         except Exception as e:  # noqa: BLE001 - the plans that exist keep running
             print(f"plan izlaza: zadani planovi: {type(e).__name__}: {e}", flush=True)
-    if (m == "off" and not sw) or paused():
+    if (m == "off" and not sw and not sc) or paused():
         return []
     plans = [dict(r) for r in con.execute("SELECT * FROM exit_plans WHERE status='active'")]
     if not plans:
@@ -860,6 +887,10 @@ def run_once(con, market, now=None):
             via = ""
             if not on and sw and (panel_live(p, user) or grok_live(user, lots)):   # 11.11.: a panel plan too
                 on, via = True, LIVE_FLAG
+            if not on and sc and scalp_live(p, user):   # 14.11. popodne: a range scalp round's plan
+                on, via = True, SCALP_FLAG
+            if not on and is_scalp(p):   # switch off: rangedca's own exits sell it; no shadow (its state stays clean)
+                continue
             if not (on or sh):
                 continue
             before = json.dumps(p["state"])

@@ -18,7 +18,7 @@ pin's rule, lower zone + volume holds), similar_to per row (the most similar lab
 14.11. (Jure: "pronađi tokene koji su izdržali bloodbath i vratili se u range ... barem 5 tradeova danas"; flag
 range_demo G32): every row carries survivor (rangedca/survivor: ok, why, age, MC change 24 h, deepest fall, in range)
 and, while range_demo is on, entry_ready_demo / entry_demo (the demo account's decision by rules.DEMO); the answer
-has demo_today (the daily counter "range demo danas: N tradeova (cilj 5)" with the 3 reasons that held off the most
+has demo_today (the daily counter "range demo danas: N tradeova (cilj 100)" with the 3 reasons that held off the most
 tokens), demo_rules, survivor_rule, and min_score defaults to DEMO's 0.6 while range_demo is on."""
 import sqlite3
 import time
@@ -185,13 +185,18 @@ def demo_today(now=None):
         con.close()
 
 
-DEMO_RULES = ("14.11. (flag range_demo G32, demo account only, never real money): lot 1 when range_score >= 0.6, the "
-              "price in the bottom 25 % of the range or inside the bottom zone, 5m change > -5 %, buys >= 45 % of 5m, "
-              "15m volume x4 >= 35 % of the 1h average, never a token whose MC fell more than 45 % in 24 h "
-              "(survivor.crashed); crash survivors (survivor.ok) are tried first; half out at +10 % net of the "
-              "round-trip cost, the rest at +15 % net or the top zone when higher, a 15 % trailing or break-even once "
-              "TP1 sold; stop: the ATR stop held between -12 % and -25 % from the entry; no lot 2; 6 h without TP1: "
-              "out at break-even; 20 min cooldown")
+DEMO_RULES = ("14.11. popodne (flag range_demo G32 on the demo account; the real account only under the owner's switch "
+              "pravi_novac_sve G33): the range SCALP profile. Lot 1 = 60 % of the stake when range_score >= 0.6 and the "
+              "price is in the bottom 30 % of the range or at most 10 % above the bottom zone's top, 5m change > -5 %, "
+              "buys >= 45 % of 5m, 15m volume x4 >= 35 % of the 1h average, never a token whose MC fell more than 45 % "
+              "in 24 h; only the focus list (the 10 active ranges with the most 1h volume x score); lot 2 (DCA) = the "
+              "other 40 % at -10..-15 % from lot 1 (range still active, not crashed, buys >= 45 %, >= 5 % above the "
+              "stop); half out at a fixed +$0.60 NET on the whole position (the average entry after both buys, every "
+              "fee and the AMM impact; the real account also the pool fee, Jupiter's route and the network fee of "
+              "every swap), the rest at +15 % net or the top zone, a 15 % trailing or break-even; stop: the ATR stop "
+              "held between -17 % and -25 % from lot 1; 6 h without TP1: out at break-even; a quiet hour no longer "
+              "sells; no entry when the round's cost is > 5 % or the TP is above the range's top; cooldown 5 min "
+              "after a profit, 20 min after a stop; at most 10 rounds a token a day; goal 100 trades a day")
 SURVIVOR_RULE = ("survived the crash = >= 24 h old (pool creation; else 22 h+ of its own series), MC now at most 45 % "
                  "under the level 24 h ago (DexScreener's 24 h change, else the series' close 24 h ago), and back in an "
                  "active range (status aktivan, not paused / a flip candidate under range_flip)")
@@ -306,7 +311,18 @@ def positions(tokens=None):
         # 11.11. (range_flip; decision 1: every round): the round's hard stop is in that field whatever its kind
         # (stop_kind: atr = range_low_low - 1.5 x ATR, reclaim = under the new low by the ATR rule)
         r["exit_levels_market_cap_usd"]["hard_stop"] = r["exit_levels_market_cap_usd"]["hard_stop (range_low_low x 0.85)"]
-        if lv.get("profile") == "demo" and sup:   # 14.11. (range_demo): the demo round's own take-profit prices
+        if lv.get("tp_usd") and sup:   # 14.11. popodne: the scalp round (demo or the real account)
+            r["exit_levels_market_cap_usd"].update({
+                f"take_half_at (+${lv['tp_usd']:.2f} net on the position)": round(lv["tp1_px"] * sup)
+                if lv.get("tp1_px") else None,
+                "rest_at (+15 % net or the top zone)": round(rules.tp2_of(lv) * sup) if lv.get("tp2_px") else None,
+                "dca_lot2_at (-10 % from lot 1)": round(lv["lot1_px"] * 0.9 * sup) if lv.get("lot1_px") and
+                not lv.get("dca") else None,
+                "average_entry": round(lv["entry_px"] * sup) if lv.get("entry_px") else None,
+                "stop_clamp (-25 % .. -17 % from lot 1)": [round(x * sup) for x in lv.get("stop_clamp") or []]})
+            r["round_cost_pct"] = round((lv.get("rt_cost") or 0) * 100, 2)
+            r["exit_plan_id"] = lv.get("plan_id")
+        elif lv.get("profile") == "demo" and sup:   # 14.11. (range_demo): the demo round's own take-profit prices
             r["exit_levels_market_cap_usd"].update({
                 "take_half_at (+10 % net)": round(lv["tp1_px"] * sup) if lv.get("tp1_px") else None,
                 "rest_at (+15 % net or the top zone)": round(rules.tp2_of(lv) * sup) if lv.get("tp2_px") else None,

@@ -1260,10 +1260,13 @@ TOOLS.append(
                      "14.11. (flag range_demo, the DEMO account only, never real money): per row survivor (ok = "
                      "survived the crash: >= 24 h old, MC at most 45 % under the level 24 h ago, back in an active "
                      "range; why says it in Croatian; crashed = fell more than 45 %), entry_ready_demo / entry_demo (the "
-                     "demo profile's decision: score >= 0.6, bottom 25 %, 5m change > -5 %, volume ratio >= 35 %, buys "
-                     ">= 45 %, never a crashed token; TP +10 % / +15 % net, stop -12..-25 %); demo.today = the daily "
-                     "counter \"range demo danas: N tradeova (cilj 5)\" with top_blocks (the 3 reasons that held off "
-                     "the most tokens today); min_score defaults to 0.6 while range_demo is on."),
+                     "demo profile's decision, 14.11. popodne the range SCALP: score >= 0.6, bottom 30 % or <= the "
+                     "bottom zone's top x 1.10, 5m change > -5 %, volume ratio >= 35 %, buys >= 45 %, never a crashed "
+                     "token, the 10 ranges with the most 1h volume; lot 1 60 %, DCA lot 2 40 % at -10 %, half out at "
+                     "+$0.60 net on the average entry, stop -17..-25 % from lot 1; the real account only under the "
+                     "owner's switch pravi_novac_sve); demo.today = the daily counter \"range demo danas: N tradeova "
+                     "(cilj 100)\" with the day's net and top_blocks (the 3 reasons that held off the most tokens "
+                     "today); min_score defaults to 0.6 while range_demo is on."),
      "inputSchema": {"type": "object", "properties": {
          "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7,
                        "description": "default 0.7, 0.6 while the flag range_demo is on (14.11.)"},

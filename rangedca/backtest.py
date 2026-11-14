@@ -114,8 +114,19 @@ def breakdown_give_up(gu):
     return bool(gu) and "probijen dolje" in (gu.get("why") or "")
 
 
+def _rt(cfg, lot_usds, liq):
+    """14.11. popodne: the round trip of a position of these lots as a fraction: the owner's model
+    (trade/cost.round_trip of the whole size, as priced()), or with cfg real_fee_side the real account's
+    rules.real_cost (the pool's fee + the route's, each buy's impact, the network fee tx_usd of every swap)."""
+    c = cfg or {}
+    if c.get("real_fee_side") is not None:
+        return rules.real_cost(lot_usds, liq or BT_LIQ, c["real_fee_side"], c.get("tx_usd") or 0.0,
+                               sells=rules.n_sells(c))
+    return _cost.round_trip(sum(lot_usds), liq or BT_LIQ)
+
+
 def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LOT_USD, proxy_buys=True, new=None,
-             ticks="body", stop_on="tick", reclaim=False, cfg=None):
+             ticks="body", stop_on="tick", reclaim=False, cfg=None, guard=None):
     """The rounds of one token: [{opened, closed, lots, entry_mc, lot2_mc, exits, cost, pnl, ret, reason}].
     proxy_buys False: where the candles have no transaction counts, the buys-share gate is left out (a sensitivity
     check of the proxy, reported apart; live the gate reads DexScreener's real counts).
@@ -136,12 +147,23 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
     bottom share, 5-minute change, volume ratio, buys), the crash-survivor filter (rangedca/survivor, its age the
     span of the data: a lower bound) when cfg["survivor"], the round's levels from rules.demo_levels (TP +10 % / +15 %
     net of cost(), the stop held at -12..-25 % from the entry, break-even on the rest after TP1: the rest's own cost,
-    as the live exit loop's _be_px after a partial sale), no lot 2 when cfg["lot2"] is False, no reclaim."""
+    as the live exit loop's _be_px after a partial sale), no lot 2 when cfg["lot2"] is False, no reclaim.
+    14.11. popodne (the scalp profile rules.DEMO / SCALP): lot 1 = lot_usd x lot1_share (60 %), lot 2 (DCA) = the rest
+    (40 %) by rules.demo_lot2_check (with the crash-survivor check of that minute), the TP on the average entry of both
+    lots (rules.demo_retarget) net of the position's round trip (_rt: the owner's cost model, or the real account's
+    real_cost when cfg carries real_fee_side / tx_usd), rules.fee_guard before lot 1 and lot 2, the cooldown
+    cooldown_tp_s after a profitable exit (rules.TP_EXITS) and cooldown_s after a stop, at most rounds_token_day rounds
+    a (Zagreb) day. Every round also carries "lot_usd" (each lot's USD), "dca_ts" and "guard" counts land in
+    simulate.guard (a dict passed in, optional)."""
     c_ = rules._r(cfg)
-    demo = (cfg or {}).get("profile") == "demo"
+    demo = (cfg or {}).get("profile") in rules.PROFILES
     if demo:
         reclaim = False
         lot2 = lot2 and c_.get("lot2", True) is not False
+    split = demo and lot2 and c_.get("lot1_share")
+    l1_usd = lot_usd * c_["lot1_share"] if split else lot_usd
+    l2_usd = lot_usd - l1_usd if split else lot_usd
+    day_n = {}
     ts = [c[0] for c in candles]
     tl_ts = [x[0] for x in tl]
     rounds, pos, cool_until, rec = [], None, 0, None
@@ -157,7 +179,8 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
             got = gross * (1 - _fee()) * (1 - _impact(gross, liq))
             pos["realized"] += got
         pos["exits"].append({"ts": t, "reason": reason.split(":")[0], "frac": frac,
-                             "mc": round(fill * supply) if supply else None, "px": fill, "n_lots": len(pos["lots"])})
+                             "mc": round(fill * supply) if supply else None, "px": fill, "n_lots": len(pos["lots"]),
+                             **({"why": reason.split(":", 1)[1].strip()} if ":" in reason else {})})
         if frac < 0.999:
             return
         cost = sum(x["usd"] for x in pos["lots"])
@@ -165,7 +188,8 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
         r = {"opened": pos["opened"], "closed": t, "lots": len(pos["lots"]), "entry_mc": pos["entry_mc"],
              "lot2_mc": pos.get("lot2_mc"), "exits": pos["exits"], "cost": round(cost, 4), "pnl": round(pnl, 4),
              "ret": round(pnl / cost, 5), "reason": reason.split(":")[0], "score": pos["score"],
-             "lot_px": [x["px"] for x in pos["lots"]], "stop_px": lv["stop_px"]}
+             "lot_px": [x["px"] for x in pos["lots"]], "stop_px": lv["stop_px"],
+             "lot_usd": [x["usd"] for x in pos["lots"]]}
         if wick:
             r["mae"] = round(pos["mae"], 5)
         if pos.get("reclaim"):
@@ -176,7 +200,8 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
             rec = {"until": t + RECLAIM_S, "levels": dict(pos["levels"], stop_px=lv["stop_px"]),
                    "rl": pos.get("rl") or lv["rll"], "score": pos["score"]}
         pos = None
-        cool_until = t + c_["cooldown_s"]
+        short = c_.get("cooldown_tp_s") is not None and reason.split(":")[0] in rules.TP_EXITS
+        cool_until = t + (c_["cooldown_tp_s"] if short else c_["cooldown_s"])
 
     def fill_of(reason, px, last, lv, st, be=None):
         if reason == "tp1":
@@ -196,11 +221,11 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
             pos["mae"] = min(pos["mae"], val / cost - 1)
 
     def open_pos(t, px, lv, score, rl, is_reclaim=False):
-        eff = px * (1 + _fee()) / (1 - _impact(lot_usd, liq))
+        eff = px * (1 + _fee()) / (1 - _impact(l1_usd, liq))
         if demo:   # 14.11.: the demo round's own TP prices and stop clamp, from the entry
-            lv = rules.demo_levels(lv, px, _cost.round_trip(lot_usd, liq or BT_LIQ), cfg)
-        return {"opened": t, "lot1_px": px, "lots": [{"px": px, "usd": lot_usd, "qty": lot_usd / eff,
-                                                       "q0": lot_usd / eff}], "realized": 0.0,
+            lv = rules.demo_levels(lv, px, _rt(cfg, [l1_usd], liq), cfg, cost_usd=l1_usd)
+        return {"opened": t, "lot1_px": px, "lots": [{"px": px, "usd": l1_usd, "qty": l1_usd / eff,
+                                                       "q0": l1_usd / eff}], "realized": 0.0,
                 "levels": lv, "state": {}, "exits": [], "entry_mc": round(px * supply), "score": score, "rl": rl,
                 "mae": 0.0, **({"reclaim": True} if is_reclaim else {})}
 
@@ -219,7 +244,7 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
                                        else None)
             pos["levels"]["stop_px"] = lv["stop_px"]
             gu = st.get("give_up")
-            gu = gu if gu and gu["ts"] >= pos["opened"] else None
+            gu = gu if gu and gu["ts"] >= pos["opened"] and rules.gives_up(gu, cfg) else None
             gu_bar = close5 and breakdown_give_up(gu)   # (c) / (d): that give-up waits for a 5-minute close
             lv_t = dict(lv, stop_px=0.0) if close5 else lv
             last = prev_close
@@ -247,20 +272,44 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
                     sell(f"odustajanje: {gu['why']}", 1.0, px, t, lv)
                 elif px <= lv["stop_px"]:
                     sell("stop", 1.0, px, t, lv)
-            if pos and lot2 and len(pos["lots"]) == 1 and not pos["state"].get("tp1") and not rng.get("flip_block"):
+            if pos and lot2 and len(pos["lots"]) == 1 and not pos["state"].get("tp1") and not rng.get("flip_block") \
+                    and not pos.get("lot2_no"):
                 px = c[4]
                 drop = 1 - px / pos["lot1_px"]
                 if c_["lot2_lo"] - 1e-9 <= drop <= c_["lot2_hi"] + 1e-9:
                     m = _metrics_at(candles, ts, i, t, supply, proxy_buys)
-                    if rules.lot2_check(pos["lot1_px"], px, lv, m, cfg) is None:
-                        eff = px * (1 + _fee()) / (1 - _impact(lot_usd, liq))
-                        pos["lots"].append({"px": px, "usd": lot_usd, "qty": lot_usd / eff, "q0": lot_usd / eff})
-                        pos["lot2_mc"] = round(px * supply) if supply else None
-                        if demo:   # the TP prices follow the average entry of both lots
-                            avg = sum(x["usd"] for x in pos["lots"]) / sum(x["usd"] / x["px"] for x in pos["lots"])
-                            rt = _cost.round_trip(lot_usd * 2, liq or BT_LIQ)
-                            pos["levels"].update(tp1_px=avg * (1 + c_["tp1_net"]) / (1 - rt),
-                                                 tp2_px=avg * (1 + c_["tp2_net"]) / (1 - rt))
+                    if demo:   # 14.11. popodne: the scalp profile's DCA (range active, not crashed, above the stop)
+                        r2 = dict(rng, metrics=m)
+                        if c_.get("survivor"):
+                            lo25 = bisect.bisect_left(ts, t - 25 * 3600)
+                            r2["survivor"] = _survivor.check(candles[lo25:i + 1], t, rng, price=px)
+                        why2 = rules.demo_lot2_check(pos["lot1_px"], px, dict(lv, stop_px=pos["levels"]["stop_px"]),
+                                                     r2, m, cfg)
+                    else:
+                        why2 = rules.lot2_check(pos["lot1_px"], px, lv, m, cfg)
+                    if why2 is None:
+                        eff = px * (1 + _fee()) / (1 - _impact(l2_usd, liq))
+                        new_lot = {"px": px, "usd": l2_usd, "qty": l2_usd / eff, "q0": l2_usd / eff}
+                        nlv = None
+                        if demo:   # the TP prices follow the average entry of both lots, net of both buys
+                            lots_ = pos["lots"] + [new_lot]
+                            usd = sum(x["usd"] for x in lots_)
+                            avg = usd / sum(x["usd"] / x["px"] for x in lots_)
+                            nlv = rules.demo_retarget(dict(pos["levels"], rht=lv["rht"]), avg,
+                                                      _rt(cfg, [x["usd"] for x in lots_], liq), usd, cfg)
+                            g = rules.fee_guard(nlv, cfg, lot=2)
+                            if g:
+                                pos["lot2_no"] = g
+                                if guard is not None:
+                                    guard["lot2"] = guard.get("lot2", 0) + 1
+                                new_lot = None
+                        if new_lot:
+                            pos["lots"].append(new_lot)
+                            pos["lot2_mc"] = round(px * supply) if supply else None
+                            pos["dca_ts"] = t
+                            if nlv:
+                                pos["levels"].update({k: nlv[k] for k in ("tp1_px", "tp2_px", "entry_px", "rt_cost",
+                                                                          "tp_net", "cost_usd", "dca")})
             if pos or rec is None:
                 prev_close = c[4]
                 continue
@@ -280,10 +329,12 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
         prev_close = c[4]
         if t < cool_until or not rng.get("active") or (rng.get("score") or 0) < score_min - 1e-9:
             continue
+        day = (t + 3600) // 86400   # the Zagreb day (CET in November), as the live counter
+        if c_.get("rounds_token_day") and day_n.get(day, 0) >= c_["rounds_token_day"]:
+            continue
         px = c[4]
         lv = rules.levels_of(rng)
-        span = lv["rht"] - lv["rll"]
-        if px < lv["floor_px"] or not ((px - lv["rll"]) / span <= c_["entry_bottom"] or lv["rll"] <= px <= lv["rlt"]):
+        if not rules.in_entry_zone(lv, px, c_):
             continue
         m = _metrics_at(candles, ts, i, t, supply, proxy_buys)
         r2 = dict(rng, metrics=m)
@@ -293,7 +344,14 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
             lo25 = bisect.bisect_left(ts, t - 25 * 3600)
             r2["survivor"] = _survivor.check(candles[lo25:i + 1], t, rng, price=px)
         if rules.entry_check(r2, px, cfg, min_score=score_min) is None:
+            if demo:   # 14.11. popodne: the fee guard (cost cap, TP inside the range) before lot 1
+                g = rules.fee_guard(rules.demo_levels(lv, px, _rt(cfg, [l1_usd], liq), cfg, cost_usd=l1_usd), cfg)
+                if g:
+                    if guard is not None:
+                        guard["lot1"] = guard.get("lot1", 0) + 1
+                    continue
             pos = open_pos(t, px, lv, rng.get("score"), (rng.get("zones") or {}).get("range_low") or lv["rll"])
+            day_n[day] = day_n.get(day, 0) + 1
     if pos:   # still open at the end of the data: valued at the last close, marked open
         px = candles[-1][4]
         cost = sum(x["usd"] for x in pos["lots"])
@@ -301,7 +359,8 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
         r = {"opened": pos["opened"], "closed": None, "lots": len(pos["lots"]), "entry_mc": pos["entry_mc"],
              "lot2_mc": pos.get("lot2_mc"), "exits": pos["exits"], "cost": round(cost, 4),
              "pnl": round(val - cost, 4), "ret": round((val - cost) / cost, 5), "reason": "otvoreno",
-             "score": pos["score"], "lot_px": [x["px"] for x in pos["lots"]], "last_px": px}
+             "score": pos["score"], "lot_px": [x["px"] for x in pos["lots"]], "last_px": px,
+             "lot_usd": [x["usd"] for x in pos["lots"]]}
         if wick:
             r["mae"] = round(pos["mae"], 5)
         if pos.get("reclaim"):
@@ -402,13 +461,14 @@ def cost(size_usd, liq):
     return _cost.round_trip(size_usd, liq or BT_LIQ)
 
 
-def priced(r, liq=None):
+def priced(r, liq=None, cfg=None):
     """(pnl_usd, size_usd) of a simulated round at cost(): the lots' units at their prices, the exits' fills; an open
-    round valued at its last close."""
+    round valued at its last close. 14.11. popodne: each lot at its own USD (r "lot_usd": lot 1 60 % / lot 2 40 %),
+    and with cfg real_fee_side the real account's cost (_rt)."""
     pxs = r.get("lot_px") or []
     size = r["cost"]
-    usd = size / len(pxs) if pxs else 0.0
-    units = [usd / px for px in pxs]
+    usds = r.get("lot_usd") or ([size / len(pxs)] * len(pxs) if pxs else [])
+    units = [u / px for u, px in zip(usds, pxs)]
     proceeds = 0.0
     for e in r.get("exits") or []:
         for i in range(min(len(units), e.get("n_lots") or len(units))):
@@ -417,7 +477,8 @@ def priced(r, liq=None):
             units[i] -= q
     if not r.get("closed") and r.get("last_px"):
         proceeds += sum(q * r["last_px"] for q in units)
-    return proceeds - size - size * cost(size, liq), size
+    rt = _rt(cfg, usds, liq) if (cfg or {}).get("real_fee_side") is not None else cost(size, liq)
+    return proceeds - size - size * rt, size
 
 
 def false_entry(r):
@@ -515,12 +576,25 @@ class FlipCompare:
 # ---------- 14.11. the demo profile (rules.DEMO, flag range_demo G32) vs today's rules -----------------------------------
 # The same timeline and simulate() with ticks "wick" (the live exit loop sees every second) and the ATR stop (decision
 # 1, rules.new_range "atr") for both, no reclaim, every round priced at the owner's round-trip cost (priced()):
-#   old              RULES (score 0.7, bottom 15 %, lot 2, half at the top zone, the rest at the top / trailing)
-#   demo             rules.DEMO exactly (what the demo account trades while range_demo is paper)
-#   demo_no_survivor DEMO without the crash-survivor filter (what the filter costs or saves)
-#   demo_old_exits   DEMO's entries with today's exits (which part does what)
-DEMO_VARIANTS = {"old": None, "demo": {}, "demo_no_survivor": {"survivor": False},
-                 "demo_old_exits": "entries"}
+#   old         RULES (score 0.7, bottom 15 %, lot 2, half at the top zone, the rest at the top / trailing)
+#   demo_1411   the morning's demo profile rules.DEMO_1411 (bottom 25 %, one lot, TP +10 / +15 % net, stop -12..-25 %)
+#   dca         14.11. popodne, the owner's first order: bottom 30 % / rlt x 1.10, lot 1 60 % + DCA 40 % at -10 %, the
+#               stop -20..-25 % from lot 1, half at +10 % net of the average entry, the rest +15 % / the top zone
+#   demo        rules.DEMO, the scalp profile (the owner's second order, what the demo account trades): the same entry,
+#               DCA and stop, the whole position at +$0.60 net, 3 min cooldown after a profit, 10 rounds a token a day
+#   demo_real   the same rules at the real account's costs for a 0.1 SOL stake (rules.SCALP, real_cost: PumpSwap
+#               0.3 % + route 0.1 % a side, each buy's impact, rules.TX_FEE_SOL a swap at BT_SOL_USD): what
+#               pravi_novac_sve would trade
+DEMO_VARIANTS = {"old": None, "demo_1411": "1411", "dca": {"tp_usd": None, "tp1_share": 0.5, "cooldown_tp_s": None,
+                                                           "rounds_token_day": None},
+                 "demo": {}, "demo_real": "real"}
+
+
+def real_cfg(base=None, sol_usd=None, tx_sol=None):
+    """The scalp profile at the real account's costs (backtest): the pool's fee (PumpSwap) + the route's a side and
+    the network fee of every swap (tx_sol, default rules.TX_FEE_SOL, at sol_usd, default BT_SOL_USD)."""
+    return {**(base or rules.SCALP), "real_fee_side": rules.POOL_FEE["pumpswap"] + rules.ROUTE_FEE,
+            "tx_usd": (rules.TX_FEE_SOL if tx_sol is None else tx_sol) * (sol_usd or BT_SOL_USD)}
 
 
 def demo_cfg(key):
@@ -528,19 +602,35 @@ def demo_cfg(key):
     v = DEMO_VARIANTS[key]
     if v is None:
         return None
-    if v == "entries":
-        return {**rules.RULES, **{k: rules.DEMO[k] for k in ("score_min", "entry_bottom", "ch5_min", "vol_ratio_min",
-                                                             "buy_share_min", "survivor")}}
+    if v == "1411":
+        return dict(rules.DEMO_1411)
+    if v == "real":
+        return real_cfg()
     return {**rules.DEMO, **v}
 
 
-def demo_summary(rounds):
-    """flip_summary plus hit_rate (wins / closed rounds) and ev_pct (the mean result per closed round, % of its cost,
-    after the owner's round-trip cost)."""
+def demo_summary(rounds, days=None):
+    """flip_summary plus hit_rate (wins / closed rounds), ev_pct (the mean result per closed round, % of its cost,
+    after the owner's round-trip cost), ev_usd (USD a closed round), avg_win_usd / avg_loss_usd, be_hit_rate (the hit
+    rate at which the wins pay the losses: avg loss / (avg win + avg loss)), lot2 (rounds whose DCA filled, their wins
+    and PnL) and, with days (token-days of data), rounds_per_token_day."""
     out = flip_summary(rounds)
     closed = [r for r in rounds if r.get("closed")]
     out["hit_rate"] = round(out["wins"] / len(closed), 3) if closed else None
     out["ev_pct"] = round(statistics.mean(r["pnl_c"] / r["cost"] for r in closed) * 100, 2) if closed else None
+    out["ev_usd"] = round(statistics.mean(r["pnl_c"] for r in closed), 3) if closed else None
+    w = [r["pnl_c"] for r in closed if r["pnl_c"] > 0]
+    lo = [-r["pnl_c"] for r in closed if r["pnl_c"] <= 0]
+    out["avg_win_usd"] = round(statistics.mean(w), 3) if w else None
+    out["avg_loss_usd"] = round(statistics.mean(lo), 3) if lo else None
+    out["be_hit_rate"] = (round(out["avg_loss_usd"] / (out["avg_loss_usd"] + out["avg_win_usd"]), 3)
+                          if w and lo else None)
+    l2 = [r for r in closed if r.get("lots") == 2]
+    out["lot2"] = {"n": len(l2), "wins": sum(1 for r in l2 if r["pnl_c"] > 0),
+                   "pnl_usd": round(sum(r["pnl_c"] for r in l2), 3),
+                   "stops": sum(1 for r in l2 if r["reason"] == "stop")}
+    if days:
+        out["rounds_per_token_day"] = round(len(closed) / days, 2)
     return out
 
 
@@ -549,28 +639,39 @@ class DemoCompare:
 
     def __init__(self):
         self.tokens, self.rounds = {}, {k: [] for k in DEMO_VARIANTS}
+        self.guard = {k: {} for k in DEMO_VARIANTS}
 
     def add(self, tok, sym, candles, supply, liq, tl):
         per = {"symbol": sym, **data_span(candles)}
         for k in DEMO_VARIANTS:
             cfg = demo_cfg(k)
             rs = simulate(candles, supply, tl, rules._r(cfg)["score_min"], True, liq, new=("atr",), ticks="wick",
-                          cfg=cfg)
+                          cfg=cfg, guard=self.guard[k])
             for r in rs:
                 r["token"], r["symbol"] = tok, sym
-                r["pnl_c"] = priced(r, liq)[0]
+                r["pnl_c"] = priced(r, liq, cfg)[0]
             self.rounds[k] += rs
-            per[k] = demo_summary(rs)
+            per[k] = demo_summary(rs, per["days"])
         self.tokens[tok] = per
 
     def report(self, exclude=()):
         ex = set(exclude or ())
         toks = {t: p for t, p in self.tokens.items() if t not in ex}
         hours = [p["hours"] for p in toks.values()]
-        return {"variants": {k: demo_summary([r for r in v if r.get("token") not in ex]) for k, v in self.rounds.items()},
-                "tokens": toks, "data": {"tokens": len(hours), "days_total": round(sum(hours) / 24, 2)},
+        days = round(sum(hours) / 24, 2)
+        return {"variants": {k: demo_summary([r for r in v if r.get("token") not in ex], days)
+                             for k, v in self.rounds.items()},
+                "guard": self.guard,
+                "tokens": toks, "data": {"tokens": len(hours), "days_total": days},
                 "rules": {"old": "RULES (0.7, donjih 15 %, lot 2, izlaz u gornjoj zoni)",
-                          "demo": "rules.DEMO (0.6, donjih 25 %, preživio pad, TP +10/+15 % neto, stop -12..-25 %)"},
+                          "demo_1411": "DEMO_1411 (0.6, donjih 25 %, TP +10/+15 % neto, stop -12..-25 %, bez lota 2)",
+                          "dca": "donjih 30 % / donja zona +10 %, lot 1 60 % + DCA 40 % na -10 %, stop -20..-25 % od "
+                                 "lota 1, pola na +10 % neto od prosjeka, ostatak +15 % / gornja zona",
+                          "demo": "scalp: isti ulaz / DCA / stop, cijela pozicija na +$0,60 neto, cooldown 3 min nakon "
+                                  "dobiti, 10 rundi po tokenu dnevno",
+                          "demo_real": "scalp s troškom pravog računa (0,1 SOL: PumpSwap 0,3 % + ruta 0,1 % po strani, "
+                                       f"mreža {rules.TX_FEE_SOL:g} SOL po swapu)"},
+                "lot_usd": LOT_USD, "sol_usd": BT_SOL_USD,
                 "ticks": "wick", "stop": "ATR (odluka 1)", "cost": "2 x fee_side + 2 x size / (liq / 2 + size)"}
 
 
@@ -579,12 +680,17 @@ def demo_line(dr):
     v, d = dr["variants"], dr["data"]
 
     def s(x):
-        return (f"runde {x['rounds']}, pogodak {x['hit_rate'] * 100 if x['hit_rate'] is not None else 0:.0f} %, EV "
-                f"{x['ev_pct'] if x['ev_pct'] is not None else 0:+.2f} %/rundi, PnL {x['pnl_usd']:+.2f} $, DD "
-                f"{x['max_dd_usd']:.2f} $")
-    return (f"range demo backtest: {d['tokens']} tokena, {d['days_total']} dana; staro: {s(v['old'])}; demo 14.11.: "
-            f"{s(v['demo'])}; demo bez filtra preživljavanja: {s(v['demo_no_survivor'])}; demo ulazi + stari izlazi: "
-            f"{s(v['demo_old_exits'])}")
+        if not x:
+            return "-"
+        return (f"runde {x['rounds']} ({x.get('rounds_per_token_day') or 0:.2f}/token-dan), pogodak "
+                f"{x['hit_rate'] * 100 if x['hit_rate'] is not None else 0:.0f} % (break-even "
+                f"{x['be_hit_rate'] * 100 if x.get('be_hit_rate') is not None else 0:.0f} %), EV "
+                f"{x['ev_pct'] if x['ev_pct'] is not None else 0:+.2f} %/rundi "
+                f"({x['ev_usd'] if x.get('ev_usd') is not None else 0:+.2f} $), PnL {x['pnl_usd']:+.2f} $, DD "
+                f"{x['max_dd_usd']:.2f} $, DCA {x.get('lot2', {}).get('n', 0)}")
+    return (f"range demo backtest: {d['tokens']} tokena, {d['days_total']} dana; staro: {s(v.get('old'))}; demo jutro "
+            f"14.11.: {s(v.get('demo_1411'))}; DCA +10/+15 %: {s(v.get('dca'))}; scalp $0,60 (demo): "
+            f"{s(v.get('demo'))}; scalp pravi trošak 0,1 SOL: {s(v.get('demo_real'))}")
 
 
 def flip_line(fr):
@@ -658,7 +764,7 @@ def md(rep, title="Range DCA backtest"):
         if rep.get("stop_replay"):
             out += "\n" + _stops.replay_line(rep["stop_replay"]) + "\n"
     if rep.get("demo"):   # 14.11.: the demo profile vs today's rules
-        out += "\n## Demo profil 14.11. (range_demo) vs današnja pravila\n\n" + demo_line(rep["demo"]) + "\n"
+        out += "\n## Demo profil 14.11. (range_demo, scalp) vs današnja pravila\n\n" + demo_line(rep["demo"]) + "\n"
     return out
 
 

@@ -171,10 +171,21 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # stop loss ... da se uzima barem 10-15% profita"; rangedca/rules.DEMO): paper = range_dca's DEMO account trades the
     # demo profile (entry score 0.6, bottom 25 %, no crashed token; TP +10 % / +15 % net, ATR stop held at -12..-25 %);
     # off = the demo account trades RULES like the real one. Never live (NEVER_LIVE); default paper (FLAG_DEFAULTS).
-    "range_demo": ("G32", "Range demo 14.11.: demo račun ulazi u donjih 25 % raspona (ocjena 0,6+), nikad u token koji je "
-                          "u 24 h pao više od 45 %, preživjeli pad (24 h+, opet u rasponu) idu prvi; pola van na +10 % "
-                          "neto, ostatak na +15 % neto ili gornjoj zoni, trailing 15 % / break-even, stop ATR između "
-                          "−12 % i −25 % od ulaza, bez lota 2; cilj 5 tradeova dnevno"),
+    "range_demo": ("G32", "Range demo (14.11. popodne, scalp): demo račun ulazi s 60 % uloga u donjih 30 % raspona ili do "
+                          "10 % iznad donje zone (ocjena 0,6+, 10 tokena s najviše volumena), DCA 40 % na −10 %, pola van "
+                          "na +0,60 $ neto od prosječnog ulaza, ostatak na +15 % / gornjoj zoni, stop ATR −17 do −25 % od "
+                          "lota 1, nikad token koji je u 24 h pao više od 45 %; do 10 rundi po tokenu dnevno; cilj 100 "
+                          "tradeova dnevno"),
+    # 14.11. popodne (Jure: "Ja sada ne govorim o demu ... Želim da se to sve radi s pravim novcem, nema više demo"):
+    # an OWNER SWITCH (live = on, default off, only the owner's tap moves it; never an automatic order). Range part
+    # (rangedca/trade.profile, scalp_live): uživo = the REAL account LEAGUE_USER trades range_dca's scalp profile
+    # (rules.SCALP: lot 1 60 % + DCA 40 % at -10 %, the whole position out at a fixed net USD target after the real
+    # costs, the focus list of 10 tokens, up to 10 rounds a token a day) WITHOUT range_dca's paper-proof gate, inside
+    # the trade settings and trade/executor's caps (LIVE_CAPS, the kill switch, the wallet, the rug archive, MC 30k,
+    # bonded only); its exits run as exit plans on the real account (league/exitplan.scalp_live)
+    "pravi_novac_sve": ("G33", "Pravi novac (vlasnik 14.11.): pravi račun trguje range scalp (lot 1 60 % + DCA 40 % "
+                               "na −10 %, cijela pozicija van na neto cilju u $ nakon stvarnih troškova, 10 tokena u "
+                               "fokusu, do 10 rundi po tokenu dnevno) bez paper dokaza, unutar limita izvršitelja"),
 }
 # 12.11. (owner: "zadano shadow ili paper"): a flag's mode while the owner has never set it; every other flag is off
 FLAG_DEFAULTS = {"x_call_scalp": "shadow"}
@@ -189,7 +200,8 @@ NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najvi
               "range_demo": "demo pravila range-a (14.11.) nikad ne trguju pravim novcem (samo demo račun)"}
 # 11.11.: owner switches: "live" means on, without a backtest or paper days (live_refusal lets them through); they
 # never move on their own, only the owner's tap on the page sets them
-OWNER_SWITCHES = frozenset({"exit_plan_live", "rug_labels_v2_ok", "live_trades_retention", "tg_text_retention"})
+OWNER_SWITCHES = frozenset({"exit_plan_live", "rug_labels_v2_ok", "live_trades_retention", "tg_text_retention",
+                            "pravi_novac_sve"})
 # what "uživo" does, per owner switch (the page /pravi-trade; one without a note gets the exit-plan text)
 OWNER_SWITCH_NOTES = {
     "rug_labels_v2_ok": "Tvoj prekidač: „uživo” uključuje nove rug oznake (bez backtesta); svaki drugi mod ostavlja "
@@ -198,6 +210,10 @@ OWNER_SWITCH_NOTES = {
                              "mod samo mjeri i piše u log što bi se obrisalo i koliko MB.",
     "tg_text_retention": "Tvoj prekidač: „uživo” uključuje brisanje teksta (noću 01-06, red objave ostaje); svaki drugi "
                          "mod samo mjeri i piše u log što bi se obrisalo i koliko MB.",
+    "pravi_novac_sve": "Tvoj prekidač: „uživo” = pravi račun trguje range scalp PRAVIM NOVCEM bez paper dokaza (ulog, "
+                       "dnevni gubitak, broj pozicija i dnevna potrošnja iz Limita i stropova izvršitelja; kill switch, "
+                       "stanje walleta, rug arhiva, MC 30k i samo bondani ostaju tvrdi); svaki drugi mod: pravi račun "
+                       "ne trguje scalp, demo račun da.",
 }
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
@@ -224,7 +240,12 @@ LIMITS = {
     "max_open": ("Najviše otvorenih pozicija", int, 1, 50),
     "min_sol_reserve": ("Uvijek ostavi u walletu (SOL)", float, 0.01, 10.0),
     "max_cost_pct": ("Najveći trošak swapa (%)", float, 0.5, 20.0),
+    # 14.11. popodne (pravi_novac_sve, rangedca/trade): the real account's range scalp; defaults LIMIT_DEFAULTS
+    "range_scalp_trades_day": ("Range scalp: najviše rundi pravog računa u danu", int, 1, 500),
+    "range_scalp_target_usd": ("Range scalp: neto cilj po rundi nakon troškova ($)", float, 0.1, 50.0),
 }
+# 14.11. popodne: the value of a LIMITS key config.json does not carry (merged() sets it when the owner never did)
+LIMIT_DEFAULTS = {"range_scalp_trades_day": 100, "range_scalp_target_usd": 0.60}
 
 # Audit 4.11. §14.4/§22: switches that stay off whatever is saved, until the proof the audit asks for exists.
 # The page shows them greyed out with this reason; run_trade and the SimianX job read the effective value.
@@ -290,6 +311,8 @@ def merged(cfg, con):
     for k in LIMITS:
         if k in s:
             out[k] = s[k]
+    for k, v in LIMIT_DEFAULTS.items():   # 14.11. popodne: the range scalp's own two settings
+        out.setdefault(k, v)
     out["max_sol_per_trade"] = max(out.get("max_sol_per_trade", 0), out["size_sol"])
     out["on"] = bool(s.get("on", False))
     out["follow_paper"] = bool(s.get("follow_paper", False)) and "follow_paper" not in LOCKED

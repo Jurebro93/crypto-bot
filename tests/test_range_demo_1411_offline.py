@@ -105,9 +105,9 @@ class Universe(RDB):
         self.assertEqual(market.GT_DEX, "pumpswap")
         self.assertEqual([p["page"] for p in dex], list(range(1, market.GT_DEX_PAGES + 1)))
         self.assertTrue(all(p["sort"] == "h24_volume_usd_desc" for p in dex))
-        self.assertEqual(len(asked), market.gt_requests())                  # 4 trending + 6 top + 5 PumpSwap = 15
-        self.assertEqual(market.gt_requests(), 15)
-        self.assertLessEqual(market.gt_requests() * 86400 // market.GT_EVERY_S, market.GT_DAY)   # 180 <= 200
+        self.assertEqual(len(asked), market.gt_requests())                  # 4 trending + 6 top + 6 PumpSwap = 16
+        self.assertEqual(market.gt_requests(), 16)                          # 14.11. popodne: 6 PumpSwap pages (was 5)
+        self.assertLessEqual(market.gt_requests() * 86400 // market.GT_EVERY_S, market.GT_DAY)   # 192 <= 200
 
     def test_the_dexscreener_lists_add_takeovers_and_profile_updates(self):
         from dexscreener import client
@@ -269,7 +269,9 @@ class Entry(unittest.TestCase):
                 "survivor": sv}
 
     def test_the_numbers(self):
-        self.assertEqual({k: rules.DEMO[k] for k in ("score_min", "entry_bottom", "ch5_min", "vol_ratio_min",
+        # 14.11. popodne: the morning's profile is rules.DEMO_1411 now (rules.DEMO is the scalp profile,
+        # tests/test_range_demo_dca_offline.py); its rounds opened before the deploy keep these rules
+        self.assertEqual({k: rules.DEMO_1411[k] for k in ("score_min", "entry_bottom", "ch5_min", "vol_ratio_min",
                                                       "buy_share_min")},
                          {"score_min": 0.6, "entry_bottom": 0.25, "ch5_min": -0.05, "vol_ratio_min": 0.35,
                           "buy_share_min": 0.45})
@@ -277,16 +279,17 @@ class Entry(unittest.TestCase):
         self.assertEqual(rules.RULES["entry_bottom"], 0.15)
 
     def test_what_the_demo_takes_and_today_does_not(self):
+        D = rules.DEMO_1411                                                 # 14.11. popodne: the morning's profile
         px_22 = 51.0 + 0.22 * 49.0                                          # 22 % up the range, above the bottom zone
         for r, px in ((self.rng(score=0.65), 52.0), (self.rng(), px_22), (self.rng(ch_5m=-0.04), 52.0),
                       (self.rng(vol_ratio=0.4), 52.0)):
-            self.assertIsNone(rules.entry_check(r, px, rules.DEMO), r)
+            self.assertIsNone(rules.entry_check(r, px, D), r)
             self.assertIsNotNone(rules.entry_check(r, px), r)
-        self.assertIn("ocjena raspona 0.55 ispod 0.60", rules.entry_check(self.rng(score=0.55), 52.0, rules.DEMO))
-        self.assertIn("raspona", rules.entry_check(self.rng(), 51.0 + 0.30 * 49.0, rules.DEMO))   # 30 %: too high
-        self.assertIn("kupnje 44%", rules.entry_check(self.rng(buy_share_5m=0.44), 52.0, rules.DEMO))   # 45 % stays
-        self.assertIn("pada -6.0%", rules.entry_check(self.rng(ch_5m=-0.06), 52.0, rules.DEMO))
-        self.assertIn("volumen 15 min je 30%", rules.entry_check(self.rng(vol_ratio=0.3), 52.0, rules.DEMO))
+        self.assertIn("ocjena raspona 0.55 ispod 0.60", rules.entry_check(self.rng(score=0.55), 52.0, D))
+        self.assertIn("raspona", rules.entry_check(self.rng(), 51.0 + 0.30 * 49.0, D))   # 30 %: too high
+        self.assertIn("kupnje 44%", rules.entry_check(self.rng(buy_share_5m=0.44), 52.0, D))   # 45 % stays
+        self.assertIn("pada -6.0%", rules.entry_check(self.rng(ch_5m=-0.06), 52.0, D))
+        self.assertIn("volumen 15 min je 30%", rules.entry_check(self.rng(vol_ratio=0.3), 52.0, D))
 
     def test_a_crashed_token_is_never_entered_a_young_one_may_be(self):
         crashed = {"ok": False, "crashed": True, "why": "nije preživio pad: MC −60 % od prije 24 h (granica −45 %)"}
@@ -307,15 +310,16 @@ class Exits(unittest.TestCase):
 
     def test_the_levels_and_the_stop_clamp(self):
         rt = tcost.round_trip(10.0, 25_000.0)
-        lv = rules.demo_levels(self.LV, 52.0, rt)
+        D = rules.DEMO_1411                                                 # 14.11. popodne: the morning's profile
+        lv = rules.demo_levels(self.LV, 52.0, rt, D)
         self.assertAlmostEqual(lv["tp1_px"], 52.0 * 1.10 / (1 - rt))
         self.assertAlmostEqual(lv["tp2_px"], 52.0 * 1.15 / (1 - rt))
         self.assertEqual((lv["profile"], lv["be_after_tp1"], lv["tp2_range"]), ("demo", True, True))
         self.assertEqual(lv["stop_px"], 43.35)                              # -16.6 %: inside -12..-25 %
-        wide = rules.demo_levels(dict(self.LV, stop_px=30.0, stop_kind="atr"), 52.0, rt)
+        wide = rules.demo_levels(dict(self.LV, stop_px=30.0, stop_kind="atr"), 52.0, rt, D)
         self.assertAlmostEqual(wide["stop_px"], 52.0 * 0.75)                 # never wider than -25 %
         self.assertEqual(wide["stop_kind"], "atr_clamp")
-        near = rules.demo_levels(dict(self.LV, stop_px=50.0, stop_kind="atr"), 52.0, rt)
+        near = rules.demo_levels(dict(self.LV, stop_px=50.0, stop_kind="atr"), 52.0, rt, D)
         self.assertAlmostEqual(near["stop_px"], 52.0 * 0.88)                 # never closer than -12 %
         self.assertAlmostEqual(near["floor_px"], max(46.92, 52.0 * 0.88))
         # the stop tightens with a newer range, but never past -12 % from the entry; the TP prices stay the entry's
@@ -324,29 +328,29 @@ class Exits(unittest.TestCase):
         self.assertAlmostEqual(f["stop_px"], 52.0 * 0.88)
         self.assertEqual((f["tp1_px"], f["tp2_px"], f["rhl"]), (near["tp1_px"], near["tp2_px"], 90.0))
         self.assertIsNone(rules.profile_cfg(self.LV))
-        self.assertIs(rules.profile_cfg(near), rules.DEMO)
+        self.assertIs(rules.profile_cfg(near), rules.DEMO_1411)               # no tp_usd: the morning's exits
 
     def test_exit_steps(self):
-        lv = rules.demo_levels(dict(self.LV, rhl=58.0), 52.0, 0.02)          # a narrow range: the top zone under +15 %
+        lv = rules.demo_levels(dict(self.LV, rhl=58.0), 52.0, 0.02, rules.DEMO_1411)   # narrow: top zone < +15 %
         st = {}
         be = 53.1
-        self.assertIsNone(rules.exit_step(lv, st, 57.0, 1000, 0, be, cfg=rules.DEMO))
-        self.assertEqual(rules.exit_step(lv, st, lv["tp1_px"], 1001, 0, be, cfg=rules.DEMO), ("tp1", 0.5))
+        self.assertIsNone(rules.exit_step(lv, st, 57.0, 1000, 0, be, cfg=rules.DEMO_1411))
+        self.assertEqual(rules.exit_step(lv, st, lv["tp1_px"], 1001, 0, be, cfg=rules.DEMO_1411), ("tp1", 0.5))
         self.assertEqual(rules.tp2_of(lv), lv["tp2_px"])                     # +15 % net is higher than 58
-        self.assertIsNone(rules.exit_step(lv, st, 59.0, 1002, 0, be, cfg=rules.DEMO))
-        self.assertEqual(rules.exit_step(lv, st, lv["tp2_px"], 1003, 0, be, cfg=rules.DEMO), ("tp2", 1.0))
+        self.assertIsNone(rules.exit_step(lv, st, 59.0, 1002, 0, be, cfg=rules.DEMO_1411))
+        self.assertEqual(rules.exit_step(lv, st, lv["tp2_px"], 1003, 0, be, cfg=rules.DEMO_1411), ("tp2", 1.0))
         st = {}
-        rules.exit_step(lv, st, lv["tp1_px"], 1001, 0, be, cfg=rules.DEMO)
-        self.assertEqual(rules.exit_step(lv, st, 53.0, 1002, 0, be, cfg=rules.DEMO), ("breakeven", 1.0))
-        wide = rules.demo_levels(self.LV, 52.0, 0.02)                        # top zone 95: the rest waits for it
+        rules.exit_step(lv, st, lv["tp1_px"], 1001, 0, be, cfg=rules.DEMO_1411)
+        self.assertEqual(rules.exit_step(lv, st, 53.0, 1002, 0, be, cfg=rules.DEMO_1411), ("breakeven", 1.0))
+        wide = rules.demo_levels(self.LV, 52.0, 0.02, rules.DEMO_1411)      # top zone 95: the rest waits for it
         self.assertEqual(rules.tp2_of(wide), 95.0)
         st = {}
-        rules.exit_step(wide, st, wide["tp1_px"], 1001, 0, be, cfg=rules.DEMO)
-        self.assertIsNone(rules.exit_step(wide, st, 80.0, 1002, 0, be, cfg=rules.DEMO))
-        self.assertEqual(rules.exit_step(wide, st, 80.0 * 0.85, 1003, 0, be, cfg=rules.DEMO), ("trailing", 1.0))
-        self.assertEqual(rules.exit_step(wide, {}, 43.0, 1004, 0, be, cfg=rules.DEMO), ("stop", 1.0))
+        rules.exit_step(wide, st, wide["tp1_px"], 1001, 0, be, cfg=rules.DEMO_1411)
+        self.assertIsNone(rules.exit_step(wide, st, 80.0, 1002, 0, be, cfg=rules.DEMO_1411))
+        self.assertEqual(rules.exit_step(wide, st, 80.0 * 0.85, 1003, 0, be, cfg=rules.DEMO_1411), ("trailing", 1.0))
+        self.assertEqual(rules.exit_step(wide, {}, 43.0, 1004, 0, be, cfg=rules.DEMO_1411), ("stop", 1.0))
         # 6 h without TP1: out at break-even or better (RULES' time stop)
-        self.assertEqual(rules.exit_step(wide, {}, 53.2, 6 * 3600 + 5, 0, be, cfg=rules.DEMO), ("time", 1.0))
+        self.assertEqual(rules.exit_step(wide, {}, 53.2, 6 * 3600 + 5, 0, be, cfg=rules.DEMO_1411), ("time", 1.0))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -359,6 +363,11 @@ class DemoAccount(TradeBase):
         self.mode("paper", "range_demo")
         trade._BLOCKS_SEEN.clear()
         trade._CACHE.pop("demo_log", None)
+        # 14.11. popodne: rules.DEMO is the scalp profile now (tests/test_range_demo_dca_offline.py); these tests keep
+        # the morning's profile (DEMO_1411) on the same machinery: its rounds, exits, the counter, the gates, the view
+        p = mock.patch.object(rules, "DEMO", rules.DEMO_1411)
+        p.start()
+        self.addCleanup(p.stop)
 
     def drng(self, score=0.8, **m):
         r = self.rng(score, **m)
@@ -447,11 +456,11 @@ class DemoAccount(TradeBase):
             done = trade.run_once(self.lg, self.mk(52.0), self.now, rngs, self.lim, 100.0)
             self.assertEqual([u for u, _ in done], [PU])
             d = trade.demo_today(self.lg, self.now)
-            self.assertEqual((d["trades"], d["goal"], d["open"]), (1, 5, 1))
+            self.assertEqual((d["trades"], d["goal"], d["open"]), (1, 100, 1))   # 14.11. popodne: goal 100 (was 5)
             self.assertEqual(d["top_blocks"][0], {"reason": "premalo kupnji u 5 min", "tokens": 2})
             self.assertEqual({b["reason"] for b in d["top_blocks"][1:]},
                              {"ocjena raspona ispod praga", "cijena nije u donjem dijelu raspona"})
-            self.assertTrue(d["text"].startswith("range demo danas: 1 tradeova (cilj 5)"), d["text"])
+            self.assertTrue(d["text"].startswith("range demo danas: 1 tradeova (cilj 100)"), d["text"])
             self.assertIn("najviše blokira (tokena): premalo kupnji u 5 min 2", d["text"])
             self.assertEqual([x for x in printed if x.startswith("range demo danas")], [d["text"]])
             trade.run_once(self.lg, self.mk(52.0), self.now + 20, rngs, self.lim, 100.0)
@@ -535,15 +544,16 @@ class Backtest(unittest.TestCase):
         got = {k: (x["rounds"], x["hit_rate"], x["ev_pct"], round(x["pnl_usd"], 2), round(x["max_dd_usd"], 2))
                for k, x in v.items()}
         self.assertEqual(got["old"], (12, 0.75, 14.1, 26.2, 3.03))
-        self.assertEqual(got["demo"], (21, 0.714, 5.31, 16.71, 4.07))         # more rounds, EV still > 0
-        self.assertGreater(got["demo"][0], got["old"][0])
-        self.assertGreater(got["demo"][2], 0)
-        self.assertEqual(got["demo_no_survivor"], got["demo"])                # no crashed token in the fixtures
+        # 14.11. popodne: the morning's profile is the variant demo_1411 (its numbers unchanged); "demo" is the scalp
+        # profile now (pinned in tests/test_range_demo_dca_offline.py)
+        self.assertEqual(got["demo_1411"], (21, 0.714, 5.31, 16.71, 4.07))    # more rounds, EV still > 0
+        self.assertGreater(got["demo_1411"][0], got["old"][0])
+        self.assertGreater(got["demo_1411"][2], 0)
         self.assertEqual(self.rep["variants"]["0.7"]["rounds"], 12)          # today's backtest untouched
         self.assertEqual(self.rep["demo"]["data"], {"tokens": 6, "days_total": 12.47})
         line = backtest.demo_line(self.rep["demo"])
-        self.assertTrue(line.startswith("range demo backtest: 6 tokena, 12.47 dana; staro: runde 12, pogodak 75 %"),
-                        line)
+        self.assertTrue(line.startswith("range demo backtest: 6 tokena, 12.47 dana; staro: runde 12 (0.96/token-dan), "
+                                        "pogodak 75 %"), line)
         self.assertIn("## Demo profil 14.11.", backtest.md(self.rep))
         reasons = v["demo"]["exit_reasons"]
         self.assertNotIn("top", reasons)                                     # the demo rounds sell by TP1 / TP2
