@@ -43,6 +43,22 @@ class Reconsider(unittest.TestCase):
         self.assertTrue(run_paper.reconsider("skip_liq", sig(60, "G" * 44), CFG))                   # old rule stays
 
 
+class NeedNow(unittest.TestCase):
+    def test_band_never_above_best_of_the_scan(self):
+        """14.11.: band 38 from the last 24 h while the scan's best was 37 -> 0 trades all day."""
+        saved = run_paper.explore_need
+        run_paper.explore_need = lambda con, cfg, now: 38
+        try:
+            cfg = {"min_score": 50, "explore": {"enabled": True, "top_pct": 30, "min_score": 20}}
+            sigs = [sig(s, f"T{s}") for s in (10, 12, 15, 18, 20, 22, 25, 28, 31, 34, 37)]
+            self.assertEqual(run_paper.explore_need_now(None, cfg, 0, sigs), 28)   # top 30% of the scan now
+            self.assertEqual(run_paper.explore_need_now(None, cfg, 0, sigs[:5]), 38)  # too few to judge: 24 h band
+            low = [sig(s, f"L{s}") for s in range(1, 12)]
+            self.assertEqual(run_paper.explore_need_now(None, cfg, 0, low), 20)  # never under explore.min_score
+        finally:
+            run_paper.explore_need = saved
+
+
 class Intake(unittest.TestCase):
     def setUp(self):
         run_paper._LOOKED.clear()

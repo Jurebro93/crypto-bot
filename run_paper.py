@@ -278,6 +278,21 @@ def explore_need(con, cfg, now):
     return max(ex["min_score"], pct)
 
 
+def explore_need_now(con, cfg, now, sigs):
+    """explore_need, but never above the top `top_pct`% of the scores in the scan right now (at least 10 hype
+    signals). 14.11.: the 24 h band said 38 while the best token in the scan was 37: a whole quiet day with 0 demo
+    trades. The exploration share must reach the best of what exists now, or the bot stops learning."""
+    need = explore_need(con, cfg, now)
+    ex = cfg.get("explore") or {}
+    if need is None:
+        return None
+    cur = sorted((c["score"] or 0) for c in sigs if c.get("origin") == "hype")
+    if len(cur) < 10:
+        return need
+    pct = cur[min(len(cur) - 1, int(len(cur) * (1 - ex.get("top_pct", 30) / 100)))]
+    return max(ex.get("min_score", 0), min(need, pct))
+
+
 _MODEL_NEED = {"ts": 0, "p": None}
 
 
@@ -690,7 +705,7 @@ def intake(cfg, now=None, quiet=False):
         seen[t], why_seen[t] = d, r or ""
     cands = {}
     sigs = event_tokens(cfg, now) + hype_signals(now=now)
-    ex_need0 = explore_need(con, cfg, now)
+    ex_need0 = explore_need_now(con, cfg, now, sigs)
     for c in sigs:
         # a token decided once is looked at again when its hype score now clears the bar, or (13.11.) when it is in
         # the day's exploration band; until 4.11. only an earlier "skip_score" qualified, so a token first seen with a
@@ -725,7 +740,7 @@ def intake(cfg, now=None, quiet=False):
     day0 = dt.datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0).timestamp()
     n_today = con.execute("SELECT COUNT(*) FROM trades WHERE opened_ts>=?", (day0,)).fetchone()[0]
     ex = cfg.get("explore") or {}
-    ex_need = explore_need(con, cfg, now)
+    ex_need = ex_need0
     mdl, p_need = model_need(con, cfg, now)
     ex_open, ex_today = _n_explore(con), _n_explore(con, day0)
     arm_st = arms.stats(con, cfg.get("arms"))
