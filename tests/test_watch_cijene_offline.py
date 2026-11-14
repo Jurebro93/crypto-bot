@@ -164,7 +164,9 @@ class FiveMinutes(RDB):
         self.assertTrue(market.check(dict(s, mcap=40_000), now - 86400, "market", now, keep=True)[0])   # under 50k
         self.assertFalse(market.check(s, now - 86400, "market", now)[0])                # never admitted under 30k
         self.assertFalse(market.check(dict(s, liq=14_000), now - 86400, "market", now, keep=True)[0])
-        self.assertFalse(market.check(dict(s, vol_h1=4_000), now - 86400, "market", now, keep=True)[0])
+        # 14.11.: a watched token stays down to $3k of volume 1 h (KEEP_VOL_H1, was $5k: the range's own floor)
+        self.assertTrue(market.check(dict(s, vol_h1=4_000), now - 86400, "market", now, keep=True)[0])
+        self.assertFalse(market.check(dict(s, vol_h1=2_500), now - 86400, "market", now, keep=True)[0])
         self.assertFalse(market.check(dict(s, mcap=6e6), now - 86400, "market", now, keep=True)[0])
         self.assertFalse(market.check(dict(s, bonded=False), now - 86400, "market", now, keep=True)[0])
 

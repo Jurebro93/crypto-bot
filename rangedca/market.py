@@ -21,8 +21,24 @@ Universe (table mkt), cheapest first:
                (skipped, then >= +20 % within 60 min: preskoceni, fast path, proposals), src 'missed' for 72 h, due at
                once; filter: bonded, MC >= 30k, liquidity >= $15k, volume 1 h >= $10k and the owner's hard blocks
                (missed.hard_block); after 72 h back to src 'market' (the market filter keeps it or it leaves)
+  14.11. (Jure: "U svakom momentu na kripto tržištu ima stotine tokena koji se kreću u range-u ... pronađi ga"; the
+  Render log of 14.11. 06:31-07:26 UTC: 8,780 tokens in the universe, 74 % of them PumpPortal migrations, of which
+  4,930 never had a DexScreener price, 1,948 under 30k, 806 on the curve, 646 in the rug archive; only ~11 due for a
+  check at any time, admitted 0 a pass, 4-8 market tokens watched): the sources that bring OLDER living tokens, all
+  free or inside the caps below:
+  gt_dex       GeckoTerminal's top pools of the PumpSwap dex (bonded pump.fun tokens of every age) by 24 h volume,
+               GT_DEX_PAGES pages in the same round as gt (20 pools a page; their numbers admit a pool at once)
+  dex_liste    + DexScreener community takeovers and recent profile updates (older tokens revived by their community):
+               5 list requests every LISTS_EVERY_S
+  hype         hype.db token_pulse: the hype scan's tokens of the last 2 h at MC >= 30k, liquidity >= $15k (free)
+  pozivi       kol.db calls of the last 7 days at a known MC >= 30k (the tokens that were hot before the crash; free)
+  raspon       range.db events "aktivan" of the last 3 days: every token that had an active range (free)
+  promote      a known token that a source sees passing the filter NOW (its own numbers) is due at once, whatever it
+               waited for (11.11.: add() never moved next_ts, so a token put aside a day under 30k or 2 h under 50k
+               stayed aside while GeckoTerminal saw it pass ~30 times a round: "prolazi filter 33, primljeno 0")
 Source priority of a token: event > missed > market (and the signal pass above them all, rangedca/view.source_of).
-Market filter (a market token): bonded, MC $50k-$5M, liquidity >= $15k, volume 1 h >= $10k, at least 6 h old. An
+Market filter (a market token): bonded, MC $30k-$5M (14.11.: was $50k; the owner's floor is 30k), liquidity >= $15k,
+volume 1 h >= $5k (14.11.: was $10k; a token that ranges trades calmly), at least 6 h old. An
 event token only needs what every analysed token needs: bonded and MC >= $30k (CLAUDE.md). A token that fails waits
 (next_ts) by its reason: under 30k a day, on the curve 6 h, otherwise 1-2 h; too young until it is 6 h old.
 
@@ -65,10 +81,11 @@ import time
 from . import data
 
 MARKET_MAX = int(os.environ.get("RANGE_MARKET_MAX", "400"))
-MIN_MCAP = float(os.environ.get("RANGE_MKT_MIN_MCAP", "50000"))
+# 14.11. (owner: the 30k floor, CLAUDE.md; the market band's 50k held out every token the crash put at 30-50k)
+MIN_MCAP = float(os.environ.get("RANGE_MKT_MIN_MCAP", "30000"))
 MAX_MCAP = float(os.environ.get("RANGE_MKT_MAX_MCAP", "5000000"))
 MIN_LIQ = float(os.environ.get("RANGE_MKT_MIN_LIQ", "15000"))   # 11.11. owner rule B: = trade/cost.LIQ_HARD_MIN
-MIN_VOL_H1 = float(os.environ.get("RANGE_MKT_MIN_VOL_H1", "10000"))
+MIN_VOL_H1 = float(os.environ.get("RANGE_MKT_MIN_VOL_H1", "5000"))   # 14.11.: was 10k (ranging tokens trade calmly)
 MIN_AGE_H = float(os.environ.get("RANGE_MKT_MIN_AGE_H", "6"))
 HOT_N = int(os.environ.get("RANGE_MKT_HOT_N", "100"))
 HOT_EVERY_S = 300
@@ -84,16 +101,22 @@ PASS_GAP_S = 70
 MEASURE_WHY = "MC ispod 30k: samo mjerenje, ne kupuje se"
 DEX_DAY = int(os.environ.get("RANGE_MKT_DEX_DAY", "6500"))   # 12.11.: was 4000 (see the module text, worst case)
 DISC_DAY = int(os.environ.get("RANGE_MKT_DISC_DAY", "1500"))   # of DEX_DAY at most this for discovery (the rest refreshes)
-LISTS_DAY = int(os.environ.get("RANGE_MKT_LISTS_DAY", "300"))
-GT_DAY = int(os.environ.get("RANGE_MKT_GT_DAY", "130"))
+LISTS_DAY = int(os.environ.get("RANGE_MKT_LISTS_DAY", "500"))   # 14.11.: 5 lists x 96 rounds (was 3 lists, 300)
+# 14.11.: 4 trending + 6 top + 5 PumpSwap pages every 2 h = 180 a day of the shared CoinGecko 3000 (was 130)
+GT_DAY = int(os.environ.get("RANGE_MKT_GT_DAY", "200"))
 # 11.11. (Jure: "watchlist 300+", faza 1): after 40 min the list held 8 market tokens: PumpPortal migrations mostly die
 # under 50k and one page of GeckoTerminal's top pools (20) an hour found almost nothing else. Now GT_TOP_PAGES pages of
 # the top pools by 24 h volume + GT_TREND_PAGES of trending (1 h and 6 h) every GT_EVERY_S: 20 pools a request, their
 # numbers admit a pool without a DexScreener request. ~10 requests every 2 h = ~120 a day of the shared 3000.
 GT_TOP_PAGES = int(os.environ.get("RANGE_MKT_GT_PAGES", "6"))
 GT_TREND_PAGES = int(os.environ.get("RANGE_MKT_GT_TREND_PAGES", "2"))
+# 14.11. (owner: tokens that survived the crash): the PumpSwap dex's top pools by 24 h volume, every age (the trending
+# lists are mostly hours old); measured 14.11. 07:50 UTC: of its 219 top pools 30 were in MC 30k-5M with $15k+
+GT_DEX = os.environ.get("RANGE_MKT_GT_DEX", "pumpswap")
+GT_DEX_PAGES = int(os.environ.get("RANGE_MKT_GT_DEX_PAGES", "5"))
 # a watched token stays while it keeps these (admission needs MIN_VOL_H1 / MIN_LIQ): one quiet hour no longer drops it
-KEEP_VOL_H1 = float(os.environ.get("RANGE_MKT_KEEP_VOL_H1", "5000"))
+# 14.11.: 3k (was 5k) = the range's own floor (detect min_vol_h1, trade/cost.VOL_FLOOR), under the new 5k admission
+KEEP_VOL_H1 = float(os.environ.get("RANGE_MKT_KEEP_VOL_H1", "3000"))
 KEEP_LIQ = float(os.environ.get("RANGE_MKT_KEEP_LIQ", "15000"))
 BIRDEYE_DAY = int(os.environ.get("RANGE_MKT_BIRDEYE_DAY", "24"))
 SEED_DAY = int(os.environ.get("RANGE_MKT_SEED_DAY", "20"))   # GeckoTerminal seeds of market / event tokens (in GT_DAY 60)
@@ -152,7 +175,9 @@ class Net:
     def lists(self):
         from dexscreener import client
         out = []
-        for fn in (client.latest_token_profiles, client.latest_boosts, client.top_boosts):
+        # 14.11.: + community takeovers and recent profile updates (older tokens their community revived)
+        for fn in (client.latest_token_profiles, client.latest_boosts, client.top_boosts, client.community_takeovers,
+                   client.recent_profile_updates):
             try:
                 out += list(fn() or [])
             except Exception:  # noqa: BLE001 - discovery is best effort
@@ -169,6 +194,8 @@ class Net:
         out = []
         reqs = [("/trending_pools", {"page": pg, "duration": d}) for d in ("1h", "6h") for pg in range(1, GT_TREND_PAGES + 1)]
         reqs += [("/pools", {"page": pg, "sort": "h24_volume_usd_desc"}) for pg in range(1, GT_TOP_PAGES + 1)]
+        reqs += [(f"/dexes/{GT_DEX}/pools", {"page": pg, "sort": "h24_volume_usd_desc"})   # 14.11.: every age, bonded
+                 for pg in range(1, GT_DEX_PAGES + 1)]
         for path, params in reqs[:n_req if n_req is not None else len(reqs)]:
             try:
                 d = http.get_json(f"{GT}{path}", params, ttl=600, headers={"Accept": "application/json"}, retries=1)
@@ -281,10 +308,17 @@ def check(s, created_ts, src, now, keep=False):
 
 # ---------- universe --------------------------------------------------------------------------------------------------
 
-def add(con, tok, via, now, src="market", symbol=None, created_ts=None, due=None, nums=None):
+PROMOTE_GAP_S = 1800   # 14.11.: a promoted token is checked again at most every 30 min
+
+
+def add(con, tok, via, now, src="market", symbol=None, created_ts=None, due=None, nums=None, promote=False):
     """A token into the universe (or one more `via` for a known one). An event token is marked src 'event' and is due
-    at once; 11.11. a missed one (rangedca/missed.py) src 'missed' (over 'market', never over 'event'), due at once."""
-    r = con.execute("SELECT via, src, next_ts, watched FROM mkt WHERE token=?", (tok,)).fetchone()
+    at once; 11.11. a missed one (rangedca/missed.py) src 'missed' (over 'market', never over 'event'), due at once.
+    promote (14.11.): the source's own numbers pass the filter now, so a known token that is not watched is due at
+    `due` (default now) even when it was put aside for longer (a day under 30k, 3 days without a price): one
+    DexScreener check (1/30 of a request) instead of waiting while it trades; at most once every PROMOTE_GAP_S
+    (a token the scanner lists every minute but DexScreener refuses is not asked every minute)."""
+    r = con.execute("SELECT via, src, next_ts, watched, checked_ts FROM mkt WHERE token=?", (tok,)).fetchone()
     nums = nums or {}
     if r is None:
         con.execute("INSERT INTO mkt (token, via, src, first_seen, next_ts, watched, symbol, mcap, liq, vol_h1, created_ts) "
@@ -300,6 +334,9 @@ def add(con, tok, via, now, src="market", symbol=None, created_ts=None, due=None
         upd["src"] = src
         if not r[3]:
             upd["next_ts"] = int(now)
+    when = int(due if due is not None else now)
+    if promote and not r[3] and (r[2] or 0) > when and "next_ts" not in upd and now - (r[4] or 0) >= PROMOTE_GAP_S:
+        upd["next_ts"] = when
     if created_ts:
         upd["created_ts"] = int(created_ts)
     for k in ("mcap", "liq", "vol_h1"):
@@ -395,7 +432,7 @@ def from_scanner(con, now, scan_db=None):
                 "AND mcap <= ? AND liq >= ? AND vol_h1 >= ?", (int(now - 600), MIN_MCAP, MAX_MCAP, MIN_LIQ, MIN_VOL_H1)):
             if stage in ("final_stretch", "curve"):
                 continue
-            n += add(con, tok, "skener", now, symbol=sym, nums={"mcap": mc, "liq": liq, "vol_h1": v1})
+            n += add(con, tok, "skener", now, symbol=sym, nums={"mcap": mc, "liq": liq, "vol_h1": v1}, promote=True)
     except sqlite3.Error:
         pass
     finally:
@@ -429,6 +466,80 @@ def from_events(con, now, topics_db=None):
     return set(toks)
 
 
+FREE_EVERY_S = 600                # 14.11.: the free sources below are read every 10 min (a pass is every minute)
+PULSE_LOOKBACK_S = 2 * 3600       # 14.11.: the hype scan's tokens of the last 2 h
+CALLS_LOOKBACK_S = 7 * 86400      # 14.11.: KOL calls of the last 7 days (the tokens that were hot before the crash)
+CALLS_MAX = 300                   # ... at most this many a round, the most called first
+RANGED_LOOKBACK_S = 3 * 86400     # 14.11.: tokens that had an active range in the last 3 days
+
+
+def from_pulse(con, now, hype_db=None):
+    """14.11.: hype.db token_pulse, the newest row of every token of the last PULSE_LOOKBACK_S whose own numbers pass
+    the market filter's (MC MIN_MCAP-MAX_MCAP, liquidity MIN_LIQ, volume 1 h MIN_VOL_H1): via "hype", due now
+    (promote: the numbers are seconds old). Free (a read of hype.db)."""
+    hc = _ro(hype_db or data.hype_path())
+    if hc is None:
+        return 0
+    n = 0
+    try:
+        rows = hc.execute("SELECT token, MAX(ts), mcap, liquidity, vol_h1 FROM token_pulse WHERE ts >= ? GROUP BY token",
+                          (int(now - PULSE_LOOKBACK_S),)).fetchall()
+    except sqlite3.Error:
+        rows = []
+    finally:
+        hc.close()
+    for tok, _ts, mc, liq, v1 in rows:
+        if tok and MIN_MCAP <= (mc or 0) <= MAX_MCAP and (liq or 0) >= MIN_LIQ and (v1 or 0) >= MIN_VOL_H1:
+            n += add(con, tok, "hype", now, nums={"mcap": mc, "liq": liq, "vol_h1": v1}, promote=True)
+    return n
+
+
+def from_calls(con, now):
+    """14.11.: kol.db calls of the last CALLS_LOOKBACK_S at a known MC >= 30k (CLAUDE.md), new ones since the last
+    round (watermark mkt_wm_calls: the newest call read), the most called first, at most CALLS_MAX a round (the less
+    called rest of a busy window is left out): via "pozivi", due now when new (their numbers of today are unknown, so
+    a known token waits for its own next_ts). Free (a read of kol.db)."""
+    try:
+        from kol import store as kstore
+        kc = _ro(kstore.DB)
+    except Exception:  # noqa: BLE001
+        kc = None
+    if kc is None:
+        return 0
+    wm = int(data.kv_get(con, "mkt_wm_calls") or now - CALLS_LOOKBACK_S)
+    n = 0
+    try:
+        rows = kc.execute("SELECT token, MAX(symbol), COUNT(*), MAX(ts) FROM calls WHERE ts > ? AND COALESCE(mcap0, 0) "
+                          ">= ? GROUP BY token ORDER BY COUNT(*) DESC, MAX(ts) DESC LIMIT ?",
+                          (wm, MIN_ANALYSED, CALLS_MAX)).fetchall()
+    except sqlite3.Error:
+        rows = []
+    finally:
+        kc.close()
+    top = wm
+    for tok, sym, _n, last in rows:
+        if tok:
+            n += add(con, tok, "pozivi", now, symbol=sym)
+            top = max(top, int(last or 0))
+    data.kv_put(con, "mkt_wm_calls", top)
+    return n
+
+
+def from_ranged(con, now):
+    """14.11. (owner: "ako se vratio u range, pronađi ga"): every token with a range.db event "aktivan" (its range
+    became active) since the last round (watermark mkt_wm_ranged, first round RANGED_LOOKBACK_S back): via "raspon",
+    due now (promote). A token that ranged before the crash stays on the list after the signal pass drops it, so
+    its return into a range is seen. Free (range.db itself)."""
+    wm = int(data.kv_get(con, "mkt_wm_ranged") or now - RANGED_LOOKBACK_S)
+    n, top = 0, wm
+    for tok, ts in con.execute("SELECT token, MAX(ts) FROM events WHERE kind='aktivan' AND ts > ? GROUP BY token",
+                               (wm,)).fetchall():
+        n += add(con, tok, "raspon", now, promote=True)
+        top = max(top, int(ts or 0))
+    data.kv_put(con, "mkt_wm_ranged", top)
+    return n
+
+
 def gt_row(p):
     """A GeckoTerminal pool -> (token, symbol, created_ts, snapshot dict like data.snap_of), or None."""
     a = p.get("attributes") or {}
@@ -452,17 +563,22 @@ def gt_row(p):
 
 
 def gt_requests():
-    """GeckoTerminal requests of one discovery round (trending 1 h + 6 h pages, top-volume pages)."""
-    return 2 * GT_TREND_PAGES + GT_TOP_PAGES
+    """GeckoTerminal requests of one discovery round (trending 1 h + 6 h pages, top-volume pages, 14.11. the PumpSwap
+    dex's top pages)."""
+    return 2 * GT_TREND_PAGES + GT_TOP_PAGES + GT_DEX_PAGES
+
+
+N_LISTS = 5   # 14.11.: DexScreener list requests a round (profiles, boosts latest / top, takeovers, profile updates)
 
 
 def discover_lists(con, now, net, log):
     """DexScreener lists, GeckoTerminal pools and Birdeye's list, each on its own cadence and day cap."""
     n = 0
-    if now - (data.kv_get(con, "mkt_lists_ts") or 0) >= LISTS_EVERY_S and slice_left(con, "mkt_lists_day", LISTS_DAY, now) >= 3:
+    if (now - (data.kv_get(con, "mkt_lists_ts") or 0) >= LISTS_EVERY_S
+            and slice_left(con, "mkt_lists_day", LISTS_DAY, now) >= N_LISTS):
         data.kv_put(con, "mkt_lists_ts", int(now))
-        data.day_add(con, "mkt_lists_day", 3, now)
-        _meter("dexscreener", "range tržište liste", 3)
+        data.day_add(con, "mkt_lists_day", N_LISTS, now)
+        _meter("dexscreener", "range tržište liste", N_LISTS)
         for it in net.lists() or []:
             if isinstance(it, dict) and it.get("chainId") == "solana" and it.get("tokenAddress"):
                 n += add(con, it["tokenAddress"], "dex_liste", now)
@@ -494,7 +610,7 @@ def discover_lists(con, now, net, log):
             ok, why, wait = check(s, created, "market", now)
             ok_n += int(ok)
             k = add(con, tok, "gt", now, symbol=sym, created_ts=created, due=now if ok else now + wait,
-                    nums={"mcap": s["mcap"], "liq": s["liq"], "vol_h1": s["vol_h1"]})
+                    nums={"mcap": s["mcap"], "liq": s["liq"], "vol_h1": s["vol_h1"]}, promote=ok)   # 14.11.: due now
             new_n += k
             n += k
         log(f"range tržište GT: {n_req} upita, {got} poolova, novih {new_n}, prolazi filter {ok_n}")
@@ -634,6 +750,10 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
     stats = {"refreshed": 0, "reused": 0, "dropped": 0, "admitted": 0, "left": 0, "requests": 0, "new": 0}
     if market_on:
         stats["new"] += from_migrations(con, now, hype_db) + from_graduates(con, now) + from_scanner(con, now, scan_db)
+        # 14.11. (owner: the tokens that survived the crash): the free sources of older living tokens, every FREE_EVERY_S
+        if now - (data.kv_get(con, "mkt_free_ts") or 0) >= FREE_EVERY_S:
+            data.kv_put(con, "mkt_free_ts", int(now))
+            stats["new"] += from_pulse(con, now, hype_db) + from_calls(con, now) + from_ranged(con, now)
         stats["new"] += discover_lists(con, now, net, log)
     if missed_on:
         stats["new"] += missed.from_missed(con, now, log)
