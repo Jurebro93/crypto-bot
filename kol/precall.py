@@ -1082,6 +1082,9 @@ def copy_step(con, p, c, now, m, log=print):
     """Shadow lines for the copy set's fresh buys and follow changes; in paper the demo account follows them (in live
     the Autopilot account too). Returns {"set", "seen", "followed", "stopped", "shadow"}."""
     from trade import settings
+    # 14.11. (owner: "nema više demo"; trade/settings pravi_novac_sve): in paper the real account follows them too,
+    # without live_refusal's proof; switched off, its follows stop at the next pass (_stop_follows below)
+    real = m == "paper" and settings.pravi_novac_sve()
     want = [w for w, _s in copy_set(con, c, p.get("trade_db"))]
     out = {"set": len(want), "seen": 0, "followed": 0, "stopped": 0, "shadow": 0}
     lines = []
@@ -1098,12 +1101,13 @@ def copy_step(con, p, c, now, m, log=print):
         for w, mint, ts in sorted(buys, key=lambda r: r[2]):
             if con.execute("INSERT OR IGNORE INTO precall_seen VALUES (?,?,?)", (w, mint, ts)).rowcount:
                 out["seen"] += 1
-                if m in ("shadow", "paper"):
+                if m in ("shadow", "paper") and not real:
                     lines.append((mint, "nema", "kopiraj kupnju insajdera",
                                   {"wallet": w, "ts": ts, "who": "Autopilot (samo zapis)",
                                    "note": "kopija prolazi ista vrata kao svaka: ispod 30k i na krivulji se ne kupuje"}))
     kv(con, "copy_seen_ts", now)
-    users = ((settings.PAPER_USER,) if m == "paper" else (settings.PAPER_USER, settings.LEAGUE_USER) if m == "live" else ())
+    users = ((settings.PAPER_USER, settings.LEAGUE_USER) if m == "live" or real else
+             (settings.PAPER_USER,) if m == "paper" else ())
     out["stopped"] = _stop_follows(con, p, now, users, set(want))
     ours = {(u, w) for u, w in _q(con, "SELECT user, wallet FROM precall_follows WHERE stopped IS NULL")}
     if users and want and p.get("league_db"):
@@ -1125,7 +1129,7 @@ def copy_step(con, p, c, now, m, log=print):
         finally:
             lc.close()
         con.commit()
-    if m in ("shadow", "paper"):   # the Autopilot account only logs which wallets it would follow
+    if m in ("shadow", "paper") and not real:   # the Autopilot account only logs which wallets it would follow
         prev = set(json.loads(kv(con, "would_follow") or "[]"))
         for w in sorted(set(want) - prev):
             lines.append((w, "ne prati", "prati insajdera (mirror)", {"wallet": w, "who": "Autopilot (samo zapis)"}))

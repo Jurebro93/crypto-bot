@@ -64,6 +64,11 @@ def roles(m, now=None):
     fl = _flags()
     act = [u for u in fl.autopilot_users() if fl.applies(FLAG, u, m)]
     sh = [u for u in fl.autopilot_users() if fl.shadowing(FLAG, u, m)]
+    if m in ("paper", "live") and ts.pravi_novac_sve():
+        # 14.11. (owner: "nema više demo"): the real account trades too, without the paper proof (gate.refusal); the demo
+        # account keeps trading as in paper / live; the caps are trade/executor's SWITCH_CAPS on the real swap
+        act = [ts.LEAGUE_USER] + [u for u in act if u != ts.LEAGUE_USER]
+        return act, [u for u in sh if u != ts.LEAGUE_USER]
     if ts.LEAGUE_USER in act:
         why = gate.refusal(now=now, cached=True)
         if why:
@@ -204,8 +209,21 @@ def _enter(con, user, tok, s, mq, lim, sol, now):
                 "entry_mc, size_usd, state) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (user, tok, sym, s["id"], now, "open", tid, price, mcap, lot * sol, json.dumps({"pnl": 0.0})))
     con.commit()
+    _switch_stop(con, user, tok, now)
     return [(user, f"momentum ulaz {sym or tok[:6]}: {lot:g} SOL na MC ${mcap or 0:,.0f} "
                    f"(signal #{s['id']}, {((s.get('features') or {}).get('ch_m5') or 0):+.1f} % u 5 min)")]
+
+
+def _switch_stop(con, user, tok, now):
+    """14.11. (pravi_novac_sve): a real-account entry gets its server-side protective stop at once (league/exitplan);
+    this module's own exit (stop -10 %) keeps running first. Never fails the entry."""
+    try:
+        from trade import settings as ts
+        if user == ts.LEAGUE_USER and ts.pravi_novac_sve():
+            from league import exitplan
+            exitplan.switch_stop(con, tok, user, now=int(now))
+    except Exception as e:  # noqa: BLE001 - the sweep (exitplan.ensure_switch_stops) tries again
+        print(f"momentum {tok[:6]}: zaštitni stop nije postavljen ({type(e).__name__}: {e})", flush=True)
 
 
 # ---------- exits (every second) ------------------------------------------------------------------------------------

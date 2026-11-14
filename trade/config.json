@@ -11,7 +11,16 @@
  "max_loss_day": 0.4,
  "day_tz": "Europe/Zagreb",
  "sell_check": true,
- "_nicholas_5_11": "15 $ po tradeu (0,1 SOL), najviše 5 otvorenih, dnevni stop na -0,4 SOL (~60 $); mode ostaje dry dok strategija ne dokaže prednost u demu",
- "_mode": "9.11. (audit P37): polje mode je samo napomena, kod ga ne čita; pravi swap traži sve troje: prekidač na /pravi-trade (settings on), env TRADE_LIVE=1 i ključ u Renderu (trade/executor.is_live). Uz to run_trade pušta pravi novac samo praćenju s dokazom u demu (run_trade.PROOF).",
- "_poll_s": "9.11. (Jure): svaka sekunda je novac; petlja čita trade.db/league.db svake sekunde (bez mrežnih poziva dok nema promjene)"
+ "_nicholas_5_11": "15 $ po tradeu (0,1 SOL), najviše 5 otvorenih, dnevni stop na -0,4 SOL (~60 $). 14.11. (vlasnik: „nema više demo ... idemo s pravim novcem”): polje mode je samo napomena; pravi novac bez dokaza u demu ide kad vlasnik uključi prekidač pravi_novac_sve (vidi pravi_novac_sve i _pravi_novac_sve); bez njega pravi novac i dalje samo s dokazom u demu (run_trade.PROOF)",
+ "_mode": "9.11. (audit P37): polje mode je samo napomena, kod ga ne čita; pravi swap traži sve troje: prekidač na /pravi-trade (settings on), env TRADE_LIVE=1 i ključ u Renderu (trade/executor.is_live). Uz to run_trade pušta pravi novac samo praćenju s dokazom u demu (run_trade.PROOF), osim dok je uključen vlasnikov prekidač pravi_novac_sve (14.11.).",
+ "_poll_s": "9.11. (Jure): svaka sekunda je novac; petlja čita trade.db/league.db svake sekunde (bez mrežnih poziva dok nema promjene)",
+ "pravi_novac_sve": {
+  "size_sol": 0.1,
+  "max_sol_per_trade": 0.1,
+  "max_open": 10,
+  "max_buys_day": 100,
+  "max_loss_day": 0.5,
+  "max_sol_per_day": 11.0
+ },
+ "_pravi_novac_sve": "14.11. (vlasnik: „Želim da se to sve radi s pravim novcem, nema više demo ... idemo s pravim novcem”; njegovi odgovori: „0,1 SOL po tradeu”, „dnevni gubitak 0,5 SOL” pa stop do sljedećeg dana, „sve strategije”, „najviše 10 otvorenih”, „100 tradeova dnevno”): stropovi SAMO automatskih pravih kupnji dok je prekidač pravi_novac_sve uključen (trade/executor.SWITCH_CAPS; ovdje se smiju samo smanjiti). max_open broji sve prave pozicije zajedno, max_buys_day i max_sol_per_day (11 = 100 x 0,1 SOL + rezerva) automatske kupnje Zagreb dana, max_loss_day ostvareni rezultat dana s naknadama. Polja iznad (size_sol, max_open 5, max_sol_per_day 1,0, max_loss_day 0,4) NISU mijenjana: i dalje vrijede za demo strategije (rangedca/trade.limits) i za pravi novac bez prekidača; LIVE_CAPS (Grokovi limiti) isto nepromijenjeni. Vlasnikove ručne kupnje ne drže ovi stropovi."
 }

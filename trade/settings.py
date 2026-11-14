@@ -199,6 +199,25 @@ OWNER_SWITCH_NOTES = {
     "tg_text_retention": "Tvoj prekidač: „uživo” uključuje brisanje teksta (noću 01-06, red objave ostaje); svaki drugi "
                          "mod samo mjeri i piše u log što bi se obrisalo i koliko MB.",
 }
+# 14.11. (owner: "Ja sada ne govorim o demu ... nema više demo ... idemo s pravim novcem"): ONE owner switch, "uživo" =
+# on, default off, only his tap on /pravi-trade (set_flag refuses anybody else). On: every automatic strategy whose
+# flag is paper or live trades the REAL account (LEAGUE_USER) without the demo proofs, within trade/executor's
+# SWITCH_CAPS; x_call_scalp (no account) and Grok autotrade (its own switch) stay out. Off: exactly as before.
+SWITCH_ALL = "pravi_novac_sve"
+FLAGS[SWITCH_ALL] = ("P14", "Pravi novac za sve strategije (vlasnik 14.11.): svaka automatska strategija u paper ili "
+                            "live modu kupuje pravim novcem, bez dokaza u demu, unutar stropova (0,1 SOL po tradeu, "
+                            "10 otvorenih, 100 kupnji dnevno, dnevni gubitak 0,5 SOL)")
+OWNER_SWITCHES = OWNER_SWITCHES | {SWITCH_ALL}
+OWNER_SWITCH_NOTES[SWITCH_ALL] = ("Tvoj prekidač: „uživo” = sve strategije trguju pravim novcem (i one s negativnim "
+                                  "izmjerenim EV-om); svaki drugi mod = kao prije, pravi novac samo s dokazom u demu.")
+
+
+def pravi_novac_sve(con=None, path=None):
+    """True while the owner's switch pravi_novac_sve is on (mode "live"); never raises (unreadable = off)."""
+    try:
+        return flag(SWITCH_ALL, con, path) == "live"
+    except Exception:  # noqa: BLE001
+        return False
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
 PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
@@ -483,6 +502,10 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     cur = flag_state(con)[name]
     if mode == cur["mode"]:
         return cur
+    if mode == "live" and name == SWITCH_ALL and not is_owner(who):
+        # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
+        # chat order, an applied suggestion or any other code path
+        raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")
     if mode == "live":
         why = live_refusal(con, name, paper, now)
         if why:

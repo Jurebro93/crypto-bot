@@ -45,6 +45,7 @@ from . import calib, store, strategies
 
 FLAG = "proposals"
 SRC = "prijedlog (demo)"
+SRC_REAL = "prijedlog"   # 14.11.: an entry on the real account by the owner's switch pravi_novac_sve
 PASS_CAP = 50               # waiting proposals priced per pass, the best EV first
 CHECK_EVERY_S = 20          # the loop wakes on every followed wallet's webhook; the zones are priced at most this often
 MIN_MCAP = 30_000
@@ -201,10 +202,18 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
     from trade import cost as tcost, settings
     from . import publish
     now = int(now or time.time())
-    user = settings.PAPER_USER
+    # 14.11. (owner: "nema više demo ... idemo s pravim novcem"; trade/settings pravi_novac_sve): while his switch is
+    # on, the entries go to the REAL account (run_trade mirrors them within SWITCH_CAPS); off: the demo account as before
+    real = trading and settings.pravi_novac_sve()
+    user = settings.LEAGUE_USER if real else settings.PAPER_USER
     if trading:
         ensure(con)
         sync_closed(con, user)
+        if real:   # the demo account's rows still close from their lots
+            sync_closed(con, settings.PAPER_USER)
+        elif con.execute("SELECT 1 FROM proposal_trades WHERE user=? AND status='open' LIMIT 1",
+                         (settings.LEAGUE_USER,)).fetchone():
+            sync_closed(con, settings.LEAGUE_USER)   # the switch went off: the real rows still close from their lots
         con.commit()
     key = (path or store.db_path(), trading)
     last = _LAST.get(key)
@@ -244,6 +253,8 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
     rngs = _range_rows({p["token"] for p, _mq, _c in inz})
     for p, mq, chk in inz:
         tok, r = p["token"], p.get("row") or {}
+        if real and (p.get("strategy") == "grok" or r.get("pin_only")):
+            continue   # 14.11.: Grok's own numbers and a pin without a ready range never buy with real money by themselves
         if con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (user, tok)).fetchone():
             continue   # already held by the demo account: never doubled
         if range_block(con, user, tok, now, rngs.get(tok)):
@@ -260,7 +271,7 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
         b = r.get("buy") or {}
         try:
             tid = lstore.buy(con, user, tok, p.get("symbol"), size * sol, price, liq,
-                             f"{SRC}: {p.get('strategy')}", None, mcap)
+                             f"{SRC_REAL if real else SRC}: {p.get('strategy')}", None, mcap)
         except ValueError as e:
             print(f"prijedlozi paper {tok[:6]}: ulaz nije prošao ({e})", flush=True)
             continue
@@ -273,19 +284,25 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
                 auto.set_auto(con, user, tid, "smart")
             print(f"prijedlozi paper {tok[:6]}: TP iz prijedloga nije postavljen ({e})", flush=True)
         plan = dict(r.get("exit_plan") or {})
+        plan_id = None
         if plan and exitplan.active(con, tok) is None:
             plan["accounts"] = [user]
             sl_default = _sl_default()
             try:
-                exitplan.set_plan(con, tok, plan, sl_default, client=f"prijedlog #{p['id']}", now=now)
+                client = f"prijedlog #{p['id']}"
+                plan_id = exitplan.set_plan(con, tok, plan, sl_default, now=now,
+                                            client=exitplan.switch_client(client, user, True) if real else client)["plan_id"]
             except ValueError as e:
                 print(f"prijedlozi paper {tok[:6]}: plan izlaza nije postavljen ({e})", flush=True)
+        if real and plan_id is None:   # 14.11.: no plan of its own: the protective stop (only when none is active)
+            exitplan.switch_stop(con, tok, user, now=now)
         con.execute("INSERT OR IGNORE INTO proposal_trades (user, proposal_id, token, strategy, sources, trade_id, "
                     "opened_ts, status) VALUES (?,?,?,?,?,?,?,?)",
                     (user, p["id"], tok, p.get("strategy"), json.dumps(p.get("sources") or []), tid, now, "open"))
         con.commit()
         entered.append((p["id"], mcap))
-        done.append((user, f"prijedlog #{p['id']} ({p.get('strategy')}) {p.get('symbol') or tok[:6]}: ušao (paper) na MC "
+        done.append((user, f"prijedlog #{p['id']} ({p.get('strategy')}) {p.get('symbol') or tok[:6]}: ušao "
+                           f"({'pravi račun, pravi_novac_sve' if real else 'paper'}) na MC "
                            f"${mcap or 0:,.0f} u zoni {strategies.zone_text(chk['zone'])}, {size:g} SOL, EV "
                            f"{got[0] * 100:+.1f} %, izlaz {b.get('tp')} / {b.get('sl')}"))
     _write_back(path, seen, dead, entered, now, pubs)

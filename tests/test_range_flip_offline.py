@@ -338,8 +338,9 @@ class LiveGate(TradeBase):
     def test_settings_flag_g26_off_by_default_live_gate(self):
         self.assertEqual(settings.FLAGS["range_flip"][0], "G26")
         names = list(settings.FLAGS)   # 11.11.: range_missed (G27) comes after it; 12.11.: x_call_scalp (G31)
-        # 14.11.: range_demo (G32, the demo account's profile) after them
-        self.assertEqual(names[names.index("range_flip") + 1:], ["range_missed", "x_call_scalp", "range_demo"])
+        # 14.11.: range_demo (G32, the demo account's profile) after them, then the owner switch pravi_novac_sve (P14)
+        self.assertEqual(names[names.index("range_flip") + 1:], ["range_missed", "x_call_scalp", "range_demo",
+                                                                 "pravi_novac_sve"])
         self.assertEqual(settings.flag("range_flip", con=self.con), "off")
         self.assertNotIn("range_flip", settings.DATA_FLAGS)
         self.assertNotIn("range_flip", settings.NEVER_LIVE)
