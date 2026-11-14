@@ -41,9 +41,12 @@ detection (ranges.data "atr", 14 x 15-minute bars). ATR unknown (fewer than 4 ba
   event / market / paper_only tokens: only the demo account trades them (rangedca/trade.allowed), so b + reclaim.
 stop_line() is the one log line per active range ("range stop SYM: pravi račun ATR MC ...").
 """
-RULES = {"score_min": 0.7, "entry_bottom": 0.15, "ch5_min": -0.03, "buy_share_min": 0.5, "vol_ratio_min": 0.5,
+# 13.11. (owner, točka 3: "Na get_range_candidates i zonewatch spusti prag buy_share za entry_ready s 0.50 na 0.45 kako
+# bi se poklapao s pravilima analitičara i zona-alarma"): the entry (entry_ready, zonewatch's range zones, the entry
+# itself) 0.45; lot 2 keeps its 0.50 (lot2_buy_share_min: the owner's order is about the entry only)
+RULES = {"score_min": 0.7, "entry_bottom": 0.15, "ch5_min": -0.03, "buy_share_min": 0.45, "vol_ratio_min": 0.5,
          "lot2_lo": 0.10, "lot2_hi": 0.15, "floor_x": 0.92, "stop_x": 0.85, "tp1_share": 0.5, "trail": 0.10,
-         "time_stop_s": 6 * 3600, "cooldown_s": 20 * 60, "lot2_min_share": 0.5,
+         "time_stop_s": 6 * 3600, "cooldown_s": 20 * 60, "lot2_min_share": 0.5, "lot2_buy_share_min": 0.5,
          "exclude_s": 24 * 3600, "breakdowns_max": 2, "vol_exclude_s": 3600}
 
 
@@ -312,8 +315,8 @@ def lot2_check(lot1_px, price, lv, m, cfg=None):
     m = m or {}
     if m.get("vol_ratio") is None or m["vol_ratio"] < c["vol_ratio_min"]:
         return "volumen pao više od pola od prosjeka sata"
-    if m.get("buy_share_5m") is None or m["buy_share_5m"] < c["buy_share_min"]:
-        return "kupnje ispod 50 % transakcija u 5 min"
+    if m.get("buy_share_5m") is None or m["buy_share_5m"] < c["lot2_buy_share_min"]:
+        return f"kupnje ispod {c['lot2_buy_share_min']:.0%} transakcija u 5 min"
     return None
 
 

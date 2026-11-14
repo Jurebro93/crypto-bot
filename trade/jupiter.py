@@ -60,12 +60,17 @@ def _call(path, params=None, body=None, timeout=20, route="ultra"):
             raise e
 
 
-def order(input_mint, output_mint, amount_raw, taker=None, route="v2"):
+def order(input_mint, output_mint, amount_raw, taker=None, route="v2", slippage_bps=None):
     """Quote, plus an unsigned transaction (base64) when taker is given and can pay.
-    Without funds the quote still comes back, with errorCode 1 'Insufficient funds' and an empty transaction."""
+    Without funds the quote still comes back, with errorCode 1 'Insufficient funds' and an empty transaction.
+    slippage_bps (13.11., owner's order point 2: "zaštitni slippage prag pri triggeru"): the most the fill may be
+    under the quote, in basis points, instead of the slippage Jupiter picks itself; only the first try of an exit
+    plan's sale sends it (trade/executor.sell), which falls back to Jupiter's own slippage at once when it fails."""
     params = {"inputMint": input_mint, "outputMint": output_mint, "amount": int(amount_raw)}
     if taker:
         params["taker"] = taker
+    if slippage_bps:
+        params["slippageBps"] = int(slippage_bps)
     return _call("/order", params, route=route)
 
 

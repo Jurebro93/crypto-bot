@@ -362,6 +362,11 @@ def fast_once(con, market, user, now=None):
 fast_once.last = (0, 0)
 
 
+def _real_user():
+    from trade import settings as tsettings
+    return tsettings.LEAGUE_USER
+
+
 def fast_loop(market, user=None, every=FAST_EVERY_S):
     """Background thread body for run_ui.py: the Autopilot account's TP/SL every `every` seconds."""
     if user is None:   # 10.11. (Phase 0): the paper account gets the same 1-second exits, or paper would lag live
@@ -372,8 +377,17 @@ def fast_loop(market, user=None, every=FAST_EVERY_S):
         try:
             if con is None:
                 con = store.connect()
-            for u, name, what in fast_once(con, market, user):
+            sold = fast_once(con, market, user)
+            for u, name, what in sold:
                 print(f"natjecanje {u} {name}: {what}", flush=True)
+            if any(u == _real_user() for u, _n, _w in sold):
+                # 13.11. (owner's order point 2): run_trade mirrors the real account's TP/SL sale now, not at its
+                # next pass (the exit plans ring it themselves, league/exitplan.run_once)
+                try:
+                    from trade import wake
+                    wake.ring("auto TP/SL")
+                except Exception:  # noqa: BLE001
+                    pass
             try:   # 10.11. (Jure): the MCP client's exit plans, the same 1-s pass (league/exitplan.py)
                 from . import exitplan
                 for u, _tok, _trig, text in exitplan.run_once(con, market):

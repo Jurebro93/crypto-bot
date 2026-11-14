@@ -417,8 +417,8 @@ class BacktestOldVsNew(unittest.TestCase):
         v = self.rep["flip"]["variants"]
         got = {k: (v[k]["rounds"], round(v[k]["pnl_sol"], 3), round(v[k]["max_dd_sol"], 3), v[k]["false_entries"])
                for k in v}
-        self.assertEqual(got["old"], (12, 0.113, 0.025, 1))   # 11.11.: after rules B (no 20k / 10k hard blocks)
-        self.assertEqual(got["new"], (10, 0.041, 0.025, 1))
+        self.assertEqual(got["old"], (12, 0.112, 0.026, 1))   # 13.11.: entry buy share 0.45 (was (12, 0.113, 0.025, 1))
+        self.assertEqual(got["new"], (10, 0.041, 0.026, 1))   # 13.11.: entry buy share 0.45
         self.assertEqual(got["atr_only"], got["old"])                       # the volatility stop changed no round here
         self.assertEqual(got["flip_only"], got["new"])
         self.assertTrue(self.rep["flip"]["dd_ok"])

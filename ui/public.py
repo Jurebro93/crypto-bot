@@ -71,7 +71,7 @@ L = {
         post="post", foot="Not financial advice. Scores are measurements of past calls, not accusations or "
         "endorsements.", home="/", lb="/influencers", prof="/influencer/", login="Log in"),
     "hr": dict(
-        lb_title="Ljestvica crypto influencera: tko stvarno pomiče Solana tokene",
+        lb_title="Ljestvica kripto influencera: tko stvarno pomiče Solana tokene",
         lb_desc="Ocjene {n} crypto influencera na X-u, izmjerene na svakom pozivu Solana tokena: pogodak, vrh u 24 h, "
                 "rugovi i kasni pozivi. Osvježava se svaki dan.",
         lb_h1="Ljestvica crypto influencera",
@@ -114,7 +114,7 @@ L = {
 # (ui/kolstats.py), a month-by-month history, best/worst call, the median account as the yardstick, and a FAQ.
 P2 = {
     "en": dict(
-        title="@{h} (X / Twitter): crypto calls track record, hit rate and rugs | MemeSonar",
+        title="@{h} on X: crypto calls, track record, hit rate and rugs | MemeSonar",   # 13.11.: ≤ 60 chars w/o brand
         desc="Who is @{h} on X? {n} measured Solana token calls: price higher after 1 h in {up}, {hit} reached +15 %, "
              "median 24 h result {med}, {rug} rugged. Updated daily.",
         desc_few="Who is @{h} on X? We track their Solana token calls; {n} measured so far, too few for a verdict. "
@@ -140,7 +140,7 @@ P2 = {
               "{n} measured calls).")),
         tg_same="The same brand on Telegram: {c}"),
     "hr": dict(
-        title="@{h} (X / Twitter): kripto pozivi, rezultati, pogodak i rugovi | MemeSonar",
+        title="@{h} na X-u: kripto pozivi, rezultati, pogodak i rugovi | MemeSonar",
         desc="Tko je @{h} na X-u? {n} izmjerenih poziva Solana tokena: cijena viša nakon 1 h u {up}, {hit} doseglo "
              "+15 %, medijan nakon 24 h {med}, {rug} rugova. Osvježava se svaki dan.",
         desc_few="Tko je @{h} na X-u? Pratimo njegove pozive Solana tokena; dosad {n} izmjerenih, premalo za presudu. "
@@ -225,13 +225,19 @@ def _int(x, lang):
     return s.replace(",", ".") if lang == "hr" else s
 
 
-def _usd(x):
+def _loc(s, lang):
+    """13.11. (SEO audit: English number formats on Croatian pages, "$465.2M i 563.022 holdera"): decimal comma and
+    thousands point on the Croatian pages, as ui/coinseo already does."""
+    return s.replace(",", "\0").replace(".", ",").replace("\0", ".") if lang == "hr" else s
+
+
+def _usd(x, lang="en"):
     if not x:
         return "–"
     for div, suf in ((1e9, "B"), (1e6, "M"), (1e3, "k")):
         if x >= div:
-            return f"${x / div:.1f}{suf}"
-    return f"${x:.0f}"
+            return _loc(f"${x / div:.1f}{suf}", lang)
+    return _loc(f"${x:.0f}", lang)
 
 
 def _cls(x):
@@ -337,11 +343,61 @@ def og_tags(lang, image_url, alt, w=1200, h=630):
             f'<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="{image_url}">')
 
 
+# 13.11. (Jure: "provjeri još jednom SEO metatitlove"): Google shows ~60 characters of a title (and the site name
+# on its own line above the result) and ~160 of a description; longer ones were cut mid-word on 61 of 70 audited pages
+# (ops/seoaudit.py). seo_title/seo_desc trim every public page in one place instead of 300 hand-written strings.
+TITLE_SOFT, TITLE_MAX, DESC_MAX = 60, 70, 160
+_BRAND = re.compile(r"\s+[|·]\s+MemeSonar\s*$")
+
+
+def seo_title(title):
+    """The <title>: over TITLE_SOFT the " | MemeSonar" tail goes (Google names the site anyway), over TITLE_MAX also
+    a closing "(...)" aside; whatever is left is kept whole (never cut mid-phrase)."""
+    t = " ".join((title or "").split())
+    if len(t) > TITLE_SOFT:
+        t = _BRAND.sub("", t)
+    if len(t) > TITLE_MAX:
+        t = re.sub(r"\s*\([^()]*\)\s*$", "", t) or t
+    return t
+
+
+def seo_desc(desc):
+    """The meta description in at most DESC_MAX characters: whole sentences when they leave 115+ characters, else cut
+    at a word with an ellipsis."""
+    d = " ".join((desc or "").split())
+    if len(d) <= DESC_MAX:
+        return d
+    cut = d[:DESC_MAX + 1]
+    end = max(cut.rfind(". "), cut.rfind("? "), cut.rfind("! "))
+    if end >= 115:
+        return d[:end + 1]
+    cut = d[:DESC_MAX]
+    return cut[:cut.rfind(" ")].rstrip(" ,;:–-(") + "…"
+
+
+NOT_FOUND = {"en": ("Page not found · MemeSonar", "This page does not exist or has moved.", "Home"),
+             "hr": ("Stranica nije pronađena · MemeSonar", "Ova stranica ne postoji ili je premještena.", "Naslovnica")}
+
+
+def not_found_html(path):
+    """The 404 page of the public site. 13.11.: it used to declare canonical + hreflang of /influencers, so Google
+    could fold every broken URL into the leaderboard; now no canonical, no alternates, noindex, the visitor's own
+    language and links to every section."""
+    lang = "hr" if path == "/hr" or path.startswith("/hr/") else "en"
+    title, lead, home = NOT_FOUND[lang]
+    links = " · ".join(f"<a href={p}>{esc(lab)}</a>" for p, lab, *_ in SECTIONS[lang])
+    body = (f"<section class=ph1><h1>404</h1><p class=lead>{esc(lead)}</p>"
+            f"<p><a href={L[lang]['home']}>{esc(home)}</a> · {links}</p></section>")
+    return _shell(lang, title, lead, "/", "/hr", body, not_found=True)
+
+
 def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonld="", og_image=None,
-           og_type="website", noindex=False):
+           og_type="website", noindex=False, not_found=False):
     """Page frame. path_hr=None: English-only page (no Croatian alternate; the language switch goes to /hr).
-    noindex: the page exists (links keep working) but is not offered to search engines (too little data)."""
+    noindex: the page exists (links keep working) but is not offered to search engines (too little data).
+    not_found: the 404 page: noindex, no canonical, no hreflang (it is no copy of any other page)."""
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    title, desc = seo_title(title), seo_desc(desc)
     card, og_alt = og_card(path_en, lang)
     og_alt = title if og_image else og_alt     # a page with its own cover (blog post): the alt is its title
     og_image = og_image or card
@@ -353,13 +409,14 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
     switch = (f"<a class=lnk href={path_hr or '/hr'} hreflang=hr>HR</a>" if lang == "en" else
               f"<a class=lnk href={path_en} hreflang=en>EN</a>")
     alt = (f'<link rel=alternate hreflang=en href="{base}{path_en}"><link rel=alternate hreflang=hr href="{base}{path_hr}">'
-           f'\n<link rel=alternate hreflang=x-default href="{base}{path_en}">') if path_hr else ""
+           f'\n<link rel=alternate hreflang=x-default href="{base}{path_en}">') if path_hr and not not_found else ""
+    head_canon = "" if not_found else f'<link rel=canonical href="{canon}">'
     return f"""<!doctype html><html lang={lang}><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><title>{esc(title)}</title>
-<meta name=description content="{esc(desc)}"><link rel=canonical href="{canon}">
-{'<meta name=robots content="noindex,follow">' if noindex else ''}{alt}
+<meta name=description content="{esc(desc)}">{head_canon}
+{'<meta name=robots content="noindex,follow">' if noindex or not_found else ''}{alt}
 <meta property="og:type" content="{og_type}"><meta property="og:title" content="{esc(title)}">
-<meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{canon}">
+<meta property="og:description" content="{esc(desc)}">{'' if not_found else f'<meta property="og:url" content="{canon}">'}
 {og_tags(lang, base + og_image, og_alt)}<meta name="twitter:title" content="{esc(title)}">
 <meta name="twitter:description" content="{esc(desc)}">
 <meta name=theme-color content="#ffffff">{_fav.HEAD}{jsonld}
@@ -585,7 +642,7 @@ def profile(handle, lang):
         post = (f"<a href=\"{esc(c['url'])}\" target=_blank rel=\"nofollow noopener\">{t['post']} ↗</a>"
                 if c["url"] and str(c["url"]).startswith("https://") else "–")
         crow.append(f"<tr><td class=mut>{d}</td><td><b>{esc(_sym(c['symbol'], c['token']))}</b></td>"
-                    f"<td class=n>{_usd(c['mcap0'])}</td>"
+                    f"<td class=n>{_usd(c['mcap0'], lang)}</td>"
                     + "".join(f"<td class='n {_cls(c[k])}'>{_pct(c[k], True)}</td>" for k in ("r1h", "r24h", "max24"))
                     + f"<td>{post}</td></tr>")
     ch = "".join(f"<th{' class=n' if 1 < j < 6 else ''}>{x}</th>" for j, x in enumerate(t["ccols"]))
@@ -665,7 +722,7 @@ def honest_block(handle, lang, me=None, kind="x"):
         if s["best"] and s["worst"]:
             def _row(lab, c):
                 return (f"<tr><td>{lab}</td><td><b>{esc(_sym(c['symbol'], c['token']))}</b></td>"
-                        f"<td class=mut>{time.strftime('%Y-%m-%d', time.gmtime(c['ts']))}</td><td class=n>{_usd(c['mcap0'])}</td>"
+                        f"<td class=mut>{time.strftime('%Y-%m-%d', time.gmtime(c['ts']))}</td><td class=n>{_usd(c['mcap0'], lang)}</td>"
                         f"<td class='n {_cls(c['r24h'])}'>{pct(c['r24h'], True)}</td></tr>")
             parts.append(f"<h2 class=s>{p['best_h']}</h2><div class=tw><table><tbody>{_row(p['best'], s['best'])}"
                          f"{_row(p['worst'], s['worst'])}</tbody></table></div>")
@@ -911,10 +968,7 @@ def route(path):
         body = None
     code = 200 if body else 404
     if not body:
-        lang = "hr" if path.startswith("/hr") else "en"
-        body = _shell(lang, "404", "", "/influencers", "/hr/influenceri",
-                      f"<section class=ph1><h1>404</h1><p class=lead><a href={L[lang]['lb']}>{L[lang]['back']}</a></p>"
-                      "</section>")
+        body = not_found_html(path)
     raw = body.encode("utf-8")
     with _lock:
         if len(_cache) > 2000:
@@ -989,7 +1043,7 @@ C = {
         lb_lead="The {n} largest Solana meme coins with real liquidity and holders, ranked by market cap. Click a coin "
                 "for its chart, safety check and which influencers called it.",
         cols=("#", "Coin", "Price", "24h", "Market cap", "Liquidity", "Holders", "24h volume"),
-        updated="Updated", p_title="{sym} price, market cap & holder analysis: is {name} safe? | MemeSonar",
+        updated="Updated", p_title="{sym} price, market cap & holders: is {name} safe? | MemeSonar",
         p_desc="{name} ({sym}) is the #{rank} Solana meme coin with a ${mcap} market cap and {holders} holders. Price "
                "chart, safety check, liquidity and the influencers who called it.",
         p_h1="{name} ({sym})", p_sub="price, holders and influencer calls",
@@ -1021,7 +1075,7 @@ C = {
         lb_lead="{n} najvećih Solana meme coina s pravom likvidnošću i holderima, poredano po tržišnoj vrijednosti. "
                 "Klikni coin za graf, sigurnosnu provjeru i koji su ga influenceri zvali.",
         cols=("#", "Coin", "Cijena", "24 h", "Tržišna vrij.", "Likvidnost", "Holderi", "Volumen 24 h"),
-        updated="Osvježeno", p_title="{sym} cijena, market cap i analiza holdera: je li {name} siguran? | MemeSonar",
+        updated="Osvježeno", p_title="{sym} cijena, market cap i holderi: je li {name} siguran? | MemeSonar",
         p_desc="{name} ({sym}) je #{rank} Solana meme coin s tržišnom vrijednošću ${mcap} i {holders} holdera. Graf "
                "cijene, sigurnosna provjera, likvidnost i influenceri koji su ga zvali.",
         p_h1="{name} ({sym})", p_sub="cijena, holderi i pozivi influencera",
@@ -1056,22 +1110,22 @@ def _hist_or_day(hist, key, day, t):
     return (day, t["chart_src_24"]) if day else (pts, t["chart_src_h"])
 
 
-def _price(p):
+def _price(p, lang="en"):
     if not p:
         return "–"
     if p >= 1:
-        return f"${p:,.2f}"
+        return _loc(f"${p:,.2f}", lang)
     if p >= 0.01:
-        return f"${p:.4f}"
+        return _loc(f"${p:.4f}", lang)
     dec = min(14, 3 - math.floor(math.log10(p)))      # 4 significant digits: $0.007281, $0.00001234
-    return f"${p:.{dec}f}"
+    return _loc(f"${p:.{dec}f}", lang)
 
 
-def _chg(x):
+def _chg(x, lang="en"):
     """Jupiter gives percent (e.g. -0.45 = -0.45%)."""
     if x is None:
         return "–"
-    return f"<span class={'pos' if x > 0 else 'neg' if x < 0 else 'mut'}>{x:+.1f}%</span>"
+    return f"<span class={'pos' if x > 0 else 'neg' if x < 0 else 'mut'}>{_loc(f'{x:+.1f}', lang)}%</span>"
 
 
 def _icon(u, sym):
@@ -1090,10 +1144,10 @@ def coin_list(lang):
     for r in rows:
         trs.append(f"<tr><td class=mut>{r['rank']}</td><td><a href=\"{t['prof']}{r['slug']}\">{_icon(r['icon'], r['symbol'])}"
                    f"{esc(r['name'] or r['symbol'])}</a> <span class=mut>{esc(r['symbol'])}</span>"
-                   f"<div class='m mut'>{t['cols'][4]} {_usd(r['mcap'])}</div></td>"
-                   f"<td class=n>{_price(r['price'])}</td><td class=n>{_chg(r['chg24h'])}</td>"
-                   f"<td class='n x'>{_usd(r['mcap'])}</td><td class='n x'>{_usd(r['liq'])}</td>"
-                   f"<td class='n x'>{_int(r['holders'], lang)}</td><td class='n x'>{_usd(r['vol24'])}</td></tr>")
+                   f"<div class='m mut'>{t['cols'][4]} {_usd(r['mcap'], lang)}</div></td>"
+                   f"<td class=n>{_price(r['price'], lang)}</td><td class=n>{_chg(r['chg24h'], lang)}</td>"
+                   f"<td class='n x'>{_usd(r['mcap'], lang)}</td><td class='n x'>{_usd(r['liq'], lang)}</td>"
+                   f"<td class='n x'>{_int(r['holders'], lang)}</td><td class='n x'>{_usd(r['vol24'], lang)}</td></tr>")
     head = "".join(f"<th class='{'n' if j > 1 else ''}{' x' if j > 3 else ''}'>{x}</th>" for j, x in enumerate(t["cols"]))
     upd = max((r["updated"] or 0 for r in rows), default=0)
     when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(upd)) if upd else ""
@@ -1125,14 +1179,14 @@ def coin_page(slug, lang):
     same = name.lower().lstrip("$") == sym.lower().lstrip("$")
     a = json.loads(r["audit"] or "{}")
     hold = _int(r["holders"], lang)
-    summary = t["summary"].format(name=name, rank=r["rank"] or "–", mcap=_usd(r["mcap"]), holders=hold,
-                                  liq=_usd(r["liq"]), vol=_usd(r["vol24"]),
-                                  chg=(f"{r['chg24h']:+.1f}%" if r["chg24h"] is not None else "–"))
+    summary = t["summary"].format(name=name, rank=r["rank"] or "–", mcap=_usd(r["mcap"], lang), holders=hold,
+                                  liq=_usd(r["liq"], lang), vol=_usd(r["vol24"], lang),
+                                  chg=(_loc(f"{r['chg24h']:+.1f}", lang) + "%" if r["chg24h"] is not None else "–"))
     c24 = r["chg24h"]
-    chg_card = (f"<b class={'pos' if c24 > 0 else 'neg'}>{c24:+.1f}%</b>" if c24 is not None else "<b>–</b>")
+    chg_card = (f"<b class={'pos' if c24 > 0 else 'neg'}>{_loc(f'{c24:+.1f}', lang)}%</b>" if c24 is not None else "<b>–</b>")
     cards = "".join(f"<div class=card>{v if v.startswith('<b') else f'<b>{v}</b>'}<span>{lab}</span></div>"
-                    for v, lab in zip((_price(r["price"]), _usd(r["mcap"]), chg_card, hold, _usd(r["liq"]),
-                                       _usd(r["vol24"])), t["cards"]))
+                    for v, lab in zip((_price(r["price"], lang), _usd(r["mcap"], lang), chg_card, hold, _usd(r["liq"], lang),
+                                       _usd(r["vol24"], lang)), t["cards"]))
     # price chart: our daily candles when we have them, else our own snapshots
     if len(o["candles"]) >= 7:
         pp, psrc = [(c["day"], c["c"]) for c in o["candles"]], t["chart_src_d"].format(n=len(o["candles"]))
@@ -1168,7 +1222,7 @@ def coin_page(slug, lang):
         h = c["handle"] or ""
         who = (f"<a href=\"{base_t['prof']}{esc(h)}\">@{esc(h)}</a>" if HANDLE.fullmatch(h) else esc(h))
         crow.append(f"<tr><td class=mut>{time.strftime('%Y-%m-%d', time.gmtime(c['ts']))}</td><td>{who}</td>"
-                    f"<td class=n>{_usd(c['mcap0'])}</td>"
+                    f"<td class=n>{_usd(c['mcap0'], lang)}</td>"
                     + "".join(f"<td class='n {_cls(c[k])}'>{_pct(c[k], True)}</td>" for k in ("r1h", "r24h", "max24"))
                     + "</tr>")
     ch = "".join(f"<th{' class=n' if j > 1 else ''}>{x}</th>" for j, x in enumerate(t["ccols"]))
@@ -1181,7 +1235,7 @@ def coin_page(slug, lang):
     rows = K.top()
     idx = next((i for i, x in enumerate(rows) if x["mint"] == r["mint"]), None)
     near = [x for x in rows[max(0, (idx or 0) - 4):(idx or 0) + 5] if x["mint"] != r["mint"]][:8] if idx is not None else []
-    sim = "".join(f"<a href=\"{t['prof']}{x['slug']}\">{esc(x['symbol'])} · {_usd(x['mcap'])}</a>" for x in near)
+    sim = "".join(f"<a href=\"{t['prof']}{x['slug']}\">{esc(x['symbol'])} · {_usd(x['mcap'], lang)}</a>" for x in near)
     mint = esc(r["mint"])
     links = (f"<a href=\"https://dexscreener.com/solana/{mint}\" target=_blank rel=\"nofollow noopener\">DexScreener ↗</a> · "
              f"<a href=\"https://solscan.io/token/{mint}\" target=_blank rel=\"nofollow noopener\">Solscan ↗</a>")
@@ -1209,7 +1263,7 @@ def coin_page(slug, lang):
             + (f"<h2 class=s>{t['similar']}</h2><div class=chips>{sim}</div>" if sim else ""))
     title = t["p_title"].format(name=r["name"] or r["symbol"], sym=r["symbol"])
     desc = t["p_desc"].format(name=r["name"] or r["symbol"], sym=r["symbol"], rank=r["rank"] or "–",
-                              mcap=_usd(r["mcap"]).lstrip("$"), holders=hold)
+                              mcap=_usd(r["mcap"], lang).lstrip("$"), holders=hold)
     return _shell(lang, title, desc, f"/coin/{slug}", f"/hr/coin/{slug}", body, jsonld=jsonld)
 
 

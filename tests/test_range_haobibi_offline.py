@@ -311,8 +311,8 @@ class StopVariants(unittest.TestCase):
         sr = rep["stops"]
         got = {k: (x["rounds"], round(x["pnl_usd"], 2), round(x["max_dd_usd"], 2), x["false_entries"], x["reclaims"])
                for k, x in sr["variants"].items()}
-        self.assertEqual(got, {"a": (13, 24.12, 4.77, 2, 0), "b": (12, 26.33, 2.9, 2, 0), "c": (12, 24.88, 3.78, 2, 0),
-                               "d": (12, 24.88, 3.78, 2, 0), "e": (14, 26.61, 4.77, 2, 1), "be": (13, 28.81, 2.9, 2, 1)})
+        self.assertEqual(got, {"a": (13, 24.0, 4.77, 2, 0), "b": (12, 26.2, 3.03, 2, 0), "c": (12, 24.77, 3.9, 2, 0),   # 13.11.: entry buy share 0.45
+                               "d": (12, 24.77, 3.9, 2, 0), "e": (14, 26.48, 4.77, 2, 1), "be": (13, 28.68, 3.03, 2, 1)})
         h = sr["tokens"][H]
         self.assertEqual({k: round(h[k]["pnl_usd"], 2) for k in stops.VARIANTS},
                          {"a": 0.77, "b": 2.95, "c": 2.39, "d": 2.39, "e": 3.25, "be": 5.43})

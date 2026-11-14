@@ -51,6 +51,14 @@ def _env_num(name, default):
 
 MAX_MB = _env_num("EVENTS_MAX_MB", 600)
 MIN_FREE_MB = _env_num("EVENTS_MIN_FREE_MB", 600)
+# 13.11. (owner: "NE zaustavljaj price/transfer feedove dok disk stvarno nije pun"): the live feeds stop only under
+# this much free disk (with the pages SQLite reuses); MIN_FREE_MB (600) only makes the retention cut the cheap copies.
+# The night of 12./13.11. had 350-440 MB free for hours and the price / transfer events stopped for that time.
+FEED_MIN_FREE_MB = _env_num("EVENTS_FEED_MIN_FREE_MB", 150)
+# 13.11. (owner: "NE briši vlasnikove tradeove iz events.db; tuđe tradeove u events.db drži na 7 dana (originali ostaju u
+# hype.db i wallets.db)"): our own trades (type "trade": Autopilot / demo and real positions) are never deleted; the
+# followed wallets' trades (copies) keep WALLET_FLOOR_D days
+NEVER_DELETE = ("trade",)
 PRICE_THIN_D = _env_num("EVENTS_PRICE_THIN_D", 3)
 WALLET_FLOOR_D = _env_num("EVENTS_WALLET_FLOOR_D", 7)   # 12.11.: was 30; the wallet feed's copies, see retention()
 BACKFILL_FILL = 0.8   # 12.11.: the night's backfill stops once events.db's pages in use reach this share of MAX_MB
@@ -232,10 +240,21 @@ _TIGHT = {"at": 0.0, "val": False}
 
 
 def disk_tight(path=None):
-    """The data disk (with the pages SQLite will reuse) has under MIN_FREE_MB free."""
+    """The data disk (with the pages SQLite will reuse) has under FEED_MIN_FREE_MB free (13.11.: was MIN_FREE_MB)."""
     used, reusable = used_mb(None, path)
     free = free_mb(path)
-    return free is not None and free + reusable < MIN_FREE_MB
+    return free is not None and free + reusable < FEED_MIN_FREE_MB
+
+
+def checkpoint(con, mode="PASSIVE"):
+    """13.11.: a WAL checkpoint during and after a big write (retention, the night batch). The night of 12./13.11.
+    events.db's WAL grew by ~460 MB in the night batch and hype.db's by ~480 MB in the live_trades deletion (the
+    readers keep old snapshots, so the WAL cannot restart) until the hourly upkeep cut it back; with 350 MB free.
+    PASSIVE never waits; TRUNCATE (at the end) waits up to the connection's busy timeout. Never raises."""
+    try:
+        return con.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
+    except sqlite3.Error:
+        return None
 
 
 def tight(path=None):
@@ -376,6 +395,8 @@ def _at_exit():
 # ---------- retention and the size log ------------------------------------------------------------------------------
 
 def keep_days(type_):
+    if type_ in ("wallet_buy", "wallet_sell"):   # 13.11. (owner): the followed wallets' trades, 7 days
+        return _env_num(f"EVENTS_KEEP_{type_.upper()}_D", WALLET_FLOOR_D)
     default = 30 if type_ == "price_tick" else 90
     return _env_num(f"EVENTS_KEEP_{type_.upper()}_D", _env_num("EVENTS_KEEP_D", default) if type_ != "price_tick"
                     else default)
@@ -389,15 +410,21 @@ def retention(con, now=None, log=print, batch=20_000):
     out = collections.Counter()
 
     def _delete(where, args, label):
+        k = 0
         while True:
             n = con.execute(f"DELETE FROM events WHERE id IN (SELECT id FROM events WHERE {where} LIMIT {batch})",
                             args).rowcount
             con.commit()
             out[label] += n
+            k += 1
+            if k % 5 == 0:
+                checkpoint(con)   # 13.11.: keep the WAL from growing by the whole deletion
             if n < batch:
                 break
 
     for t in TYPES:
+        if t in NEVER_DELETE:
+            continue
         _delete("type = ? AND ts < ?", (t, (now - int(keep_days(t) * DAY)) * 1000), t)
     # one price per mint per 5 min after PRICE_THIN_D days: the rest keeps the minute
     lo, hi = (now - int(keep_days("price_tick") * DAY)) * 1000, (now - int(PRICE_THIN_D * DAY)) * 1000
@@ -428,6 +455,7 @@ def retention(con, now=None, log=print, batch=20_000):
             con.execute("PRAGMA incremental_vacuum")
     except sqlite3.Error:
         pass
+    checkpoint(con, "TRUNCATE")
     return {k: v for k, v in out.items() if v}
 
 

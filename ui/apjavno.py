@@ -1207,6 +1207,20 @@ main.apj-main{max-width:none;padding:18px 16px 40px}
 """
 
 
+# 13.11. (SEO audit): the visitor's frame says its own words in each language; the English description used to be the
+# Croatian one (ui/i18n translates the page text, never meta content)
+GUEST_DESC = {
+    "hr": "Autopilot trguje meme tokenima po podacima alata. Javno: adresa novčanika, vrijednost, svaki ulaz i izlaz, "
+          "koga prati i prijedlozi igrača.",
+    "en": "Autopilot trades Solana meme coins on MemeSonar's data, in public: wallet address, value, every entry and "
+          "exit, whom it follows and players' suggestions.",
+}
+GUEST_WORDS = {
+    "hr": {"home": "Naslovnica", "kols": "Influenceri", "coins": "Meme coini", "login": "Prijava", "cta": "Zatraži pristup"},
+    "en": {"home": "Home", "kols": "Influencers", "coins": "Meme coins", "login": "Log in", "cta": "Request access"},
+}
+
+
 def guest_html(qs=None, lang="hr"):
     """The whole page for a visitor without a login: a light frame with the app's own colours (so the chart looks the
     same as inside the app), no app menu, links back to the public site and to the login. Croatian; run_ui translates
@@ -1224,37 +1238,46 @@ def guest_html(qs=None, lang="hr"):
     svg, name = H.logo(28)
     home = "/" if lang == "en" else "/hr"
     here = PATH_EN if lang == "en" else PATH
-    desc = ("Autopilot trguje meme tokenima po podacima alata. Javno: adresa novčanika, vrijednost, svaki ulaz i izlaz, "
-            "koga prati i prijedlozi igrača.")
+    desc = GUEST_DESC[lang]
     base = urls.site()
     og = ""
     try:
-        from ui import public
+        from ui import i18n, public
+        tok = i18n.LANG.set(lang)   # og:title is an attribute ui/i18n leaves alone: in the page language here
+        try:
+            og_title = i18n.t(title)
+        finally:
+            i18n.LANG.reset(tok)
         card, alt = public.og_card(here, lang)
-        og = (f'<meta property="og:type" content="website"><meta property="og:title" content="{esc(title)} · {esc(name)}">'
+        og = (f'<meta property="og:type" content="website"><meta property="og:title" content="{esc(og_title)} · {esc(name)}">'
               f'<meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{esc(base + here)}">'
               + public.og_tags(lang, base + card, alt))
     except Exception as e:  # noqa: BLE001 - the share preview is a nicety
         _warn("og", e)
+    # 13.11. (SEO audit): both copies name each other, so Google shows the visitor's language and never counts them as
+    # duplicates (they had a canonical each but no hreflang)
+    alts = (f'<link rel=alternate hreflang=en href="{esc(base + PATH_EN)}"><link rel=alternate hreflang=hr '
+            f'href="{esc(base + PATH)}"><link rel=alternate hreflang=x-default href="{esc(base + PATH_EN)}">')
     try:
         from ui import public
         tail = public._ga_tag(lang)   # the public pages' visit counter + the friendly deploy page
     except Exception as e:  # noqa: BLE001
         _warn("ga", e)
         tail = ""
-    links = ((home, "Naslovnica"), ("/influencers" if lang == "en" else "/hr/influenceri", "Influenceri"),
-             ("/solana-meme-coins" if lang == "en" else "/hr/solana-meme-coini", "Meme coini"),
+    w = GUEST_WORDS[lang]
+    links = ((home, w["home"]), ("/influencers" if lang == "en" else "/hr/influenceri", w["kols"]),
+             ("/solana-meme-coins" if lang == "en" else "/hr/solana-meme-coini", w["coins"]),
              ("/blog" if lang == "en" else "/hr/blog", "Blog"))
     other = (f'<a class="lnk x" href="{PATH}" hreflang=hr translate=no>HR</a>' if lang == "en" else
              f'<a class="lnk x" href="{PATH_EN}" hreflang=en translate=no>EN</a>')
     out = (f'<!doctype html><html lang=hr><head><meta charset=utf-8><meta name=viewport content="width=device-width,'
            f'initial-scale=1,viewport-fit=cover"><meta name=color-scheme content=light><title>{esc(title)} · {esc(name)}</title>'
-           f'<meta name=description content="{esc(desc)}"><link rel=canonical href="{esc(base + here)}">{og}'
+           f'<meta name=description content="{esc(desc)}"><link rel=canonical href="{esc(base + here)}">{alts}{og}'
            f'<meta name=theme-color content="#ffffff">{favicon.HEAD}'
            f'<style>{H.CSS}{H.LIGHT_CSS}{GUEST_CSS}</style></head><body>'
            f'<header class=apj-top><div><a class=brand href="{home}">{svg}<span translate=no>{esc(name)}</span></a><span class=sp></span>'
-           f'{other}<a class=lnk href="{esc(urls.app_link(PATH + "?prijava=1"))}">Prijava</a>'
-           f'<a class=go href="{home}#pristup">Zatraži pristup</a></div></header>'
+           f'{other}<a class=lnk href="{esc(urls.app_link(PATH + "?prijava=1"))}">{w["login"]}</a>'
+           f'<a class=go href="{home}#pristup">{w["cta"]}</a></div></header>'
            f'<main class=apj-main>{body}</main>'
            f'<footer class=apj-foot>{"".join(f"<a href={h}>{esc(t)}</a>" for h, t in links)}<br>© {time.gmtime().tm_year} '
            f'<span translate=no>{esc(name)}</span></footer>{tail}</body></html>')

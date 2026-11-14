@@ -1594,45 +1594,185 @@ def _summary_card(tcon, owner):
             '<button>Pročitano, makni</button></form></section>')
 
 
-def _grok_rows(rows):
-    """The last autotrades as short lines: "21:40 kupnja AbCd… 0,1 SOL · izvršeno · razlog"."""
+def zg_time(ts, now=None, fmt="%H:%M"):
+    """13.11. (Jure: the Grok block said 11:56 while his phone said 13:44 CET): a clock time in Zagreb whatever zone the
+    server runs in (Render: UTC); a time of another Zagreb day than today's gets its date ("12.11. 23:40")."""
+    import datetime as _dt
+    import zoneinfo
+    if not ts:
+        return ""
+    z = zoneinfo.ZoneInfo("Europe/Zagreb")
+    d = _dt.datetime.fromtimestamp(float(ts), z)
+    today = _dt.datetime.fromtimestamp(now or time.time(), z).date()
+    return d.strftime(fmt if d.date() == today else "%d.%m. " + fmt)
+
+
+def _grok_more(r, open_=False):
+    """Grok's own (long) reason and the MCP's English answer, folded under "više" (13.11.: never inline)."""
+    bits = []
+    if r.get("reason"):
+        bits.append(f'<p><b>Grokov razlog:</b> <span translate=no>{esc(r["reason"])}</span></p>')
+    if r.get("status") == "rejected" and r.get("why"):
+        bits.append(f'<p class=apx-mut>Odgovor Groku (MCP): <span translate=no>{esc(r["why"])}</span></p>')
+    if not bits:
+        return ""
+    return f'<details class="apx-more apx-gmore"{" open" if open_ else ""}><summary>više</summary>{"".join(bits)}</details>'
+
+
+def _grok_word(r):
+    """"kupnja 0,15 SOL" / "prodaja 50 %" of a log row."""
+    if r.get("side") == "buy":
+        return f'kupnja {_g(r.get("amount"))} SOL'
+    return f'prodaja {float(r.get("amount") or 0):.0%}'.replace("%", " %")
+
+
+def _grok_tables(rows):
+    """The topcheck / rug filter rows, read once, when a refusal logged before 13.11. needs its findings named
+    (grokauto.why_hr); None otherwise."""
+    if any(not r.get("why_hr") and "a rug risk rating" in str(r.get("why") or "") for r in rows):
+        try:
+            from scan import filters
+            return filters.rug_tables()
+        except Exception:  # noqa: BLE001
+            return ({}, {})
+    return None
+
+
+def _grok_rows(rows, now=None, tables=None, cap=None):
+    """The autotrades as short lines, newest first: "13:56 kupnja HOPE 0,1 SOL · izvršeno", Grok's reason under
+    "više". 13.11.: the clock is Zagreb's (it was the server's, UTC on Render) and a refusal is the short Croatian
+    one (grokauto.why_hr)."""
+    from ui import grokauto
     out = []
+    if tables is None:
+        tables = _grok_tables(rows)
     for r in rows:
-        when = time.strftime("%H:%M", time.localtime(r.get("ts") or 0))
+        when = zg_time(r.get("ts") or 0, now)
         if r.get("side") == "switch":
             words = {"on": "uključen", "off": "ugašen", "paused": "stao do ponoći"}.get(r.get("status"), r.get("status"))
             out.append(f'<li><span class=mut>{esc(when)}</span> {esc(words)} · {esc(r.get("reason") or "")}</li>')
             continue
-        amt = (f'{_g(r.get("amount"))} SOL' if r.get("side") == "buy" else f'{float(r.get("amount") or 0):.0%}')
         # 12.11.: a refusal in Croatian when it has one (why_hr), the MCP's English one otherwise
-        st = "izvršeno" if r.get("status") == "executed" else f'odbijeno: {r.get("why_hr") or r.get("why") or ""}'
+        st = ("izvršeno" if r.get("status") == "executed"
+              else f'odbijeno: {grokauto.why_hr(r, tables, cap)}')
         tok = r.get("token") or ""
+        amt = _grok_word(r).split(" ", 1)[1]
         out.append(f'<li><span class=mut>{esc(when)}</span> <span class=ap-tag>Grok auto</span> '
-                   f'{"kupnja" if r.get("side") == "buy" else "prodaja"} <a href="/token/{esc(tok)}">{esc(short(tok))}</a> '
-                   f'{esc(amt)} · {esc(st)}' + (f' <span class=mut>· {esc(r.get("reason"))}</span>' if r.get("reason") else "")
-                   + "</li>")
+                   f'{"kupnja" if r.get("side") == "buy" else "prodaja"} <a href="/token/{esc(tok)}" translate=no>'
+                   f'{esc(r.get("sym") or short(tok))}</a> {esc(amt)} · {esc(st)}{_grok_more(r)}</li>')
     return "<ul class=ap-grok-log>" + "".join(out) + "</ul>" if out else ""
 
 
-def _grok_auto_live(tcon, owner):
-    """10.11. (Jure: Grok autotrade): while the owner has it on, one compact block right under the positions: the
-    state, what is left today, the last autotrades labelled "Grok auto" and the red "Ugasi Grok autotrade"."""
+def _grok_positions(tcon, positions, now):
+    """Grok's open positions (autotrade and approved requests) as ui/apterm.positions_data rows: the first view's
+    when the terminal passes them, else read here (the old page)."""
+    from ui import apterm
+    if positions is None:
+        positions = apterm.positions_data(tcon, _cfg(tcon), now)
+    return [p for p in positions or [] if p.get("grok")]
+
+
+def _grok_closed_html(tcon, now):
+    """13.11.: Grok's rounds closed today (Zagreb day) with their result (grokauto.closed_rounds)."""
+    from ui import apterm, grokauto
+    rows = grokauto.closed_rounds(tcon, now)
+    if not rows:
+        return '<p class="apx-mut apx-gempty">Danas zatvoreno: još nema zatvorenih krugova.</p>'
+    tot = sum(r["pnl_sol"] for r in rows)
+    out = []
+    for r in rows:
+        paper = r["mode"] != "live"
+        kind = "" if r["auto"] else '<span class=ap-tag>odobren zahtjev</span>'
+        out.append(f'<div class="apx-tr apx-gpos{" is-paper" if paper else ""}"><span class=apx-c-tok data-l="Token">'
+                   f'{apterm._sel_btn(r["token"], r["sym"] or short(r["token"]))}'
+                   f'{apterm.BADGE_PAPER if paper else apterm.BADGE_LIVE}{kind}</span>'
+                   f'<span class=n data-l="Kupljeno → prodano">{esc(zg_time(r["start"], now))} → '
+                   f'{esc(zg_time(r["end"], now))}</span>'
+                   f'<span class=n data-l="Uloženo">{redak.sol(r["sol_in"], 3)}'
+                   + (f'<small>{r["lots"]} ulaza</small>' if r["lots"] > 1 else "") + '</span>'
+                   f'<span class="n {apterm._tone(r["pnl_sol"])}" data-l="Rezultat">{redak.sol(r["pnl_sol"], 4, sign=True)}'
+                   f'<small>{apterm._pct(r["pnl_pct"])}</small></span>'
+                   f'<span data-l="Izlaz">{esc(r["exit"])}</span></div>')
+    # 13.11. (Jure: Grok's positions on top, the rest folded): one line until tapped
+    return (f'<details class="apx-more apx-gsec"><summary>Danas zatvoreno <span class=apx-cnt>{len(rows)}</span> '
+            f'<span class="n {apterm._tone(tot)}">{redak.sol(tot, 4, sign=True)}</span></summary>'
+            f'<div class=apx-tbl>{"".join(out)}</div></details>')
+
+
+def _grok_attempts_html(rows, now, tables, cap):
+    """13.11. (Jure: "Zašto je zapelo"): the attempts of the last 24 h grouped by token: the newest one per token with
+    its status (izvršeno / odbijeno and the short Croatian reason), how many came before it, Grok's reason under
+    "više"; every attempt in time order folded under it."""
+    from ui import apterm, grokauto
+    groups = grokauto.attempts(rows, now)
+    if not groups:
+        return '<p class="apx-mut apx-gempty">Pokušaji: zadnja 24 h bez pokušaja.</p>'
+    out = []
+    for g in groups:
+        r = g["last"]
+        ok = r.get("status") == "executed"
+        st = '<b class=apx-gst>izvršeno</b>' if ok else '<b class="apx-gst no">odbijeno</b>'
+        n = g["earlier"]
+        earlier = (f'<span class=n data-l="Ranije">{n} {"pokušaj" if n % 10 == 1 and n % 100 != 11 else "pokušaja"}'
+                   + (f'<small>izvršeno {g["executed"] - int(ok)}</small>' if g["executed"] - int(ok) else "")
+                   + '</span>') if n else ""
+        why = "" if ok else f'<div class="apx-gline bad">Odbijeno: {esc(grokauto.why_hr(r, tables, cap))}</div>'
+        out.append(f'<div class="apx-tr apx-gpos apx-gtry"><span class=apx-c-tok data-l="Token">'
+                   f'{apterm._sel_btn(g["token"], g.get("sym") or short(g["token"]))}</span>'
+                   f'<span class=n data-l="Zadnji">{esc(zg_time(r.get("ts"), now))} · {esc(_grok_word(r))}</span>'
+                   f'<span data-l="Status">{st}</span>{earlier}{why}{_grok_more(r)}</div>')
+    n_all = sum(1 for r in rows if r.get("side") in ("buy", "sell") and now - (r.get("ts") or 0) <= grokauto.ATTEMPTS_S)
+    last = groups[0]["last"]
+    said = "izvršeno" if last.get("status") == "executed" else "odbijeno"
+    every = rows[:30]
+    log = (f'<details class="apx-more apx-glog"><summary>Svi pokušaji redom ({len(every)})</summary>'
+           f'{_grok_rows(every, now, tables, cap)}</details>') if every else ""
+    # 13.11.: folded under one line that says the newest attempt (the owner opens it when he wants the why)
+    return (f'<details class="apx-more apx-gsec"><summary>Pokušaji (24 h) <span class=apx-cnt>{n_all}</span> '
+            f'<span class=apx-mut>· zadnji {esc(zg_time(last.get("ts"), now))} '
+            f'<span translate=no>{esc(groups[0].get("sym") or short(groups[0]["token"]))}</span> {said}</span></summary>'
+            f'<div class=apx-tbl>{"".join(out)}</div>{log}</details>')
+
+
+def _grok_auto_live(tcon, owner, positions=None, now=None):
+    """10.11. (Jure: Grok autotrade): while the owner has it on, one block at the top of the page with the red
+    "Ugasi Grok autotrade". 13.11. (Jure: "Zašto je zapelo. Mogu li se pozicije groka jasnije prikazat"; then "ako su
+    pozicije groka na vrhu, želim onda na vrhu vidjeti pozicije I da budu skupljene"): Grok's open positions first, one
+    collapsed line each that opens his thesis, what he sent and what MemeSonar's own data says (ui/grokpoz; shown
+    also while autotrade is off, as long as Grok's positions are open), then his limits in plain words, the rounds he
+    closed today and his attempts of the last 24 h grouped by token (both folded), all in Zagreb time.
+    positions: the terminal's first view (ui/apterm), read here when None."""
     if not owner:
         return ""
-    from ui import grokauto
-    st = grokauto.state(tcon)
+    from ui import grokauto, grokpoz, kandidati
+    now = now or time.time()
+    st = grokauto.state(tcon, now)
+    lim = grokauto.limits(tcon)
+    pos = _safe("grok-pozicije", grokpoz.block_html, tcon, _safe("grok-pozicije", _grok_positions, tcon, positions, now,
+                                                                     fallback=[]), now, lim)
     if not st["on"]:
-        return ""
-    lim, left = grokauto.limits(tcon), grokauto.remaining(tcon)
+        return (f'<section class="ap-qb ap-grok apx-grok" id=grok-auto><h2 class=ap-qb-h data-sec="">Grok '
+                f'<span class=mut>· autotrade isključen</span></h2>{pos}</section>') if pos else ""
+    left = grokauto.remaining(tcon, now)
     u = left["used"]
+    cap = round(lim["grok_max_sol_per_trade"] * kandidati.OVERRIDE_SIZE, 6)
     head = ("uključen" if st["active"] else f'stoji do ponoći ({st["pause_reason"]})')
-    line = (f'danas {_g(u["spent_sol"])} od {_g(lim["grok_max_sol_per_day"])} SOL · otvoreno {u["open"]} od '
-            f'{lim["grok_max_open"]} · rezultat {u["pnl_sol"]:+.3f} SOL (granica −{_g(lim["grok_max_loss_day"])}) · '
-            f'najviše {_g(lim["grok_max_sol_per_trade"])} SOL po kupnji')
+    pnl = u["pnl_sol"]
+    tone = " class=up" if pnl > 0 else " class=dn" if pnl < 0 else ""
+    # (a) the limits in plain words, one short paragraph: Grok's positions above it keep the top of the phone
+    stats = (f'<p class=apx-glim>Danas kupio <b>{_g(u["spent_sol"])} od {_g(lim["grok_max_sol_per_day"])} SOL</b> · '
+             f'otvoreno <b>{u["open"]} od {lim["grok_max_open"]}</b> · rezultat <b{tone}>{redak.sol(pnl, 3, sign=True)}</b> '
+             f'(staje na −{_g(lim["grok_max_loss_day"])} SOL) · po kupnji najviše <b>{_g(lim["grok_max_sol_per_trade"])} '
+             f'SOL</b> (uz rug rizik i svjež dokaz {_g(cap)})</p>')
+    rows = grokauto.log_rows(tcon, 300)
+    tables = _grok_tables(rows[:30] + [r for r in rows[30:] if now - (r.get("ts") or 0) <= grokauto.ATTEMPTS_S])
     kill = ('<form method=post action=/pravi-trade/grokoff class=ap-danger onsubmit="return confirm(\'Ugasiti Grok autotrade? '
             'Njegovi zahtjevi opet čekaju tvoje odobrenje.\')"><button class=ap-danger>Ugasi Grok autotrade</button></form>')
-    return (f'<section class="ap-qb ap-grok" id=grok-auto><h2 class=ap-qb-h data-sec="">Grok auto <span class=mut>· {esc(head)}</span></h2>'
-            f'<p class=mut>{esc(line)}</p>{_grok_rows(grokauto.log_rows(tcon, 5))}{kill}</section>')
+    parts = [pos or '<p class="apx-mut apx-gempty">Grok sada nema otvorenih pozicija.</p>', stats,
+             _safe("grok-zatvoreno", _grok_closed_html, tcon, now),
+             _safe("grok-pokusaji", _grok_attempts_html, rows, now, tables, cap)]
+    return (f'<section class="ap-qb ap-grok apx-grok" id=grok-auto><h2 class=ap-qb-h data-sec="">Grok auto '
+            f'<span class=mut>· {esc(head)}</span></h2>{"".join(parts)}{kill}</section>')
 
 
 def _exit_plans_block(tcon, owner):
@@ -2808,8 +2948,10 @@ def token_popup(user, mint, now=None):
             f'{esc(h[3:] if h.startswith("tg:") else "@" + h)} ({esc(ago(ts)[0])})' for h, ts in callers[:8]) + "</p>")
     if top.get("state") and (top["state"] or {}).get("advice"):
         b.append(f'<p class=mut>Svježa provjera alata: {esc(top["state"]["advice"])}</p>')
-    b.append(f'<p><a href="https://dexscreener.com/solana/{quote(mint)}" target=_blank rel=noopener>DexScreener ↗</a> · '
-             f'<a href="/token/{quote(mint)}">cijela stranica tokena</a></p>')
+    # 13.11. (Jure: "trebao bi se učitavati ovaj graf"): on the Autopilot page this button (and the token links) loads
+    # the token into the chart above and closes the pop-up (ui/static/ap/ap.js); elsewhere it opens the token page
+    b.append(f'<p><a class=ap-buy href="/token/{quote(mint)}" data-sel="{esc(mint)}">Prikaži na grafu</a> · '
+             f'<a href="https://dexscreener.com/solana/{quote(mint)}" target=_blank rel=noopener>DexScreener ↗</a></p>')
     if ok or owner:
         b.append(_buy_form(mint, cfg, "tpsl", owner) if ok else
                  '<p class=mut style="font-size:13px">Gumb za kupnju je skriven dok token ne prolazi provjere.</p>')

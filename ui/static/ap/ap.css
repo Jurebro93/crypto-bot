@@ -354,3 +354,76 @@ dialog#ap-pop::backdrop{background:rgba(11,18,32,.45)}
 }
 @media(max-width:420px){.apx-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.apx-wal{grid-template-columns:1fr 1fr}
  .apx-dcar{grid-template-columns:1fr 1fr}.apx .apx-tf button{padding:4px 9px}}
+/* 13.11. (Jure: "ako su pozicije groka na vrhu ... da budu skupljene isto koji moje pozicije ... jedan redak na mobitelu
+ I onda kad klikom ... padajući izbornik"): one Grok position = one line (token, live / paper, entry MC, PnL, the exit in
+ a few words); a tap opens Pozicija, Grokova teza, what Grok sent and what MemeSonar sees (ui/grokpoz). */
+.apx-gp{border-bottom:1px solid var(--line)}
+.apx-gp:last-child{border-bottom:0}
+.apx-gp.is-paper>summary{opacity:.8}
+.apx-gps{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:9px 2px;cursor:pointer;
+ white-space:nowrap;min-height:44px;color:var(--fg)}
+.apx-gps::-webkit-details-marker{display:none}
+.apx-gps::after{content:"›";order:6;flex:none;color:var(--mut);font-size:18px;line-height:1;transform:rotate(90deg)}
+.apx-gp[open]>.apx-gps::after{transform:rotate(-90deg)}
+.apx-gps-t{display:flex;align-items:center;gap:5px;flex:none}
+.apx-gps-t .apx-badge{font-size:9.5px;padding:1px 5px}
+.apx-gps .n{font-size:12.5px;flex:none}
+.apx-gps-mc{margin-left:auto;color:var(--fg)}
+.apx-gps .apx-pnl small{display:none}
+/* the exit stays beside the numbers where it fits (desktop), else it is the row's second line (a 390 px phone) */
+.apx-gps-x{order:5;flex:1 1 220px;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--mut)}
+.apx-gpd{padding:2px 2px 12px;font-size:13px;line-height:1.45}
+.apx-gpd h4{font-size:12.5px;font-weight:650;margin:12px 0 4px;color:var(--fg)}
+.apx-gpg{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px 14px;margin:2px 0 6px}
+.apx-gpg>div>span{display:block;font-size:11.5px;color:var(--mut)}
+.apx-gpg b{font-size:13px;font-weight:600}
+.apx-gpg b.n{font-family:var(--ap-mono);font-variant-numeric:tabular-nums;text-align:left;display:block}
+.apx-gpg .apx-pnl{display:inline;text-align:left}
+.apx-gpg .apx-pnl small{display:inline;margin-left:6px;font-size:11.5px}
+.apx-glim{font-size:12.5px;color:var(--mut);margin:8px 0 2px;line-height:1.5}
+.apx-glim b{color:var(--fg);font-weight:600}
+.apx-glim b.up{color:var(--up)}.apx-glim b.dn{color:var(--dn)}
+.apx-gpx{margin:4px 0}
+.apx-gl{margin:0;padding-left:16px}
+.apx-gl li{margin:3px 0;overflow-wrap:anywhere}
+.apx-gl li small{display:block;color:var(--mut);font-size:12px}
+.apx-gfl{list-style:none;padding-left:0}
+.apx-gf{padding-left:10px;border-left:3px solid var(--line)}
+.apx-gf b{font-weight:650}
+.apx-gf.up{border-left-color:var(--up)}.apx-gf.up b{color:var(--up)}
+.apx-gf.dn{border-left-color:var(--dn)}.apx-gf.dn b{color:var(--dn)}
+.apx-gf:not(.up):not(.dn) b{color:var(--mut)}
+.apx-gpa{margin-top:10px}
+.apx-gsec{margin:10px 0 0}
+.apx-gsec>summary{font-size:13px;color:var(--fg);font-weight:600;padding:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+ list-style:none}
+.apx-gsec>summary::-webkit-details-marker{display:none}
+.apx-gsec>summary::after{content:"›";margin-left:auto;color:var(--mut);font-size:18px;line-height:1;transform:rotate(90deg)}
+.apx-gsec[open]>summary::after{transform:rotate(-90deg)}
+.apx-gh .apx-mut{font-weight:400;font-size:12px}
+/* 13.11. (Jure: "Mogu li se pozicije groka jasnije prikazat"): the Grok card at the top of the page: its limits, its
+ open positions, the rounds it closed today and its attempts by token. Rows are small labelled cards at every width
+ (two columns on a phone), so the card reads the same on the phone the owner uses and on a desktop. */
+.apx-grok .apx-gh{font-size:13.5px;font-weight:650;margin:14px 0 2px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.apx-grok .apx-gempty{margin:2px 0 4px}
+.apx-stats.apx-gstats{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin:6px 0 4px}
+.apx-gstats b{white-space:normal}
+.apx-gstats small{display:block;font-size:11.5px;color:var(--mut)}
+.apx-grok .apx-tr.apx-gpos{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 14px;padding:10px 2px}
+.apx-grok .apx-gpos>[data-l]{display:block;text-align:right;min-width:0}
+.apx-grok .apx-gpos>[data-l]::before{content:attr(data-l);float:left;margin-right:8px;color:var(--mut);font-size:12px;
+ font-weight:400;font-family:Inter,system-ui,sans-serif}
+.apx-grok .apx-gpos>[data-l] small{display:block}
+.apx-grok .apx-gpos>.apx-c-tok{grid-column:1/-1;display:flex;gap:6px;align-items:center;justify-content:flex-start;
+ text-align:left}
+.apx-grok .apx-gpos>.apx-c-tok::before{display:none}
+.apx-grok .apx-gpos .ap-tag{margin-left:0}
+.apx-gline{grid-column:1/-1;font-size:12.5px;line-height:1.45;overflow-wrap:anywhere}
+/* a refusal is no loss: the page's amber, not red (red / green only on up / down, buy / sell, TP / SL) */
+.apx-gline.bad,.apx-gst.no{color:var(--ap-warn-t)}
+.apx-grok .apx-gpos>.apx-plan,.apx-grok .apx-gpos>.apx-gmore{grid-column:1/-1}
+.apx-gmore p{margin:4px 0 0;font-size:12.5px;line-height:1.45;overflow-wrap:anywhere}
+.apx-glog{margin:12px 0 0}
+.apx-glog .ap-grok-log{font-size:13px;margin:6px 0 0}
+@media(max-width:700px){.apx-stats.apx-gstats{grid-template-columns:1fr 1fr}
+ .apx-grok .apx-tr.apx-gpos{grid-template-columns:1fr 1fr;padding:10px 2px}}
