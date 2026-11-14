@@ -7,6 +7,8 @@ events/evreport's "trošak po izvoru (7 dana)"). Read-only on every other databa
 
 Sources (all counted by the bot itself; nothing here is a provider's invoice):
   CoinGecko    the day file of event_calendar/http (key calls and free calls per job, HTTP 429 per UTC hour)
+  graf         14.11.: the Autopilot chart's history requests to GeckoTerminal (ui/apgraf, range.db kv graf_day, its own
+               day cap AP_GRAF_DAY); with the key they are also the job "graf" in the CoinGecko numbers
   twitterapi   kol.db kv twapi:<day> (all of it) and its parts: twtl (timeline), twdisc (discovery), twtrend
                (trending), scan.db xusd (the scanner), kol.db flash_day (deleted-post checks, ~$0.15 per 1000)
   Apify        hype.db apify_runs per source, and the account's own reading (usage.db account) a day apart
@@ -85,6 +87,12 @@ def coingecko(now):
     return {"kljuc": st["n"], "strop": st["cap"], "po_poslu": st["jobs"], "besplatno": st["free"],
             "besplatno_ukupno": sum(st["free"].values()), "e429": st["e429"], "e429_ukupno": sum(st["e429"].values()),
             "kljuc_postavljen": st["key"]}
+
+
+def graf(now):
+    """The Autopilot chart's GeckoTerminal requests today (ui/apgraf) and its day cap."""
+    from ui import apgraf
+    return {"zahtjeva": apgraf.day_used(now), "strop": apgraf.GRAF_DAY}
 
 
 def twitterapi(now, paths):
@@ -183,7 +191,8 @@ def collect(now=None, paths=None):
     now = int(now or time.time())
     paths = paths or _paths()
     out = {"day": _day(now), "ts": now}
-    for name, fn in (("coingecko", lambda: coingecko(now)), ("twitterapi", lambda: twitterapi(now, paths)),
+    for name, fn in (("coingecko", lambda: coingecko(now)), ("graf", lambda: graf(now)),
+                     ("twitterapi", lambda: twitterapi(now, paths)),
                      ("apify", lambda: apify(now, paths)), ("pumpportal", lambda: pumpportal(now, paths)),
                      ("helius", lambda: helius(now, paths)), ("ai", lambda: ai(now, paths))):
         try:
@@ -215,6 +224,9 @@ def line(d):
         parts.append(f"CoinGecko ključem {_n(cg.get('kljuc'))}/{_n(cg.get('strop'))} ({_top(cg.get('po_poslu'))}), "
                      f"besplatno {_n(cg.get('besplatno_ukupno'))} ({_top(cg.get('besplatno'))}), "
                      f"429 ukupno {_n(cg.get('e429_ukupno'))} (po satu UTC: {hours})")
+    gr = d.get("graf") or {}
+    if gr.get("zahtjeva") is not None:
+        parts.append(f"graf povijest {_n(gr.get('zahtjeva'))}/{_n(gr.get('strop'))} zahtjeva GeckoTerminalu")
     if tw:
         p = tw.get("dijelovi") or {}
         parts.append(f"X twitterapi ${_usd(tw.get('usd'))} (" + ", ".join(f"{k} {_usd(v)}" for k, v in p.items()) + ")")
@@ -277,7 +289,7 @@ def week(now=None, path=None, n=7):
     apify_usd_bot, apify_racun_usd, pumpportal_tradeova, pumpportal_sol, helius_bot, helius_racun, ai_usd, ai_objava}."""
     rows = days(n, now, path)
     s = {"dana": len(rows), "od": rows[-1]["day"] if rows else None, "do": rows[0]["day"] if rows else None,
-         "coingecko_kljuc": 0, "coingecko_besplatno": 0, "e429": 0, "x_usd": 0.0, "x_dijelovi": {}, "apify_usd_bot": 0.0,
+         "coingecko_kljuc": 0, "coingecko_besplatno": 0, "e429": 0, "graf": 0, "x_usd": 0.0, "x_dijelovi": {}, "apify_usd_bot": 0.0,
          "apify_racun_usd": 0.0, "pumpportal_tradeova": 0, "pumpportal_sol": 0.0, "helius_bot": 0, "helius_racun": 0.0,
          "ai_usd": 0.0, "ai_objava": 0}
     for d in rows:
@@ -285,6 +297,7 @@ def week(now=None, path=None, n=7):
         s["coingecko_kljuc"] += int(cg.get("kljuc") or 0)
         s["coingecko_besplatno"] += int(cg.get("besplatno_ukupno") or 0)
         s["e429"] += int(cg.get("e429_ukupno") or 0)
+        s["graf"] += int((d.get("graf") or {}).get("zahtjeva") or 0)
         s["x_usd"] += _f(tw.get("usd"))
         for k, v in (tw.get("dijelovi") or {}).items():
             s["x_dijelovi"][k] = round(s["x_dijelovi"].get(k, 0.0) + _f(v), 4)
@@ -308,7 +321,7 @@ def week_md(s):
     parts = ", ".join(f"{k} {_usd(v)}" for k, v in (s.get("x_dijelovi") or {}).items())
     return ["## Trošak po izvoru (7 dana)", "", f"Dana: {s['dana']} ({s['od']} do {s['do']}), brojevi bota (nije račun dobavljača).", "",
             f"- CoinGecko: ključem {_n(s['coingecko_kljuc'])} poziva, besplatno {_n(s['coingecko_besplatno'])}, "
-            f"HTTP 429 {_n(s['e429'])}",
+            f"HTTP 429 {_n(s['e429'])}; graf povijest {_n(s.get('graf'))} zahtjeva",
             f"- X (twitterapi.io): ${_usd(s['x_usd'])} ({parts or '-'})",
             f"- Apify: ${_usd(s['apify_usd_bot'])} po botu, račun ${_usd(s['apify_racun_usd'])}",
             f"- PumpPortal: {_n(s['pumpportal_tradeova'])} tradeova ≈ {s['pumpportal_sol']:.3f} SOL",

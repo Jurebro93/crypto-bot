@@ -1,5 +1,7 @@
-"""range.db and the minute series of a token (flag range_dca). Writer: run_range.py only (one short process a minute);
-league/auto (run_ui.py) and the MCP API read it read-only.
+"""range.db and the minute series of a token (flag range_dca). Writer: run_range.py (one short process a minute);
+league/auto (run_ui.py) and the MCP API read it read-only. 14.11. (owner: "Graf ne prikazuje dobro"): the Autopilot
+chart's history on demand (ui/apgraf.py, in run_ui.py's background thread) also writes gt_candles (store_gt, inside
+BEGIN IMMEDIATE), gt_hours and kv graf_day (its own day cap; gt_day and the market's caps are never touched).
 
 Tables
   snaps       our own DexScreener snapshot of a candidate the hype scan does not snapshot itself, once a minute
@@ -14,6 +16,9 @@ Tables
   snap_ext    14.11. (crash survivors, rangedca/survivor.py): the newest DexScreener snapshot's 24 h price change
               (ch_h24, %) and the pair's creation (created_ts) per token, one row a token (snaps keeps its 13 columns:
               other writers insert them by position)
+  gt_hours    14.11. (ui/apgraf.py): GeckoTerminal 1-hour OHLCV of a token the owner looked at on the chart's 1h view
+              (the last 7 days in one request; zlib JSON like gt_candles, one row a token). Only the chart reads it:
+              the range detector works on minutes.
 
 The minute series (candles) of a token is merged from, best first: GeckoTerminal candles we hold (range.db gt_candles,
 minute.db call_candles: real OHLCV), then DexScreener snapshots (range.db snaps, hype.db token_pulse: one price per
@@ -61,6 +66,8 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS range_flip (token TEXT PRIMARY KEY, v INTEGER, ver INTEGER, state TEXT, since INTEGER,
     ts INTEGER, alt_active INTEGER, data TEXT);
 CREATE TABLE IF NOT EXISTS snap_ext (token TEXT PRIMARY KEY, ts INTEGER, ch_h24 REAL, created_ts INTEGER);
+CREATE TABLE IF NOT EXISTS gt_hours (token TEXT PRIMARY KEY, pool TEXT, first_ts INTEGER, last_ts INTEGER, n INTEGER,
+    data BLOB, fetched INTEGER);
 """
 
 
@@ -552,6 +559,28 @@ def store_gt(con, token, pool, candles, now):
     return len(rows)
 
 
+def hour_rows(con, token, t0, t1):
+    """gt_hours of the token within t0..t1 ([] when range.db predates the table: a read-only reader cannot add it)."""
+    try:
+        r = con.execute("SELECT data FROM gt_hours WHERE token=?", (token,)).fetchone()
+    except sqlite3.OperationalError:
+        return []
+    return [c for c in unpack(r[0]) if t0 <= c[0] <= t1] if r else []
+
+
+def store_hours(con, token, pool, candles, now):
+    """Hour candles into gt_hours, merged with what the row holds (a newer candle of the same hour wins)."""
+    have = {c[0]: c for c in hour_rows(con, token, 0, 10 ** 11)}
+    for c in candles:
+        have[int(c[0])] = tuple(c[:6])
+    rows = [have[k] for k in sorted(have)]
+    if not rows:
+        return 0
+    con.execute("INSERT OR REPLACE INTO gt_hours VALUES (?,?,?,?,?,?,?)",
+                (token, pool, rows[0][0], rows[-1][0], len(rows), pack(rows), int(now)))
+    return len(rows)
+
+
 def gt_left(con, now):
     return max(0, GT_DAY - day_used(con, "gt_day", now))
 
@@ -690,6 +719,7 @@ def flip_rows(path=None, since=None, states=None, alt_active=False):
 def prune(con, now):
     con.execute("DELETE FROM snaps WHERE ts < ?", (int(now - KEEP_DAYS * 86400),))
     con.execute("DELETE FROM gt_candles WHERE last_ts < ?", (int(now - GT_KEEP_DAYS * 86400),))
+    con.execute("DELETE FROM gt_hours WHERE last_ts < ?", (int(now - GT_KEEP_DAYS * 86400),))
     con.execute("DELETE FROM ranges WHERE ts < ?", (int(now - 3 * 86400),))
     con.execute("DELETE FROM range_flip WHERE ts < ?", (int(now - 3 * 86400),))
     con.execute("DELETE FROM events WHERE ts < ?", (int(now - 30 * 86400),))

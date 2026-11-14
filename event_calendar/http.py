@@ -1,8 +1,10 @@
 """Minimal HTTP helper (stdlib only) with a small on-disk cache."""
+import contextlib
 import hashlib
 import json
 import os
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -85,6 +87,7 @@ def _cg_key_raw():
 # free, and the HTTP 429 per UTC hour (the daily cost line, usage/daily.py; the hourly line, kol/minute.loop).
 CG_PRIORITY = ("minute", "range", "momentum", "scan")
 _CG_JOB = [None]
+_CG_LOCAL = threading.local()   # 14.11.: one thread's job inside a process that serves others (cg_job_as)
 
 
 def _env_f(name, default):
@@ -125,10 +128,24 @@ def _job_from_argv(argv):
 
 
 def cg_job():
-    """The job this process spends the CoinGecko budget for: set_cg_job(), else CG_JOB, else the command line
-    (run_kol.py minute-loop -> minute, run_learn.py masovno -> masovno, run_range.py -> range, ...)."""
+    """The job this process spends the CoinGecko budget for: the thread's cg_job_as(), else set_cg_job(), else
+    CG_JOB, else the command line (run_kol.py minute-loop -> minute, run_learn.py masovno -> masovno, run_range.py ->
+    range, ...)."""
     import sys
-    return _CG_JOB[0] or os.environ.get("CG_JOB") or _job_from_argv(sys.argv)
+    return (getattr(_CG_LOCAL, "job", None) or _CG_JOB[0] or os.environ.get("CG_JOB")
+            or _job_from_argv(sys.argv))
+
+
+@contextlib.contextmanager
+def cg_job_as(name):
+    """14.11.: the calls of this thread inside the block count for `name` (the Autopilot chart's history in run_ui:
+    "graf"), the rest of the process keeps its job; the day file then shows them apart."""
+    old = getattr(_CG_LOCAL, "job", None)
+    _CG_LOCAL.job = name or None
+    try:
+        yield
+    finally:
+        _CG_LOCAL.job = old
 
 
 def zagreb_night(now=None):
