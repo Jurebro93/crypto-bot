@@ -113,7 +113,10 @@ DEMO_1411 = {**RULES, "profile": "demo", "score_min": 0.6, "entry_bottom": 0.25,
 #           +1.3 %, 5 min +2.3 %, 20 min +2.0 %) and cooldown_s (20 min) after a stop / give-up; the demo account's
 #           own max_open (10) and max_sol_day (15 SOL a day: 100 rounds of 0.1 SOL + margin, paper money); the real
 #           account keeps the trade settings and the executor's caps
-DEMO = {**RULES, "profile": "demo", "score_min": 0.6, "entry_bottom": 0.30, "entry_rlt_x": 1.10, "ch5_min": -0.05,
+# 14.11. 14:00 (owner: "Želim više tradeova"; backtest 22 tokena / 85 dana at real cost: bottom 30 % 50 rounds EV
+# +$0.17, the lower HALF 73 rounds EV +$0.06, DD 6 -> 12 $): entry anywhere in the lower half of the range; the fee
+# guard still asks the net target to fit under the range's top
+DEMO = {**RULES, "profile": "demo", "score_min": 0.6, "entry_bottom": 0.50, "entry_rlt_x": 1.10, "ch5_min": -0.05,
         "vol_ratio_min": 0.35, "buy_share_min": 0.45, "survivor": "loss",
         "lot1_share": 0.6, "lot2": True, "lot2_lo": 0.10, "lot2_hi": 0.15, "lot2_buy_share_min": 0.45,
         "lot2_stop_gap": 0.05, "stop_min_pct": 0.17, "stop_max_pct": 0.25,

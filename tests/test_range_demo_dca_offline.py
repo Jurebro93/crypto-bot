@@ -31,7 +31,7 @@ FX = os.path.join(ROOT, "tests", "fixtures")
 SURV = {"ok": True, "crashed": False, "age_h": 72.0, "loss_24h": -0.2, "in_range": True,
         "why": "preživio pad: star 3,0 d, MC −20 % od prije 24 h, opet u rasponu"}
 LIQ = 25_000.0
-DEMO_REAL = (31, 0.968, 5.3, 14.77, 3.48)   # the scalp at the real costs, 0.1 SOL, all at the target
+DEMO_REAL = (44, 0.886, 2.69, 9.92, 6.2)   # 14.11. 14:00: lower half (was (31, 0.968, 5.3, 14.77, 3.48))   # the scalp at the real costs, 0.1 SOL, all at the target
 
 
 def fx_series(names):
@@ -60,7 +60,7 @@ class Rules(unittest.TestCase):
     def test_the_numbers_and_the_real_rules_unchanged(self):
         d = rules.DEMO
         self.assertEqual((d["entry_bottom"], d["entry_rlt_x"], d["lot1_share"], d["lot2"], d["lot2_lo"], d["lot2_hi"]),
-                         (0.30, 1.10, 0.6, True, 0.10, 0.15))
+                         (0.50, 1.10, 0.6, True, 0.10, 0.15))   # 14.11. 14:00: the lower half (was 30 %)
         self.assertEqual((d["stop_min_pct"], d["stop_max_pct"], d["tp_usd"], d["tp1_share"], d["time_stop_s"]),
                          (0.17, 0.25, 0.60, 0.5, 6 * 3600))
         self.assertEqual((d["cooldown_tp_s"], d["cooldown_s"], d["rounds_token_day"], d["focus_n"], d["max_open"],
@@ -77,12 +77,13 @@ class Rules(unittest.TestCase):
             self.assertNotIn(k, r)
         self.assertEqual(rules.DEMO_1411["entry_bottom"], 0.25)            # the morning's profile kept as it was
 
-    def test_entry_at_30_percent_or_up_to_the_bottom_zone_top_x_1_10(self):
+    def test_entry_in_the_lower_half_or_up_to_the_bottom_zone_top_x_1_10(self):
         D_ = rules.DEMO
         px30 = 51.0 + 0.30 * 49.0
+        px50 = 51.0 + 0.50 * 49.0   # 14.11. 14:00 (owner: "Želim više tradeova"): the lower half (was 30 %)
         self.assertIsNone(rules.entry_check(self.rng(), px30, D_))
-        self.assertIsNone(rules.entry_check(self.rng(), 51.0 + 0.29 * 49.0, D_))
-        self.assertIn("ulaz u donjih 30% ili do 10% iznad donje zone", rules.entry_check(self.rng(), px30 + 0.6, D_))
+        self.assertIsNone(rules.entry_check(self.rng(), px50, D_))
+        self.assertIn("ulaz u donjih 50% ili do 10% iznad donje zone", rules.entry_check(self.rng(), px50 + 0.6, D_))
         self.assertIn("raspona", rules.entry_check(self.rng(), px30, rules.DEMO_1411))   # 25 % before
         self.assertIn("raspona", rules.entry_check(self.rng(score=0.8), px30))          # RULES: 15 %
         wide = self.rng(z={"range_low_top": 70.0})                           # a wide bottom zone: rlt x 1.10 = 77
@@ -573,15 +574,16 @@ class Backtest(unittest.TestCase):
                for k, x in v.items()}
         self.assertEqual(got["old"], (12, 0.75, 14.1, 26.2, 3.03))
         self.assertEqual(got["demo_1411"], (21, 0.714, 5.31, 16.71, 4.07))
-        self.assertEqual(got["dca"], (25, 0.92, 8.29, 21.34, 2.44))
-        self.assertEqual(got["demo"], (30, 0.967, 7.18, 19.76, 3.44))
+        # 14.11. 14:00 (owner: "Želim više tradeova"): entry in the lower half (was 30 %): more rounds, lower EV
+        self.assertEqual(got["dca"], (31, 0.839, 5.51, 18.21, 4.72))
+        self.assertEqual(got["demo"], (41, 0.902, 4.09, 14.37, 4.57))
         self.assertEqual(got["demo_real"], DEMO_REAL)
-        self.assertEqual(v["demo"]["lot2"]["n"], 5)                          # the DCA filled in 5 rounds
-        self.assertEqual(v["demo"]["rounds_per_token_day"], 2.41)
+        self.assertEqual(v["demo"]["lot2"]["n"], 7)                          # the DCA filled in 7 rounds
+        self.assertEqual(v["demo"]["rounds_per_token_day"], 3.29)
         self.assertLess(v["demo"]["be_hit_rate"], v["demo"]["hit_rate"])
         self.assertNotIn("odustajanje", v["demo"]["exit_reasons"])          # no quiet-hour give-up any more
         line = backtest.demo_line(self.rep["demo"])
-        self.assertIn("scalp $0,60 (demo): runde 30 (2.41/token-dan), pogodak 97 % (break-even 81 %)", line)
+        self.assertIn("scalp $0,60 (demo): runde 41 (3.29/token-dan), pogodak 90 % (break-even 80 %)", line)
         self.assertIn(f"scalp pravi trošak 0,1 SOL: runde {DEMO_REAL[0]}", line)
         self.assertEqual(self.rep["variants"]["0.7"]["rounds"], 12)          # today's backtest untouched
 

@@ -171,7 +171,7 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # stop loss ... da se uzima barem 10-15% profita"; rangedca/rules.DEMO): paper = range_dca's DEMO account trades the
     # demo profile (entry score 0.6, bottom 25 %, no crashed token; TP +10 % / +15 % net, ATR stop held at -12..-25 %);
     # off = the demo account trades RULES like the real one. Never live (NEVER_LIVE); default paper (FLAG_DEFAULTS).
-    "range_demo": ("G32", "Range demo (14.11. popodne, scalp): demo račun ulazi s 60 % uloga u donjih 30 % raspona ili do "
+    "range_demo": ("G32", "Range demo (14.11. popodne, scalp): demo račun ulazi s 60 % uloga u donjoj polovici raspona ili do "
                           "10 % iznad donje zone (ocjena 0,6+, 10 tokena s najviše volumena), DCA 40 % na −10 %, pola van "
                           "na +0,60 $ neto od prosječnog ulaza, ostatak na +15 % / gornjoj zoni, stop ATR −17 do −25 % od "
                           "lota 1, nikad token koji je u 24 h pao više od 45 %; do 10 rundi po tokenu dnevno; cilj 100 "
