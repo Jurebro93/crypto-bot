@@ -71,10 +71,64 @@ RULES = {"score_min": 0.7, "entry_bottom": 0.15, "ch5_min": -0.03, "buy_share_mi
 #           stop-outs on the 17 tokens, EV +0.5 %); wider than -25 % one loss eats ~2 wins
 #   lot 2   none (lot2 False): a second lot 10-15 % under lot 1 lands at or under a -12 % stop (with it: DD 4.1 -> 6.6 $)
 #   time    6 h without TP1: out at break-even or better (RULES' time stop; 3 h / 12 h changed nothing)
-DEMO = {**RULES, "profile": "demo", "score_min": 0.6, "entry_bottom": 0.25, "ch5_min": -0.05, "vol_ratio_min": 0.35,
-        "buy_share_min": 0.45, "tp1_net": 0.10, "tp2_net": 0.15, "tp2_range": True, "tp1_share": 0.5, "trail": 0.15,
-        "be_after_tp1": True, "stop_min_pct": 0.12, "stop_max_pct": 0.25, "lot2": False, "survivor": "loss"}
-DEMO_GOAL = 5   # 14.11. (owner: "želim da danas otvoriš barem 5 tradeova"): the daily counter's goal
+DEMO_1411 = {**RULES, "profile": "demo", "score_min": 0.6, "entry_bottom": 0.25, "ch5_min": -0.05, "vol_ratio_min": 0.35,
+             "buy_share_min": 0.45, "tp1_net": 0.10, "tp2_net": 0.15, "tp2_range": True, "tp1_share": 0.5,
+             "trail": 0.15, "be_after_tp1": True, "stop_min_pct": 0.12, "stop_max_pct": 0.25, "lot2": False,
+             "survivor": "loss"}
+# 14.11. popodne: DEMO_1411 above is the morning's profile exactly (kept for the backtest's comparison, DemoCompare)
+
+# 14.11. popodne (owner: "Probaj podignuti range za 5% ... ako je čak range ušao unutar 10%, neka se onda uđe sa 60%
+# pozicije uz DCA order. Ako padne još minus 10%, ostatak 40% pozicije ... Ako cijena krene gore od toga, postaviti
+# uzimanje profita. Paziti na iznos fija za svaki trade ... Ovakvih tradeova treba raditi 50 do 100 dnevno"; then: "na
+# istom tokenu može dnevno napraviti 10 raidova ... Nek svaki raid bude nakon fija 50 centi ili 1 euro u profitu ... Ako
+# se dovoljno dugo čeka, bit će"): the SCALP profile. The demo account PAPER_USER trades it while range_demo is paper
+# (DEMO below); the real account LEAGUE_USER only while the owner's switch pravi_novac_sve is live (rangedca/trade.
+# profile, real costs: real_cost). Chosen on the backtest (rangedca/backtest.DemoCompare; the 6 range fixtures and the
+# 17 live GeckoTerminal tokens of 14.11. morning, 22 tokens with >= 6 h, 83.3 token-days of which 5.1 with an active
+# range of score >= 0.6; ticks wick, the ATR stop, the owner's round-trip cost):
+#   entry   score_min 0.6, the bottom 30 % of the range (was 25 %; 25 % gave the same rounds) OR at most 10 % above the
+#           bottom zone's top (price <= range_low_top x 1.10, entry_rlt_x: the owner's order; without it EV +1.6 % vs
+#           +1.3 % on 45 vs 50 rounds, x 1.20 fell to +0.8 %), above range_low_low x 0.92; 5-minute change > -5 %,
+#           volume ratio >= 35 %, buys >= 45 %; never a token the crash took > 45 % under its level 24 h ago
+#   lots    lot 1 = 60 % of the stake (lot1_share); ONE lot 2 (DCA) = the other 40 % when the price is 10-15 % under
+#           lot 1 (lot2_lo / lot2_hi), the range still active and not broken down, the token not crashed, volume ratio
+#           >= 35 %, buys >= 45 % (lot2_buy_share_min) and at least lot2_stop_gap (5 %) above the stop. The split
+#           itself carries the EV: the whole stake in lot 1 (no DCA) gave EV -0.1 % against +1.3 %
+#   stop    the ATR stop held between -17 % and -25 % from LOT 1 (7.8 %+ under the DCA price: a DCA fill is never
+#           stopped out at once; kept for the whole round, lot 2 does not move it). -17..-25: EV +1.33 %, DD 7.7 $;
+#           -20..-25 +1.27 % / 8.0 $; -17..-30 +1.07 % / 9.2 $; -20..-30 +1.01 % / 9.5 $
+#   exit    HALF of the position at a fixed NET profit in USD on the whole position (tp_usd $0.60, the owner's "50
+#           centi ili 1 euro"): the TP1 price = the average entry x (1 + tp_usd / cost) / (1 - round-trip cost of the
+#           position), recomputed when lot 2 fills (demo_retarget); the rest at +15 % net or the top zone, a 15 %
+#           trailing, break-even. Selling everything at the target: EV +2.4 % ($0.19 a round) vs +3.0 % ($0.23) for
+#           the half + rest, same drawdown; $1.00 instead of $0.60: EV +4.5 % ($0.36) at 44 vs 49 rounds, DD 7.3 $
+#   time    6 h without TP1: out at break-even or better (12 h, 24 h and none: one round fewer, EV +2.8 %); the quiet
+#           hour (volume under half the 6 h average) no longer sells an open round (give_up_volume False: 14 of 17
+#           give-ups were that one, -4.4 $; EV +0.7 % -> +1.3 %); the hard stop, "range broken downward", two lower
+#           lows, a crash and a rug still sell
+#   guard   fee_guard(): no lot 1 (and no lot 2) when the round-trip cost of the position is above max_rt_cost (5 %) or
+#           its TP1 price is above the range's top (range_high_top: not reachable inside the range)
+#   volume  the focus list (focus_n 10: the active ranges with the most 1 h volume x score), at most rounds_token_day
+#           (10) rounds per token and Zagreb day, cooldown cooldown_tp_s (5 min) after a profitable exit (3 min: EV
+#           +1.3 %, 5 min +2.3 %, 20 min +2.0 %) and cooldown_s (20 min) after a stop / give-up; the demo account's
+#           own max_open (10) and max_sol_day (15 SOL a day: 100 rounds of 0.1 SOL + margin, paper money); the real
+#           account keeps the trade settings and the executor's caps
+DEMO = {**RULES, "profile": "demo", "score_min": 0.6, "entry_bottom": 0.30, "entry_rlt_x": 1.10, "ch5_min": -0.05,
+        "vol_ratio_min": 0.35, "buy_share_min": 0.45, "survivor": "loss",
+        "lot1_share": 0.6, "lot2": True, "lot2_lo": 0.10, "lot2_hi": 0.15, "lot2_buy_share_min": 0.45,
+        "lot2_stop_gap": 0.05, "stop_min_pct": 0.17, "stop_max_pct": 0.25,
+        "tp_usd": 0.60, "tp1_net": 0.10, "tp2_net": 0.15, "tp2_range": True, "tp1_share": 0.5, "trail": 0.15,
+        "be_after_tp1": True, "time_stop_s": 6 * 3600, "cooldown_s": 20 * 60, "cooldown_tp_s": 5 * 60,
+        "give_up_volume": False, "rounds_token_day": 10, "focus_n": 10, "max_open": 10, "max_sol_day": 15.0,
+        "max_rt_cost": 0.05}
+# the real account's rounds (pravi_novac_sve): the same rules at real costs, but the WHOLE position at the target (one
+# sale: every swap pays the network fee; backtest at the real costs, 0.0005 SOL a swap: all at +$0.60 EV +2.2 % ($0.17
+# a round, 50 rounds, DD 6.1 $) vs half + rest +2.0 % ($0.14, 47 rounds); at 0.001 SOL a swap the half + rest's three
+# swaps on lot 1 cost > 5 % and the fee guard refuses every entry, the single sale's two do not)
+SCALP = {**DEMO, "profile": "scalp", "tp1_share": 1.0}
+DEMO_GOAL = 100   # 14.11. popodne (owner: "100 tradeova dnevno"): the daily counter's goal (was 5)
+TP_EXITS = ("tp1", "tp2", "top", "trailing", "breakeven", "time")   # a profitable / flat exit: the short cooldown
+PROFILES = ("demo", "scalp")
 
 
 def exclusions(prev, res, now, holder_why=None, cfg=None):
@@ -120,6 +174,18 @@ def exclusions(prev, res, now, holder_why=None, cfg=None):
     return st
 
 
+def gives_up(gu, cfg=None):
+    """True when an open round of this rule set sells on the give-up gu ({why, ts}, exclusions). 14.11. popodne (the
+    scalp profile, give_up_volume False; owner: "Ako se dovoljno dugo čeka, bit će"): the quiet-hour exclusion
+    (volume under half the 6 h average) only stops new entries, it no longer sells an open round; a range broken
+    downward, two lower lows, the holders' net selling still do (and the hard stop, a crash, a rug)."""
+    if not gu:
+        return False
+    if (cfg or {}).get("give_up_volume", True) is False and "volumen" in (gu.get("why") or ""):
+        return False
+    return True
+
+
 def apply_exclusion(res, st, now):
     """res with active False and the status "isključen" while the token is excluded."""
     if st.get("excluded_until", 0) > now and res.get("active"):
@@ -143,27 +209,150 @@ def levels_of(rng):
     return out
 
 
-def demo_levels(lv, entry_px, rt_cost, cfg=None):
+def demo_levels(lv, entry_px, rt_cost, cfg=None, cost_usd=None):
     """14.11. (DEMO): the levels of a demo round from the range's levels (levels_of, the ATR stop on them) and its
     entry price: tp1_px / tp2_px = entry x (1 + tp_net) / (1 - round-trip cost) (+10 % / +15 % NET: what the sale
     returns over what the lot cost, fees and AMM impact included), the stop held between -stop_max_pct (25 %) and
     -stop_min_pct (12 %) from the entry (stop_clamp, kept for the whole round), the floor never under the stop,
-    profile "demo" and be_after_tp1. rt_cost: trade/cost.round_trip(lot USD, liquidity) as a fraction."""
-    c = {**DEMO, **(cfg or {})}
+    profile "demo" and be_after_tp1. rt_cost: trade/cost.round_trip(lot USD, liquidity) as a fraction.
+    14.11. popodne (the scalp profile, cfg tp_usd): TP1 = the entry x (1 + tp_usd / cost_usd) / (1 - rt): a fixed net
+    profit in USD on what lot 1 cost (cost_usd); tp_net is that fraction, kept in the levels with lot1_px (the stop's
+    reference) for demo_retarget when lot 2 fills. The profile's name ("demo" / "scalp") goes into the levels.
+    cfg None = rules.DEMO; a profile without tp_usd (DEMO_1411) keeps its +10 % net."""
+    c = _r(DEMO if cfg is None else cfg)
     out = dict(lv)
     rt = min(max(float(rt_cost or 0.0), 0.0), 0.5)
     lo, hi = entry_px * (1 - c["stop_max_pct"]), entry_px * (1 - c["stop_min_pct"])
-    out["tp1_px"] = entry_px * (1 + c["tp1_net"]) / (1 - rt)
-    out["tp2_px"] = entry_px * (1 + c["tp2_net"]) / (1 - rt)
+    t1 = tp_frac(c, cost_usd)
+    out["tp1_px"] = entry_px * (1 + t1) / (1 - rt)
+    out["tp2_px"] = entry_px * (1 + max(float(c.get("tp2_net") or 0.15), t1)) / (1 - rt)
     raw = lv.get("stop_px") or lo
     out["stop_px"] = min(hi, max(lo, raw))
     if out["stop_px"] != raw:
         out["stop_kind"] = f"{lv.get('stop_kind') or 'fixed'}_clamp"
     out["stop_clamp"] = [lo, hi]
     out["floor_px"] = max(lv.get("floor_px") or 0.0, out["stop_px"])
-    out.update(profile="demo", be_after_tp1=bool(c["be_after_tp1"]), entry_px=entry_px, rt_cost=round(rt, 5),
-               tp2_range=bool(c.get("tp2_range")))
+    out.update(profile=c.get("profile") or "demo", be_after_tp1=bool(c["be_after_tp1"]), entry_px=entry_px,
+               lot1_px=entry_px, rt_cost=round(rt, 5), tp2_range=bool(c.get("tp2_range")), tp_net=round(t1, 5))
+    if c.get("tp_usd"):
+        out["tp_usd"] = float(c["tp_usd"])
+        if cost_usd:
+            out["cost_usd"] = round(float(cost_usd), 4)
     return out
+
+
+def tp_frac(cfg, cost_usd=None):
+    """The net take-profit fraction of a round: tp_usd / cost_usd (the scalp profile's fixed USD profit on what the
+    position cost) when both are known, else tp1_net (+10 %)."""
+    c = cfg or {}
+    if c.get("tp_usd") and cost_usd and cost_usd > 0:
+        return float(c["tp_usd"]) / float(cost_usd)
+    return float(c.get("tp1_net") or 0.10)
+
+
+def demo_retarget(lv, avg_px, rt_cost, cost_usd, cfg=None):
+    """14.11. popodne: the levels of a demo / scalp round after lot 2 (DCA) filled: TP1 / TP2 on the AVERAGE entry of
+    both lots (avg_px = the cost-weighted price, cost / units) net of the round trip of the whole position (rt_cost:
+    both buys, the sale(s), the AMM impact; the real account's network fees too, real_cost): TP1 = avg x (1 + tp_usd /
+    cost_usd) / (1 - rt). The stop stays where lot 1 put it (its clamp from lot 1), entry_px becomes the average."""
+    c = _r(DEMO if cfg is None else cfg)
+    out = dict(lv)
+    rt = min(max(float(rt_cost or 0.0), 0.0), 0.5)
+    t1 = tp_frac({**c, "tp_usd": lv.get("tp_usd", c.get("tp_usd"))}, cost_usd)
+    out["tp1_px"] = avg_px * (1 + t1) / (1 - rt)
+    out["tp2_px"] = avg_px * (1 + max(float(c.get("tp2_net") or 0.15), t1)) / (1 - rt)
+    out.update(entry_px=avg_px, rt_cost=round(rt, 5), tp_net=round(t1, 5), cost_usd=round(float(cost_usd or 0), 4),
+               dca=True)
+    return out
+
+
+def fee_guard(lv, cfg=None, lot=1):
+    """14.11. popodne (owner: "Paziti na iznos fija za svaki trade, tako da na kraju trade ipak bude profitabilan"):
+    None when the round (lot 1, or the position after lot 2) can still end in profit, else why in Croatian: the
+    round-trip cost of the position (lv rt_cost: fees, AMM impact, network fees on the real account) above
+    max_rt_cost, or its TP1 price above the range's top (rht: not reachable inside the range). A rule set without
+    max_rt_cost (RULES, DEMO_1411) has no guard: None."""
+    c = _r(DEMO if cfg is None else cfg)
+    if not c.get("max_rt_cost"):
+        return None
+    rt = lv.get("rt_cost") or 0.0
+    what = "lot 2" if lot == 2 else "ulaz"
+    if c.get("max_rt_cost") and rt > c["max_rt_cost"] + 1e-12:
+        return (f"trošak runde {rt:.1%} (naknade, utjecaj na pool{', mreža' if lv.get('net_fee_usd') else ''}) iznad "
+                f"granice {c['max_rt_cost']:.0%}: {what} ne bi bio profitabilan")
+    rht = lv.get("rht")
+    if rht and lv.get("tp1_px") and lv["tp1_px"] > rht * (1 + 1e-9):
+        sup = lv.get("supply")
+        lvl = (f"MC ${lv['tp1_px'] * sup:,.0f} iznad vrha raspona MC ${rht * sup:,.0f}" if sup else
+               f"{lv['tp1_px'] / rht - 1:+.1%} iznad vrha raspona")
+        tgt = f"+${lv['tp_usd']:.2f} neto" if lv.get("tp_usd") else f"+{lv.get('tp_net') or 0:.0%} neto"
+        return f"cilj {tgt} nakon troška {rt:.1%} ({lvl}): nedostižan unutar raspona, {what} se ne kupuje"
+    return None
+
+
+def in_entry_zone(lv, price, cfg=None):
+    """True when `price` is a lot-1 place: in the bottom entry_bottom of the range (range_low_low .. range_high_top) or
+    inside the bottom zone (range_low_low .. range_low_top) or, with entry_rlt_x (14.11. popodne, the scalp profile),
+    at most that far above the bottom zone's top (rlt x 1.10); never under the floor (range_low_low x 0.92 / the stop)."""
+    c = _r(cfg)
+    if not price or price < lv["floor_px"]:
+        return False
+    span = lv["rht"] - lv["rll"]
+    pos = (price - lv["rll"]) / span if span > 0 else 1.0
+    if pos <= c["entry_bottom"] + 1e-9 or lv["rll"] <= price <= lv["rlt"]:
+        return True
+    return bool(c.get("entry_rlt_x")) and price <= lv["rlt"] * c["entry_rlt_x"]
+
+
+def demo_lot2_check(lot1_px, price, lv, rng, m, cfg=None):
+    """14.11. popodne (the scalp profile's DCA): None when lot 2 (the remaining 40 %) may be bought, else why:
+    lot2_check (10-15 % under lot 1, above the floor, volume ratio, buys >= lot2_buy_share_min), the range still
+    active (not broken down, not excluded, not paused), the token not crashed (survivor), and the price at least
+    lot2_stop_gap above the round's stop (a DCA fill is never stopped out at once)."""
+    c = {"lot2_stop_gap": 0.05, **_r(DEMO if cfg is None else cfg)}
+    why = lot2_check(lot1_px, price, lv, m, c)
+    if why:
+        return why
+    if not rng or not rng.get("active"):
+        return f"raspon više nije aktivan ({(rng or {}).get('why') or (rng or {}).get('status') or 'nema raspona'})"
+    if ((rng.get("survivor") or {}).get("crashed")):
+        return rng["survivor"].get("why") or "token je pao više od 45 % u 24 h"
+    if lv.get("stop_px") and price < lv["stop_px"] * (1 + c["lot2_stop_gap"]) - 1e-15:
+        return f"cijena tek {price / lv['stop_px'] - 1:.1%} iznad stopa (lot 2 traži barem {c['lot2_stop_gap']:.0%})"
+    return None
+
+
+# ---------- 14.11. popodne: real costs of the real account's scalp rounds (owner: "sve s pravim novcem") ---------------
+POOL_FEE = {"pumpswap": 0.003, "other": 0.0025}   # = scan/store CFG fee_rates (scan/filters.fee_rate): a side
+ROUTE_FEE = 0.001        # Jupiter's own fee on the route (trade/executor: 0.05-0.1 %, inside the quote's amounts)
+TX_FEE_SOL = 0.0005      # signature + priority fee of ONE swap when trade.db has no measured orders (executor worst
+                         # case SELL_COST_SOL 0.002); measured: rangedca/trade.tx_fee_sol (median of the last orders)
+
+
+def pool_fee(dex=None, url=None):
+    """The pool's swap fee a side (scan/filters.fee_rate's table): PumpSwap 0.3 %, any other AMM 0.25 %."""
+    d = f"{dex or ''} {url or ''}".lower()
+    return POOL_FEE["pumpswap"] if "pump" in d else POOL_FEE["other"]
+
+
+def n_sells(cfg=None):
+    """The sales of a round of this rule set: 1 when TP1 sells the whole position (tp1_share 1), else 2 (TP1, rest)."""
+    return 1 if (cfg or {}).get("tp1_share", 0.5) >= 0.999 else 2
+
+
+def real_cost(lot_usds, liq, fee_side, tx_usd=0.0, sells=1):
+    """The round trip of a position as a fraction of its cost: every buy's fee and AMM impact (lot_usds: each buy's
+    USD), the sale(s) of the whole position (fee + the impact of its size), and the network fee of every transaction
+    (len(lot_usds) buys + `sells` sales, tx_usd each). With fee_side = league/store.FEE and tx_usd 0 it is the demo
+    account's booking; with the pool's fee + ROUTE_FEE and the measured network fee, the real account's."""
+    from trade import cost as _c
+    lots = [float(u) for u in lot_usds or [] if u and u > 0]
+    size = sum(lots)
+    if size <= 0:
+        return 0.0
+    buy_imp = sum(u * _c.impact(u, liq) for u in lots) / size
+    n_tx = len(lots) + max(1, int(sells))
+    return 2 * float(fee_side) + buy_imp + _c.impact(size, liq) + n_tx * float(tx_usd or 0.0) / size
 
 
 def tp2_of(lv):
@@ -179,8 +368,9 @@ def levels_in_force(frozen, fresh):
     move them: they are the entry's +10 / +15 % net) and its stop stays inside its clamp: it tightens with the newer
     range, but never closer than -stop_min_pct (12 %) to the entry."""
     out = merge_levels(frozen, fresh)
-    if (frozen or {}).get("profile") == "demo":
-        for k in ("tp1_px", "tp2_px", "tp2_range", "be_after_tp1", "profile", "stop_clamp", "entry_px", "rt_cost"):
+    if (frozen or {}).get("profile") in PROFILES:
+        for k in ("tp1_px", "tp2_px", "tp2_range", "be_after_tp1", "profile", "stop_clamp", "entry_px", "rt_cost",
+                  "lot1_px", "tp_usd", "tp_net", "cost_usd", "dca", "net_fee_usd", "fee_side"):
             if k in frozen:
                 out[k] = frozen[k]
         clamp = frozen.get("stop_clamp")
@@ -192,8 +382,13 @@ def levels_in_force(frozen, fresh):
 
 
 def profile_cfg(levels):
-    """The rule set of an open round: DEMO for a demo-profile round (levels "profile": "demo"), else None (RULES)."""
-    return DEMO if (levels or {}).get("profile") == "demo" else None
+    """The rule set of an open round: DEMO for a demo-profile round (levels "profile": "demo"), SCALP for the real
+    account's scalp round ("scalp", 14.11. popodne), else None (RULES). A demo round without "tp_usd" in its levels
+    (opened under the morning's profile) keeps its exits: DEMO_1411."""
+    p = (levels or {}).get("profile")
+    if p == "demo":
+        return DEMO if "tp_usd" in (levels or {}) else DEMO_1411
+    return SCALP if p == "scalp" else None
 
 
 FLIP_PARTS = ("flip", "atr")
@@ -371,7 +566,10 @@ def entry_check(rng, price, cfg=None, min_score=None):
         return "cijena ispod range_low_low × 0,92"
     span = lv["rht"] - lv["rll"]
     pos = (price - lv["rll"]) / span if span > 0 else 1.0
-    if not (pos <= c["entry_bottom"] or lv["rll"] <= price <= lv["rlt"]):
+    if not in_entry_zone(lv, price, c):
+        if c.get("entry_rlt_x"):   # 14.11. popodne (scalp): the bottom 30 % or <= the bottom zone's top x 1.10
+            return (f"cijena na {pos:.0%} raspona (ulaz u donjih {c['entry_bottom']:.0%} ili do "
+                    f"{c['entry_rlt_x'] - 1:.0%} iznad donje zone)")
         return f"cijena na {pos:.0%} raspona (ulaz u donjih {c['entry_bottom']:.0%} ili u donjoj zoni)"
     m = rng.get("metrics") or {}
     if m.get("ch_5m") is None:
@@ -438,7 +636,8 @@ def exit_step(lv, st, price, now, opened_ts, be_px, stale=False, cfg=None):
         if price >= tp1_px:
             st["tp1"], st["peak"], st["top_active"] = True, price, price >= lv["rht"]
             return "tp1", c["tp1_share"]
-        if not st.get("top_ts") and now - opened_ts >= c["time_stop_s"] and be_px and price >= be_px:
+        if not st.get("top_ts") and c.get("time_stop_s") and now - opened_ts >= c["time_stop_s"] and be_px \
+                and price >= be_px:
             return "time", 1.0
         return None
     if lv.get("tp2_px"):   # 14.11. (DEMO): the rest at +15 % net / the top zone, else trailing (15 %), else break-even

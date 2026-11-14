@@ -138,9 +138,13 @@ def note_traded(sid, what, path=None):
         pass
 
 
-def _route(s, m):
-    """(account, live?) of a BUY decision in mode m; None when this mode does not trade."""
+def _route(s, m, switch=False):
+    """(account, live?) of a BUY decision in mode m; None when this mode does not trade. live = the copy path (a copy
+    of the source's Autopilot follow). switch (14.11., the owner's pravi_novac_sve): every BUY decision, BUY_PAPER
+    too, enters on the REAL account (the copy path when the source has a follow), without the follow's proof."""
     from trade import settings
+    if switch and m in ("paper", "live"):
+        return settings.LEAGUE_USER, bool(s.get("follow_id") and s.get("kind") in ("wallet_follow", "influencer"))
     if m == "paper":
         return settings.PAPER_USER, False
     if m == "live":
@@ -190,8 +194,10 @@ def _sl_default():
         return 60.0
 
 
-def enter(con, s, user, live, mq, lim, sol, now, path=None):
-    """One entry; (text or None, why not or None)."""
+def enter(con, s, user, live, mq, lim, sol, now, path=None, switch=False):
+    """One entry; (text or None, why not or None). switch (14.11., pravi_novac_sve): the entry is on the real account
+    by the owner's switch: its plan executes there (league/exitplan.SWITCH_SRC) and, when the token already has
+    another plan, the lot's own TP/SL is its stop (a protective stop is added when no plan is active)."""
     from league import auto, copy as lcopy, exitplan
     from league import store as lstore
     tok = s["token"]
@@ -217,7 +223,7 @@ def enter(con, s, user, live, mq, lim, sol, now, path=None):
     label = s.get("source_label") or (s.get("source_id") or "")[:8]
     if live:
         src = f"copy {'wallet' if s.get('kind') == 'wallet_follow' else 'KOL'} {label} (fast)"
-    else:
+    else:   # 14.11.: on the real account by pravi_novac_sve too (run_trade reads "fast path" as the strategy)
         src = f"{SRC} {s['decision'].lower()}: {label}"
     try:
         tid = lstore.buy(con, user, tok, sym, size * sol, price, liq, src, None, mcap)
@@ -239,11 +245,15 @@ def enter(con, s, user, live, mq, lim, sol, now, path=None):
     plan_id = None
     if exitplan.active(con, tok) is None:
         try:
-            got = exitplan.set_plan(con, tok, dict(PLAN, accounts=[user]), _sl_default(), client=f"fast #{s['id']}",
+            client = f"fast #{s['id']}"
+            got = exitplan.set_plan(con, tok, dict(PLAN, accounts=[user]), _sl_default(),
+                                    client=exitplan.switch_client(client, user, switch) if switch else client,
                                     now=int(now))
             plan_id = got["plan_id"]
         except ValueError as e:
             print(f"fast {tok[:6]}: plan izlaza nije postavljen ({e})", flush=True)
+    if switch and plan_id is None:   # 14.11.: no plan of its own: the protective stop (only when none is active)
+        plan_id = exitplan.switch_stop(con, tok, user, now=int(now))
     row = con.execute("SELECT opened_ts, size_usd, entry_px FROM trades WHERE id=?", (tid,)).fetchone()
     con.execute("INSERT OR IGNORE INTO fast_trades (user, signal_id, token, symbol, source_id, kind, decision, trade_id, "
                 "plan_id, sig_ts, opened_ts, size_usd, entry_px, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -254,7 +264,8 @@ def enter(con, s, user, live, mq, lim, sol, now, path=None):
     note_traded(s["id"], {"user": user, "trade_id": tid, "plan_id": plan_id, "size_sol": size, "mcap": mcap,
                           "live": bool(live), "ts": int(now)}, path)
     return (f"fast {s['decision']} {sym or tok[:6]} ({label}): {size:g} SOL na MC ${mcap or 0:,.0f}, izlaz pola +15 % / "
-            f"trailing 8 % / stop -10 % / 45 min" + (" (pravi put kopije, run_trade dokaz)" if live else " (demo)")), None
+            f"trailing 8 % / stop -10 % / 45 min" + (" (pravi račun, pravi_novac_sve)" if switch else
+                                                     " (pravi put kopije, run_trade dokaz)" if live else " (demo)")), None
 
 
 def run_once(con, market_fn=None, now=None, path=None, sol=None, lim=None):
@@ -281,9 +292,10 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None, lim=None):
     if not sol:
         return done
     from trade import settings
+    sw = settings.pravi_novac_sve()   # 14.11.: the owner's switch: every decision on the real account, no proof
     mk = (market_fn or lcopy.market)(sorted({s["token"] for s in sigs})) or {}
     for s in sigs:
-        r = _route(s, m)
+        r = _route(s, m, sw)
         if r is None:
             continue
         user, live = r
@@ -293,14 +305,15 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None, lim=None):
             _TRIED[s["id"]] = now
             note_traded(s["id"], {"user": user, "skip": "kopija istog praćenja je već ušla (copy loop)"}, path)
             continue
-        if live:   # run_trade's own proof decides the real money; without the follow's own proof: the demo account
+        if live and not sw:   # run_trade's own proof decides the real money; without the follow's proof: demo account
             try:
                 proven = lcopy.proven(con, s["follow_id"], user)
             except Exception:  # noqa: BLE001 - unreadable proof: demo only
                 proven = False
             if not proven:
                 user, live = settings.PAPER_USER, False
-        text, why = enter(con, s, user, live, mk.get(s["token"]), lim, sol, now, path)
+        text, why = enter(con, s, user, live, mk.get(s["token"]), lim, sol, now, path,
+                          switch=sw and user == settings.LEAGUE_USER)
         if text:
             done.append((user, text))
         elif why:

@@ -102,7 +102,9 @@ MEASURE_WHY = "MC ispod 30k: samo mjerenje, ne kupuje se"
 DEX_DAY = int(os.environ.get("RANGE_MKT_DEX_DAY", "6500"))   # 12.11.: was 4000 (see the module text, worst case)
 DISC_DAY = int(os.environ.get("RANGE_MKT_DISC_DAY", "1500"))   # of DEX_DAY at most this for discovery (the rest refreshes)
 LISTS_DAY = int(os.environ.get("RANGE_MKT_LISTS_DAY", "500"))   # 14.11.: 5 lists x 96 rounds (was 3 lists, 300)
-# 14.11.: 4 trending + 6 top + 5 PumpSwap pages every 2 h = 180 a day of the shared CoinGecko 3000 (was 130)
+# 14.11.: 4 trending + 6 top + 5 PumpSwap pages every 2 h = 180 a day of the shared CoinGecko 3000 (was 130);
+# 14.11. popodne (owner: 50-100 range trades a day, the scalp's focus list): 6 PumpSwap pages = 16 a round, 192 a day,
+# still inside GT_DAY 200 (free, no new spend)
 GT_DAY = int(os.environ.get("RANGE_MKT_GT_DAY", "200"))
 # 11.11. (Jure: "watchlist 300+", faza 1): after 40 min the list held 8 market tokens: PumpPortal migrations mostly die
 # under 50k and one page of GeckoTerminal's top pools (20) an hour found almost nothing else. Now GT_TOP_PAGES pages of
@@ -113,7 +115,7 @@ GT_TREND_PAGES = int(os.environ.get("RANGE_MKT_GT_TREND_PAGES", "2"))
 # 14.11. (owner: tokens that survived the crash): the PumpSwap dex's top pools by 24 h volume, every age (the trending
 # lists are mostly hours old); measured 14.11. 07:50 UTC: of its 219 top pools 30 were in MC 30k-5M with $15k+
 GT_DEX = os.environ.get("RANGE_MKT_GT_DEX", "pumpswap")
-GT_DEX_PAGES = int(os.environ.get("RANGE_MKT_GT_DEX_PAGES", "5"))
+GT_DEX_PAGES = int(os.environ.get("RANGE_MKT_GT_DEX_PAGES", "6"))
 # a watched token stays while it keeps these (admission needs MIN_VOL_H1 / MIN_LIQ): one quiet hour no longer drops it
 # 14.11.: 3k (was 5k) = the range's own floor (detect min_vol_h1, trade/cost.VOL_FLOOR), under the new 5k admission
 KEEP_VOL_H1 = float(os.environ.get("RANGE_MKT_KEEP_VOL_H1", "3000"))

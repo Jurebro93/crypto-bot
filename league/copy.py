@@ -1277,7 +1277,18 @@ def _rang_gate(f):
         ok, why = rang.gate(f["kind"], f["target"])
     except Exception:  # noqa: BLE001 - an unreadable ranking never blocks and never crashes the copy pass
         return None
+    if ok is False and not str(why).startswith("nije kopirljivo") and _switch_all():
+        return None   # 14.11. (pravi_novac_sve): the proof part ("nije dokazan", n < MIN_N) is bypassed; the pool rule holds
     return f"rang za kopiranje: {why}" if ok is False else None
+
+
+def _switch_all():
+    """14.11.: the owner's switch pravi_novac_sve (trade/settings), False when unreadable."""
+    try:
+        from trade import settings as ts
+        return ts.pravi_novac_sve()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _enter(con, auto, mk, todo, now, paths=None):
@@ -1414,6 +1425,15 @@ def _enter(con, auto, mk, todo, now, paths=None):
                 exit_note = f"; BEZ automatskog izlaza ({e2})"
         if _grace_at_entry(con, f, tid, liq) == "on":   # 10.11. (Grok MCP audit 4): flag stop_grace, proven only
             exit_note += f"; stop miruje prvih {GRACE_S // 60} min (osim kod ruga)"
+        if _switch_all() and f["user"] == _autopilot_user()[0]:
+            # 14.11. (pravi_novac_sve): a real-account copy goes to real money without the demo proof, so it gets its
+            # server-side stop now, before the "ulaz" row run_trade waits for (a "mirror" copy has no SL of its own)
+            try:
+                from . import exitplan
+                if exitplan.switch_stop(con, tok, f["user"], now=now):
+                    exit_note += "; zaštitni stop (pravi_novac_sve)"
+            except Exception as e:  # noqa: BLE001 - the sweep (exitplan.ensure_switch_stops) tries again
+                print(f"copy {tok[:6]}: zaštitni stop nije postavljen ({type(e).__name__}: {e})", flush=True)
         # 10.11. (Grok MCP audit 1): score, run-up and the call's MC go on the trade at the entry (data only). Written
         # before the "ulaz" row, so run_trade (which waits for that row) sees them when it mirrors the copy.
         ed = entry_data(f, tok, ts, price, paths, _first(firsts, tok, paths))

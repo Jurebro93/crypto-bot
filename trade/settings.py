@@ -171,10 +171,11 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # stop loss ... da se uzima barem 10-15% profita"; rangedca/rules.DEMO): paper = range_dca's DEMO account trades the
     # demo profile (entry score 0.6, bottom 25 %, no crashed token; TP +10 % / +15 % net, ATR stop held at -12..-25 %);
     # off = the demo account trades RULES like the real one. Never live (NEVER_LIVE); default paper (FLAG_DEFAULTS).
-    "range_demo": ("G32", "Range demo 14.11.: demo račun ulazi u donjih 25 % raspona (ocjena 0,6+), nikad u token koji je "
-                          "u 24 h pao više od 45 %, preživjeli pad (24 h+, opet u rasponu) idu prvi; pola van na +10 % "
-                          "neto, ostatak na +15 % neto ili gornjoj zoni, trailing 15 % / break-even, stop ATR između "
-                          "−12 % i −25 % od ulaza, bez lota 2; cilj 5 tradeova dnevno"),
+    "range_demo": ("G32", "Range demo (14.11. popodne, scalp): demo račun ulazi s 60 % uloga u donjih 30 % raspona ili do "
+                          "10 % iznad donje zone (ocjena 0,6+, 10 tokena s najviše volumena), DCA 40 % na −10 %, pola van "
+                          "na +0,60 $ neto od prosječnog ulaza, ostatak na +15 % / gornjoj zoni, stop ATR −17 do −25 % od "
+                          "lota 1, nikad token koji je u 24 h pao više od 45 %; do 10 rundi po tokenu dnevno; cilj 100 "
+                          "tradeova dnevno"),
 }
 # 12.11. (owner: "zadano shadow ili paper"): a flag's mode while the owner has never set it; every other flag is off
 FLAG_DEFAULTS = {"x_call_scalp": "shadow"}
@@ -199,6 +200,29 @@ OWNER_SWITCH_NOTES = {
     "tg_text_retention": "Tvoj prekidač: „uživo” uključuje brisanje teksta (noću 01-06, red objave ostaje); svaki drugi "
                          "mod samo mjeri i piše u log što bi se obrisalo i koliko MB.",
 }
+# 14.11. (owner: "Ja sada ne govorim o demu ... nema više demo ... idemo s pravim novcem"): ONE owner switch, "uživo" =
+# on, default off, only his tap on /pravi-trade (set_flag refuses anybody else). On: every automatic strategy whose
+# flag is paper or live trades the REAL account (LEAGUE_USER) without the demo proofs, within trade/executor's
+# SWITCH_CAPS; x_call_scalp (no account) and Grok autotrade (its own switch) stay out. Off: exactly as before.
+SWITCH_ALL = "pravi_novac_sve"
+# Range part (rangedca/trade.profile, scalp_live): the real account trades range_dca's scalp profile (rules.SCALP: lot 1
+# 60 % + DCA 40 % at -10 %, the whole position out at a fixed net USD target after the real costs, the focus list of
+# 10 tokens, up to 10 rounds a token a day); its exits run as exit plans on the real account (league/exitplan.scalp_live)
+FLAGS[SWITCH_ALL] = ("P14", "Pravi novac za sve strategije (vlasnik 14.11.): svaka automatska strategija u paper ili "
+                            "live modu kupuje pravim novcem, bez dokaza u demu, unutar stropova (0,1 SOL po tradeu, "
+                            "10 otvorenih, 100 kupnji dnevno, dnevni gubitak 0,5 SOL); range trguje scalp (lot 1 60 % "
+                            "+ DCA 40 % na −10 %, cijela pozicija van na neto cilju u $, 10 tokena, do 10 rundi dnevno)")
+OWNER_SWITCHES = OWNER_SWITCHES | {SWITCH_ALL}
+OWNER_SWITCH_NOTES[SWITCH_ALL] = ("Tvoj prekidač: „uživo” = sve strategije trguju pravim novcem (i one s negativnim "
+                                  "izmjerenim EV-om); svaki drugi mod = kao prije, pravi novac samo s dokazom u demu.")
+
+
+def pravi_novac_sve(con=None, path=None):
+    """True while the owner's switch pravi_novac_sve is on (mode "live"); never raises (unreadable = off)."""
+    try:
+        return flag(SWITCH_ALL, con, path) == "live"
+    except Exception:  # noqa: BLE001
+        return False
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
 PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
@@ -224,7 +248,12 @@ LIMITS = {
     "max_open": ("Najviše otvorenih pozicija", int, 1, 50),
     "min_sol_reserve": ("Uvijek ostavi u walletu (SOL)", float, 0.01, 10.0),
     "max_cost_pct": ("Najveći trošak swapa (%)", float, 0.5, 20.0),
+    # 14.11. popodne (pravi_novac_sve, rangedca/trade): the real account's range scalp; defaults LIMIT_DEFAULTS
+    "range_scalp_trades_day": ("Range scalp: najviše rundi pravog računa u danu", int, 1, 500),
+    "range_scalp_target_usd": ("Range scalp: neto cilj po rundi nakon troškova ($)", float, 0.1, 50.0),
 }
+# 14.11. popodne: the value of a LIMITS key config.json does not carry (merged() sets it when the owner never did)
+LIMIT_DEFAULTS = {"range_scalp_trades_day": 100, "range_scalp_target_usd": 0.60}
 
 # Audit 4.11. §14.4/§22: switches that stay off whatever is saved, until the proof the audit asks for exists.
 # The page shows them greyed out with this reason; run_trade and the SimianX job read the effective value.
@@ -290,6 +319,8 @@ def merged(cfg, con):
     for k in LIMITS:
         if k in s:
             out[k] = s[k]
+    for k, v in LIMIT_DEFAULTS.items():   # 14.11. popodne: the range scalp's own two settings
+        out.setdefault(k, v)
     out["max_sol_per_trade"] = max(out.get("max_sol_per_trade", 0), out["size_sol"])
     out["on"] = bool(s.get("on", False))
     out["follow_paper"] = bool(s.get("follow_paper", False)) and "follow_paper" not in LOCKED
@@ -483,6 +514,10 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     cur = flag_state(con)[name]
     if mode == cur["mode"]:
         return cur
+    if mode == "live" and name == SWITCH_ALL and not is_owner(who):
+        # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
+        # chat order, an applied suggestion or any other code path
+        raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")
     if mode == "live":
         why = live_refusal(con, name, paper, now)
         if why:

@@ -63,8 +63,30 @@ top zone, a 15 % trailing or break-even after TP1, the ATR stop held at -12..-25
 "demo"), no lot 2. The real account LEAGUE_USER keeps RULES exactly, and
 the real-money gates (gate.refusal, gate.missed_refusal) never count a demo-profile round. Every pass also records,
 once per token and reason a day, why each fresh active range was no demo entry (league.db range_blocks), and
-demo_today() is the daily counter "range demo danas: N tradeova (cilj 5)" with the 3 reasons that held off the most
+demo_today() is the daily counter "range demo danas: N tradeova (cilj 5, 14.11. popodne 100)" with the 3 reasons that held off the most
 tokens (logged when N changes and once an hour; get_range_candidates "demo_today").
+
+14.11. popodne (owner: "Probaj podignuti range za 5% ... uđe sa 60% pozicije uz DCA order. Ako padne još minus 10%,
+ostatak 40% ... Paziti na iznos fija ... 50 do 100 dnevno", then "na istom tokenu može dnevno napraviti 10 raidova ...
+50 centi ili 1 euro u profitu", then "sve s pravim novcem"): rules.DEMO is the SCALP profile. The demo account trades
+it while range_demo is paper; the REAL account LEAGUE_USER trades rules.SCALP (the same rules) only while the owner's
+switch pravi_novac_sve (G33, trade/settings OWNER_SWITCHES, default off) is live, without range_dca's paper-proof gate
+(gate.refusal), inside the trade settings and trade/executor's caps (precheck(): executor.buy_checks on trade.db read
+only, LIVE_CAPS when the executor is live, the kill switch; the wallet balance stays executor.buy's own check at the
+mirror), at most range_scalp_trades_day rounds a day (trade settings, 100). Per pass, for every account on a profile:
+the FOCUS list (focus(): the focus_n 10 active ranges with the most 1 h volume x score, open rounds kept) is the pool;
+lot 1 = 60 % of the stake (lot1_share), lot 2 (DCA) = the other 40 % 10-15 % under lot 1 (rules.demo_lot2_check), the
+TP on the average entry net of the whole position's cost (rules.demo_retarget; the demo account at league/store's
+fee, the real account at rules.real_cost: the pool's fee + Jupiter's route, the AMM impact of each buy and of the
+sale, the measured network fee of every swap, tx_fee_sol), rules.fee_guard before both lots (cost > 5 % or the TP over
+the range's top: no lot, the reason in the counter), the cooldown cooldown_tp_s (5 min) after a profitable exit and
+cooldown_s (20 min) after a stop, rounds_token_day (10) a token a day, the demo account's own max_open (10) and
+max_sol_day. A real-account round's exits run as an exit plan (league/exitplan, client "range scalp:", 1-s checks
+with the PumpPortal price on the stop, under pravi_novac_sve: exitplan.scalp_live) that follows the round (lot 2,
+a tighter stop); this module keeps the round's time stop and give-ups, and its own exits whenever the plan does not
+execute (switch off, plans paused). Lot 2 of the real account is a league.db buy run_trade.py mirrors as one more
+lot of the same real position (executor.buy add=True). The daily counter's goal is 100 and it shows the day's net
+PnL and the average per closed round.
 """
 import json
 import os
@@ -78,6 +100,9 @@ from . import data, gate, market, rules
 FLAG = "range_dca"
 FLIP_FLAG = "range_flip"    # 11.11. (G26): flip / pause / volatility stop, the new rules (rules.new_range)
 DEMO_FLAG = "range_demo"    # 14.11. (G32): the demo account's profile rules.DEMO (entry, survivor, TP / stop)
+PRAVI_FLAG = "pravi_novac_sve"   # 14.11. popodne (G33, owner switch): the real account trades rules.SCALP
+PLAN_CLIENT = "range scalp:"     # = league/exitplan.SCALP_SRC: the exit plan of a real-account scalp round
+TX_TTL_S = 600
 DEMO_LOG_S = 3600           # 14.11.: the daily counter's log line at least this often (and whenever N changes)
 SRC1, SRC2 = "range lot 1", "range lot 2"
 RANGE_FRESH_S = 15 * 60     # a range computed longer ago is not traded
@@ -105,6 +130,9 @@ REASON_HR = {"tp1": "pola u gornjoj zoni", "top": "ostatak na vrhu raspona", "tr
 DEMO_HR = {"tp1": "pola na +10 % neto (demo 14.11.)", "time": "6 h bez TP1, izlaz na nuli",
            "stop": "tvrdi stop demo (ATR, -12 do -25 % od ulaza)", "trailing": "trailing 15 % od vrha (demo)",
            "tp2": "ostatak na +15 % neto ili gornjoj zoni (demo)"}
+SCALP_HR = {"tp1": "{share} na cilju +${usd:.2f} neto (scalp)", "tp2": "ostatak na +15 % neto ili gornjoj zoni (scalp)",
+            "trailing": "trailing 15 % od vrha (scalp)", "time": "6 h bez cilja, izlaz na nuli (scalp)",
+            "stop": "tvrdi stop scalp (ATR, -17 do -25 % od lota 1)", "breakeven": "break-even stop ostatka (scalp)"}
 STOP_ATR_HR = "tvrdi stop (range_low_low − 1,5 × ATR)"   # 11.11.: the ATR stop (every account, decision 1)
 STOP_RECLAIM_HR = "tvrdi stop reclaim runde (novo dno − 1,5 × ATR)"
 
@@ -113,6 +141,9 @@ def _hr(reason, levels=None):
     """The reason in Croatian; the stop of a round with the volatility stop (or a reclaim round's) says so."""
     k = reason.split(":")[0]
     kind = (levels or {}).get("stop_kind")
+    if (levels or {}).get("tp_usd") and k in SCALP_HR:   # 14.11. popodne: the scalp profile's own exits
+        share = (rules.profile_cfg(levels) or {}).get("tp1_share", 0.5)
+        return SCALP_HR[k].format(usd=levels["tp_usd"], share="sve" if share >= 0.999 else "pola")
     if (levels or {}).get("profile") == "demo" and k in DEMO_HR:   # 14.11.: the demo profile's own exits
         return DEMO_HR[k]
     if k == "stop" and kind == "atr":
@@ -152,6 +183,16 @@ def roles(m, now=None):
     fl = _flags()
     act = [u for u in fl.autopilot_users() if fl.applies(FLAG, u, m)]
     sh = [u for u in fl.autopilot_users() if fl.shadowing(FLAG, u, m)]
+    if scalp_live() and m != "off":   # 14.11. popodne: the owner's switch, no paper-proof gate (owner override)
+        if ts.LEAGUE_USER not in act:
+            act.append(ts.LEAGUE_USER)
+        sh = [u for u in sh if u != ts.LEAGUE_USER]
+        t = now or time.time()
+        if t - _CACHE.get("scalp_log", 0.0) > 3600:
+            _CACHE["scalp_log"] = t
+            print("range scalp: pravi račun trguje scalp profil pravim novcem (pravi_novac_sve uživo, bez paper dokaza; "
+                  "limiti trade postavki i izvršitelja vrijede)", flush=True)
+        return act, sh
     if ts.LEAGUE_USER in act:
         why = gate.refusal(now=now, cached=True)
         if why:
@@ -162,6 +203,14 @@ def roles(m, now=None):
                 _CACHE["gate_log"] = t
                 print(f"range_dca live: pravi račun ne trguje ({why}); samo zapis u sjeni", flush=True)
     return act, sh
+
+
+def scalp_live():
+    """14.11. popodne: True while the owner's switch pravi_novac_sve is live (on). Unreadable: False (off)."""
+    try:
+        return _flags().mode(PRAVI_FLAG) == "live"
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def flip_roles(act, now=None):
@@ -203,7 +252,10 @@ def limits(now=None):
             cfg.setdefault("dca_token_cap", ts.DCA_TOKEN_CAP)
         _CACHE["lim"] = {"size_sol": float(cfg.get("size_sol") or 0.1), "max_sol_per_day": float(cfg.get("max_sol_per_day") or 1.0),
                          "max_open": int(cfg.get("max_open") or 5),
-                         "dca_token_cap": float(cfg.get("dca_token_cap") or ts.DCA_TOKEN_CAP)}
+                         "dca_token_cap": float(cfg.get("dca_token_cap") or ts.DCA_TOKEN_CAP),
+                         "trades_day": int(cfg.get("range_scalp_trades_day") or 100),
+                         "target_usd": float(cfg.get("range_scalp_target_usd") or rules.SCALP["tp_usd"])}
+        _CACHE["cfg"] = cfg   # 14.11. popodne: the real account's precheck reads every limit of it
         _CACHE["lim_at"] = now
     return _CACHE["lim"]
 
@@ -270,14 +322,23 @@ def allowed(rng, user, now=None):
     never trade real money); never LEAGUE_USER, whatever the flags say. 11.11. (range_missed G27): a token whose first
     source is "missed" (rangedca/missed.py): the demo account while range_missed is paper or live; LEAGUE_USER only
     while range_missed is live AND gate.missed_refusal() is None (>= 20 closed demo rounds of source missed, EV
-    proof), checked again here (a hand edit of the flag never buys with real money)."""
+    proof), checked again here (a hand edit of the flag never buys with real money). 14.11. popodne: while the owner's
+    switch pravi_novac_sve is on, LEAGUE_USER trades every source whose flag is paper or live (NEVER_LIVE included)."""
     srcs = (rng or {}).get("sources") or [(rng or {}).get("source") or "signal"]
     if "signal" in srcs:
         return True
     from trade import settings as ts
     if user != ts.PAPER_USER:
         first = next((s for s in market.SRC_ORDER if s in srcs), None)
-        return user == ts.LEAGUE_USER and first == "missed" and missed_live(now)
+        if user == ts.LEAGUE_USER and first == "missed" and missed_live(now):
+            return True
+        if user == ts.LEAGUE_USER and scalp_live():
+            # 14.11. popodne (owner: "Sve strategije" on real money): under his switch pravi_novac_sve the real account
+            # trades every source whose own flag is paper or live, the NEVER_LIVE ones (range_market, event_tokens)
+            # included: the switch is his override of that rule; off is still off
+            fl = _flags()
+            return any(fl.mode(market.WATCH_FLAG[s]) in ("paper", "live") for s in srcs if s in market.WATCH_FLAG)
+        return False
     fl = _flags()
     return any(fl.mode(market.WATCH_FLAG[s]) in ("paper", "live") for s in srcs if s in market.WATCH_FLAG)
 
@@ -305,6 +366,14 @@ def profile(user, m=None):
     PAPER_USER while range_demo is paper (live is paper for it: NEVER_LIVE), else None (RULES, the real account
     always)."""
     from trade import settings as ts
+    if user == ts.LEAGUE_USER:   # 14.11. popodne: the real account only under the owner's switch pravi_novac_sve
+        if not scalp_live():
+            return None
+        try:   # the owner's target (trade settings range_scalp_target_usd), read once a minute
+            tgt = (_CACHE.get("lim") or limits()).get("target_usd")
+        except (OSError, ValueError):
+            tgt = None
+        return {**rules.SCALP, "tp_usd": float(tgt)} if tgt and tgt != rules.SCALP["tp_usd"] else rules.SCALP
     if user != ts.PAPER_USER:
         return None
     try:
@@ -427,9 +496,23 @@ def _held(con, user, tok):
     return con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (user, tok)).fetchone() is not None
 
 
-def _cooldown(con, user, tok, now):
-    r = con.execute("SELECT MAX(closed_ts) FROM range_rounds WHERE user=? AND token=? AND status='closed'", (user, tok)).fetchone()
-    return bool(r and r[0] and now - r[0] < rules.RULES["cooldown_s"])
+def _cooldown(con, user, tok, now, cfg=None):
+    """True while the token's last closed round of `user` is within the cooldown: RULES cooldown_s (20 min); 14.11.
+    popodne, a rule set with cooldown_tp_s (the scalp profile): that (5 min) after a profitable / flat exit
+    (rules.TP_EXITS), cooldown_s after a stop or a give-up."""
+    r = con.execute("SELECT closed_ts, exit_reason FROM range_rounds WHERE user=? AND token=? AND status='closed' "
+                    "ORDER BY closed_ts DESC LIMIT 1", (user, tok)).fetchone()
+    if not r or not r[0]:
+        return False
+    c = rules._r(cfg)
+    short = c.get("cooldown_tp_s") is not None and (r[1] or "").split(":")[0] in rules.TP_EXITS
+    return now - r[0] < (c["cooldown_tp_s"] if short else c["cooldown_s"])
+
+
+def _rounds_today(con, user, tok, now):
+    """14.11. popodne: rounds of `user` in `tok` opened since the Zagreb day began (the scalp's rounds_token_day)."""
+    return con.execute("SELECT COUNT(*) FROM range_rounds WHERE user=? AND token=? AND opened_ts>=?",
+                       (user, tok, _day_start(now))).fetchone()[0]
 
 
 def busy(con, user, tok, now, rng=None):
@@ -539,9 +622,10 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
         new = user in new_u
         cfg = profile(user)   # 14.11.: rules.DEMO on the demo account while range_demo is paper
         blocks = {} if cfg else None
+        lim_u = user_limits(user, cfg, lim)   # 14.11. popodne: the demo account's own max_open / day SOL
         mine = [r for r in open_r if r["user"] == user]
         for r in mine:
-            done += _lot2(con, user, r, rngs.get(r["token"]), mk.get(r["token"]), lim, sol, now)
+            done += _lot2(con, user, r, rngs.get(r["token"]), mk.get(r["token"]), lim_u, sol, now)
         n_open = len(mine)
         for r in armed:   # 11.11. (decision 1): a reclaim within 30 min of the stop-out, before any new lot 1
             if r["user"] == user and not any(x["token"] == r["token"] for x in mine):
@@ -551,19 +635,25 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
                     mine.append({"token": r["token"]})
                     done += got
         pool = (cand_dn if new else cand_d) if cfg else (cand_new if new else cand)
+        if cfg and cfg.get("focus_n"):   # 14.11. popodne: the focus list (top 10 by 1 h volume x score)
+            fx = {t: (rules.new_range(r) if new else r) for t, r in rngs.items() if allowed(r, user, now)}
+            foc = focus(fx, cfg, keep={r["token"] for r in mine})
+            for tok in sorted(pool - foc):
+                blocks[tok] = f"izvan fokusa (top {cfg['focus_n']} po volumenu 1 h × ocjeni)"
+            pool = pool & foc
         for tok in (sorted(pool, key=lambda t: (_order(rngs.get(t)), t)) if cfg else sorted(pool)):
             if any(r["token"] == tok for r in mine):
                 continue
-            if n_open >= lim["max_open"]:
+            if n_open >= lim_u["max_open"]:
                 if blocks is not None:
-                    blocks[tok] = f"najviše otvorenih range rundi ({lim['max_open']})"
+                    blocks[tok] = f"najviše otvorenih range rundi ({lim_u['max_open']})"
                     continue
                 break
             if not allowed(rngs[tok], user, now):
                 if blocks is not None:
                     blocks[tok] = "izvor tokena nije dopušten ovom računu (zastavica izvora)"
                 continue
-            got = _lot1(con, user, tok, rngs[tok], mk.get(tok), lim, sol, now, new=new,
+            got = _lot1(con, user, tok, rngs[tok], mk.get(tok), lim_u, sol, now, new=new,
                         flip_log=mflip if user in flip_sh else None, cfg=cfg, blocks=blocks)
             if got:
                 n_open += 1
@@ -596,7 +686,9 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
 BLOCKS_SCHEMA = ("CREATE TABLE IF NOT EXISTS range_blocks (day INTEGER, user TEXT, token TEXT, reason TEXT, ts INTEGER, "
                  "PRIMARY KEY (day, user, token, reason))")
 # the reason's key: the first entry whose text is in the reason (the numbers of a reason differ token to token)
-BLOCK_KEYS = (("arhivi rugova", "rug arhiva"), ("rug (", "rug"), ("lažni pool", "lažni pool"),
+BLOCK_KEYS = (("range scalp rundi danas", "pravi račun: dnevni broj rundi"),   # 14.11. popodne: the real account first
+              ("kill switch", "pravi račun: kill switch"), ("pravi račun", "pravi račun: limit izvršitelja"),
+              ("arhivi rugova", "rug arhiva"), ("rug (", "rug"), ("lažni pool", "lažni pool"),
               ("ocjena raspona", "ocjena raspona ispod praga"), ("preživljavanje pada nepoznato", "preživljavanje nepoznato"),
               ("premlad za pad", "mlađi od 24 h (nije prošao pad)"), ("starost nepoznata", "starost nepoznata"),
               ("razina prije pada", "razina prije pada nepoznata"), ("nije preživio pad", "nije preživio pad (> 45 %)"),
@@ -611,7 +703,12 @@ BLOCK_KEYS = (("arhivi rugova", "rug arhiva"), ("rug (", "rug"), ("lažni pool",
               ("volumen 1 h", "volumen 1 h ispod $3k"), ("nema tržišne cijene", "nema tržišne cijene"),
               ("izvor tokena", "izvor nije dopušten"), ("pauz", "pauza nakon proboja"), ("proboj", "pauza nakon proboja"),
               ("volumen zadnjeg sata", "volumen sata pao (isključen)"), ("niža dna", "dva niža dna (isključen)"),
-              ("probijen dolje", "raspon probijen dolje"), ("kupnja nije prošla", "kupnja nije prošla"))
+              ("probijen dolje", "raspon probijen dolje"), ("kupnja nije prošla", "kupnja nije prošla"),
+              # 14.11. popodne: the scalp profile's own reasons (the fee guard, the focus list, the caps)
+              ("nedostižan unutar raspona", "cilj iznad vrha raspona (trošak)"),
+              ("trošak runde", "trošak runde iznad 5 %"), ("izvan fokusa", "izvan fokusa (top 10 po volumenu)"),
+              ("rundi u tokenu danas", "10 rundi u tokenu danas"),
+)
 _BLOCKS_SEEN = {}   # {(day, user): {(token, key)}} already in range_blocks (one write per token, reason and day)
 BLOCKS_KEEP_DAYS = 14
 
@@ -676,17 +773,18 @@ def demo_today(con, now=None, user=None):
     user = user or ts.PAPER_USER
     day = _day_start(now)
     out = {"day_start": day, "user": user, "goal": rules.DEMO_GOAL, "trades": 0, "reclaims": 0, "open": 0, "closed": 0,
-           "pnl_usd": 0.0, "tokens_seen": 0, "top_blocks": []}
+           "pnl_usd": 0.0, "tokens_seen": 0, "top_blocks": [], "dca": 0}
     try:
         have = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN "
                                           "('range_rounds', 'range_blocks')")}
         if "range_rounds" in have:
-            for st, lv, pnl in con.execute("SELECT status, levels, pnl_usd FROM range_rounds WHERE user=? AND "
-                                           "opened_ts>=?", (user, day)):
+            for st, lv, pnl, l2 in con.execute("SELECT status, levels, pnl_usd, lot2_id FROM range_rounds WHERE user=? "
+                                               "AND opened_ts>=?", (user, day)):
                 out["trades"] += 1
                 out["reclaims"] += int('"reclaim": true' in (lv or ""))
                 out["open" if st == "open" else "closed"] += 1
                 out["pnl_usd"] += pnl or 0.0
+                out["dca"] += int(bool(l2))
         if "range_blocks" in have:
             out["top_blocks"] = [{"reason": k, "tokens": n} for k, n in con.execute(
                 "SELECT reason, COUNT(DISTINCT token) n FROM range_blocks WHERE day=? AND user=? GROUP BY reason "
@@ -696,11 +794,16 @@ def demo_today(con, now=None, user=None):
     except sqlite3.Error:
         pass
     out["pnl_usd"] = round(out["pnl_usd"], 2)
+    # 14.11. popodne (owner: "100 tradeova ... 50 do 100 eura dnevno"): the day's net and the average closed round
+    out["avg_usd"] = round(out["pnl_usd"] / out["closed"], 3) if out["closed"] else None
     blk = ", ".join(f"{b['reason']} {b['tokens']}" for b in out["top_blocks"]) or "-"
-    out["text"] = (f"range demo danas: {out['trades']} tradeova (cilj {out['goal']})"
+    head = "range scalp PRAVI račun danas" if user == ts.LEAGUE_USER else "range demo danas"
+    out["text"] = (f"{head}: {out['trades']} tradeova (cilj {out['goal']})"
                    + (f", od toga reclaim {out['reclaims']}" if out["reclaims"] else "")
-                   + f"; otvoreno {out['open']}, zatvoreno {out['closed']} ({out['pnl_usd']:+.2f} $); "
-                   f"najviše blokira (tokena): {blk}; pregledano tokena {out['tokens_seen']}")
+                   + (f", DCA {out['dca']}" if out["dca"] else "")
+                   + f"; otvoreno {out['open']}, zatvoreno {out['closed']}; neto danas {out['pnl_usd']:+.2f} $"
+                   + (f", prosjek po zatvorenoj rundi {out['avg_usd']:+.2f} $" if out["avg_usd"] is not None else "")
+                   + f"; najviše blokira (tokena): {blk}; pregledano tokena {out['tokens_seen']}")
     return out
 
 
@@ -711,12 +814,28 @@ def _demo_log(con, user, now):
     except Exception:  # noqa: BLE001 - the counter never stops an entry pass
         return None
     key = (user, d["day_start"], d["trades"])
-    last = _CACHE.get("demo_log") or (None, 0.0)
+    logs = _CACHE.setdefault("demo_log", {})   # 14.11. popodne: per account (the real one too under pravi_novac_sve)
+    last = logs.get(user) or (None, 0.0)
     if last[0] == key and now - last[1] < DEMO_LOG_S:
         return None
-    _CACHE["demo_log"] = (key, now)
+    logs[user] = (key, now)
     print(d["text"], flush=True)
     return d["text"]
+
+
+def user_limits(user, cfg, lim):
+    """14.11. popodne: the limits a pass holds `user` to: the trade settings (lim), and for the DEMO account on a
+    profile with its own caps (rules.DEMO max_open 10, max_sol_day 15 SOL of paper money a day) those. The real account
+    always keeps the trade settings (and the executor's caps on top: precheck)."""
+    from trade import settings as ts
+    if not cfg or user != ts.PAPER_USER:
+        return lim
+    out = dict(lim)
+    if cfg.get("max_open"):
+        out["max_open"] = int(cfg["max_open"])
+    if cfg.get("max_sol_day"):
+        out["max_sol_per_day"] = float(cfg["max_sol_day"])
+    return out
 
 
 def _sized(lot, liq, sol, rng):
@@ -730,8 +849,10 @@ def _sized(lot, liq, sol, rng):
 def _candidate(r, cfg=None):
     """An active range with score >= score_min and the price in the lower 40 % (or unknown): worth a look this pass.
     cfg (14.11.): the rule set's score_min (rules.DEMO: 0.6)."""
-    return bool(r and r.get("active") and (r.get("score") or 0) >= rules._r(cfg)["score_min"] - 1e-9
-                and (r.get("pos_pct") is None or r["pos_pct"] <= 40))
+    c = rules._r(cfg)
+    top = max(40.0, (c["entry_bottom"] + 0.15) * 100)   # 14.11. popodne: the scalp's 30 % / rlt x 1.10 stays inside
+    return bool(r and r.get("active") and (r.get("score") or 0) >= c["score_min"] - 1e-9
+                and (r.get("pos_pct") is None or r["pos_pct"] <= top))
 
 
 def _order(r):
@@ -740,6 +861,127 @@ def _order(r):
     r = r or {}
     return (not (r.get("survivor") or {}).get("ok"), r.get("pos_pct") if r.get("pos_pct") is not None else 100.0,
             -(r.get("score") or 0))
+
+
+def focus(rngs, cfg, n=None, keep=()):
+    """14.11. popodne (owner: "ako se odabere 5 ili 10 tokena koji imaju volume I koji su u nekakvom range-u"): the
+    tokens the scalp profile trades this pass: the active ranges with score >= score_min ranked by 1 h volume x score,
+    the best focus_n (10); `keep` (tokens with an open round) always in. A set."""
+    c = rules._r(cfg)
+    n = c.get("focus_n") if n is None else n
+    if not n:
+        return set(rngs or {})
+    ok = [(t, r) for t, r in (rngs or {}).items() if r and r.get("active")
+          and (r.get("score") or 0) >= c["score_min"] - 1e-9]
+    ok.sort(key=lambda x: (-((x[1].get("metrics") or {}).get("vol_h1") or 0) * (x[1].get("score") or 0), x[0]))
+    return {t for t, _r in ok[:int(n)]} | set(keep or ())
+
+
+def tx_fee_sol(path=None, now=None):
+    """14.11. popodne: the network fee of ONE swap in SOL for the real account's cost (signature 5,000 lamports + the
+    priority fee): the median over the last 30 trade.db orders that carry prio_lamports (dry orders hold Jupiter's real
+    quote for our size), at least 5 of them; else rules.TX_FEE_SOL. (sol, "where it comes from"), cached TX_TTL_S."""
+    now = now or time.time()
+    hit = _CACHE.get("tx_fee")
+    if hit and now - hit[0] < TX_TTL_S:
+        return hit[1], hit[2]
+    val, src = rules.TX_FEE_SOL, f"zadano {rules.TX_FEE_SOL:g} SOL po swapu (trade.db još nema izmjerenih naloga)"
+    try:
+        from trade import settings as ts
+        p = path or ts.DB
+        if os.path.exists(p) and os.path.getsize(p):
+            tcon = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=2)
+            try:
+                rows = [r[0] for r in tcon.execute("SELECT prio_lamports FROM orders WHERE prio_lamports IS NOT NULL "
+                                                   "AND prio_lamports > 0 ORDER BY id DESC LIMIT 30")]
+            finally:
+                tcon.close()
+            if len(rows) >= 5:
+                import statistics
+                val = (statistics.median(rows) + 5000) / 1e9
+                src = f"medijan zadnjih {len(rows)} naloga (prioritet + potpis)"
+    except sqlite3.Error:
+        pass
+    _CACHE["tx_fee"] = (now, val, src)
+    return val, src
+
+
+def round_cost(user, lot_usds, liq, sol, mq=None, cfg=None):
+    """14.11. popodne: (round trip as a fraction of the position, {its parts}) of a scalp round of `user`: the demo
+    account at league/store's fee (1 % a side) and AMM impact (trade/cost.round_trip of the whole position: what it
+    books, as the backtest prices it); the REAL account at rules.real_cost: the pool's swap fee (PumpSwap 0.3 %, else
+    0.25 %) + Jupiter's route fee a side, each buy's impact and the sale's, and the network fee of every swap (lots +
+    sales, tx_fee_sol at today's SOL price)."""
+    from trade import settings as ts
+    size = sum(lot_usds)
+    if user != ts.LEAGUE_USER:
+        rt = _cost.round_trip(size, liq)
+        return rt, {"model": "demo", "fee_side": _cost.fee_side(), "usd": round(rt * size, 4)}
+    url = (mq[2] if mq and len(mq) > 2 else None) or ""
+    fee = rules.pool_fee(url=url) + rules.ROUTE_FEE
+    tx, tx_src = tx_fee_sol()
+    sells = rules.n_sells(cfg or rules.SCALP)
+    rt = rules.real_cost(lot_usds, liq, fee, tx * (sol or 0.0), sells=sells)
+    n_tx = len([u for u in lot_usds if u > 0]) + sells
+    return rt, {"model": "pravi", "fee_side": fee, "tx_sol": tx, "tx_src": tx_src, "n_tx": n_tx,
+                "net_usd": round(n_tx * tx * (sol or 0.0), 4), "usd": round(rt * size, 4),
+                "sol": round(rt * size / sol, 5) if sol else None}
+
+
+def cost_words(parts, size_usd):
+    """The per-round cost estimate of a real-account entry in Croatian (the log line of every live entry)."""
+    if parts.get("model") != "pravi":
+        return f"trošak runde ~{parts.get('usd', 0):.2f} $ (demo naknada {parts.get('fee_side', 0):.1%} po strani)"
+    return (f"trošak procjena: bazen+ruta {parts['fee_side']:.2%} po strani, mreža {parts['n_tx']} swapa x "
+            f"{parts['tx_sol']:.5f} SOL ({parts['tx_src']}), ukupno {parts['usd']:.2f} $ = {parts['usd'] / size_usd:.1%}"
+            + (f" ({parts['sol']:.4f} SOL)" if parts.get("sol") is not None else "") if size_usd else "")
+
+
+def precheck(con, user, tok, size_sol, now, add=False, lim=None):
+    """14.11. popodne (pravi_novac_sve): None when the real account's lot may be booked now, else why in Croatian: the
+    range scalp's own trades a day (trade settings range_scalp_trades_day, 100) and trade/executor's buy checks read
+    only (the kill switch, the stake per trade, the day's automatic spend, the day's loss stop, the open positions;
+    LIVE_CAPS on top while the executor is live; the cap VALUES are the executor's and the owner's). The wallet
+    balance is executor.buy's own check when run_trade mirrors the lot (an RPC call: not from this loop). The demo
+    account: None."""
+    from trade import settings as ts
+    if user != ts.LEAGUE_USER:
+        return None
+    if _CACHE.get("cfg") is None:
+        limits(now)
+    lim = {**(_CACHE.get("lim") or {}), **(lim or {})}
+    cfg = dict(_CACHE.get("cfg") or {})
+    if not add:
+        n = con.execute("SELECT COUNT(*) FROM range_rounds WHERE user=? AND opened_ts>=? AND levels LIKE ?",
+                        (user, _day_start(now), '%"profile": "scalp"%')).fetchone()[0]
+        cap = int(lim.get("trades_day") or 100)
+        if n >= cap:
+            return f"pravi račun: već {n} range scalp rundi danas (limit range_scalp_trades_day {cap})"
+    try:
+        from trade import executor
+        live = executor.is_live(cfg)
+        p = ts.DB
+        if not (os.path.exists(p) and os.path.getsize(p)):
+            return None if not os.path.exists(executor.STOP_FILE) else "pravi račun: kill switch (trade/STOP)"
+        tcon = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=5)
+        try:
+            base = {"max_sol_per_trade": lim.get("size_sol", 0.1), "max_sol_per_day": lim.get("max_sol_per_day", 1.0),
+                    "max_open": lim.get("max_open", 5)}
+            for _kind, key, text in executor.buy_checks(tcon, {**base, **cfg},
+                                                        size_sol, now, live, balance=float("inf"), token=tok, add=add):
+                if key in ("balance", "reserve"):
+                    continue
+                return f"pravi račun ({'uživo' if live else 'dry'}): {CAP_HR.get(key, key)}: {text}"
+        finally:
+            tcon.close()
+    except (sqlite3.Error, KeyError) as e:   # a check that cannot be made is no permission for real money
+        return f"pravi račun: provjera limita izvršitelja nije uspjela ({type(e).__name__})"
+    return None
+
+
+CAP_HR = {"stop": "kill switch", "stake": "ulog iznad limita po tradeu", "dup": "već postoji prava pozicija",
+          "day_spend": "dnevni limit automatskih kupnji", "day_loss": "dnevni gubitak dosegnut",
+          "max_open": "najviše otvorenih pravih pozicija"}
 
 
 def _flip_shadow(con, users, toks, rngs, mk, now, mflip):
@@ -779,7 +1021,9 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None, cfg=
     """Lot 1 of a new round. new: the account trades range_flip's new rules (rules.new_range); flip_log (range_flip's
     mode): the account trades today's rules and the would-be stop is kept and logged next to the round's. cfg
     (14.11.): rules.DEMO for the demo profile (its entry, the round's levels rules.demo_levels); blocks: {token: why}
-    gets the reason when no lot is bought (the daily counter)."""
+    gets the reason when no lot is bought (the daily counter). 14.11. popodne (the scalp profile, rules.DEMO /
+    SCALP): lot 1 = lot1_share (60 %) of the stake, the cooldown by the last exit, rounds_token_day, the fee guard
+    (rules.fee_guard on the round's cost, round_cost), the real account's executor precheck and its exit plan."""
     if not mq or not mq[0]:
         if blocks is not None:
             blocks[tok] = "nema tržišne cijene (DexScreener)"
@@ -788,11 +1032,19 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None, cfg=
     base = rng
     rng = rules.atr_range(rules.new_range(rng) if new else rng)   # 11.11. (decision 1): the ATR stop, every account
     why = entry_view(rng, price, now, cfg=cfg)
-    if why is None and (_held(con, user, tok) or _cooldown(con, user, tok, now)):
+    if why is None and (_held(con, user, tok) or _cooldown(con, user, tok, now, cfg)):
         why = "već drži token ili je u pauzi nakon runde"
+    if why is None and cfg and cfg.get("rounds_token_day"):
+        n_tok = _rounds_today(con, user, tok, now)
+        if n_tok >= cfg["rounds_token_day"]:
+            why = f"već {n_tok} rundi u tokenu danas (najviše {cfg['rounds_token_day']})"
     if why is None:
         why = _guards(tok, mq)
-    lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"])
+    split = bool(cfg and cfg.get("lot2") is not False and cfg.get("lot1_share"))
+    if split:   # 14.11. popodne: lot 1 = 60 % of the stake, lot 2 (DCA) the rest
+        lot = min(lim["size_sol"] * cfg["lot1_share"], lim["dca_token_cap"])
+    else:
+        lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"])
     if why is None and lot <= 0:
         why = "dca_cap manji od pola uloga"
     lot = _sized(lot, liq, sol, rng)
@@ -800,6 +1052,13 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None, cfg=
         why = "volumen 1 h ispod $3k"
     if why is None and _spent_today(con, user, now, sol) + lot > lim["max_sol_per_day"] + 1e-9:
         why = "dnevni limit SOL-a za range ulaze"
+    rt, parts = (round_cost(user, [lot * sol], liq, sol, mq, cfg) if cfg else (None, None))
+    if why is None and cfg:   # 14.11. popodne: the fee guard (the round's cost, the TP inside the range)
+        g = rules.demo_levels(rules.levels_of(rng), price, rt, cfg, cost_usd=lot * sol)
+        g["supply"] = (mcap / price) if mcap and price else None
+        why = rules.fee_guard(g, cfg)
+    if why is None:
+        why = precheck(con, user, tok, lot, now, lim=lim)
     if why:
         if blocks is not None:
             blocks[tok] = why
@@ -813,8 +1072,12 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None, cfg=
             blocks[tok] = f"kupnja nije prošla ({e})"
         return []
     lv = rules.levels_of(rng)
-    if cfg:   # 14.11. (DEMO): TP +10 / +15 % net from this entry, the stop held at -12..-25 % from it
-        lv = rules.demo_levels(lv, price, _cost.round_trip(lot * sol, liq), cfg)
+    if cfg:   # 14.11. (DEMO): TP from this entry net of cost, the stop held at a clamp from it
+        lv = rules.demo_levels(lv, price, rt if rt is not None else _cost.round_trip(lot * sol, liq), cfg,
+                               cost_usd=lot * sol)
+        lv["stake_sol"] = lim["size_sol"]
+        if parts and parts.get("model") == "pravi":
+            lv.update(fee_side=parts["fee_side"], tx_sol=parts["tx_sol"], net_fee_usd=parts["net_usd"])
     lv["supply"] = (mcap / price) if mcap and price else (rng.get("metrics") or {}).get("supply")
     srcs = base.get("sources") or [base.get("source") or "signal"]   # 11.11.: the round's source (EV per source, gate)
     lv["src"] = next((s for s in market.SRC_ORDER if s in srcs), "signal")
@@ -831,22 +1094,39 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None, cfg=
         nr = rules.new_range(base, ("atr",))
         if nr and nr.get("stop_px"):
             lv["flip_stop_px"] = nr["stop_px"]
-    con.execute("INSERT INTO range_rounds (user, token, symbol, opened_ts, status, lot1_id, lot1_sol, entry_mc, score, "
-                "levels, state) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (user, tok, sym, now, "open", tid, lot, mcap, rng.get("score"), json.dumps(lv), json.dumps({})))
+    cur = con.execute("INSERT INTO range_rounds (user, token, symbol, opened_ts, status, lot1_id, lot1_sol, entry_mc, "
+                      "score, levels, state) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      (user, tok, sym, now, "open", tid, lot, mcap, rng.get("score"), json.dumps(lv), json.dumps({})))
+    rid = cur.lastrowid
     if lv.get("flip_stop_px"):
         _flags().shadow(con, FLIP_FLAG, None, tok, f"stop {lv['stop_px']:.6g} (range_low_low × 0,85)",
                         f"stop {lv['flip_stop_px']:.6g} (range_low_low − 1,5 × ATR, {nr.get('stop_kind')})",
                         {"user": user, "lot1_id": tid, "mc": mcap, "supply": lv["supply"], "mode": flip_log}, now)
     con.commit()
     extra = ""
-    if cfg and lv.get("supply"):
+    if cfg and lv.get("supply") and lv.get("tp_usd"):   # 14.11. popodne: the scalp profile
+        sup = lv["supply"]
+        tgt = f"+${lv['tp_usd']:.2f} neto" if lv.get("tp_usd") else f"+{lv['tp_net']:.0%} neto"
+        share = cfg.get("tp1_share", 1.0)
+        extra = (f"; scalp: lot 1 {cfg.get('lot1_share', 1.0) * 100:.0f} % uloga, {'pola' if share < 0.999 else 'sve'} na MC "
+                 f"${lv['tp1_px'] * sup:,.0f} ({tgt} na cijelu poziciju)"
+                 + (f", ostatak MC ${rules.tp2_of(lv) * sup:,.0f}" if share < 0.999 else "")
+                 + (f", DCA 40 % na MC ${price * (1 - cfg['lot2_lo']) * sup:,.0f}" if split else "")
+                 + f", stop MC ${lv['stop_px'] * sup:,.0f} ({lv['stop_px'] / price - 1:+.0%}); "
+                 f"{cost_words(parts or {}, lot * sol)}")
+        sv = (base.get("survivor") or {}).get("why")
+        extra += f"; {sv}" if sv else ""
+    elif cfg and lv.get("supply"):
         sup = lv["supply"]
         extra = (f"; demo 14.11.: TP1 MC ${lv['tp1_px'] * sup:,.0f} (+{cfg['tp1_net']:.0%} neto), ostatak MC "
                  f"${rules.tp2_of(lv) * sup:,.0f}, stop MC ${lv['stop_px'] * sup:,.0f} ({lv['stop_px'] / price - 1:+.0%}); "
                  f"{(base.get('survivor') or {}).get('why') or ''}")
-    return [(user, f"range lot 1 {sym or tok[:6]}: {lot:g} SOL na MC ${mcap or 0:,.0f} (raspon "
-                   f"{rng.get('pos_pct') or 0:.0f} %, ocjena {rng.get('score') or 0:.2f}){extra}")]
+    plan_note = ""
+    if lv.get("profile") == "scalp":   # 14.11. popodne: the real account's exits as an exit plan (1-s, server side)
+        plan_note = "; " + plan_sync(con, user, {"id": rid, "token": tok, "levels": lv}, now)
+    head = "range scalp PRAVI lot 1" if lv.get("profile") == "scalp" else "range lot 1"
+    return [(user, f"{head} {sym or tok[:6]}: {lot:g} SOL na MC ${mcap or 0:,.0f} (raspon "
+                   f"{rng.get('pos_pct') or 0:.0f} %, ocjena {rng.get('score') or 0:.2f}){extra}{plan_note}")]
 
 
 def _lot2(con, user, r, rng, mq, lim, sol, now):
@@ -867,8 +1147,16 @@ def _lot2(con, user, r, rng, mq, lim, sol, now):
         return []
     lv = _levels_now(r, rng, now)
     mets = (rng or {}).get("metrics") if rng and now - (rng.get("mts") or rng.get("ts") or 0) <= METRICS_FRESH_S else None
-    why = rules.lot2_check(t1[0], price, lv, mets)
-    lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"], held_sol=r["lot1_sol"] or 0)
+    scalp = bool(pc and pc.get("lot1_share") and r["levels"].get("tp_usd"))
+    if scalp:   # 14.11. popodne: the DCA of the scalp profile (the remaining 40 % at -10 %)
+        if _plan_fired(con, r):
+            return []
+        why = rules.demo_lot2_check(t1[0], price, lv, rules.atr_range(rng) if rng else None, mets, pc)
+        stake = r["levels"].get("stake_sol") or lim["size_sol"]
+        lot = min(stake * (1 - pc["lot1_share"]), max(0.0, lim["dca_token_cap"] - (r["lot1_sol"] or 0)))
+    else:
+        why = rules.lot2_check(t1[0], price, lv, mets)
+        lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"], held_sol=r["lot1_sol"] or 0)
     if why is None and lot <= 0:
         why = "dca_cap: nema mjesta za lot 2"
     lot = _sized(lot, liq, sol, rng)
@@ -878,7 +1166,24 @@ def _lot2(con, user, r, rng, mq, lim, sol, now):
         why = "dnevni limit SOL-a za range ulaze"
     if why is None:
         why = _guards(r["token"], mq)
+    nlv, parts = None, None
+    if why is None and scalp:   # the TP on the average entry of both lots, net of both buys; the fee guard again
+        u1 = con.execute("SELECT size_usd FROM trades WHERE id=?", (r["lot1_id"],)).fetchone()[0] or 0.0
+        usds = [u1, lot * sol]
+        avg = sum(usds) / (u1 / t1[0] + lot * sol / price)
+        rt, parts = round_cost(user, usds, liq, sol, mq, pc)
+        nlv = rules.demo_retarget(dict(r["levels"], rht=lv.get("rht") or r["levels"].get("rht")), avg, rt,
+                                  sum(usds), pc)
+        why = rules.fee_guard(nlv, pc, lot=2)
+    if why is None:
+        why = precheck(con, user, r["token"], lot, now, add=True, lim=lim)
     if why:
+        if scalp:
+            k = (r["id"], block_key(why))
+            if k not in _LOT2_SAID:   # one log line per round and reason
+                _LOT2_SAID[k] = now
+                if drop_reached(t1[0], price, pc):
+                    print(f"range {user} {r['symbol'] or r['token'][:6]}: DCA lot 2 nije kupljen ({why})", flush=True)
         return []
     try:
         tid = _buy(con, user, r["token"], r["symbol"], lot * sol, price, liq, mcap, SRC2, True)
@@ -886,9 +1191,110 @@ def _lot2(con, user, r, rng, mq, lim, sol, now):
         print(f"range {user} {r['token'][:6]}: lot 2 nije prošao ({e})", flush=True)
         return []
     con.execute("UPDATE range_rounds SET lot2_id=?, lot2_sol=?, lot2_mc=? WHERE id=?", (tid, lot, mcap, r["id"]))
+    extra = ""
+    if nlv:
+        lvs = dict(r["levels"])
+        lvs.update({k: nlv[k] for k in ("tp1_px", "tp2_px", "entry_px", "rt_cost", "tp_net", "cost_usd", "dca")})
+        if parts and parts.get("model") == "pravi":
+            lvs["net_fee_usd"] = parts["net_usd"]
+        con.execute("UPDATE range_rounds SET levels=? WHERE id=?", (json.dumps(lvs), r["id"]))
+        r["levels"] = lvs
+        sup = lvs.get("supply")
+        if sup:
+            extra = (f"; TP1 sada MC ${lvs['tp1_px'] * sup:,.0f} na prosječnom ulazu MC ${lvs['entry_px'] * sup:,.0f} "
+                     f"(neto nakon obje kupnje, trošak {lvs['rt_cost']:.1%})")
     con.commit()
+    if r["levels"].get("profile") == "scalp":
+        extra += "; " + plan_sync(con, user, r, now)
     return [(user, f"range lot 2 {r['symbol'] or r['token'][:6]}: {lot:g} SOL na MC ${mcap or 0:,.0f} "
-                   f"({price / t1[0] - 1:+.1%} od prvog)")]
+                   f"({price / t1[0] - 1:+.1%} od prvog){extra}")]
+
+
+_LOT2_SAID = {}
+
+
+def drop_reached(lot1_px, price, cfg):
+    """True when the price is at or under the DCA level (lot2_lo under lot 1): only then a refused lot 2 is logged."""
+    return bool(lot1_px and price) and 1 - price / lot1_px >= rules._r(cfg)["lot2_lo"] - 1e-9
+
+
+# ---------- 14.11. popodne: the real account's scalp round as an exit plan (league/exitplan) -------------------------
+def plan_of(lv, rid):
+    """The exit plan of a real-account scalp round from its levels: TP1 (tp1_share) at tp1_px, the rest at
+    rules.tp2_of (+15 % net or the top zone) with the 15 % trailing from TP1 on and break-even after TP1, the stop at
+    the round's stop; all as market caps (the levels' supply). None without the supply."""
+    sup = lv.get("supply")
+    if not sup or not lv.get("tp1_px") or not lv.get("stop_px"):
+        return None
+    from trade import settings as ts
+    c = rules.profile_cfg(lv) or rules.SCALP
+    share = float(c.get("tp1_share", 1.0))
+    tps = [{"at_mc_usd": round(lv["tp1_px"] * sup, 2), "sell_share": round(min(1.0, share), 4)}]
+    plan = {"accounts": [ts.LEAGUE_USER], "stop": {"at_mc_usd": lv["stop_px"] * sup},
+            "reason": f"range scalp runda #{rid}: TP1 +${lv.get('tp_usd') or 0:.2f} neto, stop od lota 1"}
+    if share < 0.999:
+        tps.append({"at_mc_usd": round(rules.tp2_of(lv) * sup, 2), "sell_share": round(1.0 - share, 4)})
+        avg = lv.get("entry_px") or lv.get("lot1_px")
+        plan["trailing"] = {"activate_pct": round(max(0.0, lv["tp1_px"] / avg - 1) * 100, 3),
+                            "trail_pct": round(c["trail"] * 100, 2)}
+        if c.get("be_after_tp1"):
+            plan["breakeven_after_tp1"] = True
+    plan["take_profits"] = tps
+    return plan
+
+
+def _plan_fired(con, r):
+    """True when the round's exit plan already SOLD something on the real account (an executed exit_events row; a
+    shadow row, written while the plan did not execute, is not one): the round's lot 2 and plan updates stop."""
+    pid = (r.get("levels") or {}).get("plan_id")
+    if not pid:
+        return False
+    try:
+        return con.execute("SELECT 1 FROM exit_events WHERE plan_id=? AND user=? AND mode='izvršeno' LIMIT 1",
+                           (pid, r["user"])).fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def plan_sync(con, user, r, now):
+    """Set (or replace) the exit plan of a real-account scalp round (league/exitplan.set_plan, client PLAN_CLIENT
+    "range scalp: #id", accounts [LEAGUE_USER]) from its levels; its id goes into the round's levels plan_id. Before
+    any TP fired only (a replaced plan starts its state again). Returns the words for the log line; never raises (the
+    range's own exits then keep the round: plan_runs is False)."""
+    from league import exitplan
+    lv = r["levels"]
+    plan = plan_of(lv, r["id"])
+    if not plan:
+        return "plan izlaza nije postavljen (nema supplyja)"
+    if _plan_fired(con, r):
+        return "plan izlaza već prodaje (TP ispunjen), ostaje"
+    try:
+        got = exitplan.set_plan(con, r["token"], plan, exitplan.sl_floor(), client=f"{PLAN_CLIENT} #{r['id']}", now=now)
+    except (ValueError, sqlite3.Error) as e:
+        print(f"range scalp {r['token'][:6]}: plan izlaza nije postavljen ({e}); izlaze range pravila", flush=True)
+        return f"plan izlaza nije postavljen ({e}); izlaze range pravila"
+    lv["plan_id"] = got["plan_id"]
+    con.execute("UPDATE range_rounds SET levels=? WHERE id=?", (json.dumps(lv), r["id"]))
+    con.commit()
+    ex = exitplan.execution(user, exitplan._lots(con, user, r["token"]), plan=exitplan.active(con, r["token"]))
+    return (f"plan izlaza #{got['plan_id']} ({'izvršava se na pravom računu, 1 s' if ex['executes'] else ex['why']})")
+
+
+def plan_runs(con, r):
+    """True while the round's exit plan (levels plan_id) is the active plan of its token AND executes on the real
+    account (league/exitplan.execution: pravi_novac_sve live, plans not paused): then the plan sells TP / stop / the
+    trailing and this module only the time stop and the give-ups. Anything else: False (this module's own exits)."""
+    pid = (r.get("levels") or {}).get("plan_id")
+    if not pid:
+        return False
+    try:
+        from league import exitplan
+        p = exitplan.active(con, r["token"])
+        if not p or p["id"] != pid:
+            return False
+        return bool(exitplan.execution(r["user"], exitplan._lots(con, r["user"], r["token"]), plan=p)["executes"])
+    except Exception:  # noqa: BLE001 - unreadable: this module's own exits (a stop is never dropped)
+        return False
 
 
 # ---------- exits (every second) ------------------------------------------------------------------------------------
@@ -993,8 +1399,9 @@ def exits_once(con, market_fn, now=None):
     for r in open_r:
         lots = _lots(con, r)
         if not lots:   # sold by an exit plan (Grok) or by hand: the round ends with what the trades say
-            pnl = _finish(con, r, r["state"].get("last") or "prodano izvan runde", now)
-            out.append(f"range {r['user']} {r['symbol'] or r['token'][:6]}: runda zatvorena ({pnl:+.2f} $)")
+            why = _plan_reason(con, r) or r["state"].get("last") or "prodano izvan runde"
+            pnl = _finish(con, r, why, now)
+            out.append(f"range {r['user']} {r['symbol'] or r['token'][:6]}: runda zatvorena ({why}, {pnl:+.2f} $)")
             continue
         if r["token"] not in q:
             continue
@@ -1006,17 +1413,27 @@ def exits_once(con, market_fn, now=None):
         if flip_on and r["levels"].get("flip_stop_px"):   # range_flip shadow: the would-be stop of a today's-rules round
             _flip_stop_shadow(con, r, rng, st, price, mcap, age, now)
         gu = ((rng or {}).get("state") or {}).get("give_up")
+        pcfg = rules.profile_cfg(r["levels"])
         hit = None
-        if gu and gu.get("ts", 0) >= r["opened_ts"] and age <= STALE_S:
+        by_plan = r["levels"].get("plan_id") and plan_runs(con, r)   # 14.11. popodne: the real scalp round's plan
+        if gu and gu.get("ts", 0) >= r["opened_ts"] and age <= STALE_S and rules.gives_up(gu, pcfg):
             hit = (f"odustajanje: {gu.get('why')}", 1.0)
+        elif by_plan:   # the plan sells TP / stop / trailing; here only the time stop (out at break-even or better)
+            c = rules._r(pcfg)
+            be = _be_px(lots, liq)
+            if c.get("time_stop_s") and not st.get("top_ts") and not _plan_fired(con, r) and age <= STALE_S \
+                    and now - r["opened_ts"] >= c["time_stop_s"] and be and price >= be:
+                hit = ("time", 1.0)
         else:
             hit = rules.exit_step(lv, st, price, now, r["opened_ts"], _be_px(lots, liq), stale=age > STALE_S,
-                                  cfg=rules.profile_cfg(r["levels"]))   # 14.11.: a demo round by DEMO's exits
+                                  cfg=pcfg)   # 14.11.: a demo round by DEMO's exits
         if lv["stop_px"] != r["levels"].get("stop_px"):   # the stop tightened with the newer range: kept
             r["levels"]["stop_px"] = lv["stop_px"]
             if lv.get("stop_kind"):   # 11.11.: the kind of the stop that won (an old x 0.85 round under the ATR stop)
                 r["levels"]["stop_kind"] = lv["stop_kind"]
             con.execute("UPDATE range_rounds SET levels=? WHERE id=?", (json.dumps(r["levels"]), r["id"]))
+            if r["levels"].get("plan_id"):   # 14.11. popodne: the plan's stop tightens with the round's
+                plan_sync(con, r["user"], r, now)
         if hit:
             reason, frac = hit
             st["last"] = reason
@@ -1054,6 +1471,23 @@ def exits_once(con, market_fn, now=None):
 
 
 # ---------- 11.11. reclaim (the owner's decision 1) -----------------------------------------------------------------
+def _plan_reason(con, r):
+    """14.11. popodne: the round's end when its exit plan sold the last lot: the plan's last trigger as this module's
+    reason (tp1 / tp2 / trailing / stop / time_stop -> time), None without a plan or an event."""
+    pid = (r.get("levels") or {}).get("plan_id")
+    if not pid:
+        return None
+    try:
+        row = con.execute("SELECT trigger FROM exit_events WHERE plan_id=? AND user=? AND mode='izvršeno' ORDER BY id "
+                          "DESC LIMIT 1", (pid, r["user"])).fetchone()
+    except sqlite3.Error:
+        return None
+    if not row or not row[0]:
+        return None
+    t = row[0]
+    return "time" if t.startswith("time") else ("tp2" if t.startswith("tp") and t != "tp1" else t)
+
+
 def _stopped(reason):
     """A stop-out: the hard stop, or the "range broken downward" give-up (a stop in effect, as backtest.simulate)."""
     return reason == "stop" or (reason.startswith("odustajanje") and "probijen dolje" in reason)

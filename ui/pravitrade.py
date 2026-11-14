@@ -187,6 +187,12 @@ cursor:pointer;font-size:15px}
 .ap-qb .ap-qb-h{font-size:17px;font-weight:600;margin:0 0 10px}
 .ap-qb form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.ap-qb form input[name=token]{flex:1;min-width:200px}
 .ap-qb p.mut{font-size:13px;margin:8px 0 0}
+/* 14.11. (owner: "nema više demo"): the switch pravi_novac_sve, a warning box in the page (not a pop-up) */
+.ap-pns{margin:14px 0 6px;padding:14px 16px;border-radius:14px;border:2px solid var(--warn,#d97706);
+background:var(--warnbg,#fffbeb);color:var(--fg);font-size:15px}.ap-pns.on{border-color:var(--bad,#dc2626)}
+.ap-pns-h{margin:0 0 6px;font-size:17px;font-weight:700}.ap-pns ul{margin:6px 0 8px;padding-left:20px}
+.ap-pns li{margin:3px 0}.ap-pns p{margin:6px 0}.ap-pns .mut{font-size:13px;color:var(--mut)}
+.ap-pns form{margin:10px 0 0}.ap-pns button{min-height:44px;font-weight:700}
 </style>"""
 
 # 10.11. (Jure: "stranica mora biti čista"): the 7/14/30-day switch and the Phantom button are handled from the
@@ -2054,6 +2060,56 @@ def _slip_item(tcon, n=20):
              'kašnjenje swapa, naknade). Prosjek se oduzima od demo rezultata kad se procjenjuje pravi novac.</p>')
     return _item("Demo naspram pravog izlaza", f"zadnjih {len(rows)}, najgori {redak.pct(worst, 1)}", inner,
                  value=redak.pct(avg, 1), value_tone=redak.tone(avg), iid="fl-slip")
+
+
+SWITCH_NEG_EV = "momentum −6 %, insider_copy −2 %, confluence −17 %"   # measured and shown to the owner 14.11.
+
+
+def _switch_box(tcon, cfg, owner):
+    """14.11. (owner: "Želim da se to sve radi s pravim novcem, nema više demo"): the owner switch pravi_novac_sve in a
+    warning box near the top: what it does, its caps (trade/executor.SWITCH_CAPS), what always stays hard, that the
+    strategies with a negative measured EV are included, the wallet it needs and today's numbers; the owner's button
+    turns it on / off (/pravi-trade/flag: settings.set_flag, owner only). Viewers see the state only."""
+    on = settings.pravi_novac_sve(con=tcon)
+    c = executor.switch_caps(cfg)
+    n = int(c["max_open"])
+    stake = float(c["max_sol_per_trade"])
+    need = n * (stake + executor.BUY_OVERHEAD_SOL) + executor.reserve_sol(cfg, n)
+    st = executor.switch_status(tcon, time.time(), cfg, cfg.get("day_tz"))
+    head = ("Pravi novac za sve strategije: UKLJUČENO" if on else "Pravi novac za sve strategije: isključeno")
+    live = executor.is_live(cfg)
+    items = [f"<b>{_g(stake)} SOL</b> po kupnji",
+             f"najviše <b>{n} otvorenih</b> pravih pozicija (sve strategije zajedno, tvoje i Grokove se broje)",
+             f"najviše <b>{c['max_buys_day']} automatskih kupnji</b> u danu (Zagreb), najviše {_g(c['max_sol_per_day'])} SOL",
+             f"dnevni gubitak <b>−{_g(c['max_loss_day'])} SOL</b> (ostvareno, s naknadama): nove automatske kupnje stoje "
+             "do sljedećeg dana, otvorene pozicije zadržavaju svoje izlaze"]
+    body = [f'<p class=ap-pns-h>{esc(head)}</p>',
+            '<p><b>Upozorenje:</b> kad je uključen, svaka automatska strategija u paper ili live modu kupuje '
+            '<b>pravim novcem</b>, bez dokaza u demu: kopiranje praćenja, insajderi prije poziva, momentum, brzi put, '
+            'prijedlozi i range. <b>Uključene su i strategije s negativnim izmjerenim EV-om</b> '
+            f'(14.11.: {esc(SWITCH_NEG_EV)}): gubitak je vjerojatan.</p>',
+            '<p>Stropovi automatskih pravih kupnji:</p><ul>' + "".join(f"<li>{x}</li>" for x in items) + "</ul>",
+            '<p class=mut>Uvijek tvrdo: kill switch, stanje walleta i rezerva, arhiva rugova, MC 30k+, samo bondani '
+            '(nikad pump.fun krivulja), likvidnost 15k+, trošak swapa najviše '
+            f'{_g(cfg.get("max_cost_pct"))} %, jedna prava pozicija po tokenu, svaka prava pozicija ima stop na serveru. '
+            'Izvan prekidača: x_call_scalp (samo mjeri), Grok autotrade (svoj prekidač i limiti), SimianX i stari paper '
+            'trader (zaključani), tvoje ručne kupnje (tvoji limiti kao prije).</p>',
+            f'<p class=mut>Wallet za {n} × {_g(stake)} SOL: barem ~{_g(round(need, 2))} SOL (ulozi, naknade i depozit '
+            f'računa, rezerva za prodaju); preporuka ~{_g(round(need + c["max_loss_day"], 2))} SOL, da ni dan s gubitkom '
+            f'od {_g(c["max_loss_day"])} SOL ne zaustavi kupnje prije dnevnog stopa. Radi samo dok je Autopilot uključen '
+            'i u Renderu stoje TRADE_LIVE=1 i ključ'
+            + ("" if live else " (sada nije: kupnje bi bile samo proba)") + '.</p>',
+            f'<p>Danas: kupnji {st["buys"]}/{st["max_buys_day"]}, otvoreno {st["open"]}/{st["max_open"]}, ostvareno '
+            f'{redak.sol(st["pnl"], 3)} SOL (stop −{_g(st["max_loss_day"])})'
+            + (", <b>dnevni stop dosegnut</b>" if st["stopped"] else "") + '.</p>']
+    if owner:
+        mode, label = ("off", "Isključi pravi novac za sve") if on else ("live", "Uključi pravi novac za sve strategije")
+        confirm = ("" if on else ' onsubmit="return confirm(\'Sve strategije kupuju pravim novcem, i one s negativnim '
+                                 'EV-om. Uključiti?\')"')
+        body.append(f'<form method=post action=/pravi-trade/flag{confirm}><input type=hidden name=name '
+                    f'value={settings.SWITCH_ALL}><input type=hidden name=mode value={mode}>'
+                    f'<button class="{"ap-stop" if on else "ap-go"}">{esc(label)}</button></form>')
+    return f'<div class="ap-pns{" on" if on else ""}" id=fl-pravi-novac>{"".join(body)}</div>'
 
 
 def _flags_section(tcon, con, owner):
@@ -4909,6 +4965,7 @@ def page_classic(qs, user):
                  # the trade first (what waits for approval, buy, open positions, the decision log), then how it
                  # trades; Grok's summary and everything else under "Još"
                  setup.get("warn", ""),
+                 _safe("pravi-novac-sve", _switch_box, tcon, cfg, owner),   # 14.11.: the owner's switch, a warning box
                  _safe("mcp", _mcp_requests, tcon, owner),
                  _safe("kupnja", _buy_now_card, cfg, owner),
                  props,   # 11.11. (Jure): trade-focused, so right after Brza kupnja, above the positions
