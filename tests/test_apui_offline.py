@@ -392,8 +392,9 @@ class Page(Base):
         # 11.11. (Jure: Autopilot kao terminal, ui/apterm.py): the title with the switch, the token header and the
         # chart, the tabs (positions, orders, history, log), the order panel, then "Što kupiti", "Koga pratimo" and
         # "Postavke i dijagnostika"; nothing of the last four is computed for the first HTML (the patches above raise)
-        keys = ("<h1>Autopilot</h1>", "id=apx-hdr", "id=apx-chartbox", "id=pozicije", "id=nalozi", "id=povijest",
-                "id=dnevnik", "id=kupi-odmah", "id=kupiti", "id=pratimo", "id=apx-ostalo")
+        # 14.11.: the order panel (Brza kupnja) right after the chart, before the tables, the switches above Postavke
+        keys = ("<h1>Autopilot</h1>", "id=apx-hdr", "id=apx-chartbox", "id=kupi-odmah", "id=pozicije", "id=nalozi",
+                "id=povijest", "id=dnevnik", "id=kupiti", "id=pratimo", "id=prekidaci", "id=apx-ostalo")
         at = [body.index(k) for k in keys]
         self.assertEqual(at, sorted(at))
         for src in ("/pravi-trade/l/kupiti", "/pravi-trade/l/pratimo", "/pravi-trade/l/ostalo", "/pravi-trade/l/povijest",

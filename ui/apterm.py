@@ -18,6 +18,11 @@ right (~35 %); below 1024 px one column, the panel opens as a bottom sheet from 
   5. "Što kupiti" (one list of every proposal + the tool's live picks, sorted by EV per minute, lazy, every 30 s)
      and "Koga pratimo" (wallets / influencers / tokens, lazy).
   6. "Postavke i dijagnostika": the older sections of this page (pravila, Grok, zastavice, ...), loaded when opened.
+14.11. (Jure: "na vrhu treba biti odmah graf, brza kupovina i pozicije ... a svi prekidači i sve ostalo treba biti na
+dnu stranice"; "grokove sve pozicije ubaci dolje u pozicije samo uz tag da je pokrenuo sam program ili ručno"): top to
+bottom the chart, Brza kupnja (the panel; on a phone on the page under the chart, the sheet only when it is out of
+sight), Pozicije (one list of collapsed rows, Grok's among them, each tagged by opened_by), Portfelj, the cards,
+"Prekidači" (switches_html: every switch the owner uses; a chip in the title row leads there) and Postavke last.
 
 Speed: the first HTML holds only the header, the chart's frame, the positions, the orders and the panel, built from
 cached reads (no DexScreener request waits for the page: live numbers come with the first tick); everything else is
@@ -75,7 +80,10 @@ COL_HELP = {
     "PnL": "Dobit ili gubitak pozicije: postotak prema ulazu i procjena u SOL-u po cijeni sada (naknade dolaze pri prodaji).",
     "SL": "Stop loss: postotak ispod ulaza i MC na kojem se pozicija prodaje da se ograniči gubitak.",
     "TP": "Take profit: postotak iznad ulaza i MC na kojem se prodaje s dobiti (trailing ako ga plan ima).",
-    "Izvor": "Što je otvorilo poziciju: ručno, prijedlog, copy influencera ili walleta, Grok.",
+    "Izvor": "Tko je otvorio poziciju: „program” = bot sam (Grok autotrade, kopiranje influencera ili walleta, "
+             "insajderi, brzi put, momentum, range, prijedlozi), uz ime strategije; „ručno” = ti (Kupi, Brza kupnja, "
+             "dokup, DCA i nalozi na MC, Kupi na prijedlogu, Grokov zahtjev koji si odobrio dodirom).",
+    "Otvoreno": "Kada je kupljen zadnji ulaz pozicije (po zagrebačkom vremenu).",
     "Vrsta": "Vrsta naloga: DCA dokup, kupnja na MC (limit), TP, SL, trailing ili prodaja u tijeku.",
     "Razina": "MC (ili postotak od ulaza) na kojem se nalog izvršava.",
     "Iznos": "Koliko SOL-a nalog troši pri kupnji.",
@@ -239,6 +247,84 @@ def src_kind(reason):
     if w == "demo strategija" or str(reason or "").startswith("paper"):
         return "paper"
     return "auto"
+
+
+# 14.11. (Jure: "grokove sve pozicije ubaci dolje u pozicije samo uz tag da je pokrenuo sam program ili ručno"): who
+# opened a position, from its lot's source (league.db trades.source of the demo trade behind it, else trade.db
+# positions.reason: both carry the same text, run_trade passes the source on as the reason). "ručno" = the owner's
+# own buy on the page (Kupi, Brza kupnja, dokup, his DCA and MC orders: "ručno (pravi trade)"), Kupi on a proposal
+# ("ručno: prijedlog <strategija>") and a Grok request he approved by tap ("ručno: Grok odobreno (MCP)" =
+# league/exitplan.APPROVED_SRC); "program" = everything the bot opened by itself, named by its strategy
+# (trade/executor.strategy_of): Grok autotrade ("Grok auto (MCP)"), the copies of the follows, the insiders before
+# a call, the fast path, momentum, range (scalp when its round has the scalp profile: pravi_novac_sve), the
+# proposals' own entries, SimianX, a DCA plan, the old paper trader. league/exitplan.OWN_SOURCES ("ručno", "Grok
+# auto") are the lots that keep their own exits; that is a different question (whose exit), not who opened it.
+APPROVED_SRC = "ručno: Grok odobreno (MCP)"   # = league/exitplan.APPROVED_SRC = ui/grokauto.APPROVED_SRC
+PROGRAM_WORDS = {"grok": "Grok", "fast_path": "brzi put", "insider_copy": "insajderi", "kopiranje": "kopiranje",
+                 "momentum_scalp": "momentum", "range_dca": "range", "proposals": "prijedlog", "simianx": "SimianX"}
+
+
+def opened_by(source, profile=None):
+    """{"kind": "ručno" | "program", "what": the strategy / the kind of manual buy ("" for a plain manual buy),
+    "tag": "program · Grok", "ručno", "ručno · Grok prijedlog", ...} of a position's source. profile: the range
+    round's profile ("scalp" under pravi_novac_sve) when the lot is a range lot."""
+    s = " ".join(str(source or "").split())
+    low = s.lower()
+    if s == APPROVED_SRC or low.startswith("ručno: grok"):
+        kind, what = "ručno", "Grok prijedlog"
+    elif low.startswith("ručno: prijedlog"):
+        kind, what = "ručno", "prijedlog"
+    elif low.startswith("ručno"):
+        kind, what = "ručno", ""
+    elif low.startswith("dca kupnja"):
+        kind, what = "program", "DCA plan"
+    elif low.startswith("paper"):
+        kind, what = "program", "paper trader"
+    elif not s:
+        kind, what = "program", ""
+    else:
+        st = executor.strategy_of(s)
+        kind, what = "program", PROGRAM_WORDS.get(st, "")   # an unknown text (a restart's note): no guessed name
+        if st == "range_dca" and profile == "scalp":
+            what = "range scalp"
+        elif st == "proposals":
+            strat = s.split(":", 1)[1].strip() if ":" in s else ""
+            what = f"prijedlog {strat}"[:40].strip()
+    return {"kind": kind, "what": what, "tag": f"{kind} · {what}" if what else kind}
+
+
+def _lot_sources(lids):
+    """{league trade id: (source, range profile or None)} of the demo trades behind open positions: one read-only
+    league.db read by primary key (the range rounds only when a lot is a range lot); {} without league.db."""
+    lids = [int(x) for x in lids if x]
+    if not lids:
+        return {}
+    lg = pt._league_ro()
+    if lg is None:
+        return {}
+    try:
+        q = ",".join("?" * len(lids))
+        out = {lid: (src, None) for lid, src in lg.execute(f"SELECT id, source FROM trades WHERE id IN ({q})", lids)}
+        rng = [lid for lid, (src, _p) in out.items() if str(src or "").startswith("range lot")]
+        if rng:
+            try:
+                q = ",".join("?" * len(rng))
+                for l1, l2, lv in lg.execute(f"SELECT lot1_id, lot2_id, levels FROM range_rounds WHERE lot1_id IN ({q}) "
+                                             f"OR lot2_id IN ({q})", rng + rng):
+                    try:
+                        prof = (json.loads(lv) or {}).get("profile") if lv else None
+                    except (ValueError, AttributeError):
+                        prof = None
+                    for lid in (l1, l2):
+                        if lid in out:
+                            out[lid] = (out[lid][0], prof)
+            except sqlite3.Error:   # no range_rounds yet
+                pass
+        return out
+    except sqlite3.Error:
+        return {}
+    finally:
+        lg.close()
 
 
 def ev_per_min(p):
@@ -443,6 +529,7 @@ def positions_data(tcon, cfg, now=None, live=None):
         modes.setdefault(tok, []).append(mode)
     plans = _plans(sorted(modes), cfg, modes)
     notes = _notes(tcon, [r[0] for r in rows], {r[1] for r in rows})
+    srcs = pt._safe("izvori", _lot_sources, [r[10] for r in rows], fallback={})
     out = []
     for (tok, mode), lots in groups.items():
         ids = [r[0] for r in lots]
@@ -473,6 +560,10 @@ def positions_data(tcon, cfg, now=None, live=None):
         sin_all = sum(r[6] or 0 for r in lots)
         q_all, ql_all = sum(r[8] or 0 for r in lots), sum(r[9] or 0 for r in lots)
         first = lots[0]
+        # 14.11.: who opened it, from the demo trade's source (else the position's reason); every lot's, first = opening
+        lot_src = [(srcs.get(r[10]) or (None, None))[0] or r[5] for r in lots]
+        bys = [opened_by(x, (srcs.get(r[10]) or (None, None))[1]) for x, r in zip(lot_src, lots)]
+        tags = list(dict.fromkeys(b["tag"] for b in bys))
         out.append({"key": f"{tok}:{mode}", "token": tok, "sym": first[2] or short(tok or ""), "mode": mode,
                     "paper": mode != "live", "ids": ids, "pid": ids[0], "lots": lot_rows, "n_lots": len(lots),
                     "sol_in": round(sin_all, 6), "held": round(ql_all / q_all, 4) if q_all else 1.0,
@@ -486,9 +577,10 @@ def positions_data(tcon, cfg, now=None, live=None):
                     "plan": (plans.get(tok) or {}).get(mode), "fields": (plans.get(tok) or {}).get("fields"),
                     "opened_ts": max(r[3] or 0 for r in lots), "pending": pend, "has_demo": bool(first[10]),
                     "note": _slim(next((notes[("p", i)] for i in ids if ("p", i) in notes), None) or notes.get(("t", tok))),
-                    # 13.11. (Jure: "pozicije groka jasnije"): a Grok position for the Grok card ("auto": autotrade,
-                    # "approved": a request the owner approved), None for anything else
-                    "grok": _grok_kind(r[5] for r in lots),
+                    # 13.11. (Jure: "pozicije groka jasnije"): a Grok position ("auto": autotrade, "approved": a
+                    # request the owner approved), None for anything else; 14.11.: its details open in its row
+                    "grok": _grok_kind([r[5] for r in lots] + lot_src),
+                    "by": bys[0], "by_more": tags[1:],
                     "rule": rule})
     out.sort(key=lambda p: (p["paper"], -(p["opened_ts"] or 0)))
     return out
@@ -1384,26 +1476,77 @@ def _sel_btn(tok, sym, cls="apx-tok"):
 
 
 def positions_html(d):
-    """Pozicije: one row per position (a table on a desktop, a card on a phone), live first, paper grey under a
-    divider; the owner's Zatvori 50 % / 100 % (the sell request route) and Uredi SL-TP (the exit route and DCA)."""
+    """Pozicije: one collapsed row per position, live first, paper grey under a divider. 14.11. (Jure: "grokove sve
+    pozicije ubaci dolje u pozicije samo uz tag da je pokrenuo sam program ili ručno"; 13.11.: "ulazni market cap,
+    plan za izlaz ... što stanu jedan redak na mobitelu I onda kad klikom ... padajući izbornik"): Grok's positions
+    are rows of this one list (the separate Grok card is gone), every row says who opened it (opened_by: "program ·
+    Grok", "program · range scalp", "ručno", "ručno · Grok prijedlog"). The row's line: the token (a tap loads its
+    chart), live / paper, the tag, and the numbers (a table row on a desktop; entry MC, PnL and the exit in words on a
+    phone). A tap opens the rest: every number, the plan, the owner's Zatvori 50 % / 100 % (the sell request route)
+    and Uredi SL-TP (the exit route and DCA), and for Grok's own positions his thesis, what he sent and what
+    MemeSonar's data says (ui/grokpoz.detail, owner only)."""
     owner, cfg = d["owner"], d.get("_cfg") or {}
     rows = d["positions"]
     rules = d.get("_rules") or {}
-    head = ('<div class="apx-tr apx-th">' + _th("Token") + _th("Veličina", cls="n") + _th("Ulaz (MC)", cls="n")
-            + _th("Sada (MC)", cls="n") + _th("PnL", cls="n") + _th("SL", cls="n") + _th("TP", cls="n") + _th("Izvor")
-            + '</div>')
+    head = ('<div class="apx-tr apx-th apx-prh">' + _th("Token") + _th("Veličina", cls="n") + _th("Ulaz (MC)", cls="n")
+            + _th("Sada (MC)", cls="n") + _th("PnL", cls="n") + _th("SL", cls="n") + _th("TP", cls="n") + '</div>')
     if not rows:
-        body = ('<p class=apx-empty>Nema otvorenih pozicija. Kupi u panelu desno (na mobitelu gumb Kupi dolje) ili '
-                'zaprati nekoga pod „Koga pratimo”.</p>')
+        body = ('<p class=apx-empty>Nema otvorenih pozicija. Kupi u Brzoj kupnji iznad (na mobitelu odmah ispod grafa) '
+                'ili zaprati nekoga pod „Koga pratimo”.</p>')
         return f'<div class=apx-tbl data-n=0>{body}</div>' + (pt.SELL_ALL if owner and cfg.get("on") else "")
+    gx = pt._safe("grok-pozicije", grok_details, d, fallback={}) if owner and any(p.get("grok") for p in rows) else {}
+    now = time.time()
     out, paper_seen = [], False
     for p in rows:
         if p["paper"] and not paper_seen:
             paper_seen = True
             out.append('<div class=apx-div>Probno (paper): bez pravog novca</div>')
-        out.append(_pos_row(p, owner, cfg, rules.get(p["key"])))
+        out.append(_pos_row(p, owner, cfg, rules.get(p["key"]), gx.get(p["key"]), now))
     tail = pt.SELL_ALL if owner and (cfg.get("on") or rows) else ""
-    return f'<div class=apx-tbl data-n={len(rows)}>{head}{"".join(out)}</div>{tail}'
+    return f'<div class="apx-tbl apx-prl" data-n={len(rows)}>{head}{"".join(out)}</div>{tail}'
+
+
+def grok_details(d, now=None):
+    """{position key: ui/grokpoz.detail} of Grok's open positions in the first view (autotrade and approved requests):
+    his thesis, what he sent, MemeSonar's own data, the rounds today. Read-only; the facts are cached per token."""
+    import sqlite3 as _sq
+    from ui import grokauto, grokpoz
+    now = now or time.time()
+    rows = [p for p in d.get("positions") or [] if p.get("grok")]
+    if not rows:
+        return {}
+    tcon = pt._tcon()
+    lcon = pt._league_ro()
+    try:
+        cap = grokauto.limits(tcon)["max_round_trips_per_token_day"]
+        if lcon is not None:
+            lcon.row_factory = _sq.Row
+        out = {}
+        for p in rows:
+            rinfo = None
+            if p.get("grok") == "auto" and lcon is not None:
+                try:
+                    rinfo = grokauto.round_info(tcon, lcon, p["token"], now)
+                except Exception:  # noqa: BLE001
+                    rinfo = None
+            got = pt._safe("grok-pozicija", grokpoz.detail, tcon, lcon, p, now, rinfo, cap, fallback=None)
+            if got:
+                out[p["key"]] = got
+        return out
+    finally:
+        tcon.close()
+        if lcon is not None:
+            lcon.close()
+
+
+def by_html(p):
+    """The tag of who opened a position: "program · Grok" (accent) or "ručno" (ink), the other lots' tags after it."""
+    b = p.get("by") or opened_by(None)
+    more = "".join(f'<span class="apx-by more">+ {esc(t)}</span>' for t in p.get("by_more") or [])
+    title = ("Otvorio program sam (automatska strategija)" if b["kind"] == "program"
+             else "Otvorio si ručno" + (" (odobren Grokov prijedlog)" if b["what"] == "Grok prijedlog" else ""))
+    return (f'<span class="apx-by {"prog" if b["kind"] == "program" else "man"}" data-by="{esc(b["kind"])}" '
+            f'title="{esc(title)}">{esc(b["tag"])}</span>{more}')
 
 
 def plan_html(pl):
@@ -1421,7 +1564,8 @@ def plan_html(pl):
             f'{esc(pl.get("reason") or "")}{" · plan: " + summ if summ else ""}</div>')
 
 
-def _pos_row(p, owner, cfg, rule):
+def _pos_row(p, owner, cfg, rule, gx=None, now=None):
+    from ui import grokpoz
     tok, ids = p["token"], ",".join(map(str, p["ids"]))
     badge = ('<span class="apx-badge paper">paper</span>' if p["paper"] else '<span class="apx-badge live">uživo</span>')
     size = redak.sol(p["sol_in"], 3) + (f' · {p["n_lots"]} ulaza' if p["n_lots"] > 1 else "")
@@ -1434,7 +1578,12 @@ def _pos_row(p, owner, cfg, rule):
     tp = (f'{_pct(p["tp_pct"], 0)}<small>{mc(p["tp_mc"])}</small>' if p["tp_mc"] else "–")
     if p.get("trail"):
         tp += f'<small>trailing {esc(str(p["trail"].get("trail_pct")))} %</small>'
-    src = esc(p["src"]) + (f'<small>{esc(p["who"])}</small>' if p["who"] and p["who"] != p["src"] else "")
+    b = p.get("by") or opened_by(None)
+    who = p.get("who") or ""
+    who_txt = who if who and who not in ("ručno", "Grok auto") else ""
+    tag = by_html(p) + (f'<small class=apx-who>{esc(who_txt)}</small>' if who_txt else "")
+    # the exit in a few words for the phone's line: Grok's plan in force, else the position's plan, else its TP / SL
+    xs = (gx or {}).get("exit") or ((p.get("plan") or {}).get("summary") or "") or grokpoz.exit_short(p)
     act = ""
     edit = ""
     if owner:
@@ -1453,16 +1602,33 @@ def _pos_row(p, owner, cfg, rule):
                 edit = (f'<div class=apx-edit id=ed-{p["pid"]} hidden><div><h4>SL / TP · {esc(p["sym"])}</h4>'
                         f'{sltp_html(p, cfg)}</div><div><h4>DCA dokup</h4>{lv}</div></div>')
     pnl_cls = _tone(p["pnl_pct"])
-    return (f'<div class="apx-tr apx-pos{" is-paper" if p["paper"] else ""}" id=poz-{p["pid"]} data-key="{esc(p["key"])}" '
-            f'data-tok="{esc(tok)}">'
-            f'<span class=apx-c-tok data-l="Token">{_sel_btn(tok, p["sym"])}{badge}</span>'
+    # the line (summary): a table row on a desktop; on a phone token + tag, entry MC, PnL and the exit in words
+    summ = (f'<summary class="apx-tr apx-prs">'
+            f'<span class=apx-c-tok data-l="Token">{_sel_btn(tok, p["sym"])}{badge}{tag}</span>'
             f'<span class=n data-l="Veličina">{size}</span>'
-            f'<span class=n data-l="Ulaz (MC)">{mc(p["avg_mc"])}</span>'
+            f'<span class="n apx-pin" data-l="Ulaz (MC)"><i class=apx-pw>ulaz </i>{mc(p["avg_mc"])}</span>'
             f'<span class=n data-l="Sada (MC)" data-f=mc>{mc(p["mc_now"])}</span>'
             f'<span class="n apx-pnl {pnl_cls}" data-l="PnL" data-f=pnl>{pnl}</span>'
             f'<span class="n dn" data-l="SL">{sl}</span><span class="n up" data-l="TP">{tp}</span>'
-            f'<span data-l="Izvor">{src}</span>{plan_html(p.get("plan"))}{_note_html(p.get("note"))}'
-            f'<span class=apx-act>{act}</span>{edit}</div>')
+            f'<span class=apx-px>{esc(xs)}</span></summary>')
+    # opened: every number (the phone's line had only three), who and when, the plan, the actions, Grok's why
+    cells = [("Veličina", size, "n", 1), ("Ulaz (MC)", mc(p["avg_mc"]), "n", 1),
+             ("Sada (MC)", f'<span data-f=mc>{mc(p["mc_now"])}</span>', "n", 1),
+             ("PnL", f'<span class="n apx-pnl {pnl_cls}" data-f=pnl>{pnl}</span>', "n", 1),
+             ("SL", sl, "n dn", 1), ("TP", tp, "n up", 1),
+             ("Izvor", esc(b["tag"]) + (f'<small>{esc(who_txt)}</small>' if who_txt else ""), "t", 0),
+             ("Otvoreno", esc(pt.zg_time(p["opened_ts"], now)) if p.get("opened_ts") else "–", "n", 0)]
+    cells += [(k, v, c, 0) for k, v, c in (gx or {}).get("cells") or [] if k != "Kupljeno"]
+    # the cells the desktop's line already shows (dup) are only in the phone's opened row
+    grid = "".join(f'<div{" class=apx-dup" if dup else ""}><span>{esc(k)}{_i(k)}</span><b class="{c}">{v}</b></div>'
+                   for k, v, c, dup in cells)
+    grok = (f'<div class="apx-gpd apx-pgrok">{gx["html"]}</div>' if gx and gx.get("html") else "")
+    body = (f'<div class=apx-prd><div class=apx-prg data-key="{esc(p["key"])}">{grid}</div>'
+            f'{plan_html(p.get("plan"))}{_note_html(p.get("note"))}'
+            + (f'<span class=apx-act>{act}</span>' if act else "") + f'{edit}{grok}</div>')
+    return (f'<details class="apx-pos apx-pr{" is-paper" if p["paper"] else ""}{" is-grok" if p.get("grok") else ""}" '
+            f'id=poz-{p["pid"]} data-key="{esc(p["key"])}" data-tok="{esc(tok)}" data-by="{esc(b["kind"])}">'
+            f'{summ}{body}</details>')
 
 
 def sl_chips(floor):
@@ -1603,7 +1769,8 @@ def _hdr_html(h, now):
 
 
 def panel_html(d, sel_pos):
-    """The order panel (owner): Kupi / Prodaj. Every form posts to the route and fields it always had."""
+    """The order panel (owner): "Brza kupnja", Kupi / Prodaj. Every form posts to the route and fields it always had.
+    14.11.: on a phone it is on the page under the chart (no longer only the bottom sheet)."""
     pn = d.get("panel") or {}
     owner = d["owner"]
     m = d.get("m") or ""
@@ -1615,8 +1782,10 @@ def panel_html(d, sel_pos):
            f'<div><span>Danas auto</span><b>{redak.num(pn.get("auto_today"), 2)} od {pt._g(pn.get("max_day") or 0)} SOL</b></div>'
            f'<div><span>Limit po tradeu</span><b>{pt._g(pn.get("max_trade") or 0)} SOL</b></div>'
            f'<div class=apx-wal-age>{age_badge(d.get("ts"))}</div></div>')
-    head = ('<div class=apx-sheet-h><b>Nalog</b><button type=button class=apx-x data-sheet-close aria-label="Zatvori">'
-            '×</button></div>')
+    # 14.11.: the panel's title (it is the page's "Brza kupnja", right under the chart on a phone); the close button
+    # only while the phone shows it as the sheet (ap.css)
+    head = (f'<div class=apx-sheet-h><h2 class="apx-h2 apx-side-t" data-sec="">{"Brza kupnja" if owner else "Wallet"}</h2>'
+            '<button type=button class=apx-x data-sheet-close aria-label="Zatvori">×</button></div>')
     if not owner:
         link = (f'<p><a class="apx-go buy" href="https://jup.ag/swap/SOL-{quote(m)}" target=_blank rel=noopener>'
                 f'Kupi i ti {esc(sym)} iz svog walleta (Jupiter) ↗</a></p>' if m else "")
@@ -1681,7 +1850,7 @@ def panel_html(d, sel_pos):
            '<div class=apx-cost data-cost>Procjena troška: upiši token i iznos.</div>'
            '<p class="apx-mismatch dn" data-mismatch role=alert hidden></p>'
            f'<button class="apx-go buy" data-go=buy>Kupi {esc(sym)}</button>'
-           '<p class=apx-note>Iznad tvojih limita (ulog, pozicije, dnevni gubitak, strop po tokenu, trošak) dobiješ '
+           '<p class="apx-note apx-lim">Iznad tvojih limita (ulog, pozicije, dnevni gubitak, strop po tokenu, trošak) dobiješ '
            'upozorenje i sam biraš „Kupi svejedno” (samo za tu kupnju); MC ispod 30k samo uz upisan razlog. Kill switch, '
            'stanje walleta i rug su tvrdi. '
            f'Tvoj strop po tokenu: {pt._g(pn.get("dca_cap") or settings.DCA_TOKEN_CAP)} SOL (samo kupnje koje sam '
@@ -1704,7 +1873,12 @@ def panel_html(d, sel_pos):
     seg = ('<div class=apx-seg role=tablist><button type=button class="on buy" data-side=buy role=tab aria-selected=true>Kupi'
            '</button><button type=button class=sell data-side=sell role=tab aria-selected=false>Prodaj</button></div>')
     mypos = _mypos_html(sel_pos, d.get("_cfg") or {})
-    return f'<aside class=apx-side id=kupi-odmah aria-label="Nalog">{head}{mypos}{wal}{seg}{buy}{sell}{dca}</aside>'
+    # 14.11.: on a phone, under the chart, only the buy and the sale (the page must reach Pozicije soon); "Tvoja
+    # pozicija", the wallet's numbers, the DCA levels and the limits' note are one tap away in the full panel (the sheet)
+    full = ('<button type=button class="apx-lnk apx-pfull" data-sheet-full>Wallet, tvoja pozicija, DCA razine i limiti'
+            '</button>')
+    return (f'<aside class=apx-side id=kupi-odmah aria-label="Brza kupnja">{head}{mypos}{wal}{seg}{buy}{sell}{dca}{full}'
+            '</aside>')
 
 
 def _dca_rows(m, sel_pos, pn):
@@ -1733,8 +1907,11 @@ def static_url(name):
     return f"/pravi-trade/static/{name}?v={s[3]}" if s else f"/pravi-trade/static/{name}"
 
 
-def _top_html(d, tcon, cfg, owner):
-    """Title, state, the owner's switch, the warnings and Grok's requests that wait for the owner's tap."""
+def _top_html(d, tcon, cfg, owner, now=None):
+    """Title, state, the owner's Autopilot switch and the warnings. 14.11. (Jure: "na vrhu treba biti odmah graf, brza
+    kupovina i pozicije"): nothing else above the chart: Grok's cards moved (his positions into Pozicije, his switch,
+    limits and requests into "Prekidači" at the bottom); a request waiting for the owner's tap is one line here that
+    leads to it (it is valid 15 min)."""
     dot_, words = pt._state(cfg)
     st = f'<span class="apx-state {"on" if dot_ == "good" else "warn" if dot_ == "warn" else ""}">{esc(words)}</span>'
     switch = pt._switch_html(cfg["on"]) if owner else f'<span class=apx-mut>{"Uključen" if cfg["on"] else "Isključen"}</span>'
@@ -1749,10 +1926,6 @@ def _top_html(d, tcon, cfg, owner):
     finally:
         if con is not None:
             con.close()
-    req = pt._safe("mcp", pt._mcp_requests, tcon, owner)
-    # 10.11.: Grok's autotrade while it is on, with its red "Ugasi" (a kill switch stays in sight, never lazy)
-    # 13.11.: the Grok card shows Grok's open positions from the same first view as the table (live MC through ap.js)
-    grok = pt._safe("grok-auto", pt._grok_auto_live, tcon, owner, d.get("positions"))
     link = ""
     if owner:   # the wallet's setup steps live in "Postavke i dijagnostika"; until it is ready the bar leads there
         try:
@@ -1763,9 +1936,89 @@ def _top_html(d, tcon, cfg, owner):
                 link = f'<a class=apx-state href="#postavljanje">Dovrši {sum(oks)}/{len(oks)}</a>'
         except Exception:  # noqa: BLE001
             link = ""
-    return (f'<div class=apx-top><h1>{TITLE}</h1>{st}{link}<span class=apx-sp></span>{switch}</div>'
-            + (f'<div class="ap apx-alerts">{alerts}</div>' if alerts else "")
-            + "".join(f'<div class="ap apx-blk">{x}</div>' for x in (req, grok) if x))
+    req = pt._safe("mcp-obavijest", req_notice, tcon, owner, now)
+    # 14.11. 12:55 (owner: "nema nekakvog narančastog okvira"): the switches stay at the bottom as he ordered; this chip
+    # in the title row jumps there and says while the real money for every strategy is on
+    sw_on = settings.pravi_novac_sve(con=tcon)
+    chip = (f'<a class="apx-state apx-swchip{" warn" if sw_on else ""}" href="#prekidaci" id=apx-swchip>Prekidači'
+            + (" · pravi novac uključen" if sw_on else "") + ' ↓</a>')
+    return (f'<div class=apx-top><h1>{TITLE}</h1>{st}{link}{chip}<span class=apx-sp></span>{switch}</div>'
+            + (f'<div class="ap apx-alerts">{alerts}</div>' if alerts else "") + req)
+
+
+def req_notice(tcon, owner, now=None):
+    """14.11.: Grok's trade requests that wait for the owner (ui/mcpapi.pending) in one line near the top: how many,
+    the oldest one and its minutes left, a link to the card with Odobri / Odbij in "Prekidači"; "" without any."""
+    if not owner:
+        return ""
+    from ui import mcpapi
+    now = now or time.time()
+    reqs = mcpapi.pending(tcon, now)
+    if not reqs:
+        return ""
+    r = reqs[0]
+    amt = float(r.get("amount") or 0)
+    what = (f"kupi {pt._g(amt)} SOL" if r.get("side") == "buy" else f"prodaj {pt._g(amt * 100)} %")
+    left = max(0, int(((r.get("ts") or now) + mcpapi.REQUEST_TTL_S - now) // 60))
+    return (f'<a class=apx-reqn href="#mcp-zahtjevi" id=apx-reqn><b>Grok čeka tvoje odobrenje</b>'
+            f'<span>{_count(len(reqs), "zahtjev", "zahtjeva")} · {esc(what)} <span translate=no>'
+            f'{esc(short(r.get("token") or ""))}</span> · još {left} min</span>'
+            '<span class=apx-reqgo>Odobri ili odbij dolje</span></a>')
+
+
+def switches_html(d, tcon, cfg, owner, now=None):
+    """14.11. (Jure: "ove grokove prekidače, sve napravi dolje na dnu ... svi prekidači i sve ostalo treba biti na dnu
+    stranice ... taj prekidač koji dodaješ sada želim da se nađe na dnu stranice u sekciji prekidači"): every switch
+    the owner uses, at the bottom above "Postavke", in the first HTML (a kill switch is never lazy), in this order:
+      1. pravi_novac_sve, the real money for every strategy (pt._switch_box)
+      2. Grok's trade requests that wait for his tap (pt._mcp_requests; the line at the top leads here)
+      3. Grok autotrade: state, today's numbers, rounds, attempts and Ugasi while on, the line while off
+         (pt._grok_auto_live without the positions: they are rows of Pozicije), then its switch and limits
+         (pt._grok_auto_setup, moved here from Postavke)
+      4. the Autopilot, the same switch as in the title row
+      5. the owner's other switches (trade/settings.OWNER_SWITCHES: exit_plan_live, rug_labels_v2_ok, the data
+         retention), each the flag form it had under Zastavice (POST /pravi-trade/flag, the same fields)
+      6. the exit plans' kill switch while plans exist or are paused (pt._exit_plans_block, from Otvoreni nalozi)
+    A viewer sees the states, no button."""
+    now = now or time.time()
+    parts = [f'<div id=fl-{settings.SWITCH_ALL}>{pt._safe("pravi-novac-sve", pt._switch_box, tcon, cfg, owner)}</div>',
+             pt._safe("mcp", pt._mcp_requests, tcon, owner),
+             pt._safe("grok-auto", pt._grok_auto_live, tcon, owner, d.get("positions"), now, False)]
+    grp = [pt._safe("grok-postavke", pt._grok_auto_setup, tcon, owner)]
+    on = bool(cfg.get("on"))
+    auto = (pt._switch_html(on) if owner else f'<b>{"uključen" if on else "isključen"}</b>')
+    grp.append(f'<div class=apx-swr id=sw-autopilot><div><b>Autopilot</b><span class=apx-mut>nove kupnje bota; isti '
+               f'prekidač je i u naslovu stranice</span></div>{auto}</div>')
+    grp.append(pt._safe("vlasnikovi-prekidaci", owner_switches_html, tcon, owner))
+    grp.append(pt._safe("exit-planovi", pt._exit_plans_block, tcon, owner))
+    inner = "".join(x for x in parts if x) + f'<div class="ap ap-grp apx-swg">{"".join(x for x in grp if x)}</div>'
+    return (f'<section class="apx-card ap apx-sws" id=prekidaci><h2 class="apx-h2 apx-swh" data-sec="">Prekidači</h2>'
+            f'<p class="apx-mut apx-swi">Svi tvoji prekidači na jednom mjestu: pravi novac za sve strategije, Grok, '
+            f'Autopilot, planovi izlaza.</p>{inner}</section>')
+
+
+def owner_switches_html(tcon, owner):
+    """The owner's switches other than pravi_novac_sve (trade/settings.OWNER_SWITCHES), one closed row each with its
+    state, what "uživo" does and, for the owner, the same flag form as under Zastavice (Postavke leaves them out)."""
+    st = settings.flag_state(tcon)
+    rows = []
+    for name, (item, words) in settings.FLAGS.items():
+        if name not in settings.OWNER_SWITCHES or name == settings.SWITCH_ALL:
+            continue
+        m = st[name]["mode"]
+        note = settings.OWNER_SWITCH_NOTES.get(name) or ("Tvoj prekidač: „uživo” ga uključuje (bez backtesta, samo "
+                                                         "prodaja); svaki drugi mod ostavlja sve kako je bilo.")
+        bits = [f'<p>{esc(words)}.</p>', f'<p class=mut>Stanje: {pt.dot(pt.FLAG_TONE[m], pt.FLAG_WORDS[m])}</p>',
+                f'<p class=mut>{esc(note)}</p>']
+        if owner:
+            opts = "".join(f'<option value={mm}{" selected" if mm == m else ""}>{pt.FLAG_WORDS[mm]}</option>'
+                           for mm in settings.FLAG_MODES)
+            bits.append(f'<form method=post action=/pravi-trade/flag class=ap-btns style="margin:0 0 10px">'
+                        f'<input type=hidden name=name value={esc(name)}><select name=mode>{opts}</select>'
+                        f'<button>Spremi</button></form>')
+        rows.append(pt._item(f"{item} {name}", words, "".join(bits), value=pt.FLAG_WORDS[m].split(" ")[0],
+                             iid=f"fl-{name}", value_tone=pt.FLAG_TONE[m]))
+    return "".join(rows)
 
 
 def page(qs, user, full=False):
@@ -1819,10 +2072,9 @@ def page(qs, user, full=False):
                 f'<span class=apx-sp></span>{age_badge(d.get("data_ts"), now).replace("apx-age", "apx-age apx-live-age", 1)}</div>')
         hist = lazy("povijest", user, qs) if full else _skel(4)
         dn = pt._safe("dnevnik", pt.dnevnik_fragment, user) if full else _skel(4)
+        # 14.11.: the exit plans' kill switch moved from Otvoreni nalozi to "Prekidači" (every switch at the bottom)
         panes = (f'<div class=apx-pane id=pozicije>{positions_html(d)}</div>'
-                 f'<div class=apx-pane id=nalozi hidden>{orders_html(d)}'
-                 # 10.11.: the exit plans' kill switch stays with the orders, never lazy (only while plans exist)
-                 f'<div class="ap apx-blk">{pt._safe("exit-planovi", pt._exit_plans_block, tcon, owner)}</div></div>'
+                 f'<div class=apx-pane id=nalozi hidden>{orders_html(d)}</div>'
                  # the closed trades (PnL by day is in the "Portfelj" card above the tabs)
                  f'<div class=apx-pane id=povijest hidden><div id=apx-hist data-x-src=/pravi-trade/l/povijest>{hist}</div></div>'
                  f'<div class="apx-pane ap" id=dnevnik hidden><div data-x-src=/pravi-trade/dnevnik data-x-every={DNEVNIK_EVERY_S}>'
@@ -1847,7 +2099,7 @@ def page(qs, user, full=False):
             cards += (f'<section class="apx-card apx-lz ap" id=apx-{name} data-x-src=/pravi-trade/l/{name} data-x-every={every} '
                       f'data-hide-empty{"" if c_in else " hidden"}>{c_in}</section>')
         ost = (f'<details class=apx-acc id=apx-ostalo{" open" if full or ek else ""}><summary><h2 data-sec="">Postavke</h2>'
-               '<span class=apx-mut>pravila, praćenja, zastavice, Grok, wallet, dijagnostika…</span></summary>'
+               '<span class=apx-mut>pravila, praćenja, zastavice, MCP ključ, wallet, dijagnostika…</span></summary>'
                f'<div class="ap apx-acc-in" data-x-src=/pravi-trade/l/ostalo{esc(q_ek)}>{o_in}</div></details>')
         mbar = ('<div class=apx-mbar>'
                 + ('<button type=button class="apx-go buy" data-sheet=buy>Kupi</button><button type=button class="apx-go sell" '
@@ -1860,15 +2112,19 @@ def page(qs, user, full=False):
         noscript = ('<noscript><p class=apx-mut>Bez JavaScripta: <a href="/pravi-trade?sve=1">otvori sve dijelove odjednom</a>'
                     '</p></noscript>')
         # pravitrade.CSS first: the older sections (tabs, settings) keep their shapes; ap.css after it sets the colours
+        # 14.11. (Jure: "na vrhu treba biti odmah graf, brza kupovina i pozicije ... a svi prekidači i sve ostalo
+        # treba biti na dnu stranice"): top to bottom the chart, Brza kupnja (the order panel: beside the chart on a
+        # desktop, right under it on a phone, where the "Kupi / Prodaj" bar brings it up as a sheet only when it is
+        # out of sight), Pozicije with every position (Grok's too, each tagged program / ručno), Portfelj, the cards,
+        # "Prekidači" (every switch) and "Postavke" last. The grid's parts are in that order in the HTML; on a desktop
+        # ap.css puts the panel into the right column beside the three left parts.
         body = [pt.CSS, CSS, '<div class=apx id=apx data-owner=' + ("1" if owner else "0") + '>', toast,
-                _top_html(d, tcon, cfg, owner), noscript,
-                '<div class=apx-grid><div class=apx-main>', _hdr_html(d.get("header"), now), chart,
-                port_html(tcon, cfg, now), tabs, panes, '</div>',
-                panel_html(d, sel_pos), '</div>', cards,
-                # 14.11. (owner: "taj prekidač ... želim da se nađe na dnu stranice u sekciji prekidači"): the switches
-                # at the bottom, above the settings; first the real-money switch pravi_novac_sve (it was only on ?stari=1)
-                '<section class=apx-card id=prekidaci><h2 data-sec="">Prekidači</h2>',
-                pt._safe("pravi-novac-sve", pt._switch_box, tcon, cfg, owner), '</section>',
+                _top_html(d, tcon, cfg, owner, now), noscript,
+                '<div class=apx-grid><div class="apx-main apx-m1">', _hdr_html(d.get("header"), now), chart, '</div>',
+                panel_html(d, sel_pos), '<div class=apx-side-ph aria-hidden=true></div>',
+                '<div class="apx-main apx-m2">', tabs, panes, '</div>',
+                '<div class="apx-main apx-m3">', port_html(tcon, cfg, now), '</div></div>', cards,
+                pt._safe("prekidači", switches_html, d, tcon, cfg, owner, now),
                 ost, mbar,
                 f'<script type=application/json id=apx-first>{boot}</script>', '</div>',
                 pt.POP_CSS, pt.POP_HTML, f'<script src="{static_url("ap.js")}" defer></script>']
@@ -2368,9 +2624,10 @@ def ostalo_html(tcon, cfg, owner, now, prefill=""):
         settings_parts = [
             pt._safe("pravila", pt._rules, tcon, cfg, owner),
             pt._safe("praćenja", pt._follows, con, owner, settings.raw(tcon), prefill, "Uredi praćenja"),
-            pt._safe("zastavice", pt._flags_section, tcon, con, owner),
+            # 14.11.: the owner's switches (pravi_novac_sve, exit_plan_live, ...) and Grok autotrade's switch and
+            # limits are in "Prekidači" on the main view; Zastavice lists the plan's other flags
+            pt._safe("zastavice", pt._flags_section, tcon, con, owner, settings.OWNER_SWITCHES),
             pt._safe("grok", pt._mcp_section, tcon, owner),
-            pt._safe("grok-postavke", pt._grok_auto_setup, tcon, owner),
             pt._safe("wallet", pt._wallet_row, tcon, owner, _setup(tcon, cfg) if owner else {}),
             pt._safe("pozivnice", pt._invites, tcon) if owner else "",
             pt._safety(),

@@ -234,24 +234,35 @@ class Card(Base):
         self.assertIn('<details class="apx-more apx-glog"><summary>Svi pokušaji redom (4)</summary>', html)
         self.assertIn("Ugasi Grok autotrade", html)
 
-    def test_grok_positions_stay_on_top_while_autotrade_is_off(self):
+    def test_grok_positions_are_rows_of_pozicije_while_autotrade_is_off(self):
+        # 14.11. (Jure: "grokove sve pozicije ubaci dolje u pozicije samo uz tag da je pokrenuo sam program"): no Grok
+        # card above the chart any more; his open position is a row of Pozicije with its why, also while it is off
         now = time.time()
         self.scenario(now)
         self.post("/pravi-trade/grokoff", {})
         _, body = pravitrade.page({}, "Jure")
-        top = body[:body.index("id=pozicije")]
-        self.assertIn("autotrade isključen", top)
-        self.assertIn('<details class="apx-gp" id=gp-', top)
-        self.assertNotIn("Ugasi Grok autotrade", top)
-        self.assertLess(body.index("Grokove pozicije"), body.index("id=apx-chartbox"))   # above the chart
+        self.assertNotIn("Grokove pozicije", body)
+        self.assertLess(body.index("id=apx-chartbox"), body.index("id=grok-auto"))
+        pos = body[body.index("id=pozicije"):body.index("id=nalozi")]
+        self.assertIn("program · Grok", pos)
+        self.assertIn("<h4>Grokova teza</h4>", pos)
+        sw = body[body.index("id=prekidaci"):body.index("id=apx-ostalo")]
+        self.assertIn("Grok autotrade <span class=mut>· isključen</span>", sw)
+        self.assertIn("Uključi Grok autotrade", sw)
+        self.assertNotIn("Ugasi Grok autotrade", body)
 
-    def test_terminal_page_carries_the_card_above_the_tables_with_its_positions(self):
+    def test_terminal_page_carries_the_card_in_prekidaci_and_the_positions_in_pozicije(self):
         now = time.time()
         self.scenario(now)
         _, body = pravitrade.page({}, "Jure")
-        card = body[body.index("id=grok-auto"):body.index("id=pozicije")]
-        self.assertIn(f'data-sel="{MINT}"', card)
+        card = body[body.index("id=grok-auto"):body.index("id=apx-ostalo")]
+        self.assertGreater(body.index("id=grok-auto"), body.index("id=prekidaci"))     # 14.11.: at the bottom
         self.assertIn("Odbijeno: rug provjera (topcheck)", card)
+        self.assertIn("Ugasi Grok autotrade", card)
+        self.assertIn("s oznakom „program · Grok”", card)
+        self.assertNotIn('<details class="apx-gp"', body)                              # no second list of them
+        pos = body[body.index("id=pozicije"):body.index("id=nalozi")]
+        self.assertIn(f'data-sel="{MINT}"', pos)
         self.assertNotIn("Grok auto", pravitrade.page({}, "netko")[1].split("id=pozicije")[0])   # owner only
         self.assertEqual(apterm._grok_kind(["ručno: Grok odobreno (MCP)"]), "approved")
         self.assertIsNone(apterm._grok_kind(["copy KOL x"]))

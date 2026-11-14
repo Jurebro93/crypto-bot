@@ -150,9 +150,11 @@ class Grok(Base):
         _, body = pravitrade.page({}, "Jure")
         self.assertIn("Ugasi Grok autotrade", body)
         self.assertIn("<span class=ap-tag>Grok auto</span> kupnja", body)
-        # 11.11. (ui/apterm): while it is on, the block with its red "Ugasi" is in the title bar's alerts, above the
-        # tables, in the first HTML (a kill switch is never lazy)
-        self.assertLess(body.index("id=grok-auto"), body.index("id=pozicije"))
+        # 11.11. (ui/apterm): while it is on, the block with its "Ugasi" is in the first HTML (a kill switch is never
+        # lazy); 14.11. (Jure: "grokove prekidače, sve napravi dolje na dnu"): in "Prekidači", under the tables
+        self.assertLess(body.index("id=pozicije"), body.index("id=prekidaci"))
+        self.assertLess(body.index("id=prekidaci"), body.index("id=grok-auto"))
+        self.assertLess(body.index("Ugasi Grok autotrade"), body.index("id=apx-ostalo"))
         self.assertNotIn("Ugasi Grok autotrade", pravitrade.page({}, "netko")[1])
         self.assertEqual(pravitrade._who("Grok auto (MCP)"), "Grok auto")
 

@@ -7,6 +7,7 @@
   if (!root) return;
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
+  const phone = () => matchMedia('(max-width:1023px)').matches;   // one column: the panel under the chart
   let F = {};
   try { F = JSON.parse($('#apx-first').textContent); } catch (e) { F = {}; }
   const URLS = F.urls || {};
@@ -23,7 +24,8 @@
   // 13.11. (Jure: "Svaki put kada osvježim stranicu autopilota na mobitelu, ona me centrira dolje na graf"): the address
   // a form sends back (#pozicije and #poz-12 after a sale or an SL/TP edit, #kupi-odmah after a buy, #grok-auto) stayed
   // in the URL, so every reload scrolled to it again: to the positions right under the chart. It is used once, right
-  // after the form (S.hash), and taken out of the URL; a reload opens at the top, where Grok's positions are.
+  // after the form (S.hash), and taken out of the URL; a reload opens at the top (14.11.: the chart, Brza kupnja and
+  // Pozicije are the top of the page), and stays there unless the owner scrolls himself.
   const NAV = (() => {
     try { const n = performance.getEntriesByType('navigation')[0]; if (n) return n.type; } catch (e) { /* old browser */ }
     try { return performance.navigation.type === 1 ? 'reload' : ''; } catch (e) { return ''; }
@@ -1070,12 +1072,27 @@
     }
     hints(); costEst(); label(); tokCheck(true);
     const go = $('[data-go="buy"]', f);
-    if (matchMedia('(max-width:1023px)').matches) openSheet('buy');
+    if (phone()) openSheet('buy');   // in sight: scrolled to; out of sight: the sheet
     else if (go) go.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     if (go) go.focus({ preventScroll: true });   // ready: one tap on Kupi (it still asks to confirm)
   }
-  function openSheet(side) { if (side) setSide(side); root.classList.add('sheet'); document.body.style.overflow = 'hidden'; }
-  function closeSheet() { root.classList.remove('sheet'); document.body.style.overflow = ''; }
+  // 14.11. (Jure: "na vrhu treba biti odmah graf, brza kupovina i pozicije"): on a phone Brza kupnja is on the page right
+  // under the chart. "Kupi / Prodaj" in the bar (a Kupi on a proposal, Uredi SL-TP in "Tvoja pozicija") uses it where it
+  // is while it is in sight; out of sight it comes up as the bottom sheet, its place on the page kept (.apx-side-ph),
+  // so the page under the finger does not move when it opens or closes
+  function openSheet(side, full) {   // full: "Wallet, tvoja pozicija, DCA ..." (the panel's parts the page leaves out)
+    if (side) setSide(side);
+    const sd = $('.apx-side'), ph = $('.apx-side-ph');
+    if (!phone() || !sd || root.classList.contains('sheet')) return;
+    const r = sd.getBoundingClientRect();
+    if (!full && r.top < innerHeight - 120 && r.bottom > 120) { sd.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+    if (ph) ph.style.height = sd.offsetHeight + 'px';
+    root.classList.add('sheet'); document.body.style.overflow = 'hidden';
+  }
+  function closeSheet() {
+    root.classList.remove('sheet'); document.body.style.overflow = '';
+    const ph = $('.apx-side-ph'); if (ph) ph.style.height = '';
+  }
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && root.classList.contains('sheet')) closeSheet(); });
 
   // ---- Uredi SL-TP (ui/apterm.sltp_html): in the position's row, in the panel's "Tvoja pozicija", and "Uredi" in
@@ -1095,8 +1112,10 @@
   function openEdit(t) {
     const pane = t.closest('.apx-pane');
     if (pane && pane.hidden) showTab(pane.id);
+    // 14.11.: a position's editor is inside its collapsed row (Uredi in Otvoreni nalozi opens it from there too)
+    for (let p = t.parentElement; p && p !== root; p = p.parentElement) if (p.tagName === 'DETAILS' && !p.open) p.open = true;
     const inSide = !!t.closest('.apx-side');
-    if (inSide && matchMedia('(max-width:1023px)').matches) openSheet();   // the panel is the phone's sheet
+    if (inSide && phone()) openSheet();   // the panel: in place while in sight, else the phone's sheet
     t.hidden = false;
     for (const b of $$(`[data-edit="${t.id}"]`)) b.setAttribute('aria-expanded', 'true');
     const f = $('form[data-sltp]', t), m = f && $('.apx-sltp-msg', f);
@@ -1287,7 +1306,9 @@
       return;
     }
     if ((b = g('[data-edit]'))) {
-      const t = document.getElementById(b.dataset.edit);
+      let t = document.getElementById(b.dataset.edit);
+      // 14.11.: on a phone the page's panel has no "Tvoja pozicija": its link opens the row's editor in Pozicije
+      if (t && phone() && !root.classList.contains('sheet') && t.closest('.apx-mypos')) t = document.getElementById(b.dataset.edit.replace(/^pe-/, 'ed-')) || t;
       if (!t) {   // a position with no editor here (no demo pair, a sale under way): at least its row
         const r = b.dataset.goto && document.getElementById(b.dataset.goto);
         if (r) { showTab('pozicije'); r.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
@@ -1317,6 +1338,7 @@
       return;
     }
     if ((b = g('[data-sheet]'))) { openSheet(b.dataset.sheet); return; }
+    if (g('[data-sheet-full]')) { openSheet(null, true); return; }
     if (g('[data-sheet-close]')) { closeSheet(); }
   });
   root.addEventListener('input', e => {

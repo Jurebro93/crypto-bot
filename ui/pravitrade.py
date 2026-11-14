@@ -1740,23 +1740,30 @@ def _grok_attempts_html(rows, now, tables, cap):
             f'<div class=apx-tbl>{"".join(out)}</div>{log}</details>')
 
 
-def _grok_auto_live(tcon, owner, positions=None, now=None):
+def _grok_auto_live(tcon, owner, positions=None, now=None, with_positions=True):
     """10.11. (Jure: Grok autotrade): while the owner has it on, one block at the top of the page with the red
     "Ugasi Grok autotrade". 13.11. (Jure: "Zašto je zapelo. Mogu li se pozicije groka jasnije prikazat"; then "ako su
     pozicije groka na vrhu, želim onda na vrhu vidjeti pozicije I da budu skupljene"): Grok's open positions first, one
     collapsed line each that opens his thesis, what he sent and what MemeSonar's own data says (ui/grokpoz; shown
     also while autotrade is off, as long as Grok's positions are open), then his limits in plain words, the rounds he
     closed today and his attempts of the last 24 h grouped by token (both folded), all in Zagreb time.
-    positions: the terminal's first view (ui/apterm), read here when None."""
+    positions: the terminal's first view (ui/apterm), read here when None. 14.11. (Jure: "grokove prekidače ... dolje
+    na dnu ... a grokove sve pozicije ubaci dolje u pozicije"): with_positions=False is the terminal's block in
+    "Prekidači": the same without the positions (they are rows of Pozicije there), and a line while it is off."""
     if not owner:
         return ""
     from ui import grokauto, grokpoz, kandidati
     now = now or time.time()
     st = grokauto.state(tcon, now)
     lim = grokauto.limits(tcon)
-    pos = _safe("grok-pozicije", grokpoz.block_html, tcon, _safe("grok-pozicije", _grok_positions, tcon, positions, now,
-                                                                     fallback=[]), now, lim)
+    pos = (_safe("grok-pozicije", grokpoz.block_html, tcon, _safe("grok-pozicije", _grok_positions, tcon, positions,
+                                                                      now, fallback=[]), now, lim)
+           if with_positions else "")
     if not st["on"]:
+        if not with_positions:
+            return ('<section class="ap-qb ap-grok apx-grok" id=grok-auto><h2 class=ap-qb-h data-sec="">Grok autotrade '
+                    '<span class=mut>· isključen</span></h2><p class=mut>Grokovi zahtjevi čekaju tvoje odobrenje. '
+                    'Uključuješ ga ispod, unutar njegovih limita.</p></section>')
         return (f'<section class="ap-qb ap-grok apx-grok" id=grok-auto><h2 class=ap-qb-h data-sec="">Grok '
                 f'<span class=mut>· autotrade isključen</span></h2>{pos}</section>') if pos else ""
     left = grokauto.remaining(tcon, now)
@@ -1774,7 +1781,9 @@ def _grok_auto_live(tcon, owner, positions=None, now=None):
     tables = _grok_tables(rows[:30] + [r for r in rows[30:] if now - (r.get("ts") or 0) <= grokauto.ATTEMPTS_S])
     kill = ('<form method=post action=/pravi-trade/grokoff class=ap-danger onsubmit="return confirm(\'Ugasiti Grok autotrade? '
             'Njegovi zahtjevi opet čekaju tvoje odobrenje.\')"><button class=ap-danger>Ugasi Grok autotrade</button></form>')
-    parts = [pos or '<p class="apx-mut apx-gempty">Grok sada nema otvorenih pozicija.</p>', stats,
+    first = (pos or '<p class="apx-mut apx-gempty">Grok sada nema otvorenih pozicija.</p>') if with_positions else \
+        '<p class="apx-mut apx-gempty">Njegove otvorene pozicije su u Pozicijama, s oznakom „program · Grok”.</p>'
+    parts = [first, stats,
              _safe("grok-zatvoreno", _grok_closed_html, tcon, now),
              _safe("grok-pokusaji", _grok_attempts_html, rows, now, tables, cap)]
     return (f'<section class="ap-qb ap-grok apx-grok" id=grok-auto><h2 class=ap-qb-h data-sec="">Grok auto '
@@ -1823,7 +1832,7 @@ def _grok_auto_setup(tcon, owner):
     form = (f'<form method=post action=/pravi-trade/groklimits class=ap-lim style="display:block">{fields}'
             '<button>Spremi Grokove limite</button></form>')
     if st["on"]:
-        switch = '<p class=mut>Uključen je; gasiš ga crvenim gumbom ispod pozicija.</p>'
+        switch = '<p class=mut>Uključen je; gasiš ga gumbom „Ugasi Grok autotrade”.</p>'
     else:
         switch = ('<form method=post action=/pravi-trade/grokon onsubmit="return confirm(\'Uključiti Grok autotrade? Grok će '
                   'kupovati i prodavati bez tvog odobrenja, unutar ovih limita.\')"><button class=ap-buy>Uključi Grok '
@@ -2112,10 +2121,11 @@ def _switch_box(tcon, cfg, owner):
     return f'<div class="ap-pns{" on" if on else ""}" id=fl-pravi-novac>{"".join(body)}</div>'
 
 
-def _flags_section(tcon, con, owner):
+def _flags_section(tcon, con, owner, skip=()):
     """10.11. (Jure, "Specifikacija za Claudea", Phase 0): every rule of the profitability plan behind its own flag.
     The owner moves a flag off -> sjena -> paper -> uživo; uživo only with a passed backtest and 7 days of paper in
-    the plus (trade/settings.live_refusal says why not). Others see the modes only."""
+    the plus (trade/settings.live_refusal says why not). Others see the modes only. skip (14.11., ui/apterm): flags
+    listed elsewhere on the page (the owner's switches live in "Prekidači"), left out here with one line saying so."""
     import datetime as _dt
     import zoneinfo
     from league import flags as lflags
@@ -2125,12 +2135,13 @@ def _flags_section(tcon, con, owner):
     week = lflags.shadow_summary(con, now - 7 * 86400)
     # 12.11.: a flag still at its default (settings.FLAG_DEFAULTS, never set: x_call_scalp in sjena, it only
     # measures) is named apart, not counted as one the owner switched on
-    dflt = [n for n, v in st.items() if v["mode"] != "off" and not v["since"]
+    shown = {n: v for n, v in st.items() if n not in skip}   # the meta line counts what this section lists
+    dflt = [n for n, v in shown.items() if v["mode"] != "off" and not v["since"]
             and v["mode"] == settings.FLAG_DEFAULTS.get(n)]
-    on = [n for n, v in st.items() if v["mode"] != "off" and n not in dflt]
-    paper_since = min((v["since"] for v in st.values() if v["mode"] == "paper" and v["since"]), default=None)
+    on = [n for n, v in shown.items() if v["mode"] != "off" and n not in dflt]
+    paper_since = min((v["since"] for v in shown.values() if v["mode"] == "paper" and v["since"]), default=None)
     pr = lflags.paper_result(con, paper_since) if paper_since else None
-    meta = (f"{len(on)} od {len(st)} uključeno" if on else "sve isključeno: bot radi kao prije")
+    meta = (f"{len(on)} od {len(shown)} uključeno" if on else "sve isključeno: bot radi kao prije")
     if dflt:
         meta += " · zadano: " + ", ".join(f"{n} {FLAG_WORDS.get(st[n]['mode'], st[n]['mode'])}" for n in dflt)
     if pr:
@@ -2138,6 +2149,8 @@ def _flags_section(tcon, con, owner):
     tz = zoneinfo.ZoneInfo("Europe/Zagreb")
     rows = []
     for name, (item, words) in settings.FLAGS.items():
+        if name in skip:
+            continue
         v = st[name]
         m = v["mode"]
         since = (_dt.datetime.fromtimestamp(v["since"], tz).strftime("%d.%m. %H:%M") if v["since"] else "")
@@ -2175,6 +2188,9 @@ def _flags_section(tcon, con, owner):
              f'„{esc(settings.PAPER_USER)}”, koji prati iste influencere i novčanike kao Autopilot; taj račun nikad ne '
              f'kupuje pravim novcem. Uživo: tek nakon prolaza backtesta i najmanje {settings.PAPER_DAYS} dana u paper '
              'modu s paper računom u plusu; stranica inače odbije.</p>')
+    if skip:
+        intro += ('<p class=mut>Tvoji prekidači (' + ", ".join(esc(n) for n in settings.FLAGS if n in skip)
+                  + ') su u sekciji <a href="#prekidaci">Prekidači</a> na dnu stranice.</p>')
     return _sec("Zastavice plana", meta, intro + "".join(rows), sid="zastavice")
 
 

@@ -110,10 +110,13 @@ class Page(Base):
         # 11.11. (Jure: Autopilot kao terminal, ui/apterm.py): chart and tables first, the order panel beside them,
         # then "Što kupiti" (one line while nothing has EV > 0), "Koga pratimo" and "Postavke" (sve=1: every lazy part)
         _, body = pravitrade.page({"sve": "1"}, "Jure")
-        at = [body.index(k) for k in ("id=apx-hdr", "id=apx-chartbox", "id=apx-port", ">Pozicije <", ">Otvoreni nalozi <",
-                                      ">Povijest<", ">Dnevnik<", "id=kupi-odmah", "Nema prijedloga s EV &gt; 0",
-                                      ">Koga pratimo <", ">Tko sada zove koji token (60 min)<", ">Postavke<", ">Pravila<",
-                                      ">Uredi praćenja<", ">Wallet i uplata<", ">Kako je zaštićeno<")]
+        # 14.11. (Jure: "na vrhu treba biti odmah graf, brza kupovina i pozicije ... svi prekidači i sve ostalo na
+        # dnu"): the chart, Brza kupnja, Pozicije, Portfelj, the cards, Prekidači, Postavke last
+        at = [body.index(k) for k in ("id=apx-hdr", "id=apx-chartbox", "id=kupi-odmah", ">Brza kupnja<", ">Pozicije <",
+                                      ">Otvoreni nalozi <", ">Povijest<", ">Dnevnik<", "id=apx-port",
+                                      "Nema prijedloga s EV &gt; 0", ">Koga pratimo <", ">Tko sada zove koji token (60 min)<",
+                                      ">Prekidači<", ">Postavke<", ">Pravila<", ">Uredi praćenja<", ">Wallet i uplata<",
+                                      ">Kako je zaštićeno<")]
         self.assertEqual(at, sorted(at))
         # no secnav chips: every h2 opts out (10.11. 23:04: the cards' titles had made a chip bar again)
         h2s = re.findall(r"<h2[^>]*>", body)
@@ -132,7 +135,7 @@ class Page(Base):
         # 11.11.: the trade in the first HTML (positions, the order panel), the summary only under "Postavke i
         # dijagnostika", which is loaded when it is opened
         _, body = pravitrade.page({}, "Jure")
-        self.assertLess(body.index("id=pozicije"), body.index("id=kupi-odmah"))
+        self.assertLess(body.index("id=kupi-odmah"), body.index("id=pozicije"))   # 14.11.: Brza kupnja right under the chart
         self.assertLess(body.index("id=pozicije"), body.index("id=dnevnik"))
         self.assertNotIn("id=sazetak", body)
         _, full = pravitrade.page({"sve": "1"}, "Jure")

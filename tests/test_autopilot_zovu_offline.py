@@ -169,8 +169,9 @@ class Page(unittest.TestCase):
         self.assertNotIn('value=10%', pravitrade._buy_form("TOK", settings.merged(CFG, self.con), "smart", True))
         self.assertIn("data-x-src=/pravi-trade/zovu data-x-every=15", body)   # the feed, every 15 s while on screen
         # 11.11. (ui/apterm): positions and the log (tabs), the order panel, "Što kupiti", "Koga pratimo" with its
-        # feed, then "Postavke i dijagnostika" with Pravila (exit target + limits) and the recommendations
-        order = [body.index(x) for x in ("id=pozicije", "id=dnevnik", "id=kupi-odmah", "id=kupiti", "id=pratimo", "id=ap-zovu",
+        # feed, then "Postavke i dijagnostika" with Pravila (exit target + limits) and the recommendations;
+        # 14.11.: the order panel (Brza kupnja) right under the chart, before the tabs
+        order = [body.index(x) for x in ("id=kupi-odmah", "id=pozicije", "id=dnevnik", "id=kupiti", "id=pratimo", "id=ap-zovu",
                                          "id=apx-ostalo", "id=cilj", "id=limiti", "id=pratim>", "id=preporuke")]
         self.assertEqual(order, sorted(order))
         for sid in ("preporuke", "pravila"):   # closed until tapped
