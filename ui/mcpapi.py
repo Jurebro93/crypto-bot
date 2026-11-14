@@ -1527,6 +1527,25 @@ TOOLS.append(
          "include_closed": {"type": "boolean", "default": False,
                             "description": "also the trade requests that no longer wait (expired, obsolete, approved, "
                                            "rejected, failed)"}}}})
+# 14.11. (owner, kol/zadnjih5.py): the "last 5 calls" walk-forward, read-only
+TOOLS.append(
+    {"name": "get_last5", "annotations": _READ,
+     "description": ("The owner's \"zadnjih 5\" walk-forward (computed ~5 min after a start and nightly, read-only on "
+                     "MemeSonar's own 30 days): follow every influencer (types.kol) / wallet (types.wallet) whose last 5 "
+                     "measured calls / buys reached +10 % max gain within 60 min, enter their next call after our "
+                     "measured lag, exit +10 %, the owner's default stop, 60 min time stop, 0.1 SOL, real-account costs. "
+                     "Per type: variants strogo (5/5) | 4od5 | prosjek (mean >= +10 %) | svi (every call, the baseline), "
+                     "each per refresh noc (the selection as of the nightly run: what following does) | poziv (at every "
+                     "call) and exit bruto (+10 % price) | neto (+10 % after costs): n, per_day, hit, need (break-even), "
+                     "ev_gross_pct, ev_net_pct, ev_lo90_pct, ev_net_usd, pnl_sol / pnl_usd per 0.1 SOL, max_dd_sol, "
+                     "capped (within the real-money caps); now (sources qualifying now per variant), top (the 50 "
+                     "qualifying sources with the most qualifying windows), coverage. gate: per type on / why (strict, "
+                     "noc, bruto: EV net > 0 on 30+ trades), follow: what the Autopilot follows because of it, "
+                     "assumptions (lag, stop, cost, caps). type: only kol or wallet; top: how many top rows (0-50, "
+                     "default 20). Read-only."),
+     "inputSchema": {"type": "object", "properties": {
+         "type": {"type": "string", "enum": ["kol", "wallet"]},
+         "top": {"type": "integer", "minimum": 0, "maximum": 50, "default": 20}}}})
 # 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
 _P01 = {"type": "number", "minimum": 0, "maximum": 1}
 TOOLS.append(
@@ -1743,6 +1762,10 @@ def _tool(name, args, kid="local"):
     if name in ("get_pre_shill_wallets", "get_pre_shill_signals"):   # 11.11. pre_shill (kol/preshill.py)
         from kol import preshill
         d = preshill.mcp_tool(name, args)
+        return d, "error" in d
+    if name == "get_last5":   # 14.11. kol/zadnjih5.py, read-only
+        from kol import zadnjih5
+        d = zadnjih5.mcp(args.get("type"), args.get("top"))
         return d, "error" in d
     if name == "get_hourly_brief":   # 11.11. events/brief.py
         from events import brief

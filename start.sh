@@ -246,6 +246,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 ( sleep 330; while true; do low python3 run_proposals.py once || echo "prijedlozi nisu uspjeli"; sleep "${PROPOSALS_EVERY_S:-150}"; done ) &
 ( sleep 1110; while true; do python3 -m ops.heavy --night run_proposals.py night || echo "prijedlozi (noć) nisu uspjeli"; sleep 3600; done ) &
 
+# 14.11. (owner: "zaprati sve influencere koji su u zadnjih 5 poziva imali barem 10% profita ... i volete isto ... jesmo
+# li u profitu nakon fijeva", kol/zadnjih5.py): the walk-forward of influencers and wallets over our own 30 days (minute.db,
+# wallets / hype / events.db; read-only, no API call), ZADNJIH5_FIRST_S (300 s) after a start under the heavy-job lock
+# (nice 10; skipped when the last run is younger than 3 h), then nightly (01-06 Zagreb, once a day). Writes
+# output/zadnjih5.json (MCP get_last5) and "zadnjih 5: " lines; follows only behind the owner switch prati_zadnjih5 or,
+# per type, when its walk-forward EV after costs is > 0 on 30+ trades. Trading never waits for it.
+( sleep "${ZADNJIH5_FIRST_S:-300}"; python3 -m ops.heavy -m kol.zadnjih5 once || echo "zadnjih 5 nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night -m kol.zadnjih5 night || echo "zadnjih 5 (noć) nije uspio"; done ) &
+
 # 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and
 # every call of a followed influencer -> fast.db queue -> five checks (rug, holders, flow, price vs the wallet's entry,
 # source) and a decision within seconds, 20 at once. Time-sensitive, so a supervised process polling every 0.5 s (and
