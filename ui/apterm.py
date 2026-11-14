@@ -1864,7 +1864,12 @@ def page(qs, user, full=False):
                 _top_html(d, tcon, cfg, owner), noscript,
                 '<div class=apx-grid><div class=apx-main>', _hdr_html(d.get("header"), now), chart,
                 port_html(tcon, cfg, now), tabs, panes, '</div>',
-                panel_html(d, sel_pos), '</div>', cards, ost, mbar,
+                panel_html(d, sel_pos), '</div>', cards,
+                # 14.11. (owner: "taj prekidač ... želim da se nađe na dnu stranice u sekciji prekidači"): the switches
+                # at the bottom, above the settings; first the real-money switch pravi_novac_sve (it was only on ?stari=1)
+                '<section class=apx-card id=prekidaci><h2 data-sec="">Prekidači</h2>',
+                pt._safe("pravi-novac-sve", pt._switch_box, tcon, cfg, owner), '</section>',
+                ost, mbar,
                 f'<script type=application/json id=apx-first>{boot}</script>', '</div>',
                 pt.POP_CSS, pt.POP_HTML, f'<script src="{static_url("ap.js")}" defer></script>']
         return TITLE, "".join(body)

@@ -746,6 +746,13 @@ OWNER_FLAG_ORDERS = (
     # satnog sažetka; naši swapovi i praćeni novčanici ostaju"): ops/retencija part A, deletes only 01-06 Zagreb
     ("live_trades_retention", "live", "vlasnik u chatu 12.11.: live_trades_retention DA, tuđi tradeovi stariji od 48 h "
                                       "brišu se noću nakon satnog sažetka; naši swapovi i praćeni novčanici ostaju"),
+    # 14.11. (Jure: "Želim da se to sve radi s pravim novcem ... sve strategije"; then "uključi prekidač, imaš moje
+    # dopuštenje da odmah krene tradati što prije"): the strategies still in shadow go to paper (under the switch paper
+    # = the real account), then his switch pravi_novac_sve on. Applied once; he turns it off on the page any time.
+    ("insider_copy", "paper", "vlasnik u chatu 14.11.: sve strategije pravim novcem, insider_copy iz shadowa u paper"),
+    ("event_tokens", "paper", "vlasnik u chatu 14.11.: sve strategije pravim novcem, event_tokens iz shadowa u paper"),
+    ("pravi_novac_sve", "live", "vlasnik u chatu 14.11.: „uključi prekidač, imaš moje dopuštenje da odmah krene tradati "
+                                "što prije” (0,1 SOL po tradeu, 10 otvorenih, 100 dnevno, dnevni gubitak 0,5 SOL)"),
 )
 
 
@@ -788,7 +795,14 @@ def owner_flag_orders(con, now=None):
             continue
         old = settings.flag_state(con)[name]["mode"]
         if old != mode:
-            settings.set_flag(con, name, mode, "Jure (chat 10.11.)", now=now)
+            # 14.11.: the real-money switch accepts only the owner himself (settings.set_flag); this entry IS his own
+            # order in the chat ("imaš moje dopuštenje"), so it is set in his name
+            who = settings.owner() if name == settings.SWITCH_ALL else "Jure (chat 10.11.)"
+            try:
+                settings.set_flag(con, name, mode, who, now=now)
+            except ValueError as e:   # refused (a gate): said in the log, tried again at the next start
+                print(f"pravi trade: nalog vlasnika {name} → {mode} nije primijenjen: {e}", flush=True)
+                continue
             new = settings.flag_state(con)[name]["mode"]
             record_applied(con, 0, f"flag:{name}", old, new, why)
             done.append(f"zastavica {name}: {old} → {new}")
