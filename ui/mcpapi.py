@@ -1256,9 +1256,17 @@ TOOLS.append(
                      "pins (the owner's pinned tokens: always listed, row pinned true, pin_ready / pin_entry = price in "
                      "the range's lower zone AND volume 1 h >= 50 % of its 6 h median and >= $10k; a recommendation, "
                      "never buy one with real money on your own), per row similar_to (the most similar labelled win, "
-                     "score 0-1) and similar (top 10, similar_rule says how it is computed)."),
+                     "score 0-1) and similar (top 10, similar_rule says how it is computed). "
+                     "14.11. (flag range_demo, the DEMO account only, never real money): per row survivor (ok = "
+                     "survived the crash: >= 24 h old, MC at most 45 % under the level 24 h ago, back in an active "
+                     "range; why says it in Croatian; crashed = fell more than 45 %), entry_ready_demo / entry_demo (the "
+                     "demo profile's decision: score >= 0.6, bottom 25 %, 5m change > -5 %, volume ratio >= 35 %, buys "
+                     ">= 45 %, never a crashed token; TP +10 % / +15 % net, stop -12..-25 %); demo.today = the daily "
+                     "counter \"range demo danas: N tradeova (cilj 5)\" with top_blocks (the 3 reasons that held off "
+                     "the most tokens today); min_score defaults to 0.6 while range_demo is on."),
      "inputSchema": {"type": "object", "properties": {
-         "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7},
+         "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7,
+                       "description": "default 0.7, 0.6 while the flag range_demo is on (14.11.)"},
          "source": {"type": "string", "enum": ["signal", "market", "event", "missed"],
                     "description": "only rows whose sources include this one"}}}})
 

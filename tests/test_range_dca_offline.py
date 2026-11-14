@@ -335,6 +335,9 @@ class TradeBase(Base):
         exitplan._LAST.clear()
         self.now = int(time.time())
         self.lim = {"size_sol": 0.1, "max_sol_per_day": 1.0, "max_open": 5, "dca_token_cap": 0.3}
+        # 14.11.: these tests pin today's RULES on the demo account; the demo profile (flag range_demo G32, default
+        # paper) has its own tests (tests/test_range_demo_1411_offline.py), so it is off here
+        self.mode("off", "range_demo")
 
     def mode(self, m, name="range_dca", since=None):
         settings.put(self.con, f"flag:{name}", {"mode": m, "since": since or self.now})

@@ -53,6 +53,18 @@ ATR is unknown); x 0.85 is no longer the live stop of today's rules. On top of i
                 take-profit levels follow the newest range). Not after 30 min; one reclaim per stopped round; the
                 cooldown and range_flip's pause do not apply to it (the stop comparison's variant "be" measured it so);
                 the guards and the limits do. Counted apart (gate.reclaim_proof); range_dca's own proof leaves them out.
+
+14.11. (owner: "želim da danas otvoriš barem 5 tradeova ... otvaraj pozicije ... u donjem dijelu range-a. Testiraj sa
+stop loss ... da se uzima barem 10-15% profita"; flag range_demo G32, default paper, never live): while range_demo is
+paper the DEMO account PAPER_USER trades the demo profile rules.DEMO (profile()): its candidates and lot 1 by DEMO's
+entry thresholds (never a token the crash took > 45 % under its level 24 h ago; crash survivors, rangedca/survivor,
+tried first: _order), its round's levels from rules.demo_levels (TP1 half at +10 % net, the rest at +15 % net / the
+top zone, a 15 % trailing or break-even after TP1, the ATR stop held at -12..-25 % from the entry; levels "profile":
+"demo"), no lot 2. The real account LEAGUE_USER keeps RULES exactly, and
+the real-money gates (gate.refusal, gate.missed_refusal) never count a demo-profile round. Every pass also records,
+once per token and reason a day, why each fresh active range was no demo entry (league.db range_blocks), and
+demo_today() is the daily counter "range demo danas: N tradeova (cilj 5)" with the 3 reasons that held off the most
+tokens (logged when N changes and once an hour; get_range_candidates "demo_today").
 """
 import json
 import os
@@ -65,6 +77,8 @@ from . import data, gate, market, rules
 
 FLAG = "range_dca"
 FLIP_FLAG = "range_flip"    # 11.11. (G26): flip / pause / volatility stop, the new rules (rules.new_range)
+DEMO_FLAG = "range_demo"    # 14.11. (G32): the demo account's profile rules.DEMO (entry, survivor, TP / stop)
+DEMO_LOG_S = 3600           # 14.11.: the daily counter's log line at least this often (and whenever N changes)
 SRC1, SRC2 = "range lot 1", "range lot 2"
 RANGE_FRESH_S = 15 * 60     # a range computed longer ago is not traded
 # 12.11. popodne (owner, točka 1: "prag svježine ~5 min, jednak intervalu, pa svako kašnjenje stavi entry_ready=false na
@@ -82,10 +96,15 @@ STALE_S = 60                # league/exitplan.STALE_S: an older price fires only
 RNG_TTL_S = 10              # the 1-s exit loop reads range.db at most this often
 OFF_CHECK_S = 60
 SHADOW_EVERY_S = 20 * 60
-EXIT_RULE = {"tp1": "tp", "top": "tp", "trailing": "tp", "stop": "sl", "time": "time", "odustajanje": "sl", "rug": "rug"}
+EXIT_RULE = {"tp1": "tp", "top": "tp", "trailing": "tp", "stop": "sl", "time": "time", "odustajanje": "sl", "rug": "rug",
+             "tp2": "tp", "breakeven": "sl"}
 REASON_HR = {"tp1": "pola u gornjoj zoni", "top": "ostatak na vrhu raspona", "trailing": "trailing 10 % od vrha",
              "stop": "tvrdi stop (range_low_low × 0,85)", "time": "6 h bez gornje zone, izlaz na nuli",
-             "odustajanje": "odustajanje", "rug": "tvrdi blok (rug): pin i oznaka poništeni"}
+             "odustajanje": "odustajanje", "rug": "tvrdi blok (rug): pin i oznaka poništeni",
+             "tp2": "ostatak na +15 % neto", "breakeven": "break-even stop ostatka nakon TP1"}
+DEMO_HR = {"tp1": "pola na +10 % neto (demo 14.11.)", "time": "6 h bez TP1, izlaz na nuli",
+           "stop": "tvrdi stop demo (ATR, -12 do -25 % od ulaza)", "trailing": "trailing 15 % od vrha (demo)",
+           "tp2": "ostatak na +15 % neto ili gornjoj zoni (demo)"}
 STOP_ATR_HR = "tvrdi stop (range_low_low − 1,5 × ATR)"   # 11.11.: the ATR stop (every account, decision 1)
 STOP_RECLAIM_HR = "tvrdi stop reclaim runde (novo dno − 1,5 × ATR)"
 
@@ -94,6 +113,8 @@ def _hr(reason, levels=None):
     """The reason in Croatian; the stop of a round with the volatility stop (or a reclaim round's) says so."""
     k = reason.split(":")[0]
     kind = (levels or {}).get("stop_kind")
+    if (levels or {}).get("profile") == "demo" and k in DEMO_HR:   # 14.11.: the demo profile's own exits
+        return DEMO_HR[k]
     if k == "stop" and kind == "atr":
         return STOP_ATR_HR
     if k == "stop" and kind in ("reclaim", "reclaim_fixed"):
@@ -279,6 +300,20 @@ def missed_live(now=None):
     return True
 
 
+def profile(user, m=None):
+    """14.11. (flag range_demo G32): the rule set `user` trades range_dca by: rules.DEMO for the demo account
+    PAPER_USER while range_demo is paper (live is paper for it: NEVER_LIVE), else None (RULES, the real account
+    always)."""
+    from trade import settings as ts
+    if user != ts.PAPER_USER:
+        return None
+    try:
+        m = m or _flags().mode(DEMO_FLAG)
+    except Exception:  # noqa: BLE001 - unreadable: today's rules
+        return None
+    return rules.DEMO if m in ("paper", "live") else None
+
+
 def _fresh_levels(rng, now, new=False):
     """The levels of the newest range when it is active and fresh. new: True = of the new rules' range
     (rules.new_range), or the parts of them to apply (("atr",): today's range with the volatility stop)."""
@@ -292,7 +327,7 @@ def _fresh_levels(rng, now, new=False):
 def _levels_now(r, rng, now):
     """The levels in force for an open round (rules.merge_levels with the newest range). A reclaim round keeps its
     own stop (under the new low): only its take-profit levels follow the range."""
-    lv = rules.merge_levels(r["levels"], _fresh_levels(rng, now, _is_new(r)))
+    lv = rules.levels_in_force(r["levels"], _fresh_levels(rng, now, _is_new(r)))   # 14.11.: a demo round's own TP
     if r["levels"].get("reclaim"):
         lv["stop_px"] = r["levels"]["stop_px"]
         lv["stop_kind"] = r["levels"].get("stop_kind")
@@ -442,14 +477,15 @@ def stale_why(rng, now, limit=None):
     return None
 
 
-def entry_view(rng, price, now, limit=None):
+def entry_view(rng, price, now, limit=None, cfg=None):
     """The entry decision on a range: None (would enter) or the reason. 12.11. (owner, točka 1): the real rule's
     reason (zone, score, floor, 5-minute numbers) first and the staleness after it ("<real> · <stale>"), so a late
     cycle never hides why a token is or is not an entry. limit: the numbers' age limit, default the hard trade gate's
-    METRICS_FRESH_S (every automatic buy here); the readiness views pass METRICS_READY_S."""
+    METRICS_FRESH_S (every automatic buy here); the readiness views pass METRICS_READY_S. cfg (14.11.): the rule set
+    (rules.DEMO for the demo profile), None = RULES."""
     if not rng:
         return "nema raspona"
-    real = rules.entry_check(rules.atr_range(rng), price)   # 11.11.: the floor never under the ATR stop (variant b)
+    real = rules.entry_check(rules.atr_range(rng), price, cfg)   # 11.11.: the floor never under the ATR stop (variant b)
     stale = stale_why(rng, now, limit)
     if real and stale:
         return f"{real} · {stale}"
@@ -480,8 +516,17 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
             rngs.update(data.read_ranges(since=now - RANGE_FRESH_S, tokens=sorted(rest)))
     cand = {t for t, r in rngs.items() if _candidate(r)}
     cand_new = {t for t, r in rngs.items() if _candidate(rules.new_range(r))} if mflip != "off" else set()
-    toks = sorted(cand | cand_new | {r["token"] for r in open_r if r["user"] in act} | {r["token"] for r in armed})
+    # 14.11. (range_demo G32): the demo profile's own candidates (score >= 0.6) for the accounts that trade it
+    demo_u = {u for u in act if profile(u)}
+    cand_d = {t for t, r in rngs.items() if _candidate(r, rules.DEMO)} if demo_u else set()
+    cand_dn = ({t for t, r in rngs.items() if _candidate(rules.new_range(r), rules.DEMO)}
+               if demo_u and mflip != "off" else set())
+    toks = sorted(cand | cand_new | cand_d | cand_dn | {r["token"] for r in open_r if r["user"] in act}
+                  | {r["token"] for r in armed})
     if not toks:
+        for user in demo_u:   # 14.11.: no candidate at all is a reason too (the daily counter)
+            _note_blocks(con, user, _demo_blocks(rngs, now, new=user in new_u), now)
+            _demo_log(con, user, now)
         return []
     from league import copy
     mk = (market_fn or copy.market)(toks) or {}
@@ -492,6 +537,8 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
         return done
     for user in act:
         new = user in new_u
+        cfg = profile(user)   # 14.11.: rules.DEMO on the demo account while range_demo is paper
+        blocks = {} if cfg else None
         mine = [r for r in open_r if r["user"] == user]
         for r in mine:
             done += _lot2(con, user, r, rngs.get(r["token"]), mk.get(r["token"]), lim, sol, now)
@@ -503,16 +550,29 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
                     n_open += 1
                     mine.append({"token": r["token"]})
                     done += got
-        for tok in sorted(cand_new if new else cand):
+        pool = (cand_dn if new else cand_d) if cfg else (cand_new if new else cand)
+        for tok in (sorted(pool, key=lambda t: (_order(rngs.get(t)), t)) if cfg else sorted(pool)):
+            if any(r["token"] == tok for r in mine):
+                continue
             if n_open >= lim["max_open"]:
+                if blocks is not None:
+                    blocks[tok] = f"najviše otvorenih range rundi ({lim['max_open']})"
+                    continue
                 break
-            if any(r["token"] == tok for r in mine) or not allowed(rngs[tok], user, now):
+            if not allowed(rngs[tok], user, now):
+                if blocks is not None:
+                    blocks[tok] = "izvor tokena nije dopušten ovom računu (zastavica izvora)"
                 continue
             got = _lot1(con, user, tok, rngs[tok], mk.get(tok), lim, sol, now, new=new,
-                        flip_log=mflip if user in flip_sh else None)
+                        flip_log=mflip if user in flip_sh else None, cfg=cfg, blocks=blocks)
             if got:
                 n_open += 1
                 done += got
+        if blocks is not None:   # 14.11.: why every other fresh active range was no demo entry (the daily counter)
+            held = {r["token"] for r in mine}
+            rest = _demo_blocks({t: r for t, r in rngs.items() if t not in pool and t not in held}, now, new=new)
+            _note_blocks(con, user, {**rest, **blocks}, now)
+            _demo_log(con, user, now)
     if flip_sh:
         _flip_shadow(con, sorted(flip_sh), cand | cand_new, rngs, mk, now, mflip)
     for user in sh:
@@ -532,6 +592,133 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
     return done
 
 
+# ---------- 14.11. the demo profile's daily counter (owner: "barem 5 tradeova danas") ------------------------------------
+BLOCKS_SCHEMA = ("CREATE TABLE IF NOT EXISTS range_blocks (day INTEGER, user TEXT, token TEXT, reason TEXT, ts INTEGER, "
+                 "PRIMARY KEY (day, user, token, reason))")
+# the reason's key: the first entry whose text is in the reason (the numbers of a reason differ token to token)
+BLOCK_KEYS = (("arhivi rugova", "rug arhiva"), ("rug (", "rug"), ("lažni pool", "lažni pool"),
+              ("ocjena raspona", "ocjena raspona ispod praga"), ("preživljavanje pada nepoznato", "preživljavanje nepoznato"),
+              ("premlad za pad", "mlađi od 24 h (nije prošao pad)"), ("starost nepoznata", "starost nepoznata"),
+              ("razina prije pada", "razina prije pada nepoznata"), ("nije preživio pad", "nije preživio pad (> 45 %)"),
+              ("nije u rasponu", "nije opet u rasponu"), ("cijena na ", "cijena nije u donjem dijelu raspona"),
+              ("ispod range_low_low", "cijena ispod dna raspona"), ("pada ", "pad u zadnjih 5 min"),
+              ("promjena 5 min", "pad u zadnjih 5 min"), ("kupnje ", "premalo kupnji u 5 min"),
+              ("udio kupnji", "premalo kupnji u 5 min"), ("volumen 15 min", "slab volumen 15 min"),
+              ("volumen nepoznat", "slab volumen 15 min"), ("nije svjež", "podaci nisu svježi"),
+              ("već drži", "već drži token / pauza nakon runde"), ("dnevni limit", "dnevni limit SOL-a"),
+              ("najviše otvorenih", "najviše otvorenih range rundi"), ("krivulji", "još na krivulji"),
+              ("MC ispod 30k", "MC ispod 30k"), ("likvidnost", "likvidnost"), ("koncentr", "koncentracija supplyja"),
+              ("volumen 1 h", "volumen 1 h ispod $3k"), ("nema tržišne cijene", "nema tržišne cijene"),
+              ("izvor tokena", "izvor nije dopušten"), ("pauz", "pauza nakon proboja"), ("proboj", "pauza nakon proboja"),
+              ("volumen zadnjeg sata", "volumen sata pao (isključen)"), ("niža dna", "dva niža dna (isključen)"),
+              ("probijen dolje", "raspon probijen dolje"), ("kupnja nije prošla", "kupnja nije prošla"))
+_BLOCKS_SEEN = {}   # {(day, user): {(token, key)}} already in range_blocks (one write per token, reason and day)
+BLOCKS_KEEP_DAYS = 14
+
+
+def block_key(why):
+    """A reason as the counter's key (Croatian, without the token's numbers)."""
+    w = why or "nepoznato"
+    for part, key in BLOCK_KEYS:
+        if part in w:
+            return key
+    head = "".join(ch for ch in w.split(" (")[0].split(" · ")[0] if not ch.isdigit())
+    return " ".join(head.split())[:60] or "nepoznato"
+
+
+def _demo_blocks(rngs, now, new=False):
+    """{token: why} for the fresh active ranges that were no demo candidate this pass (their score / place / range;
+    the market price is not asked for them: the range's own numbers say why)."""
+    out = {}
+    for t, r in (rngs or {}).items():
+        if not r or not r.get("active"):
+            continue
+        rx = rules.new_range(r) if new else r
+        why = entry_view(rx, (r.get("metrics") or {}).get("price"), now, cfg=rules.DEMO)
+        if why is None and (r.get("pos_pct") or 0) > 40:
+            why = f"cijena na {r['pos_pct']:.0f} % raspona"
+        out[t] = why or "nije kandidat ovog prolaza"
+    return out
+
+
+def _note_blocks(con, user, blocks, now):
+    """One league.db range_blocks row per (Zagreb day, account, token, reason key) the first time it is seen."""
+    if not blocks:
+        return 0
+    day = _day_start(now)
+    fresh_day = (day, user) not in _BLOCKS_SEEN
+    seen = _BLOCKS_SEEN.setdefault((day, user), set())
+    for k in [k for k in _BLOCKS_SEEN if k[0] != day]:
+        _BLOCKS_SEEN.pop(k, None)
+    new = [(t, block_key(w)) for t, w in blocks.items()]
+    new = [x for x in new if x not in seen]
+    if not new:
+        return 0
+    try:
+        con.execute(BLOCKS_SCHEMA)
+        if fresh_day:   # the first write of a day (or of a process): the rows older than BLOCKS_KEEP_DAYS go
+            con.execute("DELETE FROM range_blocks WHERE day < ?", (day - BLOCKS_KEEP_DAYS * 86400,))
+        con.executemany("INSERT OR IGNORE INTO range_blocks VALUES (?,?,?,?,?)",
+                        [(day, user, t, k, int(now)) for t, k in new])
+        con.commit()
+    except sqlite3.Error:
+        return 0
+    seen.update(new)
+    return len(new)
+
+
+def demo_today(con, now=None, user=None):
+    """The daily counter (14.11.): {"day_start", "trades" (lot 1 of a round opened today, Zagreb day; reclaims
+    included and counted apart), "reclaims", "goal", "open", "closed", "pnl_usd", "tokens_seen", "top_blocks"
+    [{"reason", "tokens"}] (the 3 reasons that held off the most tokens today), "text"}."""
+    from trade import settings as ts
+    now = int(now or time.time())
+    user = user or ts.PAPER_USER
+    day = _day_start(now)
+    out = {"day_start": day, "user": user, "goal": rules.DEMO_GOAL, "trades": 0, "reclaims": 0, "open": 0, "closed": 0,
+           "pnl_usd": 0.0, "tokens_seen": 0, "top_blocks": []}
+    try:
+        have = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+                                          "('range_rounds', 'range_blocks')")}
+        if "range_rounds" in have:
+            for st, lv, pnl in con.execute("SELECT status, levels, pnl_usd FROM range_rounds WHERE user=? AND "
+                                           "opened_ts>=?", (user, day)):
+                out["trades"] += 1
+                out["reclaims"] += int('"reclaim": true' in (lv or ""))
+                out["open" if st == "open" else "closed"] += 1
+                out["pnl_usd"] += pnl or 0.0
+        if "range_blocks" in have:
+            out["top_blocks"] = [{"reason": k, "tokens": n} for k, n in con.execute(
+                "SELECT reason, COUNT(DISTINCT token) n FROM range_blocks WHERE day=? AND user=? GROUP BY reason "
+                "ORDER BY n DESC, reason LIMIT 3", (day, user))]
+            out["tokens_seen"] = con.execute("SELECT COUNT(DISTINCT token) FROM range_blocks WHERE day=? AND user=?",
+                                             (day, user)).fetchone()[0]
+    except sqlite3.Error:
+        pass
+    out["pnl_usd"] = round(out["pnl_usd"], 2)
+    blk = ", ".join(f"{b['reason']} {b['tokens']}" for b in out["top_blocks"]) or "-"
+    out["text"] = (f"range demo danas: {out['trades']} tradeova (cilj {out['goal']})"
+                   + (f", od toga reclaim {out['reclaims']}" if out["reclaims"] else "")
+                   + f"; otvoreno {out['open']}, zatvoreno {out['closed']} ({out['pnl_usd']:+.2f} $); "
+                   f"najviše blokira (tokena): {blk}; pregledano tokena {out['tokens_seen']}")
+    return out
+
+
+def _demo_log(con, user, now):
+    """The counter's log line when the day's count changed and at least once every DEMO_LOG_S."""
+    try:
+        d = demo_today(con, now, user)
+    except Exception:  # noqa: BLE001 - the counter never stops an entry pass
+        return None
+    key = (user, d["day_start"], d["trades"])
+    last = _CACHE.get("demo_log") or (None, 0.0)
+    if last[0] == key and now - last[1] < DEMO_LOG_S:
+        return None
+    _CACHE["demo_log"] = (key, now)
+    print(d["text"], flush=True)
+    return d["text"]
+
+
 def _sized(lot, liq, sol, rng):
     """11.11. (owner's rules B / C): the lot within the 2 % slippage stake and x the 1 h volume factor (trade/cost)."""
     if lot <= 0:
@@ -540,10 +727,19 @@ def _sized(lot, liq, sol, rng):
     return round(_cost.size_sol(lot, liq, sol, vol), 6)
 
 
-def _candidate(r):
-    """An active range with score >= score_min and the price in the lower 40 % (or unknown): worth a look this pass."""
-    return bool(r and r.get("active") and (r.get("score") or 0) >= rules.RULES["score_min"]
+def _candidate(r, cfg=None):
+    """An active range with score >= score_min and the price in the lower 40 % (or unknown): worth a look this pass.
+    cfg (14.11.): the rule set's score_min (rules.DEMO: 0.6)."""
+    return bool(r and r.get("active") and (r.get("score") or 0) >= rules._r(cfg)["score_min"] - 1e-9
                 and (r.get("pos_pct") is None or r["pos_pct"] <= 40))
+
+
+def _order(r):
+    """14.11. (DEMO): the order the demo candidates are tried in (max_open may not leave room for all): a token that
+    survived the crash first (rangedca/survivor ok), then the lowest place in the range, then the best score."""
+    r = r or {}
+    return (not (r.get("survivor") or {}).get("ok"), r.get("pos_pct") if r.get("pos_pct") is not None else 100.0,
+            -(r.get("score") or 0))
 
 
 def _flip_shadow(con, users, toks, rngs, mk, now, mflip):
@@ -579,15 +775,19 @@ def _flip_shadow(con, users, toks, rngs, mk, now, mflip):
     return n
 
 
-def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None):
+def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None, cfg=None, blocks=None):
     """Lot 1 of a new round. new: the account trades range_flip's new rules (rules.new_range); flip_log (range_flip's
-    mode): the account trades today's rules and the would-be stop is kept and logged next to the round's."""
+    mode): the account trades today's rules and the would-be stop is kept and logged next to the round's. cfg
+    (14.11.): rules.DEMO for the demo profile (its entry, the round's levels rules.demo_levels); blocks: {token: why}
+    gets the reason when no lot is bought (the daily counter)."""
     if not mq or not mq[0]:
+        if blocks is not None:
+            blocks[tok] = "nema tržišne cijene (DexScreener)"
         return []
     price, liq, _url, mcap = mq[:4]
     base = rng
     rng = rules.atr_range(rules.new_range(rng) if new else rng)   # 11.11. (decision 1): the ATR stop, every account
-    why = entry_view(rng, price, now)
+    why = entry_view(rng, price, now, cfg=cfg)
     if why is None and (_held(con, user, tok) or _cooldown(con, user, tok, now)):
         why = "već drži token ili je u pauzi nakon runde"
     if why is None:
@@ -601,14 +801,20 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None):
     if why is None and _spent_today(con, user, now, sol) + lot > lim["max_sol_per_day"] + 1e-9:
         why = "dnevni limit SOL-a za range ulaze"
     if why:
+        if blocks is not None:
+            blocks[tok] = why
         return []
     sym = (mq[4] if len(mq) > 4 else None) or rng.get("symbol")
     try:
         tid = _buy(con, user, tok, sym, lot * sol, price, liq, mcap, SRC1, False)
     except ValueError as e:
         print(f"range {user} {tok[:6]}: ulaz nije prošao ({e})", flush=True)
+        if blocks is not None:
+            blocks[tok] = f"kupnja nije prošla ({e})"
         return []
     lv = rules.levels_of(rng)
+    if cfg:   # 14.11. (DEMO): TP +10 / +15 % net from this entry, the stop held at -12..-25 % from it
+        lv = rules.demo_levels(lv, price, _cost.round_trip(lot * sol, liq), cfg)
     lv["supply"] = (mcap / price) if mcap and price else (rng.get("metrics") or {}).get("supply")
     srcs = base.get("sources") or [base.get("source") or "signal"]   # 11.11.: the round's source (EV per source, gate)
     lv["src"] = next((s for s in market.SRC_ORDER if s in srcs), "signal")
@@ -633,8 +839,14 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None):
                         f"stop {lv['flip_stop_px']:.6g} (range_low_low − 1,5 × ATR, {nr.get('stop_kind')})",
                         {"user": user, "lot1_id": tid, "mc": mcap, "supply": lv["supply"], "mode": flip_log}, now)
     con.commit()
+    extra = ""
+    if cfg and lv.get("supply"):
+        sup = lv["supply"]
+        extra = (f"; demo 14.11.: TP1 MC ${lv['tp1_px'] * sup:,.0f} (+{cfg['tp1_net']:.0%} neto), ostatak MC "
+                 f"${rules.tp2_of(lv) * sup:,.0f}, stop MC ${lv['stop_px'] * sup:,.0f} ({lv['stop_px'] / price - 1:+.0%}); "
+                 f"{(base.get('survivor') or {}).get('why') or ''}")
     return [(user, f"range lot 1 {sym or tok[:6]}: {lot:g} SOL na MC ${mcap or 0:,.0f} (raspon "
-                   f"{rng.get('pos_pct') or 0:.0f} %, ocjena {rng.get('score') or 0:.2f})")]
+                   f"{rng.get('pos_pct') or 0:.0f} %, ocjena {rng.get('score') or 0:.2f}){extra}")]
 
 
 def _lot2(con, user, r, rng, mq, lim, sol, now):
@@ -649,6 +861,9 @@ def _lot2(con, user, r, rng, mq, lim, sol, now):
     if not t1 or not _held(con, user, r["token"]):
         return []
     if _is_new(r) and rules.flip_block(rng):   # range_flip: no lot 2 while paused or a flip candidate
+        return []
+    pc = rules.profile_cfg(r["levels"])
+    if pc and pc.get("lot2") is False:   # 14.11. (DEMO): one lot, no DCA under the clamped stop
         return []
     lv = _levels_now(r, rng, now)
     mets = (rng or {}).get("metrics") if rng and now - (rng.get("mts") or rng.get("ts") or 0) <= METRICS_FRESH_S else None
@@ -795,7 +1010,8 @@ def exits_once(con, market_fn, now=None):
         if gu and gu.get("ts", 0) >= r["opened_ts"] and age <= STALE_S:
             hit = (f"odustajanje: {gu.get('why')}", 1.0)
         else:
-            hit = rules.exit_step(lv, st, price, now, r["opened_ts"], _be_px(lots, liq), stale=age > STALE_S)
+            hit = rules.exit_step(lv, st, price, now, r["opened_ts"], _be_px(lots, liq), stale=age > STALE_S,
+                                  cfg=rules.profile_cfg(r["levels"]))   # 14.11.: a demo round by DEMO's exits
         if lv["stop_px"] != r["levels"].get("stop_px"):   # the stop tightened with the newer range: kept
             r["levels"]["stop_px"] = lv["stop_px"]
             if lv.get("stop_kind"):   # 11.11.: the kind of the stop that won (an old x 0.85 round under the ATR stop)

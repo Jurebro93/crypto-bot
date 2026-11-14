@@ -127,8 +127,9 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 11.11. (Jure: "širi range watchlist", rangedca/market.py): up to 400 bonded tokens of the whole market in the range
     # watchlist (5 / 15-min DexScreener snapshots inside daily caps); shadow = data, paper = range_dca may trade them on
     # the demo account; never real money (NEVER_LIVE)
-    "range_market": ("G20", "Range lista cijelog tržišta: do 400 bondanih tokena (MC 50k-5M, likvidnost 15k+, volumen "
-                            "1 h 10k+, stariji od 6 h), snimke svakih 5/15 min unutar dnevnih stropova"),
+    "range_market": ("G20", "Range lista cijelog tržišta: do 400 bondanih tokena (MC 30k-5M, likvidnost 15k+, volumen "
+                            "1 h 5k+, stariji od 6 h; 14.11. i PumpSwap poolovi, CTO liste, pozivi 7 dana, bivši rasponi), "
+                            "snimke svakih 5/15 min unutar dnevnih stropova"),
     # 11.11. (Jure, proposals/): one list of proposals from every strategy on the Autopilot card and in get_proposals;
     # shadow = list and measure, paper = the demo account takes a proposal in its entry zone; never live (LIVE_GATES)
     "proposals": ("G21", "Prijedlozi svih strategija na Autopilotu: sjena = popis i mjerenje, paper = demo račun uzima "
@@ -166,13 +167,26 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
                             "honeypot, likvidnost 15k+, MC 30k+, bondan) dobiva papirnati ulaz na MC u trenutku "
                             "detekcije; mjeri se max dobit prije −8 %, +15 min i +1 h neto nakon troška i dump deva / "
                             "top holdera, po razredu autora (followeri × brzina); nijedan račun ne kupuje"),
+    # 14.11. (Jure: "želim da danas otvoriš barem 5 tradeova ... u donjem dijelu range-a ... nemoj stavljati preblizu
+    # stop loss ... da se uzima barem 10-15% profita"; rangedca/rules.DEMO): paper = range_dca's DEMO account trades the
+    # demo profile (entry score 0.6, bottom 25 %, no crashed token; TP +10 % / +15 % net, ATR stop held at -12..-25 %);
+    # off = the demo account trades RULES like the real one. Never live (NEVER_LIVE); default paper (FLAG_DEFAULTS).
+    "range_demo": ("G32", "Range demo 14.11.: demo račun ulazi u donjih 25 % raspona (ocjena 0,6+), nikad u token koji je "
+                          "u 24 h pao više od 45 %, preživjeli pad (24 h+, opet u rasponu) idu prvi; pola van na +10 % "
+                          "neto, ostatak na +15 % neto ili gornjoj zoni, trailing 15 % / break-even, stop ATR između "
+                          "−12 % i −25 % od ulaza, bez lota 2; cilj 5 tradeova dnevno"),
 }
 # 12.11. (owner: "zadano shadow ili paper"): a flag's mode while the owner has never set it; every other flag is off
 FLAG_DEFAULTS = {"x_call_scalp": "shadow"}
+FLAG_DEFAULTS["range_demo"] = "paper"   # 14.11. (owner's order): the demo account trades the demo profile from the deploy
+# 14.11.: a profile flag changes HOW a strategy already in paper trades on the demo account; its paper mode never makes
+# the paper account follow anybody (any_paper leaves it out)
+PROFILE_FLAGS = frozenset({"range_demo"})
 # 11.11.: flags that never go live, whatever the proofs say (their tokens are traded at most on the demo account)
 NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najviše paper na demo računu)",
               "range_market": "tržišna range lista nikad ne trguje pravim novcem (najviše paper na demo računu)",
-              "x_call_scalp": "x_call_scalp nikad ne trguje pravim novcem (samo papirnati ulazi, bez računa)"}
+              "x_call_scalp": "x_call_scalp nikad ne trguje pravim novcem (samo papirnati ulazi, bez računa)",
+              "range_demo": "demo pravila range-a (14.11.) nikad ne trguju pravim novcem (samo demo račun)"}
 # 11.11.: owner switches: "live" means on, without a backtest or paper days (live_refusal lets them through); they
 # never move on their own, only the owner's tap on the page sets them
 OWNER_SWITCHES = frozenset({"exit_plan_live", "rug_labels_v2_ok", "live_trades_retention", "tg_text_retention"})
@@ -389,8 +403,8 @@ def flag_on(name, con=None, path=None):
 def any_paper(con=None, path=None):
     """True while at least one flag is in paper mode (only then the paper account follows anybody)."""
     if con is not None:
-        return any(v["mode"] == "paper" for v in flag_state(con).values())
-    return any(flag(n, path=path) == "paper" for n in FLAGS)
+        return any(v["mode"] == "paper" for n, v in flag_state(con).items() if n not in PROFILE_FLAGS)
+    return any(flag(n, path=path) == "paper" for n in FLAGS if n not in PROFILE_FLAGS)
 
 
 def live_refusal(con, name, paper=None, now=None):

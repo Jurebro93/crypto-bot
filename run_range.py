@@ -44,6 +44,10 @@ the market part falls back to the watched list, the detection commits every COMM
 trade-gate freshness limits are rangedca/trade's (METRICS_READY_S 9 min, METRICS_FRESH_S 5 min).
 12.11. popodne (točka 4): tokens in the rug archive (rugfilter/archive) are not polled, get no range and leave the
 market list (rangedca/market.drop_archived); a token with an open range round keeps its numbers for its exits.
+14.11. (Jure: "Ako je neki token izdržao ovaj bloodbath ... i ako se vratio u range, pronađi ga"): every full
+detection also computes the token's crash-survivor check (rangedca/survivor.check: >= 24 h old, MC at most 45 % under
+the level 24 h ago, back in an active range), kept in the range JSON ("survivor", shown by get_range_candidates and
+read by the demo profile's entry), and the pass line counts the survivors in a range ("preživjeli pad u rasponu N").
 """
 import argparse
 import os
@@ -148,12 +152,13 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
                 srcs.setdefault(t, []).append(mk["src"].get(t, "market"))
         cands = sig + [t for t in mk["tokens"] if t not in set(sig) and t not in arch]
         seeds, n_act, n_ok, errs = 0, 0, 0, []
+        tally = {"survivors": 0}   # 14.11.: active ranges whose token survived the crash (rangedca/survivor)
         for i, tok in enumerate(cands):
             if i and i % COMMIT_EVERY == 0:
                 con.commit()   # 12.11.: a pass killed by a deploy keeps what it computed so far
             try:
                 n_act, n_ok, seeds = _one_token(con, tok, now, full, open_toks, pinned, m_flip, n_flip, srcs, seeds,
-                                                gt_fetch, post, log, n_act, n_ok)
+                                                gt_fetch, post, log, n_act, n_ok, tally)
             except Exception as e:  # noqa: BLE001 - 12.11. (točka 1): one token (a 502 of its fetch) never ends the pass
                 errs.append(f"{tok[:6]} {type(e).__name__}")
         if errs:
@@ -170,7 +175,8 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
         ms = mk.get("stats") or {}
         text = (f"range: {len(cands)} kandidata (signal {len(sig)}, tržište "
                 f"{len(mk['tokens']) - ms.get('events', 0) - ms.get('missed', 0)}, eventi {ms.get('events', 0)}, "
-                f"propušteni {ms.get('missed', 0)}), aktivnih {n_act}, ocjena >= {rules.RULES['score_min']}: {n_ok}; "
+                f"propušteni {ms.get('missed', 0)}), aktivnih {n_act}, ocjena >= {rules.RULES['score_min']}: {n_ok}, "
+                f"preživjeli pad u rasponu {tally['survivors']}; "
                 f"GeckoTerminal danas {data.day_used(con, 'gt_day', now)}/{data.GT_DAY}, Helius danas "
                 f"{data.day_used(con, 'helius_day', now)}/{holders.CREDITS_DAY} kredita"
                 + (f"; tržište: DexScreener danas {data.day_used(con, 'mkt_dex_day', now)}/{market.DEX_DAY}, osvježeno "
@@ -186,9 +192,11 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
         con.close()
 
 
-def _one_token(con, tok, now, full, open_toks, pinned, m_flip, n_flip, srcs, seeds, gt_fetch, post, log, n_act, n_ok):
+def _one_token(con, tok, now, full, open_toks, pinned, m_flip, n_flip, srcs, seeds, gt_fetch, post, log, n_act, n_ok,
+               tally=None):
     """One token of a pass (12.11.: its own function, so a failure is that token's only): the full detection, or
-    between the 5-minute detections the active range's fresh 5-minute numbers. Returns (n_act, n_ok, seeds)."""
+    between the 5-minute detections the active range's fresh 5-minute numbers. Returns (n_act, n_ok, seeds).
+    tally (14.11.): {"survivors": n} counts the active ranges whose token survived the crash."""
     from rangedca import data, detect, holders, market, rules, view
     prev, st = data.load_range(con, tok)
     if not full and not (prev and (prev.get("active") or tok in open_toks or tok in pinned
@@ -239,6 +247,7 @@ def _one_token(con, tok, now, full, open_toks, pinned, m_flip, n_flip, srcs, see
             data.event(con, tok, res["status"], note, now)
             log(f"range {sym or tok[:6]}: {res['status']} ({note})")
         res["stop"] = stop_block(res)
+        res["survivor"] = _survivor_of(con, tok, candles, now, res)   # 14.11.: survived the crash, back in range?
         if res.get("active"):   # 11.11. (decision 1): ONE line per active range, only when a level moved
             ln = rules.stop_line(sym or tok[:6], res)
             if ln:
@@ -268,7 +277,32 @@ def _one_token(con, tok, now, full, open_toks, pinned, m_flip, n_flip, srcs, see
     data.save_range(con, tok, res, st, sym)
     n_act += int(bool(res.get("active")))
     n_ok += int(bool(res.get("active")) and (res.get("score") or 0) >= rules.RULES["score_min"])
+    if tally is not None and res.get("active") and (res.get("survivor") or {}).get("ok"):
+        tally["survivors"] = tally.get("survivors", 0) + 1
     return n_act, n_ok, seeds
+
+
+SURVIVOR_EXT_FRESH_S = 1800   # 14.11.: DexScreener's 24 h change older than this is not the level of now
+
+
+def _survivor_of(con, tok, candles, now, res):
+    """14.11. (rangedca/survivor.check): the token's age (the market list's pool creation, else the DexScreener pair's
+    from snap_ext, else the GeckoTerminal seed; else the series' span inside survivor), DexScreener's 24 h change of
+    the newest snapshot when it is at most SURVIVOR_EXT_FRESH_S old (else the series' close 24 h ago)."""
+    from rangedca import data, survivor
+    ext = data.snap_ext(con, tok) or {}
+    ch = ext.get("ch_h24") if ext.get("ts") and now - ext["ts"] <= SURVIVOR_EXT_FRESH_S else None
+    age = None
+    try:
+        r = con.execute("SELECT created_ts FROM mkt WHERE token=?", (tok,)).fetchone()
+        age = round((now - r[0]) / 3600, 2) if r and r[0] else None
+    except Exception:  # noqa: BLE001 - no market table
+        age = None
+    if age is None and ext.get("created_ts"):
+        age = round((now - ext["created_ts"]) / 3600, 2)
+    if age is None:
+        age = _age_h(con, tok, now)
+    return survivor.check(candles, now, res, age_h=age, ch_h24=ch)
 
 
 def _archived():
