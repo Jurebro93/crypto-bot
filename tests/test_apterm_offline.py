@@ -216,7 +216,11 @@ class SameRoutes(Env):
                               "/pravi-trade/dcadel", "/pravi-trade/limitdel", "/pravi-trade/switch"}, acts)
         known = {"/pravi-trade/buy", "/pravi-trade/sell", "/pravi-trade/exit", "/pravi-trade/dca", "/pravi-trade/dcadel",
                  "/pravi-trade/limitdel", "/pravi-trade/switch", "/pravi-trade/sellall",
-                 "/pravi-trade/flag"}   # 14.11.: the existing flag route, for the switch pravi_novac_sve's box
+                 "/pravi-trade/flag",   # 14.11.: the existing flag route, for the switch pravi_novac_sve's box
+                 # 14.11.: "Prekidači" on the main view: the routes these switches always had (Grok autotrade and its
+                 # limits from Postavke, the exit plans' kill switch from Otvoreni nalozi, Grok's requests)
+                 "/pravi-trade/grokon", "/pravi-trade/grokoff", "/pravi-trade/groklimits", "/pravi-trade/exitpause",
+                 "/pravi-trade/exitresume", "/pravi-trade/mcpok", "/pravi-trade/mcpno"}
         self.assertEqual(acts - known, set())                               # no new POST route
         buy = next(n for a, n in got if a == "/pravi-trade/buy")
         # prijedlog is added by Kupi on a proposal; 11.11. (noc/sltp) chart_mint + confirm_mismatch: the chart's token,
@@ -341,7 +345,7 @@ class LiveFirst(Env):
         self.assertLess(pos.index("Probno (paper)"), pos.index(PAPER_T))   # a divider before the paper ones
         self.assertIn('<span class="apx-badge live">uživo</span>', pos)
         self.assertIn('<span class="apx-badge paper">paper</span>', pos)
-        self.assertRegex(pos, r'class="apx-tr apx-pos is-paper"[^>]*data-tok="' + PAPER_T)
+        self.assertRegex(pos, r'<details class="apx-pos apx-pr is-paper"[^>]*data-tok="' + PAPER_T)   # 14.11.: a row
         # grey (11.11.: the site's soft grey with a thin line, like the rest of memesonar.app)
         self.assertIn(".apx-badge.paper{background:var(--soft);color:var(--mut);box-shadow:inset 0 0 0 1px var(--line)}",
                       apterm.CSS)
@@ -669,7 +673,7 @@ class BrandAndTooltip(Env):
         self.assertNotIn("class=apx-leg", body)                # the small legend row above the chart is gone
         self.assertIn("TradingView Lightweight Charts™</a> · Copyright (c) 2025 TradingView, Inc.", body)   # attribution
         # PnL by day lives in the "Portfelj" card (one place, not also in "Povijest")
-        port = body[body.index("id=apx-port"):body.index("class=apx-tabs")]
+        port = body[body.index("id=apx-port"):body.index("id=kupiti")]   # 14.11.: under Pozicije
         for k in ("data-pm=live class=on", "data-pm=paper", "data-pv=val class=on", "data-pv=days", "data-pu=sol class=on",
                   "data-pu=usd", "data-pd=7", "data-pd=30 class=on", "data-pd=90", "id=apx-pchart tabindex=0"):
             self.assertIn(k, port)
@@ -724,9 +728,11 @@ class Portfelj(HandlerMixin, Env):
     def test_the_card_is_on_the_main_view_with_the_live_numbers(self):
         self.seed()
         _, body = pravitrade.page({}, "Jure")
-        at = [body.index(k) for k in ("id=apx-chartbox", "id=apx-port", "class=apx-tabs", "id=pozicije")]
-        self.assertEqual(at, sorted(at))                                   # under the chart, above the tabs
-        port = body[body.index("id=apx-port"):body.index("class=apx-tabs")]
+        # 14.11. (Jure: "na vrhu ... graf, brza kupovina i pozicije"): under the tables, still in the first view
+        at = [body.index(k) for k in ("id=apx-chartbox", "id=kupi-odmah", "class=apx-tabs", "id=pozicije", "id=apx-port",
+                                      "id=kupiti")]
+        self.assertEqual(at, sorted(at))
+        port = body[body.index("id=apx-port"):body.index("id=kupiti")]
         for k in ("<h2 class=apx-h2 data-sec=\"\">Portfelj</h2>", ">Ukupno<", ">Slobodno<", ">U pozicijama<", ">Danas<",
                   ">Ukupni PnL<", "1,815", "1,772", "0,043", "+3,7"):     # SUMMARY of tests/test_apui_offline
             self.assertIn(k, port, k)

@@ -14,6 +14,9 @@ through data-key) and the exit in a few words ("SL −12 % · TP1 +15 % · BE na
   Što MemeSonar vidi    the bot's own data on the token, each marked potvrđuje / proturječi / neutralno: rug check
                         (topcheck) and the rug filter, liquidity / MC / 1 h volume, buyers vs sellers, the range
                         (rangedca), the newest fast_check, callers and followed wallets of the last hour
+14.11. (Jure: "grokove sve pozicije ubaci dolje u pozicije samo uz tag"): the terminal has no Grok card at the top any
+more; detail() is what Grok's position shows inside its own row of Pozicije (ui/apterm.positions_html); row_html and
+block_html stay for the old page (?stari=1).
 Only data the bot already stores is read (no new API call, no paid request); MemeSonar's part is cached FACTS_TTL_S
 per token, so a page view reads each database at most once in that time. Every part is behind its own try: a missing
 database leaves its line out, never the row.
@@ -339,9 +342,11 @@ def _live_of(tok, now):
         return {}
 
 
-def row_html(tcon, lcon, p, now, rounds=None, round_cap=None, tables=None):
-    """One Grok position: the collapsed line (summary) and, under it, Pozicija / Grokova teza / Što je Grok dostavio /
-    Što MemeSonar vidi."""
+def detail(tcon, lcon, p, now, rounds=None, round_cap=None, tables=None):
+    """What one Grok position says beyond the row of Pozicije (14.11., Jure: "grokove sve pozicije ubaci dolje u
+    pozicije samo uz tag"; ui/apterm puts it into the position's expanded row): {"exit": the exit in a few words,
+    "plan": the exit plan in force or None, "cells": [(label, html, cls)] Kupljeno / Način / Krugovi danas, "html":
+    Izlaz + Grokova teza + Što je Grok dostavio + Što MemeSonar vidi}."""
     from league import exitplan as xp
     from ui import apterm
     tok = p["token"]
@@ -351,35 +356,20 @@ def row_html(tcon, lcon, p, now, rounds=None, round_cap=None, tables=None):
             plan = xp.active(lcon, tok, ro=True)
         except Exception:  # noqa: BLE001
             plan = None
-    badge = apterm.BADGE_PAPER if p["paper"] else apterm.BADGE_LIVE
-    sol = redak.sol(p["pnl_sol"], 4, sign=True) if p.get("pnl_sol") is not None else ""
-    pnl = (f'{apterm._pct(p["pnl_pct"])}<small>{sol}</small>' if p.get("pnl_pct") is not None
-           else '<span class=apx-sk>čekam cijenu</span>')
     xs = exit_short(p, plan)
-    summ = (f'<summary class=apx-gps><span class=apx-gps-t>{apterm._sel_btn(tok, p["sym"])}{badge}</span>'
-            f'<span class="n apx-gps-mc" title="Ulazni MC">ulaz {apterm.mc(p["avg_mc"])}</span>'
-            f'<span class="n apx-pnl {apterm._tone(p.get("pnl_pct"))}" data-f=pnl>{pnl}</span>'
-            f'<span class=apx-gps-x>{esc(xs)}</span></summary>')
-    # Pozicija
     kind = "Grok auto" if p.get("grok") == "auto" else "odobren Grokov zahtjev"
-    cells = [("Ulaz (MC)", apterm.mc(p["avg_mc"]), "n"),
-             ("Sada (MC)", f'<span data-f=mc>{apterm.mc(p["mc_now"])}</span>', "n"),
-             ("PnL", f'<span class="n apx-pnl {apterm._tone(p.get("pnl_pct"))}" data-f=pnl>{pnl}</span>', "n"),
-             ("Veličina", redak.sol(p["sol_in"], 3) + (f' · {p["n_lots"]} ulaza' if p.get("n_lots", 1) > 1 else ""), "n"),
-             ("Kupljeno", esc(_zg(p.get("opened_ts"), now)), "n"),
+    cells = [("Kupljeno", esc(_zg(p.get("opened_ts"), now)), "n"),
              ("Način", ("uživo (pravi novac)" if not p["paper"] else "paper (bez novca)") + f" · {kind}", "t")]
     if rounds:
         cells.append(("Krugovi danas", f'{rounds["rounds_today"]} od {round_cap}'
                       + (f' · stopom {rounds["stop_outs_today"]}' if rounds.get("stop_outs_today") else ""), "n"))
-    grid = "".join(f'<div><span>{k}</span><b class={c}>{v}</b></div>' for k, v, c in cells)
     own = []
     if p.get("sl_mc"):
         own.append(f'SL {apterm._pct(p["sl_pct"], 0)} ({apterm.mc(p["sl_mc"])})')
     if p.get("tp_mc"):
         own.append(f'TP {apterm._pct(p["tp_pct"], 0)} ({apterm.mc(p["tp_mc"])})')
     exit_ = (f'<p class=apx-gpx><b>Izlaz:</b> {esc(xs)}'
-             + (f' <span class=apx-mut>· TP/SL pozicije: {esc(" · ".join(own))}</span>' if own and plan else "") + '</p>'
-             + apterm.plan_html(p.get("plan")))
+             + (f' <span class=apx-mut>· TP/SL pozicije: {esc(" · ".join(own))}</span>' if own and plan else "") + '</p>')
     # Grokova teza
     th = []
     for b in thesis(tcon, p):
@@ -411,10 +401,35 @@ def row_html(tcon, lcon, p, now, rounds=None, round_cap=None, tables=None):
     fl = "".join(f'<li class="apx-gf {TONES[t][1]}"><b>{TONES[t][0]}</b> · {esc(w)}: {esc(x)}</li>' for t, w, x in fs)
     vidi = (f'<h4>Što MemeSonar vidi <span class=apx-mut>· {n["za"]} potvrđuje · {n["protiv"]} proturječi · '
             f'{n["neutral"]} neutralno</span></h4><ul class="apx-gl apx-gfl">{fl}</ul>')
+    return {"exit": xs, "plan": plan, "cells": cells, "html": f'{exit_}{teza}{dost}{vidi}'}
+
+
+def row_html(tcon, lcon, p, now, rounds=None, round_cap=None, tables=None):
+    """One Grok position: the collapsed line (summary) and, under it, Pozicija / Grokova teza / Što je Grok dostavio /
+    Što MemeSonar vidi (the old page's card; the terminal lists Grok's positions in Pozicije since 14.11.)."""
+    from ui import apterm
+    tok = p["token"]
+    g = detail(tcon, lcon, p, now, rounds, round_cap, tables)
+    badge = apterm.BADGE_PAPER if p["paper"] else apterm.BADGE_LIVE
+    sol = redak.sol(p["pnl_sol"], 4, sign=True) if p.get("pnl_sol") is not None else ""
+    pnl = (f'{apterm._pct(p["pnl_pct"])}<small>{sol}</small>' if p.get("pnl_pct") is not None
+           else '<span class=apx-sk>čekam cijenu</span>')
+    summ = (f'<summary class=apx-gps><span class=apx-gps-t>{apterm._sel_btn(tok, p["sym"])}{badge}</span>'
+            f'<span class="n apx-gps-mc" title="Ulazni MC">ulaz {apterm.mc(p["avg_mc"])}</span>'
+            f'<span class="n apx-pnl {apterm._tone(p.get("pnl_pct"))}" data-f=pnl>{pnl}</span>'
+            f'<span class=apx-gps-x>{esc(g["exit"])}</span></summary>')
+    cells = [("Ulaz (MC)", apterm.mc(p["avg_mc"]), "n"),
+             ("Sada (MC)", f'<span data-f=mc>{apterm.mc(p["mc_now"])}</span>', "n"),
+             ("PnL", f'<span class="n apx-pnl {apterm._tone(p.get("pnl_pct"))}" data-f=pnl>{pnl}</span>', "n"),
+             ("Veličina", redak.sol(p["sol_in"], 3) + (f' · {p["n_lots"]} ulaza' if p.get("n_lots", 1) > 1 else ""), "n"),
+             *g["cells"]]
+    grid = "".join(f'<div><span>{k}</span><b class={c}>{v}</b></div>' for k, v, c in cells)
     act = (f'<button type=button class=apx-b data-edit="ed-{p["pid"]}" data-goto="poz-{p["pid"]}">Uredi SL-TP ili prodaj '
            '(u Pozicijama)</button>')
-    body = (f'<div class=apx-gpd><div class=apx-gpg data-key="{esc(p["key"])}">{grid}</div>{exit_}'
-            f'{teza}{dost}{vidi}<div class=apx-gpa>{act}</div></div>')
+    html = g["html"]
+    i = html.index("</p>") + 4   # the plan's line right under "Izlaz:", as before
+    body = (f'<div class=apx-gpd><div class=apx-gpg data-key="{esc(p["key"])}">{grid}</div>'
+            f'{html[:i]}{apterm.plan_html(p.get("plan"))}{html[i:]}<div class=apx-gpa>{act}</div></div>')
     return (f'<details class="apx-gp{" is-paper" if p["paper"] else ""}" id=gp-{p["pid"]} data-key="{esc(p["key"])}" '
             f'data-tok="{esc(tok)}">{summ}{body}</details>')
 

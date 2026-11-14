@@ -40,10 +40,14 @@ a.apx-state:hover{border-color:var(--line2)}
 .apx .apx-blk .ap-qb{background:var(--card);border:1px solid var(--line);border-radius:var(--ap-r);padding:12px 16px;margin:0}
 .apx .apx-blk .ap-qb-h{font-size:15px;margin:0 0 6px}.apx .ap-w{margin:4px 0;font-size:13.5px;color:var(--fg)}
 .apx .ap-w::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--warn);margin:0 8px 1px 0}
-/* grid: chart and tables left, order panel right (>= 1024 px) */
-.apx-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
-@media(min-width:1024px){.apx-grid{grid-template-columns:minmax(0,65fr) minmax(300px,35fr)}
- .apx-side{position:sticky;top:76px;max-height:calc(100vh - 88px);overflow:auto;scrollbar-width:thin}}
+/* grid (14.11., Jure: "na vrhu ... graf, brza kupovina i pozicije"): in the HTML the chart (.apx-m1), Brza kupnja (the
+ order panel), Pozicije (.apx-m2) and Portfelj (.apx-m3), so a phone shows them in that order; >= 1024 px the panel is
+ the right column beside the three, sticky, and the last row takes what the taller panel leaves */
+.apx-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:0 16px;align-items:start}
+@media(min-width:1024px){.apx-grid{grid-template-columns:minmax(0,65fr) minmax(300px,35fr);grid-template-rows:auto auto 1fr}
+ .apx-m1{grid-column:1;grid-row:1}.apx-m2{grid-column:1;grid-row:2}.apx-m3{grid-column:1;grid-row:3}
+ .apx-side{grid-column:2;grid-row:1/4;position:sticky;top:76px;max-height:calc(100vh - 88px);overflow:auto;scrollbar-width:thin}}
+.apx-side-ph,.apx-pfull{display:none}
 .apx-main{min-width:0}
 .apx-card,.apx-side,.apx-hdr,.apx-acc{background:var(--card);border:1px solid var(--line);border-radius:var(--ap-r)}
 .apx-card{padding:14px 16px;margin:0 0 16px}
@@ -209,7 +213,8 @@ a.apx-state:hover{border-color:var(--line2)}
 .apx-pnote{font-size:12px;color:var(--mut);margin:6px 0 4px}.apx-pnote:empty{display:none}
 /* order panel */
 .apx-side{padding:14px 16px}
-.apx-sheet-h{display:none;align-items:center;justify-content:space-between;margin:0 0 8px}
+.apx-sheet-h{display:flex;align-items:center;justify-content:space-between;margin:0 0 10px}
+.apx .apx-side-t{margin:0}.apx-sheet-h .apx-x{display:none}
 .apx .apx-x{background:none;border:0;font-size:26px;line-height:1;color:var(--mut);padding:2px 8px;box-shadow:none}
 .apx .apx-x:hover{background:none;color:var(--fg);box-shadow:none}
 .apx-seg{display:grid;grid-template-columns:1fr 1fr;background:var(--soft);border-radius:12px;padding:3px;margin:0 0 12px}
@@ -326,11 +331,17 @@ dialog#ap-pop::backdrop{background:rgba(11,18,32,.45)}
  .apx-mbar:has(button:only-child){grid-template-columns:1fr}
  .apx .apx-mbar .apx-go{min-height:46px}
  .apx{padding-bottom:70px}
- .apx-side{position:fixed;left:0;right:0;bottom:0;z-index:70;max-height:88vh;overflow:auto;border-radius:22px 22px 0 0;
-  border-bottom:0;box-shadow:0 -24px 60px -30px rgba(11,18,32,.45);transform:translateY(105%);transition:transform .2s ease;
+ /* 14.11.: Brza kupnja is on the page right under the chart; the "Kupi / Prodaj" bar (or a Kupi further down) brings
+  it up as the bottom sheet only while it is out of sight, its place kept by .apx-side-ph so nothing moves under it */
+ .apx-side{margin:0 0 16px}
+ .apx.sheet .apx-side{position:fixed;left:0;right:0;bottom:0;z-index:70;max-height:88vh;overflow:auto;margin:0;
+  border-radius:22px 22px 0 0;border-bottom:0;box-shadow:0 -24px 60px -30px rgba(11,18,32,.45);animation:apx-up .2s ease;
   padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
- .apx.sheet .apx-side{transform:none}
- .apx-sheet-h{display:flex}
+ .apx.sheet .apx-side-ph{display:block}
+ .apx.sheet .apx-sheet-h .apx-x{display:inline-flex}
+ /* on the page: the buy and the sale only; the rest of the panel in the sheet ("Wallet, tvoja pozicija, DCA ...") */
+ .apx:not(.sheet) .apx-side :is(.apx-mypos,.apx-wal,.apx-dca,.apx-lim){display:none}
+ .apx:not(.sheet) .apx-side .apx-pfull{display:block;margin:12px auto 0}
  .apx.sheet .apx-scrim{display:block;position:fixed;inset:0;background:rgba(11,18,32,.45);z-index:65}
 }
 @media(max-width:700px){
@@ -352,6 +363,8 @@ dialog#ap-pop::backdrop{background:rgba(11,18,32,.45)}
  .apx-edit{grid-template-columns:1fr}
  .apx-why{grid-column:1/-1}
 }
+@keyframes apx-up{from{transform:translateY(100%)}to{transform:none}}
+@media(prefers-reduced-motion:reduce){.apx.sheet .apx-side{animation:none}}
 @media(max-width:420px){.apx-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.apx-wal{grid-template-columns:1fr 1fr}
  .apx-dcar{grid-template-columns:1fr 1fr}.apx .apx-tf button{padding:4px 9px}}
 /* 13.11. (Jure: "ako su pozicije groka na vrhu ... da budu skupljene isto koji moje pozicije ... jedan redak na mobitelu
@@ -427,3 +440,67 @@ dialog#ap-pop::backdrop{background:rgba(11,18,32,.45)}
 .apx-glog .ap-grok-log{font-size:13px;margin:6px 0 0}
 @media(max-width:700px){.apx-stats.apx-gstats{grid-template-columns:1fr 1fr}
  .apx-grok .apx-tr.apx-gpos{grid-template-columns:1fr 1fr;padding:10px 2px}}
+/* 14.11. (Jure: "grokove sve pozicije ubaci dolje u pozicije samo uz tag da je pokrenuo sam program ili ručno"):
+ Pozicije is one list of collapsed rows, Grok's among them. The line is a table row on a desktop (the header above it);
+ on a phone the token with live / paper and the tag, the entry MC, PnL and the exit in words (13.11.: "što stane jedan
+ redak na mobitelu"). A tap opens every number, the plan, the owner's buttons and, for Grok's, his why. */
+.apx-pr{border-bottom:1px solid var(--line)}
+.apx-pr:last-child{border-bottom:0}
+.apx-pr.is-paper{opacity:.66}
+.apx .apx-tr.apx-prs,.apx .apx-tr.apx-prh{grid-template-columns:minmax(150px,1.9fr) 1fr .9fr .9fr 1.1fr .9fr .9fr}
+.apx .apx-tr.apx-prs{list-style:none;cursor:pointer;border-bottom:0;position:relative;padding-right:24px;margin:0;
+ color:var(--fg)}
+.apx-prh{padding-right:24px}
+.apx-prs::-webkit-details-marker{display:none}
+.apx-prs::after{content:"›";position:absolute;right:4px;top:50%;margin-top:-10px;color:var(--mut);font-size:18px;line-height:1;
+ transform:rotate(90deg)}
+.apx-pr[open]>.apx-prs::after{transform:rotate(-90deg)}
+.apx-pr[open]>.apx-prs{background:var(--soft);border-radius:10px}
+.apx .apx-pw{display:none;font-style:normal;font-family:Inter,system-ui,sans-serif;font-weight:400;color:var(--mut)}
+.apx-px{display:none}
+.apx-prd{display:flex;flex-direction:column;gap:8px;padding:6px 2px 12px}
+.apx-prg{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px 14px}
+.apx-prg .apx-dup{display:none}
+.apx-prg>div>span{display:block;font-size:11.5px;color:var(--mut)}
+.apx-prg b{font-size:13px;font-weight:600}
+.apx .apx-prg b.n{text-align:left;display:block}
+.apx-prg .apx-pnl small,.apx-prg b small{display:inline;margin-left:6px;font-size:11.5px}
+.apx-prd>.apx-act{justify-content:flex-start}
+.apx-pgrok{border-top:1px solid var(--line);padding-top:2px}
+.apx-by{font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;white-space:nowrap;line-height:1.5}
+.apx-by.prog{color:var(--acc);background:var(--ap-acc-bg);box-shadow:inset 0 0 0 1px var(--ap-acc-line)}
+.apx-by.man{color:var(--fg);background:var(--card);box-shadow:inset 0 0 0 1px var(--line2)}
+.apx-by.more{color:var(--mut);box-shadow:none;padding:1px 2px;font-weight:500}
+.apx .apx-c-tok .apx-who{flex-basis:100%;margin:0;font-size:11.5px}
+@media(max-width:700px){
+ .apx .apx-tr.apx-prs{display:flex;flex-wrap:wrap;align-items:center;gap:3px 10px;padding:10px 24px 10px 2px;min-height:44px}
+ .apx .apx-prs>[data-l]::before{display:none}
+ .apx .apx-prs>[data-l="Veličina"],.apx .apx-prs>[data-l="Sada (MC)"],.apx .apx-prs>[data-l="SL"],
+ .apx .apx-prs>[data-l="TP"],.apx .apx-prs .apx-who{display:none}
+ .apx .apx-prs>.apx-c-tok{flex:1 1 auto;min-width:0}
+ .apx .apx-prs>.n{flex:none;font-size:12.5px}
+ .apx .apx-prs .apx-pnl small{display:none}
+ .apx .apx-pw{display:inline}
+ .apx-px{display:block;order:5;flex:1 1 100%;min-width:0;font-size:12px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+ .apx-prg{grid-template-columns:1fr 1fr}
+ .apx-prg .apx-dup{display:block}
+}
+/* 14.11.: Grok's requests that wait for the owner's tap: one line at the top that leads to "Prekidači" */
+.apx a.apx-reqn{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;margin:0 0 12px;padding:10px 14px;
+ border-radius:14px;background:var(--warnbg);color:var(--fg);text-decoration:none;font-size:13.5px;
+ box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 45%,var(--line))}
+.apx-reqn>span{color:var(--mut)}.apx .apx-reqn .apx-reqgo{margin-left:auto;color:var(--acc);font-weight:600}
+/* 14.11. "Prekidači": every switch at the bottom, above Postavke; its own frame and a big title, and a chip in the title
+ row jumps here (amber while the real money for every strategy is on) */
+.apx-sws{border:2px solid var(--ap-acc-line);scroll-margin-top:76px}
+.apx .apx-swh{font-size:21px;margin:2px 0 6px}
+.apx-swi{margin:0 0 4px;font-size:13px}
+a.apx-swchip{font-weight:600;color:var(--acc)}
+.apx #prekidaci .ap-pns,.apx #prekidaci .ap-qb{margin:12px 0 0}
+.apx #prekidaci .ap-qb-h{font-size:15px;margin:0 0 6px}
+.apx-swg{margin:12px 0 0;border-top:1px solid var(--line)}
+.apx-swr{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px;min-height:52px;
+ border-bottom:1px solid var(--line)}
+.apx-swr>div{display:flex;flex-direction:column;min-width:0}.apx-swr>div>b{font-size:15px;font-weight:600}
+.apx-swr .apx-mut{font-size:12.5px}
