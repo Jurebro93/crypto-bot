@@ -928,8 +928,22 @@
         `Kupnja ide na token iz polja: ${s.sym} (${shortM(mint)}). Kupiti baš njega?`)) return false;
       if (cm) cm.value = '1';
     }
+    // 14.11. (ClapCat at MC $111k with SL $705.1k from another token's remembered exit): a stop above the price or a
+    // target under it would sell at once; the buy is stopped here with the numbers (the server refuses it too)
+    const bad = lvlProblem(f, s);
+    if (bad) { alert(bad); return false; }
     return confirm(`Kupiti ${sol} SOL ${s.sym} (${shortM(mint)}) pravim novcem (ako je Autopilot uključen)?`);
   };
+  function lvlProblem(f, s) {
+    const now = (s && s.t && s.t.mcap) || mcNow();
+    if (!now || !f.elements.tp) return '';
+    const at = parseLvl(f.elements.at && f.elements.at.value, now, 'at');
+    const base = (at && at.mc) || now;
+    const sl = parseLvl(f.elements.sl.value, base, 'sl'), tp = parseLvl(f.elements.tp.value, base, 'tp');
+    if (sl && sl.mc >= base) return `SL ${f.elements.sl.value} (MC ${fMc(sl.mc)}) je IZNAD ulaznog MC-a ${fMc(base)}: prodalo bi odmah. Upiši stop ispod cijene, npr. -30%.`;
+    if (tp && tp.mc <= base) return `TP ${f.elements.tp.value} (MC ${fMc(tp.mc)}) je ISPOD ulaznog MC-a ${fMc(base)}. Upiši cilj iznad cijene, npr. 30%.`;
+    return '';
+  }
   function tokShow(f, s) {
     const el = f && $('[data-tokline]', f);
     if (!el) return;
@@ -1008,6 +1022,10 @@
     const slTxt = f.elements.sl.value || ((F.panel || {}).sl_default || '');
     const sl = parseLvl(slTxt, base, 'sl');
     put('sl', sl ? ((f.elements.sl.value ? '' : 'zadano · ') + (slTxt.includes('%') || !/[$kmb]/i.test(slTxt) ? '≈ MC ' + fMc(sl.mc) : '≈ ' + fPct(sl.pct, 0))) : '');
+    // 14.11.: a stop above / a target under the entry MC (another token's levels) is said in red at once
+    const warn = (k, on, txt) => { const el = $(`[data-hint="${k}"]`, f); if (!el) return; el.classList.toggle('bad', on); if (on) el.textContent = txt; };
+    warn('sl', !!(base && sl && sl.mc >= base), 'SL je IZNAD trenutnog MC-a: prodalo bi odmah');
+    warn('tp', !!(base && tp && tp.mc <= base), 'TP je ISPOD trenutnog MC-a');
     chips(f);
   }
   // the quick TP / SL chips show what is in the field (filled from "Što kupiti", typed or tapped): "15%" = +15 %

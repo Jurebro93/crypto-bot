@@ -1283,11 +1283,42 @@ def _buy_form(mint, cfg, exit_mode, owner):
             '<button class=ap-buy>Kupi</button></form>')
 
 
+_REL_LVL = re.compile(r"[+-−]?[0-9]+(?:[.,][0-9]+)?%?")
+
+
+def _rel_level(v):
+    """A TP / SL text when it is relative (a percent: "30%", "-25", "+15 %"), else "" (14.11., owner: ClapCat at MC
+    $111k got TP $1.188m and SL $705.1k: the absolute market caps of the PREVIOUS token's exit were remembered and put
+    on every next token, SL above the price)."""
+    s = str(v or "").strip().replace(" ", "")
+    return s if s and _REL_LVL.fullmatch(s) else ""
+
+
+def _rel_exit(v, price, mcap, kind):
+    """The remembered form of a TP / SL the owner typed: a percent as typed; an absolute market cap ("$500k") as the
+    percent from this buy's entry (so the next token gets the same distance, never another token's MC); "" when it
+    cannot be read."""
+    s = (v or "").strip()
+    if not s or _rel_level(s):
+        return _rel_level(s)
+    try:
+        from league import auto
+        px, _l = auto.parse_level(s, price, mcap, kind)
+    except (ValueError, ZeroDivisionError, TypeError):
+        return ""
+    if not px or not price:
+        return ""
+    pct = (px / price - 1) * 100
+    if (kind == "sl" and pct >= 0) or (kind == "tp" and pct <= 0):
+        return ""
+    return f"{pct:+.0f}%"
+
+
 def _last_exit(cfg):
     """(TP, SL) to put in a buy form: what the owner used last (settings last_exit), else the default target and an
-    empty stop (= the default stop)."""
+    empty stop (= the default stop). 14.11.: only a relative level is reused (an old absolute MC is dropped)."""
     le = (cfg or {}).get("last_exit") or {}
-    return (le.get("tp") or f'{(cfg or {}).get("tp_default", 15)}%'), (le.get("sl") or "")
+    return (_rel_level(le.get("tp")) or f'{(cfg or {}).get("tp_default", 15)}%'), _rel_level(le.get("sl"))
 
 
 FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("prijedlozi-trade", "Prijedlozi", True),
@@ -3707,8 +3738,8 @@ def _post_limit(con, tcon, form, user):
                 o["reason"] = _reason(form)
         orders.append(o)
         settings.put(tcon, "buy_orders", orders, user)
-        if ex == "tpsl":
-            settings.put(tcon, "last_exit", {"tp": tp, "sl": sl}, user)
+        if ex == "tpsl":   # 14.11.: only relative levels are remembered (an MC level belongs to this token)
+            settings.put(tcon, "last_exit", {"tp": _rel_level(tp), "sl": _rel_level(sl)}, user)
     print(f"pravi trade: nalog za kupnju {sym}: {sol:g} SOL kad MC padne na ${lvl:,.0f} (sada ${now_mc or 0:,.0f})"
           + (f" uz potvrđenu razliku od grafa {chart}" if chart else "") + _over_words(over, form), flush=True)
     words = f"Nalog: kupi {sym} za {sol:g} SOL kad MC padne na ${lvl:,.0f}"
@@ -5548,7 +5579,10 @@ def _post_exit(con, tcon, form):
     # uvijek vraća na default"): the TP / SL typed here prefill the next manual order, and a position bought on a
     # follow's signal hands them to that follow, so its next entries get them too
     sl_typed = (form.get("sl") or "").strip()
-    settings.put(tcon, "last_exit", {"tp": tp, "sl": sl_typed}, settings.owner())
+    # 14.11.: remembered as percents (an absolute MC becomes this entry's distance), never another token's MC
+    # (avg_mc: the position's average entry MC, the base of an MC level typed here)
+    settings.put(tcon, "last_exit", {"tp": _rel_exit(tp, 1.0, avg_mc, "tp"), "sl": _rel_exit(sl_typed, 1.0, avg_mc, "sl")},
+                 settings.owner())
     note = ""
     fids = {r[0] for r in con.execute("SELECT follow_id FROM trades WHERE user=? AND token=? AND status='open' AND "
                                        "follow_id IS NOT NULL", (settings.LEAGUE_USER, tok))}
@@ -6250,6 +6284,9 @@ def _post_buy(con, tcon, form, user, src=None, plan=None, plan_client=None):
             raise ValueError("upiši barem TP ili SL")
         if tp_px is not None and tp_px <= price:
             raise ValueError("TP mora biti iznad ulaznog MC-a")
+        if sl_px is not None and sl_px >= price:   # 14.11. (ClapCat: SL $705k at MC $111k): it would sell at once
+            raise ValueError(f"SL ({sl}) je iznad trenutnog MC-a (${mcap:,.0f}): prodalo bi odmah. Upiši stop ispod "
+                             "cijene, npr. -30%")
     elif ex != "smart":
         raise ValueError("nepoznat način izlaza")
     # the floor stops are validated with (vfloor): the default's for Grok and for a new plan with an empty SL (filled

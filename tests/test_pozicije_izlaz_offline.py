@@ -562,6 +562,27 @@ class RememberedExit(Base):
         self.assertIn('class="ap-buy ap-wide">Kupi', card)
         self.assertIn("value=60%", pravitrade._buy_form(MINT, cfg, "tpsl", True))
 
+    def test_an_old_absolute_exit_is_never_put_on_another_token(self):
+        """14.11. (owner: ClapCat at MC $111k got TP $1.188m and SL $705.1k: another token's remembered MC levels)."""
+        from ui import pravitrade
+        settings.put(self.con, "last_exit", {"tp": "$1.188m", "sl": "$705.1k"})
+        cfg = settings.merged(executor.load_config(), self.con)
+        tp, sl = pravitrade._last_exit(cfg)
+        self.assertTrue(tp.endswith("%"))
+        self.assertEqual(sl, "")
+        self.assertEqual(pravitrade._rel_exit("$164k", 1.0, 82_000.0, "tp"), "+100%")
+        self.assertEqual(pravitrade._rel_exit("$41k", 1.0, 82_000.0, "sl"), "-50%")
+        self.assertEqual(pravitrade._rel_exit("$705.1k", 1.0, 111_300.0, "sl"), "")   # a stop above the entry: dropped
+        self.assertEqual(pravitrade._rel_exit("-30%", 1.0, None, "sl"), "-30%")
+
+    def test_a_stop_above_the_price_is_refused_before_anything_is_written(self):
+        n0 = len(store.trades(self.lg, settings.LEAGUE_USER, "open"))
+        loc = unquote(self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "$50m",
+                                                     "sl": "$40m"}))
+        self.assertIn("err=", loc)
+        self.assertIn("iznad trenutnog MC-a", loc)
+        self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), n0)
+
     def test_exit_changed_on_a_copied_position_is_kept_for_that_follow(self):
         fid = copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "ansem", 25, 5, "tpsl", "15%", "")
         tid = store.buy(self.lg, settings.LEAGUE_USER, MINT, "HOPE", 25, 1.0, 1e6, "copy KOL ansem", None, 82_000.0)
