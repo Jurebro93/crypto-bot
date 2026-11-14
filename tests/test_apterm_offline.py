@@ -173,6 +173,17 @@ class OwnerOnly(Env):
         self.assertIn("LIVE", guest)                                          # he sees the positions
         self.assertIn("samo za pozvane", pravitrade.page({}, "Nepoznat")[1])
 
+    def test_the_real_money_switch_is_on_the_terminal_page(self):
+        """14.11. (owner: "Ne vidim prekidač"): the box of pravi_novac_sve on /pravi-trade itself, not only ?stari=1."""
+        self.seed()
+        _, own = pravitrade.page({}, "Jure")
+        self.assertIn("id=fl-pravi_novac_sve", own)
+        self.assertIn("Uključi pravi novac za sve strategije", own)
+        self.assertIn("name=name value=pravi_novac_sve", own)
+        _, guest = pravitrade.page({"sve": "1"}, "Ivan")
+        self.assertIn("id=fl-pravi_novac_sve", guest)                              # the state, no button
+        self.assertNotIn("Uključi pravi novac za sve strategije", guest)
+
     def test_lazy_parts_and_api_refuse_strangers(self):
         for name in ("kupiti", "pratimo", "povijest", "ostalo"):
             self.assertIsNone(apterm.lazy(name, "Nepoznat"))
@@ -202,7 +213,8 @@ class SameRoutes(Env):
         self.assertLessEqual({"/pravi-trade/buy", "/pravi-trade/sell", "/pravi-trade/exit", "/pravi-trade/dca",
                               "/pravi-trade/dcadel", "/pravi-trade/limitdel", "/pravi-trade/switch"}, acts)
         known = {"/pravi-trade/buy", "/pravi-trade/sell", "/pravi-trade/exit", "/pravi-trade/dca", "/pravi-trade/dcadel",
-                 "/pravi-trade/limitdel", "/pravi-trade/switch", "/pravi-trade/sellall"}
+                 "/pravi-trade/limitdel", "/pravi-trade/switch", "/pravi-trade/sellall",
+                 "/pravi-trade/flag"}   # 14.11.: the existing flag route, for the switch pravi_novac_sve's box
         self.assertEqual(acts - known, set())                               # no new POST route
         buy = next(n for a, n in got if a == "/pravi-trade/buy")
         # prijedlog is added by Kupi on a proposal; 11.11. (noc/sltp) chart_mint + confirm_mismatch: the chart's token,

@@ -1861,7 +1861,10 @@ def page(qs, user, full=False):
                     '</p></noscript>')
         # pravitrade.CSS first: the older sections (tabs, settings) keep their shapes; ap.css after it sets the colours
         body = [pt.CSS, CSS, '<div class=apx id=apx data-owner=' + ("1" if owner else "0") + '>', toast,
-                _top_html(d, tcon, cfg, owner), noscript,
+                _top_html(d, tcon, cfg, owner),
+                # 14.11. (owner: "Ne vidim prekidač"): the switch pravi_novac_sve on THIS page too (it was only on
+                # ?stari=1): the warning box with the caps and the owner's button, right under the top cards
+                pt._safe("pravi-novac-sve", pt._switch_box, tcon, cfg, owner), noscript,
                 '<div class=apx-grid><div class=apx-main>', _hdr_html(d.get("header"), now), chart,
                 port_html(tcon, cfg, now), tabs, panes, '</div>',
                 panel_html(d, sel_pos), '</div>', cards, ost, mbar,
