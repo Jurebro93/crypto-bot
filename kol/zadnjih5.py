@@ -47,9 +47,14 @@ the runner turns a type on by itself (trade settings zadnjih5_auto) ONLY when th
 bruto, the follow's exit) is in the plus after costs on at least GATE_N trades; else that type stays off ("zadnjih 5:
 ne pratim: ..."). Followed: the currently qualifying sources (strict), at most MAX_FOLLOW per type by the number of
 qualifying windows, never a bot / shill / bad-label wallet / "nije kopirljivo" source (wallets/rang gate), on the
-Autopilot account (trade/settings.LEAGUE_USER) with league/copy.follow (exit tpsl, tp 10%, the default stop at the
-entry). Only this module's follows (trade settings zadnjih5_follows) are ever stopped; one the owner stopped himself
-is not taken back (zadnjih5_skip).
+Autopilot account (trade/settings.LEAGUE_USER) with league/copy.follow and EXACTLY the measured exit (exit_of): tpsl,
+TP +10 % and the stop -sl_default (the same value the walk-forward used, written into the follow) from the copy's
+entry price, a 60-min time exit (league/auto "until": sold at the market when neither level was touched), no
+stop_grace sleep, and out of the fast path (fast/sources skips exit src "zadnjih5", so its +15 / -10 / 45 min exit never
+takes these signals). Under pravi_novac_sve the protective plan (league/exitplan.switch_stop) sits at the lot's own
+stop, i.e. the same -sl_default (the -30 % default is only for a position without a stop). A kept follow gets the exit
+again when sl_default changed. Only this module's follows (trade settings zadnjih5_follows) are ever stopped; one the
+owner stopped himself is not taken back (zadnjih5_skip).
 
 Run: `python3 -m kol.zadnjih5 once` (start.sh, ~5 min after a start, under ops.heavy; skipped when the last run is
 younger than MIN_GAP_S), `night` (01-06 Zagreb, once a day), `uzorak --kol-db PATH` (a coarse run on an off-server
@@ -68,7 +73,7 @@ import zlib
 from zoneinfo import ZoneInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION = 1
+VERSION = 2
 TZ = "Europe/Zagreb"
 PREFIX = "zadnjih 5: "
 K = 5
@@ -97,6 +102,7 @@ REFRESH_HOUR = 3
 GATE = ("strogo", "noc", "bruto")    # the walk-forward the follow's gate reads: what the follow really does
 GATE_N = 30
 FLAG = "prati_zadnjih5"
+SRC = "zadnjih5"          # the follow's exit "src": fast/sources leaves these follows to their own exit
 MAX_FOLLOW = 50
 TOP_N = 50
 SIZE_USD = 15             # ~0.1 SOL; the real account's stake comes from trade/executor.SWITCH_CAPS anyway
@@ -1118,9 +1124,24 @@ def followable(kind, ids, p, log=print):
     return out, why
 
 
-def apply_follows(kind, want, on, p, now, log=print):
-    """Make this module's follows of one type on the Autopilot account match `want` (or none when off). Returns
-    {"added", "removed", "total", "skip"}; manual follows and other tools' follows are never touched."""
+def exit_of(sl):
+    """The exit every copy of a zadnjih 5 follow gets, the one the walk-forward measured: TP +10 % and the stop -sl
+    from the copy's entry price (not the effective entry), sold at the market 60 min after the entry (league/auto
+    "until"), no stop_grace sleep, and out of the fast path (its own exit). {kwarg: value} for league/copy.follow."""
+    return {"exit_mode": "tpsl", "tp": TP_TEXT, "sl": f"-{round(sl * 100, 2):g}%", "hold_s": HORIZON_S,
+            "from_eff": False, "grace": False, "src": SRC}
+
+
+def _exit_stored(ex):
+    """The part of a stored follow exit that exit_of sets (to see whether a kept follow needs its exit synced)."""
+    return (ex.get("mode"), ex.get("tp"), ex.get("sl"), ex.get("hold_s"), ex.get("from_eff", True),
+            bool(ex.get("no_grace")), ex.get("src"))
+
+
+def apply_follows(kind, want, on, p, now, sl, log=print):
+    """Make this module's follows of one type on the Autopilot account match `want` (or none when off), each with
+    exit_of(sl); a kept follow whose exit differs (the owner changed sl_default) gets it again. Returns {"added",
+    "removed", "synced", "total", "skip"}; manual follows and other tools' follows are never touched."""
     from league import copy
     from league import store as lstore
     from trade import settings
@@ -1132,7 +1153,7 @@ def apply_follows(kind, want, on, p, now, log=print):
         ids_all = dict(raw.get("zadnjih5_follows") or {})
         skip_all = dict(raw.get("zadnjih5_skip") or {})
         skip = set(skip_all.get(kind) or [])
-        rows = {r["id"]: r for r in lcon.execute("SELECT id, kind, target, active FROM follows WHERE user = ?",
+        rows = {r["id"]: r for r in lcon.execute("SELECT id, kind, target, active, exit FROM follows WHERE user = ?",
                                                  (settings.LEAGUE_USER,))}
         ours = {}
         for i in ids_all.get(kind) or []:
@@ -1148,14 +1169,24 @@ def apply_follows(kind, want, on, p, now, log=print):
         for t, i in remove:
             copy.unfollow(lcon, settings.LEAGUE_USER, i)
             ours.pop(t, None)
-        added = []
-        for t in add:
+        spec = exit_of(sl)
+        want_ex = (spec["exit_mode"], spec["tp"], spec["sl"], spec["hold_s"], False, True, SRC)
+        added, synced = [], []
+        for t in add + [t for t in ours if t in set(want)]:
+            if t in ours:
+                try:
+                    ex = json.loads(rows[ours[t]]["exit"] or "{}")
+                except (ValueError, TypeError):
+                    ex = {}
+                if _exit_stored(ex) == want_ex:
+                    continue
             try:
-                ours[t] = copy.follow(lcon, settings.LEAGUE_USER, kind, t, label(kind, t), SIZE_USD, PER_DAY, "tpsl",
-                                      TP_TEXT, "")
-                added.append(t)
+                fid = copy.follow(lcon, settings.LEAGUE_USER, kind, t, label(kind, t), SIZE_USD, PER_DAY, **spec)
             except ValueError as e:
                 log(f"{PREFIX}praćenje {t} nije dodano: {e}")
+                continue
+            (synced if t in ours else added).append(t)
+            ours[t] = fid
         ids_all[kind] = sorted(ours.values())
         skip_all[kind] = sorted(skip)
         settings.put(tcon, "zadnjih5_follows", ids_all, "zadnjih5")
@@ -1165,7 +1196,8 @@ def apply_follows(kind, want, on, p, now, log=print):
             hist = ([{"ts": int(now), "op": "+", "kind": kind, "target": t} for t in added]
                     + [{"ts": int(now), "op": "-", "kind": kind, "target": t} for t, _ in remove] + hist)[:60]
             settings.put(tcon, "zadnjih5_log", hist, "zadnjih5")
-        return {"added": added, "removed": [t for t, _ in remove], "total": len(ours), "skip": len(skip)}
+        return {"added": added, "removed": [t for t, _ in remove], "synced": synced, "total": len(ours),
+                "skip": len(skip), "exit": {k: v for k, v in spec.items()}}
     finally:
         lcon.close()
         tcon.close()
@@ -1314,13 +1346,16 @@ def run(now=None, p=None, log=print, follow=True, mode="once", days=DAYS):
                                    "excluded": why_out, "applied": False}
             continue
         try:
-            res = apply_follows(kind, capped, on, p, now, log=say)
+            res = apply_follows(kind, capped, on, p, now, sl, log=say)
         except Exception as e:  # noqa: BLE001 - a locked league.db: next run
             say(f"{PREFIX}praćenja {TYPE_HR[kind]} nisu usklađena ({type(e).__name__}: {e})")
             continue
         res.update(on=on, manual=manual, auto=a["on"], qualifying=len(r.get("qualifying_now") or []),
                    followable=len(want), excluded=why_out)
         out["follow"][kind] = res
+        if res.get("synced"):
+            say(f"{PREFIX}praćenja {TYPE_HR[kind]}: izlaz usklađen na {len(res['synced'])} praćenja "
+                f"(TP {TP_TEXT}, SL {res['exit']['sl']}, najdulje {HORIZON_S // 60} min)")
         if not on and res["removed"]:
             say(f"{PREFIX}praćenja {TYPE_HR[kind]}: isključeno, prestajem pratiti {len(res['removed'])} izvora")
         elif on:
@@ -1328,7 +1363,8 @@ def run(now=None, p=None, log=print, follow=True, mode="once", days=DAYS):
                 f"{res['followable']}" + (" (izbačeno: " + ", ".join(f"{k} {v}" for k, v in why_out.items()) + ")"
                                           if why_out else "")
                 + f", prati se {res['total']} (strop {MAX_FOLLOW}); +{len(res['added'])} / -{len(res['removed'])}; "
-                f"{'prekidač uživo' if manual else 'runner po EV-u' if a['on'] else 'isključeno'}")
+                f"{'prekidač uživo' if manual else 'runner po EV-u' if a['on'] else 'isključeno'}; izlaz TP {TP_TEXT} / "
+                f"SL {res['exit']['sl']} od ulazne cijene, najdulje {HORIZON_S // 60} min")
     if follow:
         try:
             save_auto(p, auto)

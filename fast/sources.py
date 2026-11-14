@@ -88,6 +88,18 @@ def _short(w):
     return f"{w[:4]}…{w[-4:]}" if w and len(w) > 12 else (w or "")
 
 
+# 14.11. (kol/zadnjih5.py): follows whose exit belongs to the tool that made them (exit "src"); their copies must exit
+# exactly as that tool measured, so the fast path (its own +15 % / -10 % / 45 min exit) does not take their signals
+OWN_EXIT_SRC = ("zadnjih5",)
+
+
+def _own_exit(ex):
+    try:
+        return (json.loads(ex or "{}") or {}).get("src") in OWN_EXIT_SRC
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 def collect(league_db=None, early_db=None):
     """{source id: {"kind", "label", "follow_id"}} of every followed source (see the module text)."""
     from league import copy as lcopy, store as lstore
@@ -101,9 +113,11 @@ def collect(league_db=None, early_db=None):
             out.setdefault(k, {"kind": kind, "label": label or _short(sid), "follow_id": fid})
     lc = _ro(league_db or lstore.DB)
     try:
-        for fid, _user, kind, target, label in _q(lc, "SELECT id, user, kind, target, label FROM follows WHERE active=1 "
-                                                      "AND user IN (?,?) ORDER BY (user != ?), id",
-                                                  (ts.LEAGUE_USER, ts.PAPER_USER, ts.LEAGUE_USER)):
+        for fid, _user, kind, target, label, ex in _q(lc, "SELECT id, user, kind, target, label, exit FROM follows WHERE "
+                                                          "active=1 AND user IN (?,?) ORDER BY (user != ?), id",
+                                                      (ts.LEAGUE_USER, ts.PAPER_USER, ts.LEAGUE_USER)):
+            if _own_exit(ex):
+                continue   # 14.11.: a follow with its own measured exit (kol/zadnjih5.py) never trades the fast exit
             if kind == "wallet":
                 put(target, "wallet_follow", label, fid)
             elif kind == "kol":

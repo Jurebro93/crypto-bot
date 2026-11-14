@@ -321,7 +321,10 @@ class Db(DbBase):
         self.assertEqual(len(f), 1)
         self.assertEqual((f[0]["user"], f[0]["kind"], f[0]["target"]), (settings.LEAGUE_USER, "kol", "dobar"))
         ex = json.loads(f[0]["exit"])
-        self.assertEqual((ex["mode"], ex["tp"], ex["sl"]), ("tpsl", "10%", ""))   # "" = the owner's default stop
+        # exactly the measured exit: +10 % / the model's stop from the entry price, 60 min, no grace, out of the fast path
+        self.assertEqual((ex["mode"], ex["tp"], ex["sl"], ex["hold_s"], ex["from_eff"], ex["no_grace"], ex["src"]),
+                         ("tpsl", "10%", "-60%", 3600, False, True, "zadnjih5"))
+        self.assertEqual(out["assumptions"]["sl_pct"], 60.0)
         self.assertTrue(all(ln.startswith("zadnjih 5: ") for ln in logs))
         self.assertTrue(any(ln.startswith("zadnjih 5: odluka: ") and "pratim" in ln for ln in logs))
         self.assertEqual(sum(1 for ln in logs if ln.startswith("zadnjih 5: influenceri ")), 4)
@@ -430,6 +433,110 @@ class Db(DbBase):
             d, err = mcpapi._tool("get_last5", {"type": "x"})
             self.assertTrue(err)
         self.assertIn("get_last5", {t["name"] for t in mcpapi.TOOLS})
+
+
+class LiveExit(DbBase):
+    """14.11. review: a copy of a zadnjih 5 follow exits exactly as the walk-forward measured it."""
+
+    def follow_now(self):
+        self.fill(self.WIN)
+        out, _ = self.run_()
+        (f,) = self.follows()
+        return out, f
+
+    def copy_entry(self, f, switch=False):
+        """One fresh call of the followed source through league/copy.run_once on the Autopilot account."""
+        hc = sqlite3.connect(self.p["hype"])
+        hc.executescript("CREATE TABLE IF NOT EXISTS chain_trades (sig TEXT, wallet TEXT, mint TEXT, side TEXT, ts INTEGER, "
+                         "sol REAL); CREATE TABLE IF NOT EXISTS kol_mentions (handle TEXT, ca TEXT, ts INTEGER);")
+        hc.close()
+        tok = mint("new", 1)
+        now = int(__import__("time").time())
+        con = lstore.connect(self.p["league"])
+        try:
+            con.execute("UPDATE follows SET created = ? WHERE id = ?", (now - 3600, f["id"]))
+            con.commit()
+            self.kc.execute("INSERT INTO calls (tweet_id, token, handle, ts, kind) VALUES ('nov', ?, ?, ?, 'call')",
+                            (tok, f["target"], now - 20))
+            self.kc.commit()
+            if switch:
+                tcon = settings.connect(self.p["trade"])
+                try:
+                    settings.set_flag(tcon, "pravi_novac_sve", "live", settings.owner())
+                finally:
+                    tcon.close()
+            paths = {"kol": self.p["kol"], "hype": self.p["hype"], "tg": os.path.join(self.tmp, "nema-tg.db")}
+            with mock.patch.object(lcopy, "_grace_at_entry", side_effect=AssertionError("grace")), \
+                    mock.patch("sys.stdout", io.StringIO()):
+                done = lcopy.run_once(con, lambda toks: {t: (2.0, 60_000, None, 2e6, "NOV") for t in toks}, now, paths)
+            self.assertEqual(len(done), 1, done)
+            t = dict(con.execute("SELECT * FROM trades WHERE token = ? AND status = 'open'", (tok,)).fetchone())
+            return con, t, tok
+        except Exception:
+            con.close()
+            raise
+
+    def test_the_copy_gets_tp_10_the_models_stop_and_60_min(self):
+        out, f = self.follow_now()
+        con, t, _tok = self.copy_entry(f)
+        try:
+            a = json.loads(t["auto"])
+            self.assertEqual((a["mode"], a["tp"], a["sl"]), ("tpsl", "+10%", "-60%"))
+            self.assertAlmostEqual(a["tp_px"], t["entry_px"] * 1.10)               # from the entry price, as measured
+            self.assertAlmostEqual(a["sl_px"], t["entry_px"] * (1 - out["assumptions"]["sl_pct"] / 100))
+            self.assertEqual(a["until"], t["opened_ts"] + 3600)                     # the 60-min time exit
+            self.assertNotIn("from_eff", a)
+            self.assertNotIn("grace_until", a)
+        finally:
+            con.close()
+
+    def test_under_the_switch_the_protective_stop_is_the_same_stop(self):
+        _out, f = self.follow_now()
+        con, t, tok = self.copy_entry(f, switch=True)
+        try:
+            from league import exitplan
+            p = exitplan.active(con, tok)
+            self.assertIsNotNone(p)
+            self.assertAlmostEqual(p["plan"]["stop"]["v"], -60.0)                   # not the -30 % default
+            self.assertAlmostEqual(p["state"]["stop_px"][settings.LEAGUE_USER], t["entry_px"] * 0.4)
+            self.assertEqual(json.loads(t["auto"])["until"], t["opened_ts"] + 3600)  # the lot's TP / time keep running
+        finally:
+            con.close()
+
+    def test_a_changed_default_stop_moves_the_model_and_the_follow_together(self):
+        self.follow_now()
+        tcon = settings.connect(self.p["trade"])
+        try:
+            settings.put(tcon, "sl_default", 30)
+        finally:
+            tcon.close()
+        out, logs = self.run_()
+        self.assertEqual(out["assumptions"]["sl_pct"], 30.0)
+        (f,) = self.follows()
+        self.assertEqual(json.loads(f["exit"])["sl"], "-30%")
+        self.assertEqual(out["follow"]["kol"]["synced"], ["dobar"])
+        self.assertTrue(any("izlaz usklađen" in ln for ln in logs))
+        out, _ = self.run_()
+        self.assertEqual(out["follow"]["kol"]["synced"], [])                       # nothing to sync any more
+
+    def test_the_fast_path_leaves_these_follows_alone_and_the_page_shows_the_time(self):
+        from fast import sources
+        _out, f = self.follow_now()
+        con = lstore.connect(self.p["league"])
+        try:
+            lcopy.follow(con, settings.LEAGUE_USER, "kol", "rucni", "", 25, 5, "tpsl", "20%", "")
+        finally:
+            con.close()
+        got = sources.collect(league_db=self.p["league"], early_db=os.path.join(self.tmp, "nema-early.db"))
+        self.assertIn("rucni", got)
+        self.assertNotIn("dobar", got)
+        self.assertIn("najdulje 60 min", lcopy.describe_exit(json.loads(f["exit"])))
+        with self.assertRaises(ValueError):
+            con = lstore.connect(self.p["league"])
+            try:
+                lcopy.follow(con, settings.LEAGUE_USER, "kol", "x", "", 25, 5, "tpsl", "10%", "", hold_s=10)
+            finally:
+                con.close()
 
 
 class Wallets(DbBase):
