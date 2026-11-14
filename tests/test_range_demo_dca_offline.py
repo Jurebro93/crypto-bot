@@ -360,7 +360,8 @@ class RealAccount(TradeBase):
         self.assertIsNone(settings.live_refusal(self.con, "pravi_novac_sve"))   # only the owner's tap moves it
         self.assertIn("range_demo", settings.NEVER_LIVE)                     # the demo profile itself never live
         from ui import assistnotes
-        self.assertNotIn("pravi_novac_sve", [n for n, _m, _w in assistnotes.OWNER_FLAG_ORDERS])
+        # 14.11.: the owner's own chat order turns it on once ("imaš moje dopuštenje"); nothing else does
+        self.assertIn(("pravi_novac_sve", "live"), [(n, m) for n, m, _w in assistnotes.OWNER_FLAG_ORDERS])
         cfg = settings.merged({"size_sol": 0.1}, self.con)
         self.assertEqual((cfg["range_scalp_trades_day"], cfg["range_scalp_target_usd"]), (100, 0.6))
         self.assertIn("range_scalp_trades_day", settings.LIMITS)

@@ -177,11 +177,13 @@ class OwnerOnly(Env):
         """14.11. (owner: "Ne vidim prekidač"): the box of pravi_novac_sve on /pravi-trade itself, not only ?stari=1."""
         self.seed()
         _, own = pravitrade.page({}, "Jure")
-        self.assertIn("id=fl-pravi_novac_sve", own)
+        self.assertIn("id=fl-pravi-novac", own)
         self.assertIn("Uključi pravi novac za sve strategije", own)
+        self.assertLess(own.index("id=apx-chart"), own.index("id=prekidaci"))   # 14.11.: the switches at the bottom
+        self.assertLess(own.index("id=prekidaci"), own.index("id=apx-ostalo"))
         self.assertIn("name=name value=pravi_novac_sve", own)
         _, guest = pravitrade.page({"sve": "1"}, "Ivan")
-        self.assertIn("id=fl-pravi_novac_sve", guest)                              # the state, no button
+        self.assertIn("id=fl-pravi-novac", guest)                              # the state, no button
         self.assertNotIn("Uključi pravi novac za sve strategije", guest)
 
     def test_lazy_parts_and_api_refuse_strangers(self):

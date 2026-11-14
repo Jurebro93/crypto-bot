@@ -123,6 +123,27 @@ class SwitchBase(Base):
         return executor.gate_buy(self.con, self.cfg, size, self.now, True, balance=balance, **kw)
 
 
+# ---------- the owner's chat order of 14.11. ----------------------------------------------------------------------------
+
+class OwnerOrder(SwitchBase):
+    def test_his_order_turns_it_on_once_in_his_name_and_his_off_stays(self):
+        from ui import assistnotes
+        orders = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if "14.11." in o[2])   # the orders of 14.11.
+        self.assertEqual([(n, m) for n, m, _w in orders],
+                         [("insider_copy", "paper"), ("event_tokens", "paper"), (SW, "live")])
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", orders):
+            done = assistnotes.owner_flag_orders(self.con)
+            settings._FLAG_CACHE.clear()
+            self.assertIn(f"zastavica {SW}: off → live", done)
+            self.assertTrue(settings.pravi_novac_sve(con=self.con))
+            self.assertEqual(settings.flag_state(self.con)["insider_copy"]["mode"], "paper")
+            self.assertIn("ok=", self.post("/pravi-trade/flag", {"name": SW, "mode": "off"}))   # he turns it off
+            settings._FLAG_CACHE.clear()
+            self.assertEqual(assistnotes.owner_flag_orders(self.con), [])                    # never again by itself
+            settings._FLAG_CACHE.clear()
+            self.assertFalse(settings.pravi_novac_sve(con=self.con))
+
+
 # ---------- the switch itself -----------------------------------------------------------------------------------------
 
 class TheSwitch(SwitchBase):
@@ -136,7 +157,9 @@ class TheSwitch(SwitchBase):
                 settings.set_flag(self.con, SW, "live", who)
         self.assertFalse(settings.pravi_novac_sve(con=self.con))
         from ui import assistnotes
-        self.assertNotIn(SW, [n for n, _m, _w in assistnotes.OWNER_FLAG_ORDERS])   # never turned on by a chat order
+        # 14.11. (Jure: "uključi prekidač, imaš moje dopuštenje da odmah krene tradati što prije"): his own order, the
+        # only chat order that turns it on (set in his name, once)
+        self.assertIn((SW, "live"), [(n, m) for n, m, _w in assistnotes.OWNER_FLAG_ORDERS])
         from ui import pravitrade
         self.assertIn("err=", pravitrade.post("/pravi-trade/flag", {"name": SW, "mode": "live"}, "netko"))
         self.assertIn("ok=", self.post("/pravi-trade/flag", {"name": SW, "mode": "live"}))   # the owner's tap

@@ -2109,7 +2109,7 @@ def _switch_box(tcon, cfg, owner):
         body.append(f'<form method=post action=/pravi-trade/flag{confirm}><input type=hidden name=name '
                     f'value={settings.SWITCH_ALL}><input type=hidden name=mode value={mode}>'
                     f'<button class="{"ap-stop" if on else "ap-go"}">{esc(label)}</button></form>')
-    return f'<div class="ap-pns{" on" if on else ""}" id=fl-pravi_novac_sve>{"".join(body)}</div>'
+    return f'<div class="ap-pns{" on" if on else ""}" id=fl-pravi-novac>{"".join(body)}</div>'
 
 
 def _flags_section(tcon, con, owner):
