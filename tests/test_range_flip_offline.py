@@ -41,6 +41,8 @@ UP_RETEST = [(0, END), (30, 98), (40, 125), (60, 135), (100, 98), (140, 135), (1
 UP_FAIL = [(0, END), (30, 98), (40, 125), (60, 135), (100, 85), (140, 80)]
 DOWN_BELOW = [(0, END), (20, 34), (30, 30), (60, 45), (90, 30), (120, 45), (150, 30), (180, 45), (210, 31), (240, 44)]
 DOWN_ABOVE = [(0, END), (20, 34), (30, 30), (60, 62), (90, 30), (120, 62), (150, 30), (180, 62), (210, 31), (240, 60)]
+DOWN_RECLAIM = [(0, END), (20, 34), (30, 30), (60, 45), (75, 75), (200, 74)]
+UP_NO_RETEST = [(0, END), (30, 98), (40, 125), (60, 135), (480, 140)]
 
 
 def states(cs, liq=50_000.0):
@@ -147,6 +149,37 @@ class Breaks(unittest.TestCase):
         sts = states(after(BASE, DOWN_ABOVE, vols={m: 5000.0 for m in range(30)}))
         self.assertIsNotNone(first(sts, "paused")[0])
         self.assertIsNone(first(sts, "resumed")[0])
+
+    def test_a_pause_ends_when_the_price_closes_back_above_the_resistance_with_volume(self):
+        """11.11. (Jure: "nastavak iz pauze kad se cijena vrati iznad otpora uz volumen")."""
+        brk = {m: 5000.0 for m in range(30)}
+        sts = states(after(BASE, DOWN_RECLAIM, vols={**brk, **{m: 5000.0 for m in range(60, 80)}}))
+        t1, _r = first(sts, "paused")
+        t2, r2 = next(((t, r) for t, s, r in sts if t > (t1 or 0) and s == "normal"), (None, None))
+        self.assertIsNotNone(t2)
+        self.assertIn("nastavak: povratak iznad otpora", r2["flip"]["why"])
+        self.assertIsNone(r2["flip"]["block"])
+        sts = states(after(BASE, DOWN_RECLAIM, vols=brk))                    # the same return without volume
+        t1, _r = first(sts, "paused")
+        self.assertFalse(any(s == "normal" for t, s, _r in sts if t > t1))
+        z = {"low": 50.0, "top": 52.0}
+        cs = Breaks().bars([(51.0, 1000.0)] * 30 + [(40.0, 1000.0)] * 5 + [(53.5, 1200.0), (53.5, 900.0)])
+        now = cs[-1][0] + 300
+        self.assertIsNone(detect.reclaim(z, cs, cs[30][0], now))             # above 52 x 1.02, volume only 1.2x
+        cs = Breaks().bars([(51.0, 1000.0)] * 30 + [(40.0, 1000.0)] * 5 + [(52.5, 9000.0), (53.5, 1600.0)])
+        r = detect.reclaim(z, cs, cs[30][0], now)
+        self.assertEqual((r["close"], r["vol_x"]), (53.5, 1.6))               # 52.5 is under the 2 % margin
+
+    def test_a_flip_without_its_retests_in_5_h_is_no_flip(self):
+        """11.11. (Jure: "retest nakon flipa skratiti s 24 h na 4-6 h")."""
+        self.assertEqual(detect.FLIP["retest_s"], 5 * 3600)
+        sts = states(after(BASE, UP_NO_RETEST, vols=HV))
+        t1, r1 = first(sts, "flip_candidate")
+        t2, r2 = next(((t, r) for t, s, r in sts if t > (t1 or 0) and s == "normal"), (None, None))
+        self.assertIsNotNone(t2)
+        self.assertIn("flip nije potvrđen u 5 h", r2["flip"]["why"])
+        self.assertGreater(t2 - r1["flip"]["brk"]["end"], 5 * 3600)
+        self.assertLessEqual(t2 - r1["flip"]["brk"]["end"], 5 * 3600 + 300)
 
     def test_a_state_ends_24_h_after_its_break_and_a_stale_reference_reads_no_break(self):
         sts = states(after(BASE, DOWN_BELOW, vols={m: 5000.0 for m in range(30)}))
@@ -286,8 +319,8 @@ class Modes(TradeBase):
         m, new, sh = trade.flip_roles([LU, PU], self.now)
         self.assertEqual((new, sh), ({PU}, {LU}))                            # no nightly result: the real one stays
         con = data.connect()
-        data.kv_put(con, "flip_backtest", {"ts": self.now, "tokens": 5, "old": {"rounds": 12, "max_dd_sol": 0.03},
-                                           "new": {"rounds": 10, "max_dd_sol": 0.02}})
+        data.kv_put(con, "flip_backtest", {"ts": self.now, "tokens": 5, "old": {"rounds": 30, "max_dd_sol": 0.03},
+                                           "new": {"rounds": 30, "max_dd_sol": 0.02}})
         con.commit()
         con.close()
         gate._FCACHE.update(at=0.0)
@@ -305,7 +338,8 @@ class LiveGate(TradeBase):
     def test_settings_flag_g26_off_by_default_live_gate(self):
         self.assertEqual(settings.FLAGS["range_flip"][0], "G26")
         names = list(settings.FLAGS)   # 11.11.: range_missed (G27) comes after it; 12.11.: x_call_scalp (G31)
-        self.assertEqual(names[names.index("range_flip") + 1:], ["range_missed", "x_call_scalp"])
+        # 14.11.: range_demo (G32, the demo account's profile) after them
+        self.assertEqual(names[names.index("range_flip") + 1:], ["range_missed", "x_call_scalp", "range_demo"])
         self.assertEqual(settings.flag("range_flip", con=self.con), "off")
         self.assertNotIn("range_flip", settings.DATA_FLAGS)
         self.assertNotIn("range_flip", settings.NEVER_LIVE)
@@ -317,12 +351,16 @@ class LiveGate(TradeBase):
         paper = {"n": 30, "pnl": 5.0}
         with self.assertRaisesRegex(ValueError, "nema noćnog backtesta"):
             settings.set_flag(self.con, "range_flip", "live", "Jure", paper=paper, now=self.now)
-        old = {"rounds": 12, "pnl_sol": 0.1, "pnl_pct": 8.0, "max_dd_sol": 0.02, "false_entries": 2}
+        old = {"rounds": 30, "pnl_sol": 0.1, "pnl_pct": 8.0, "max_dd_sol": 0.02, "false_entries": 2}
         self.put(ts=self.now, tokens=5, old=old, new=dict(old, max_dd_sol=0.03, false_entries=1))
         with self.assertRaisesRegex(ValueError, "novi DD veći od starog.*lažnih ulaza 2.*lažnih ulaza 1"):
             settings.set_flag(self.con, "range_flip", "live", "Jure", paper=paper, now=self.now)
-        self.put(ts=self.now, tokens=5, old=dict(old, rounds=9), new=dict(old, max_dd_sol=0.01))
+        self.put(ts=self.now, tokens=5, old=dict(old, rounds=29), new=dict(old, max_dd_sol=0.01))
         with self.assertRaisesRegex(ValueError, "premalo podataka"):
+            settings.set_flag(self.con, "range_flip", "live", "Jure", paper=paper, now=self.now)
+        # 11.11. (Jure): 30 rounds of BOTH rule sets (12 token-days prove nothing)
+        self.put(ts=self.now, tokens=5, old=old, new=dict(old, rounds=12, max_dd_sol=0.01))
+        with self.assertRaisesRegex(ValueError, "premalo podataka.*novo 12.*treba 30 za oba"):
             settings.set_flag(self.con, "range_flip", "live", "Jure", paper=paper, now=self.now)
         self.put(ts=self.now - 4 * 86400, tokens=5, old=old, new=dict(old, max_dd_sol=0.01))
         with self.assertRaisesRegex(ValueError, "star"):
@@ -417,8 +455,11 @@ class BacktestOldVsNew(unittest.TestCase):
         v = self.rep["flip"]["variants"]
         got = {k: (v[k]["rounds"], round(v[k]["pnl_sol"], 3), round(v[k]["max_dd_sol"], 3), v[k]["false_entries"])
                for k in v}
-        self.assertEqual(got["old"], (12, 0.112, 0.026, 1))   # 13.11.: entry buy share 0.45 (was (12, 0.113, 0.025, 1))
-        self.assertEqual(got["new"], (10, 0.041, 0.026, 1))   # 13.11.: entry buy share 0.45
+        self.assertEqual(got["old"], (12, 0.112, 0.026, 1))   # 13.11.: entry buy share 0.45 (11.11. rules B: (10, 0.118, 0.025, 1))
+        # 11.11. (Jure): pause ends on a close back above the resistance with volume, retest window 5 h (was 8,
+        # +0.047): 12 token-days and < 30 rounds, no conclusion either way (14.11.: with buy share 0.45)
+        self.assertEqual(got["new"], (8, 0.026, 0.026, 1))
+        self.assertFalse(self.rep["flip"]["enough"])
         self.assertEqual(got["atr_only"], got["old"])                       # the volatility stop changed no round here
         self.assertEqual(got["flip_only"], got["new"])
         self.assertTrue(self.rep["flip"]["dd_ok"])
@@ -426,7 +467,7 @@ class BacktestOldVsNew(unittest.TestCase):
         self.assertEqual(self.rep["variants"]["0.7"]["rounds"], 12)
         t = self.rep["flip"]["tokens"]
         timmy = next(p for p in t.values() if p["symbol"] == "timmy")
-        self.assertEqual((timmy["old"]["rounds"], timmy["new"]["rounds"]), (3, 2))
+        self.assertEqual((timmy["old"]["rounds"], timmy["new"]["rounds"]), (3, 0))
         self.assertGreater(timmy["states"].get("paused", 0), 0)
         hope = t["GxRPJsRK9TE9EgBhLxrFGcRYLGqPJe4fxtiPmdXCpump"]
         self.assertEqual((hope["old"]["rounds"], hope["new"]["rounds"], hope["breaks_up"]), (0, 0, 1))
@@ -440,7 +481,10 @@ class BacktestOldVsNew(unittest.TestCase):
         self.assertIn("| UKUPNO |", text)
         line = backtest.flip_line(self.rep["flip"])
         self.assertTrue(line.startswith("range flip backtest: 6 tokena, 12.47"))
-        self.assertIn("DD novo <= staro: da", line)
+        self.assertIn("premalo rundi za zaključak (staro 12, novo 8, treba 30 za oba): usporedba čeka", line)
+        self.assertNotIn("DD novo <= staro", line)
+        self.assertIn("Bez zaključka: premalo rundi (staro 12, novo 8, treba 30 za oba).", text)
+        self.assertIn("DD novo <= staro: da", backtest.flip_line(dict(self.rep["flip"], enough=True)))
 
     def test_cost_is_the_owners_round_trip(self):
         self.assertAlmostEqual(backtest.cost(15.0, 40_000.0), 0.02 + 2 * 15 / 20_015)
@@ -461,7 +505,7 @@ class BacktestOldVsNew(unittest.TestCase):
             backtest.run_server(now=cs[-1][0] + 60, log=logs.append)
             self.assertTrue(any(x.startswith("range flip backtest: 1 tokena") for x in logs), logs[-3:])
             r = gate.flip_result()
-            self.assertEqual((r["old"]["rounds"], r["new"]["rounds"], r["tokens"]), (3, 2, 1))
+            self.assertEqual((r["old"]["rounds"], r["new"]["rounds"], r["tokens"], r["enough"]), (3, 0, 1, False))
             self.assertIn("premalo podataka", gate.flip_refusal(now=cs[-1][0] + 120))
 
 

@@ -166,7 +166,8 @@ class Budget(RDB):
         self.assertEqual(len(line), 1, logs)
         self.assertIn(time.strftime("%Y-%m-%d", time.gmtime(now)), line[0])
         gt = f"gt {market.gt_requests()}/{market.GT_DAY}"   # 11.11.: GT_TOP_PAGES + 2 x GT_TREND_PAGES a round
-        for part in ("dexscreener 1/1", "dexscreener liste 3/300", gt, "birdeye 0/24 (bez ključa)"):
+        # 14.11.: 5 DexScreener lists a round (+ community takeovers, profile updates), LISTS_DAY 500 (was 3/300)
+        for part in ("dexscreener 1/1", "dexscreener liste 5/500", gt, "birdeye 0/24 (bez ključa)"):
             self.assertIn(part, line[0])
         logs.clear()
         with mock.patch.object(market, "DEX_DAY", 1):
@@ -195,8 +196,11 @@ class Budget(RDB):
         now = 1_794_400_000
         ok = {"price": 1e-4, "bonded": True, "mcap": 200_000, "liq": 40_000, "vol_h1": 20_000}
         self.assertTrue(market.check(ok, now - 7 * 3600, "market", now)[0])
-        for change, word in (({"mcap": 40_000}, "ispod $50,000"), ({"mcap": 6e6}, "iznad"), ({"liq": 14_000}, "likvidnost"),
-                             ({"vol_h1": 5000}, "volumen"), ({"bonded": False}, "krivulji"), ({"mcap": 20_000}, "30k")):
+        # 14.11. (owner's 30k floor, calmer ranging tokens): the band is MC 30k-5M (was 50k) and volume 1 h >= $5k
+        # (was $10k): 40k and $6k now pass, under 30k / $5k do not
+        self.assertTrue(market.check({**ok, "mcap": 40_000, "vol_h1": 6_000}, now - 7 * 3600, "market", now)[0])
+        for change, word in (({"mcap": 6e6}, "iznad"), ({"liq": 14_000}, "likvidnost"),
+                             ({"vol_h1": 4000}, "volumen"), ({"bonded": False}, "krivulji"), ({"mcap": 20_000}, "30k")):
             res = market.check({**ok, **change}, now - 7 * 3600, "market", now)
             self.assertFalse(res[0], change)
             self.assertIn(word, res[1])
@@ -386,14 +390,16 @@ class Faza1(unittest.TestCase):
 
     def test_keep_thresholds_are_softer_than_admission(self):
         now = 1794346000
-        s = {"price": 1.0, "bonded": True, "mcap": 200_000, "liq": 18_000, "vol_h1": 7_000}
-        self.assertFalse(market.check(s, now - 86400, "market", now)[0])            # not admitted at 18k / 7k
+        # 14.11.: admission at volume 1 h >= $5k (was 10k), a watched token stays down to $3k (was 5k: the range's floor)
+        s = {"price": 1.0, "bonded": True, "mcap": 200_000, "liq": 18_000, "vol_h1": 4_000}
+        self.assertFalse(market.check(s, now - 86400, "market", now)[0])            # not admitted at 18k / 4k
         self.assertTrue(market.check(s, now - 86400, "market", now, keep=True)[0])  # but a watched one stays
-        s2 = dict(s, vol_h1=4_000)
+        s2 = dict(s, vol_h1=2_000)
         self.assertFalse(market.check(s2, now - 86400, "market", now, keep=True)[0])
 
     def test_gt_round_asks_every_page_within_the_day_cap(self):
-        self.assertEqual(market.gt_requests(), 2 * market.GT_TREND_PAGES + market.GT_TOP_PAGES)
+        # 14.11.: + the PumpSwap dex's top pages (GT_DEX_PAGES) in the same round
+        self.assertEqual(market.gt_requests(), 2 * market.GT_TREND_PAGES + market.GT_TOP_PAGES + market.GT_DEX_PAGES)
         self.assertLessEqual(market.gt_requests() * 86400 // market.GT_EVERY_S, market.GT_DAY)
 
 
@@ -417,4 +423,31 @@ class GtBusy(unittest.TestCase):
         self.assertIsNone(data.kv_get(con, "mkt_gt_ts"))
         self.assertEqual(data.day_used(con, "mkt_gt_day", now), 0)
         self.assertTrue(any("drži drugi posao" in x for x in logs))
+
+    def test_round_line_tells_the_shared_coingecko_day(self):
+        """11.11. (Jure): more GT pages only if the day has room after the first two real rounds: every round says
+        how much of the shared CoinGecko day is gone."""
+        from unittest import mock
+        from event_calendar import http
+        con = data.connect(os.path.join(tempfile.mkdtemp(), "range.db"))
+        market.ensure(con)
+        logs = []
+        pool = {"attributes": {"name": "X / SOL"}, "relationships": {"base_token": {"data": {"id": "solana_M1"}}}}
+
+        class Net:
+            def lists(self):
+                return []
+
+            def gt_pools(self, n_req=None):
+                return [pool]
+        now = 1794346000 + 12 * 3600
+        data.kv_put(con, "mkt_lists_ts", now)
+        with mock.patch.dict(os.environ, {"COINGECKO_API_KEY": "k"}), \
+                mock.patch.object(http, "cg_used", lambda today=None: (3000, 3000)), \
+                mock.patch.object(market, "gt_row", lambda p: ("M1", "X", now - 86400, {"mcap": 1e5, "liq": 3e4, "vol_h1": 2e4})):
+            market.discover_lists(con, now, Net(), logs.append)
+        line = next(x for x in logs if x.startswith("range tržište GT:"))
+        self.assertIn("(prava runda 1)", line)
+        self.assertIn("CoinGecko ključ danas 3000/3000 (potrošen: ostatak dana besplatni GT)", line)
+        self.assertIn(f"range lista {market.gt_requests()}/{market.GT_DAY}", line)
 

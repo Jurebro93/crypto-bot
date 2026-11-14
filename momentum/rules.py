@@ -294,6 +294,31 @@ def _out(first, hit, ts, hi, lo, entry_px):
             "min_pct": round((lo / entry_px - 1) * 100, 2) if lo else None}
 
 
+# 14.11. (EV izvještaj 13.11.: momentum_scalp EV +2.051.748 %): a snapshot over MAX_UP_X x the entry within the 45
+# minutes is a bad tick (another pool or unit), not a move. Such points leave the path before the outcome and the
+# simulated trade, and a stored result over MAX_UP_X - 1 is not counted in an EV (unreliable, "nepouzdano").
+MAX_UP_X = 20.0
+
+
+def clean_path(path, entry_px, max_x=MAX_UP_X):
+    """The path without the points whose price (the high of a candle) is over max_x x the entry."""
+    if not entry_px or entry_px <= 0:
+        return list(path or [])
+    lim = entry_px * max_x
+    out = []
+    for row in path or []:
+        px = row[2] if len(row) >= 5 else row[1]
+        if px is not None and px > lim:
+            continue
+        out.append(row)
+    return out
+
+
+def plausible(sim_ret, max_x=MAX_UP_X):
+    """True when a simulated result can be real (at most max_x x the stake, a bad tick otherwise)."""
+    return sim_ret is not None and sim_ret <= max_x - 1
+
+
 def simulate(path, entry_px, entry_ts, liq=None, usd=LOT_USD, cfg=None):
     """The exit rules on a path after the signal: (result as a fraction of the stake after the round-trip cost, exit
     reasons) or (None, reasons) while the 45 minutes are not over and the trade is still open. path: [(ts, price)] or

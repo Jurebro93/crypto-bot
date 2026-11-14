@@ -157,6 +157,34 @@ class Plans(Base):
         self.assertIn("ok=", self.post("/pravi-trade/exitresume", {}))
         self.assertFalse(settings.raw(self.con)["exit_plans_paused"])
 
+    def test_20s_loop_leaves_a_planned_lot_to_the_plan(self):
+        # 11.11.: league/auto.run_once (the 20-s pass over every player) sold a planned lot at its own TP +15 % while
+        # the plan waited for +80 %; the real money follows the demo lot (run_trade.py)
+        tid = self.lot()
+        auto.set_auto(self.lg, LU, tid, "tpsl", "+15%", "-30%")
+        tp_px = json.loads(self.lg.execute("SELECT auto FROM trades WHERE id=?", (tid,)).fetchone()[0])["tp_px"]
+        exitplan.set_plan(self.lg, MINT, {"take_profits": [{"at_pct": 80, "sell_share": 1}]}, 30)
+        px = 1.3
+        self.assertLess(tp_px, px)
+        self.assertLess(px, 1.8)
+        self.assertEqual(auto.run_once(self.lg, self.mk(px)), [])                # the plan owns the exit
+        self.assertEqual(self.tick(px), [])
+        self.assertGreater(self.open_qty(), 0)
+        self.mode("off")                                                         # no plan in force: default TP
+        done = auto.run_once(self.lg, self.mk(px))
+        self.assertEqual([(d[0], d[2][:7]) for d in done], [(LU, "auto TP")])
+        self.assertEqual(self.open_qty(), 0)
+
+    def test_20s_loop_leaves_a_planned_smart_sell_lot_to_the_plan(self):
+        tid = self.lot()
+        auto.set_auto(self.lg, LU, tid, "smart")
+        exitplan.set_plan(self.lg, MINT, {"take_profits": [{"at_pct": 80, "sell_share": 1}]}, 30)
+        self.assertEqual(auto.run_once(self.lg, self.mk(1.3)), [])
+        self.assertIsNone(self.lg.execute("SELECT auto_state FROM trades WHERE id=?", (tid,)).fetchone()[0])
+        self.mode("off")                                                         # Smart sell runs again
+        auto.run_once(self.lg, self.mk(1.3))
+        self.assertIsNotNone(self.lg.execute("SELECT auto_state FROM trades WHERE id=?", (tid,)).fetchone()[0])
+
     def test_paper_executes_on_the_demo_account_only(self):
         self.mode("paper")
         self.lot(LU)

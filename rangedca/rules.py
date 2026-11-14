@@ -49,6 +49,33 @@ RULES = {"score_min": 0.7, "entry_bottom": 0.15, "ch5_min": -0.03, "buy_share_mi
          "time_stop_s": 6 * 3600, "cooldown_s": 20 * 60, "lot2_min_share": 0.5, "lot2_buy_share_min": 0.5,
          "exclude_s": 24 * 3600, "breakdowns_max": 2, "vol_exclude_s": 3600}
 
+# 14.11. (owner: "otvaraj pozicije ... koji su u donjem dijelu range-a. Testiraj sa stop loss, nemoj stavljati preblizu
+# stop loss zbog straha ... readjust parametre tako da se ulazi u trade I da se uzima barem 10-15% profita"; flag
+# range_demo G32, the DEMO account only, never real money: trade/settings.NEVER_LIVE). The profile the demo account
+# PAPER_USER trades on top of RULES (rangedca/trade.profile); the real account keeps RULES exactly. Every number was
+# chosen on the backtest (rangedca/backtest.DemoCompare; 14.11.: the 6 range fixtures, 12.5 token-days, and 17 bonded
+# tokens alive on 14.11. with GeckoTerminal minutes of the last ~50 h incl. the crash night, 74.5 token-days; ticks
+# wick, the ATR stop, the owner's round-trip cost): RULES 14 rounds, hit 71 %, EV +7.8 % a round, PnL +17.2 $, DD 3.4 $;
+# DEMO 37 rounds, hit 60 %, EV +3.2 %, PnL +17.8 $, DD 7.9 $ (2.6x the trades, EV still > 0):
+#   entry   score_min 0.6, the bottom 25 % of the range (or inside the bottom zone), 5-minute change > -5 %, the 15-minute
+#           volume x 4 >= 35 % of the hourly average, buys >= 45 % of 5 minutes (unchanged). survivor "loss": a token
+#           whose MC is more than 45 % under the level 24 h ago (it did not survive the crash) is never entered; the
+#           full survivor (rangedca/survivor: also >= 24 h old) is tried first and shown, not required: required
+#           ("survivor": True) it cut the rounds 37 -> 18 and EV +3.2 -> +0.7 % (the age rule threw out good young ranges)
+#   exits   half at +10 % NET of the round-trip cost (tp1_net); the rest at +15 % net or the range's top zone when
+#           that is higher (tp2_range: "barem", at least; a fixed +15 % gave EV +1.6 %), else a 15 % trailing stop from
+#           the peak (10 % cut the rest early: EV +2.5 %), else break-even (the rest's own cost, fees included) once TP1
+#           sold (be_after_tp1)
+#   stop    the ATR stop (decision 1) held between -12 % and -25 % from the entry price (stop_min_pct / stop_max_pct):
+#           closer, a memecoin's 15-minute noise (ATR 5-10 % of the price) stops good entries out (-8..-20 %: twice the
+#           stop-outs on the 17 tokens, EV +0.5 %); wider than -25 % one loss eats ~2 wins
+#   lot 2   none (lot2 False): a second lot 10-15 % under lot 1 lands at or under a -12 % stop (with it: DD 4.1 -> 6.6 $)
+#   time    6 h without TP1: out at break-even or better (RULES' time stop; 3 h / 12 h changed nothing)
+DEMO = {**RULES, "profile": "demo", "score_min": 0.6, "entry_bottom": 0.25, "ch5_min": -0.05, "vol_ratio_min": 0.35,
+        "buy_share_min": 0.45, "tp1_net": 0.10, "tp2_net": 0.15, "tp2_range": True, "tp1_share": 0.5, "trail": 0.15,
+        "be_after_tp1": True, "stop_min_pct": 0.12, "stop_max_pct": 0.25, "lot2": False, "survivor": "loss"}
+DEMO_GOAL = 5   # 14.11. (owner: "želim da danas otvoriš barem 5 tradeova"): the daily counter's goal
+
 
 def exclusions(prev, res, now, holder_why=None, cfg=None):
     """Spec 5, give up / exclude a token. prev: the token's state from the last detection ({} the first time); res:
@@ -114,6 +141,59 @@ def levels_of(rng):
         out.update(stop_px=rng["stop_px"], floor_px=max(out["floor_px"], rng["stop_px"]),
                    stop_kind=rng.get("stop_kind") or "atr")
     return out
+
+
+def demo_levels(lv, entry_px, rt_cost, cfg=None):
+    """14.11. (DEMO): the levels of a demo round from the range's levels (levels_of, the ATR stop on them) and its
+    entry price: tp1_px / tp2_px = entry x (1 + tp_net) / (1 - round-trip cost) (+10 % / +15 % NET: what the sale
+    returns over what the lot cost, fees and AMM impact included), the stop held between -stop_max_pct (25 %) and
+    -stop_min_pct (12 %) from the entry (stop_clamp, kept for the whole round), the floor never under the stop,
+    profile "demo" and be_after_tp1. rt_cost: trade/cost.round_trip(lot USD, liquidity) as a fraction."""
+    c = {**DEMO, **(cfg or {})}
+    out = dict(lv)
+    rt = min(max(float(rt_cost or 0.0), 0.0), 0.5)
+    lo, hi = entry_px * (1 - c["stop_max_pct"]), entry_px * (1 - c["stop_min_pct"])
+    out["tp1_px"] = entry_px * (1 + c["tp1_net"]) / (1 - rt)
+    out["tp2_px"] = entry_px * (1 + c["tp2_net"]) / (1 - rt)
+    raw = lv.get("stop_px") or lo
+    out["stop_px"] = min(hi, max(lo, raw))
+    if out["stop_px"] != raw:
+        out["stop_kind"] = f"{lv.get('stop_kind') or 'fixed'}_clamp"
+    out["stop_clamp"] = [lo, hi]
+    out["floor_px"] = max(lv.get("floor_px") or 0.0, out["stop_px"])
+    out.update(profile="demo", be_after_tp1=bool(c["be_after_tp1"]), entry_px=entry_px, rt_cost=round(rt, 5),
+               tp2_range=bool(c.get("tp2_range")))
+    return out
+
+
+def tp2_of(lv):
+    """The price the rest of a demo round sells at: tp2_px (+15 % net), or with tp2_range the range's top zone when
+    that is higher (range_high_low of the range in force: "barem 10-15 %", at least, never less)."""
+    if lv.get("tp2_range") and lv.get("rhl"):
+        return max(lv["tp2_px"], lv["rhl"])
+    return lv["tp2_px"]
+
+
+def levels_in_force(frozen, fresh):
+    """merge_levels for any round. 14.11. (DEMO): a demo round keeps its own take-profit prices (fresh ranges never
+    move them: they are the entry's +10 / +15 % net) and its stop stays inside its clamp: it tightens with the newer
+    range, but never closer than -stop_min_pct (12 %) to the entry."""
+    out = merge_levels(frozen, fresh)
+    if (frozen or {}).get("profile") == "demo":
+        for k in ("tp1_px", "tp2_px", "tp2_range", "be_after_tp1", "profile", "stop_clamp", "entry_px", "rt_cost"):
+            if k in frozen:
+                out[k] = frozen[k]
+        clamp = frozen.get("stop_clamp")
+        if clamp and out.get("stop_px") and out["stop_px"] > clamp[1]:
+            out["stop_px"] = clamp[1]
+            out["stop_kind"] = frozen.get("stop_kind") or out.get("stop_kind")
+        out["floor_px"] = max(out.get("floor_px") or 0.0, out.get("stop_px") or 0.0)
+    return out
+
+
+def profile_cfg(levels):
+    """The rule set of an open round: DEMO for a demo-profile round (levels "profile": "demo"), else None (RULES)."""
+    return DEMO if (levels or {}).get("profile") == "demo" else None
 
 
 FLIP_PARTS = ("flip", "atr")
@@ -275,6 +355,15 @@ def entry_check(rng, price, cfg=None, min_score=None):
     sc = rng.get("score") or 0
     if sc < smin - 1e-9:
         return f"ocjena raspona {sc:.2f} ispod {smin:.2f}"
+    if c.get("survivor"):   # 14.11. (DEMO): only a token that survived the crash and is back in its range
+        sv = rng.get("survivor")
+        if not sv:
+            return "preživljavanje pada nepoznato (raspon izračunat prije 14.11.)"
+        if c["survivor"] == "loss":   # only the crash itself blocks (MC > 45 % under the level 24 h ago)
+            if sv.get("crashed"):
+                return sv.get("why") or "nije preživio pad"
+        elif not sv.get("ok"):
+            return sv.get("why") or "nije preživio pad"
     if not price or price <= 0:
         return "nema cijene"
     lv = levels_of(rng)
@@ -340,14 +429,26 @@ def exit_step(lv, st, price, now, opened_ts, be_px, stale=False, cfg=None):
         return "stop", 1.0
     if stale:
         return None
-    if price >= lv["rhl"] and not st.get("top_ts"):
+    # 14.11. (DEMO): a round with its own take-profit prices (demo_levels: +10 % / +15 % net of cost from the entry)
+    # takes them instead of the range's top zone / top
+    tp1_px = lv.get("tp1_px") or lv["rhl"]
+    if price >= tp1_px and not st.get("top_ts"):
         st["top_ts"] = int(now)
     if not st.get("tp1"):
-        if price >= lv["rhl"]:
+        if price >= tp1_px:
             st["tp1"], st["peak"], st["top_active"] = True, price, price >= lv["rht"]
             return "tp1", c["tp1_share"]
         if not st.get("top_ts") and now - opened_ts >= c["time_stop_s"] and be_px and price >= be_px:
             return "time", 1.0
+        return None
+    if lv.get("tp2_px"):   # 14.11. (DEMO): the rest at +15 % net / the top zone, else trailing (15 %), else break-even
+        st["peak"] = max(st.get("peak") or 0, price)
+        if price >= tp2_of(lv):
+            return "tp2", 1.0
+        trail_px = st["peak"] * (1 - c["trail"])
+        be = be_px if lv.get("be_after_tp1") and be_px else 0.0
+        if price <= max(trail_px, be):   # the higher of the two levels is the one a falling price meets first
+            return ("breakeven" if be > trail_px else "trailing"), 1.0
         return None
     st["peak"] = max(st.get("peak") or 0, price)
     if price >= lv["rht"]:

@@ -764,5 +764,30 @@ class ReadSide(TradeBase):
         self.assertEqual(plan["trailing"], {"activate_pct": 15, "trail_pct": 8})
 
 
+
+class BadTick(unittest.TestCase):
+    """14.11. (EV izvještaj 13.11.: momentum_scalp EV +2.051.748 %): one snapshot at thousands x the entry is a bad
+    tick, not a move; it leaves the path and a stored result like it is not in an EV."""
+
+    def test_a_bad_tick_leaves_the_path(self):
+        path = [(110, 1.02), (200, 20500.0), (300, 0.99), (2800, 1.01)]
+        self.assertEqual(rules.clean_path(path, 1.0), [(110, 1.02), (300, 0.99), (2800, 1.01)])
+        self.assertEqual(rules.clean_path([(110, 1, 30000.0, 1, 1)], 1.0), [])          # a candle's high counts
+        self.assertEqual(rules.clean_path(path, 0), path)                              # no entry price: unchanged
+        sim, why = rules.simulate(rules.clean_path(path, 1.0), 1.0, 100)
+        self.assertLess(sim, 0.05)
+        self.assertEqual(why, ["time"])
+        self.assertGreater(rules.simulate([(110, 9.0), (2800, 9.0)], 1.0, 100)[0], 3)   # a real 9x stays (half sold at TP1)
+
+    def test_plausible_and_the_base_rate(self):
+        self.assertTrue(rules.plausible(8.0))
+        self.assertFalse(rules.plausible(20517.0))
+        self.assertFalse(rules.plausible(None))
+        rows = [{"status": "done", "hit": 1, "sim_ret": 0.1, "first": "tp"},
+                {"status": "done", "hit": 0, "sim_ret": -0.12, "first": "sl"},
+                {"status": "done", "hit": 1, "sim_ret": 20517.48, "first": "tp"}]
+        self.assertEqual(view.summarize(rows)["ev_pct"], -1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

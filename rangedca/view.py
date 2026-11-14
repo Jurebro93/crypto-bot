@@ -14,7 +14,12 @@ never changes), the owner's pins (pinned true on the row, always listed whatever
 pin's rule, lower zone + volume holds), similar_to per row (the most similar labelled win, 0-1) and meta similar (top
 10).
 11.11. (flag range_missed G27): source "missed" (signal > event > missed > market), and the answer's "missed" part
-(missed_meta): the list, its filter, the rounds of source missed vs the others and the missed live gate."""
+(missed_meta): the list, its filter, the rounds of source missed vs the others and the missed live gate.
+14.11. (Jure: "pronađi tokene koji su izdržali bloodbath i vratili se u range ... barem 5 tradeova danas"; flag
+range_demo G32): every row carries survivor (rangedca/survivor: ok, why, age, MC change 24 h, deepest fall, in range)
+and, while range_demo is on, entry_ready_demo / entry_demo (the demo account's decision by rules.DEMO); the answer
+has demo_today (the daily counter "range demo danas: N tradeova (cilj 5)" with the 3 reasons that held off the most
+tokens), demo_rules, survivor_rule, and min_score defaults to DEMO's 0.6 while range_demo is on."""
 import sqlite3
 import time
 
@@ -119,6 +124,14 @@ def one(tok, r, now=None, pin=None, ws=None):
     if arch:
         entry_now = f"{arch} · {entry_now}"
     zones = _zones(r)
+    demo = {}
+    if demo_on():   # 14.11. (range_demo): the demo account's own decision on this range (rules.DEMO)
+        dwhy = None if brk else trade.entry_view(r, m.get("price"), now, trade.METRICS_READY_S, cfg=rules.DEMO)
+        if arch:
+            dwhy = arch
+        demo = {"entry_ready_demo": not brk and dwhy is None,
+                "entry_demo": ("probijen gore: nije ulaz u raspon" if brk else dwhy or
+                               "demo ulaz bi prošao (uz provjeru ruga i limite)")}
     if pp.get("pinned") and pp["pin"]["zones_from"] == "pin":   # no pair of zones now: the pinned ones (in MC)
         zones = {"price": None, "market_cap_usd": pp["pin"]["zones_market_cap_usd"], "from": "pin"}
     sim = {}
@@ -146,7 +159,42 @@ def one(tok, r, now=None, pin=None, ws=None):
             "excluded_why": st.get("excluded_why") if (st.get("excluded_until") or 0) > now else None,
             "entry_now": entry_now,
             "paper_only": src != "signal" and not (src == "missed" and trade.missed_live(now)),
+            "survivor": r.get("survivor"), **demo,
             "stop": stop_view(r), **_flip_part(r, m, now)}
+
+
+def demo_on():
+    """14.11.: the flag range_demo (G32) is paper (or live, which is paper for it)."""
+    try:
+        from league import flags
+        return flags.mode(trade.DEMO_FLAG) in ("paper", "live")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def demo_today(now=None):
+    """14.11.: the daily counter of the demo account's range trades (rangedca/trade.demo_today), read-only."""
+    con = data._league_ro()
+    if con is None:
+        return None
+    try:
+        return trade.demo_today(con, now)
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+
+
+DEMO_RULES = ("14.11. (flag range_demo G32, demo account only, never real money): lot 1 when range_score >= 0.6, the "
+              "price in the bottom 25 % of the range or inside the bottom zone, 5m change > -5 %, buys >= 45 % of 5m, "
+              "15m volume x4 >= 35 % of the 1h average, never a token whose MC fell more than 45 % in 24 h "
+              "(survivor.crashed); crash survivors (survivor.ok) are tried first; half out at +10 % net of the "
+              "round-trip cost, the rest at +15 % net or the top zone when higher, a 15 % trailing or break-even once "
+              "TP1 sold; stop: the ATR stop held between -12 % and -25 % from the entry; no lot 2; 6 h without TP1: "
+              "out at break-even; 20 min cooldown")
+SURVIVOR_RULE = ("survived the crash = >= 24 h old (pool creation; else 22 h+ of its own series), MC now at most 45 % "
+                 "under the level 24 h ago (DexScreener's 24 h change, else the series' close 24 h ago), and back in an "
+                 "active range (status aktivan, not paused / a flip candidate under range_flip)")
 
 
 def stop_view(r):
@@ -202,9 +250,11 @@ def flip_view(fl, rng=None):
 FLIP_RULES = ("range_flip (G26): a 5-minute close beyond the range by max(2 %, 1 x ATR) with volume >= 1.5 x the "
               "median 5-minute volume is a confirmed break. Up: the old top zone is the candidate for the new bottom, "
               "no entries until 2 retests (swing lows within it +-3 %) without a close under it x 0.97 (then the range "
-              "after the break trades). Down: paused, no lot 1 / lot 2, the old bottom zone is the resistance, resumed "
-              "when a range formed after the break has its top <= the resistance x 1.03. A state ends 24 h after its "
-              "break. Stop: range_low_low - 1.5 x ATR(14 x 15 min), 5-20 % under range_low_low (11.11., the owner's "
+              "after the break trades); without them within 5 h of the break it is no flip (back to normal). Down: "
+              "paused, no lot 1 / lot 2, the old bottom zone is the resistance; resumed when a range formed after the "
+              "break has its top <= the resistance x 1.03, or back to normal when a 5-minute close is above the "
+              "resistance by the break margin with volume >= 1.5 x the median. A state ends 24 h after its break. "
+              "Stop: range_low_low - 1.5 x ATR(14 x 15 min), 5-20 % under range_low_low (11.11., the owner's "
               "decision 1: every account's stop now, range_flip or not; x 0.85 only while ATR is unknown).")
 
 
@@ -256,6 +306,12 @@ def positions(tokens=None):
         # 11.11. (range_flip; decision 1: every round): the round's hard stop is in that field whatever its kind
         # (stop_kind: atr = range_low_low - 1.5 x ATR, reclaim = under the new low by the ATR rule)
         r["exit_levels_market_cap_usd"]["hard_stop"] = r["exit_levels_market_cap_usd"]["hard_stop (range_low_low x 0.85)"]
+        if lv.get("profile") == "demo" and sup:   # 14.11. (range_demo): the demo round's own take-profit prices
+            r["exit_levels_market_cap_usd"].update({
+                "take_half_at (+10 % net)": round(lv["tp1_px"] * sup) if lv.get("tp1_px") else None,
+                "rest_at (+15 % net or the top zone)": round(rules.tp2_of(lv) * sup) if lv.get("tp2_px") else None,
+                "stop_clamp (-25 % .. -12 % from the entry)": [round(x * sup) for x in lv.get("stop_clamp") or []]})
+        r["profile"] = lv.get("profile") or "rules"
         r["rules"] = "range_flip" if lv.get("rules") == "flip" else "today"
         r["stop_kind"] = lv.get("stop_kind") or "range_low_low x 0.85"
         r["reclaim"] = bool(lv.get("reclaim"))
@@ -292,8 +348,9 @@ def candidates(min_score=None, now=None, limit=50, source=None):
     """get_range_candidates: tokens with an active range (score >= min_score, default 0.7), entry-ready first, then
     the best score. source: signal | market | event keeps only the rows whose sources include it."""
     now = now or time.time()
-    try:
-        ms = float(min_score) if min_score is not None else rules.RULES["score_min"]
+    don = demo_on()
+    try:   # 14.11.: while range_demo is on, the default threshold is the demo profile's (0.6)
+        ms = float(min_score) if min_score is not None else (rules.DEMO if don else rules.RULES)["score_min"]
     except (TypeError, ValueError):
         return {"error": "min_score must be a number 0-1"}
     src = (str(source).strip().lower() or None) if source else None
@@ -316,8 +373,8 @@ def candidates(min_score=None, now=None, limit=50, source=None):
         for t in rest:
             r = pr.get(t)
             rows.append(one(t, r, now, pins[t], ws) if r else _pin_only(t, pins[t], now))
-    rows.sort(key=lambda x: (not (x["entry_ready"] or x.get("pin_ready")), not x.get("pinned"),
-                             -(x.get("range_score") or 0)))
+    rows.sort(key=lambda x: (not (x["entry_ready"] or x.get("pin_ready") or x.get("entry_ready_demo")),
+                             not x.get("pinned"), not (x.get("survivor") or {}).get("ok"), -(x.get("range_score") or 0)))
     brk = [x for x in rows if x["status"] == BREAKOUT]   # 11.11.: above the range: shown apart, never a range entry
     rows = [x for x in rows if x["status"] != BREAKOUT]
     feats = [{"token": x["token"], "symbol": x.get("symbol"), "features": x.pop("_features")}
@@ -330,6 +387,10 @@ def candidates(min_score=None, now=None, limit=50, source=None):
     return {"ts": int(now), "flag_mode": flags.mode(trade.FLAG), "min_score": ms, "source": src,
             "candidates": rows[:limit], "entry_ready": sum(1 for x in rows if x["entry_ready"]),
             "breakouts": brk[:limit], "range_flip": flip,
+            "demo": {"flag_mode": flags.mode(trade.DEMO_FLAG), "today": demo_today(now) if don else None,
+                     "entry_ready_demo": sum(1 for x in rows if x.get("entry_ready_demo")),
+                     "survivors_in_range": sum(1 for x in rows if (x.get("survivor") or {}).get("ok")),
+                     "rules": DEMO_RULES, "survivor_rule": SURVIVOR_RULE},
             "owner_labels": [owner.label_view(lb) for lb in labels],
             "pins": [{"token": t, "symbol": p.get("symbol"), "since": p.get("ts"), "who": p.get("who"),
                       "note": p.get("note"), "zones_market_cap_usd": p.get("zones_mc"),

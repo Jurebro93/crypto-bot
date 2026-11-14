@@ -8,6 +8,9 @@ a hand edit of the flag or a proof that turned negative never trades real money.
 not in proof() (the real account trades the ATR stop without reclaim), only in reclaim_proof() and the real account's
 reclaim gate reclaim_refusal() (>= 7 nights of the nightly stop comparison, >= 20 closed reclaim rounds, EV > 0 after
 cost). The owner's learning labels (rangedca/owner.py) are never read here.
+14.11. (flag range_demo G32): the demo profile's rounds (levels "profile": "demo", rules.DEMO: other entries, TP +10 /
++15 % net, a clamped stop) are not the rules the real account trades: the real-money gates refusal() and
+missed_refusal() never count them (proof(profile="rules")); proof(profile="demo") is their own record.
 Read-only on league.db; light (trade/cost and trade/edge only)."""
 import json
 import os
@@ -43,12 +46,22 @@ def is_reclaim(levels):
         return False
 
 
-def proof(path=None, with_rets=False, source=None, reclaim=False):
+def is_demo_profile(levels):
+    """14.11.: a round of the demo profile (range_rounds.levels "profile": "demo")."""
+    try:
+        return (json.loads(levels or "{}") or {}).get("profile") == "demo"
+    except (ValueError, AttributeError):
+        return False
+
+
+def proof(path=None, with_rets=False, source=None, reclaim=False, profile=None):
     """{"n", "wins", "pnl_usd", "ev_pct", "ci90_lo_pct"} (+ "rets" with_rets) of the demo account's closed range
     rounds (zeros when none); ev_pct / ci90_lo_pct net of the calibrated cost (trade/cost.demo_adjust). source
     (11.11.): "missed" = only the rounds opened from source missed, "other" = all the others; None = every round.
     reclaim (11.11., decision 1): False = the ordinary rounds (the ATR stop, what the real account trades: range_dca's
-    and range_missed's proof, the proposals' range record); True = only the reclaim rounds (reclaim_refusal)."""
+    and range_missed's proof, the proposals' range record); True = only the reclaim rounds (reclaim_refusal).
+    profile (14.11.): None = every round; "rules" = without the demo profile's rounds (the real-money gates);
+    "demo" = only the demo profile's rounds (rules.DEMO)."""
     from trade import cost, edge, settings as ts
     path = path or _db()
     out = {"n": 0, "wins": 0, "pnl_usd": 0.0, "ev_pct": None, "ci90_lo_pct": None, **({"rets": []} if with_rets else {})}
@@ -64,6 +77,8 @@ def proof(path=None, with_rets=False, source=None, reclaim=False):
     except sqlite3.Error:
         return out
     rows = [r for r in rows if is_reclaim(r[2]) == bool(reclaim)]
+    if profile in ("rules", "demo"):
+        rows = [r for r in rows if is_demo_profile(r[2]) == (profile == "demo")]
     if source:
         rows = [r for r in rows if (round_source(r[2]) == "missed") == (source == "missed")]
     rows = [(p, r) for p, r, *_ in rows]
@@ -83,7 +98,7 @@ def refusal(path=None, now=None, cached=False):
     if cached and _CACHE["path"] == path and now - _CACHE["at"] < CACHE_S:
         return _CACHE["val"]
     from trade import edge
-    p = proof(path, with_rets=True)
+    p = proof(path, with_rets=True, profile="rules")   # 14.11.: the demo profile's rounds never prove the real rules
     why = None
     if p["n"] < MIN_ROUNDS:
         why = f"range_dca: tek {p['n']} zatvorenih paper rundi, treba {MIN_ROUNDS}"
@@ -108,7 +123,7 @@ def missed_refusal(path=None, now=None, cached=False):
     if cached and _MCACHE["path"] == path and now - _MCACHE["at"] < CACHE_S:
         return _MCACHE["val"]
     from trade import edge
-    p = proof(path, with_rets=True, source="missed")
+    p = proof(path, with_rets=True, source="missed", profile="rules")
     why = None
     if p["n"] < MIN_ROUNDS:
         why = f"range_missed: tek {p['n']} zatvorenih paper rundi izvora missed, treba {MIN_ROUNDS}"
@@ -134,9 +149,11 @@ def by_source(path=None):
 # Live only past the backtest of today's rules vs the new ones (flip / pause / volatility stop) over the real range
 # tokens, run every night by rangedca/backtest.run_server and kept in range.db kv flip_backtest: the new rules' max
 # drawdown must not be larger than today's (Jure 11.11.: "ide live samo ako ne pogoršava DD"), with at least
-# FLIP_MIN_ROUNDS rounds of today's rules on FLIP_MIN_TOKENS tokens (with fewer the comparison proves nothing) and a
+# FLIP_MIN_ROUNDS rounds of BOTH rule sets on FLIP_MIN_TOKENS tokens (with fewer the comparison proves nothing) and a
 # result not older than FLIP_MAX_AGE_S. The reason always names PnL and false entries of both.
-FLIP_MIN_ROUNDS = 10
+# 11.11. (Jure: "backtest ponoviti tek kad bude >= 30 runda; 12 token-dana je premalo za bilo kakav zaključak, i stara
+# i nova pravila"): 30 (was 10 of today's rules only)
+FLIP_MIN_ROUNDS = 30
 FLIP_MIN_TOKENS = 3
 FLIP_MAX_AGE_S = 3 * 86400
 _FCACHE = {"at": 0.0, "path": None, "val": None}
@@ -175,9 +192,10 @@ def flip_refusal(path=None, now=None, cached=False):
         tail = f"; staro: {_side(old)}; novo: {_side(new)}"
         if now - (r.get("ts") or 0) > FLIP_MAX_AGE_S:
             why = f"range_flip: backtest je star {(now - (r.get('ts') or 0)) / 86400:.1f} dana (najviše 3)" + tail
-        elif (old.get("rounds") or 0) < FLIP_MIN_ROUNDS or (r.get("tokens") or 0) < FLIP_MIN_TOKENS:
-            why = (f"range_flip: premalo podataka ({old.get('rounds') or 0} rundi starih pravila na {r.get('tokens') or 0} "
-                   f"tokena, treba {FLIP_MIN_ROUNDS} na {FLIP_MIN_TOKENS})" + tail)
+        elif (min(old.get("rounds") or 0, new.get("rounds") or 0) < FLIP_MIN_ROUNDS
+              or (r.get("tokens") or 0) < FLIP_MIN_TOKENS):
+            why = (f"range_flip: premalo podataka (rundi: staro {old.get('rounds') or 0}, novo {new.get('rounds') or 0} "
+                   f"na {r.get('tokens') or 0} tokena, treba {FLIP_MIN_ROUNDS} za oba na {FLIP_MIN_TOKENS})" + tail)
         elif (new.get("max_dd_sol") or 0) > (old.get("max_dd_sol") or 0) + 1e-9:
             why = "range_flip: novi DD veći od starog" + tail
     _FCACHE.update(at=now, path=path, val=why)

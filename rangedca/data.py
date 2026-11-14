@@ -11,6 +11,9 @@ Tables
               token: v (the state's format version, detect.FLIP["v"]; another version is read as none), ver (+1 on every
               change of state), state, since, ts, alt_active (the range after a break is active: the trader reads
               those tokens too), data (the state, JSON). Written only while the flag is not off.
+  snap_ext    14.11. (crash survivors, rangedca/survivor.py): the newest DexScreener snapshot's 24 h price change
+              (ch_h24, %) and the pair's creation (created_ts) per token, one row a token (snaps keeps its 13 columns:
+              other writers insert them by position)
 
 The minute series (candles) of a token is merged from, best first: GeckoTerminal candles we hold (range.db gt_candles,
 minute.db call_candles: real OHLCV), then DexScreener snapshots (range.db snaps, hype.db token_pulse: one price per
@@ -57,6 +60,7 @@ CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS range_flip (token TEXT PRIMARY KEY, v INTEGER, ver INTEGER, state TEXT, since INTEGER,
     ts INTEGER, alt_active INTEGER, data TEXT);
+CREATE TABLE IF NOT EXISTS snap_ext (token TEXT PRIMARY KEY, ts INTEGER, ch_h24 REAL, created_ts INTEGER);
 """
 
 
@@ -174,7 +178,8 @@ def snap_of(p, now):
             "liq": liq, "vol_m5": vol.get("m5") or 0, "vol_h1": vol.get("h1") or 0, "vol_h6": vol.get("h6"),
             "buys_m5": m5.get("buys", 0), "sells_m5": m5.get("sells", 0), "buys_h1": h1.get("buys", 0),
             "sells_h1": h1.get("sells", 0), "ch_m5": ch.get("m5"), "pool": p.get("pairAddress"), "dex": dex,
-            "symbol": (p.get("baseToken") or {}).get("symbol"),
+            "symbol": (p.get("baseToken") or {}).get("symbol"), "ch_h24": ch.get("h24"),
+            "created_ts": int(p["pairCreatedAt"] / 1000) if p.get("pairCreatedAt") else None,
             # CLAUDE.md "novi pump.fun tokeni se ne uzimaju; uzimaju se bondani": a curve pair has no pool liquidity
             "bonded": bool(liq > 0 and dex != "pumpfun")}
 
@@ -231,6 +236,18 @@ def save_snap(con, token, s):
                  s["sells_m5"], s["buys_h1"], s["sells_h1"], s["ch_m5"]))
     if s.get("pool"):
         con.execute("INSERT OR REPLACE INTO pools VALUES (?,?,?,?,?)", (token, s["pool"], s["dex"], s["symbol"], s["ts"]))
+    if s.get("ch_h24") is not None or s.get("created_ts"):   # 14.11.: the survivor's 24 h change and the pool's age
+        con.execute("INSERT OR REPLACE INTO snap_ext VALUES (?,?,?,?)",
+                    (token, s["ts"], s.get("ch_h24"), s.get("created_ts")))
+
+
+def snap_ext(con, token):
+    """14.11.: {"ts", "ch_h24", "created_ts"} of the token's newest DexScreener snapshot (snap_ext), None unknown."""
+    try:
+        r = con.execute("SELECT ts, ch_h24, created_ts FROM snap_ext WHERE token=?", (token,)).fetchone()
+    except sqlite3.Error:
+        return None
+    return {"ts": r[0], "ch_h24": r[1], "created_ts": r[2]} if r else None
 
 
 def poll(con, tokens, now, fetch=None, pulse_fresh=None):

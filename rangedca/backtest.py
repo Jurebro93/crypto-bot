@@ -33,7 +33,8 @@ import time
 
 from trade import cost as _cost
 
-from . import data, detect, rules
+from . import data, detect, gate, rules
+from . import survivor as _survivor
 
 LOT_USD = 15.0       # ~0.1 SOL, the Autopilot's size_sol
 BT_LIQ = 40_000.0    # pool depth for the impact when the history has no liquidity reading
@@ -114,7 +115,7 @@ def breakdown_give_up(gu):
 
 
 def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LOT_USD, proxy_buys=True, new=None,
-             ticks="body", stop_on="tick", reclaim=False):
+             ticks="body", stop_on="tick", reclaim=False, cfg=None):
     """The rounds of one token: [{opened, closed, lots, entry_mc, lot2_mc, exits, cost, pnl, ret, reason}].
     proxy_buys False: where the candles have no transaction counts, the buys-share gate is left out (a sensitivity
     check of the proxy, reported apart; live the gate reads DexScreener's real counts).
@@ -130,7 +131,17 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
                (the bottom zone's average) and above the stop with buys >= RECLAIM_BUYS of 5 minutes; one reclaim per
                stopped round, never after a reclaim round, the cooldown and the exclusion do not apply to it.
     A round also carries "mae" (the worst mark-to-market of its lots, a fraction of their cost, before cost) with
-    ticks "wick", and "reclaim" True for a reclaim round."""
+    ticks "wick", and "reclaim" True for a reclaim round.
+    cfg (14.11., the demo profile rules.DEMO): the entry thresholds of cfg (score_min unless score_min is given, the
+    bottom share, 5-minute change, volume ratio, buys), the crash-survivor filter (rangedca/survivor, its age the
+    span of the data: a lower bound) when cfg["survivor"], the round's levels from rules.demo_levels (TP +10 % / +15 %
+    net of cost(), the stop held at -12..-25 % from the entry, break-even on the rest after TP1: the rest's own cost,
+    as the live exit loop's _be_px after a partial sale), no lot 2 when cfg["lot2"] is False, no reclaim."""
+    c_ = rules._r(cfg)
+    demo = (cfg or {}).get("profile") == "demo"
+    if demo:
+        reclaim = False
+        lot2 = lot2 and c_.get("lot2", True) is not False
     ts = [c[0] for c in candles]
     tl_ts = [x[0] for x in tl]
     rounds, pos, cool_until, rec = [], None, 0, None
@@ -165,15 +176,17 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
             rec = {"until": t + RECLAIM_S, "levels": dict(pos["levels"], stop_px=lv["stop_px"]),
                    "rl": pos.get("rl") or lv["rll"], "score": pos["score"]}
         pos = None
-        cool_until = t + rules.RULES["cooldown_s"]
+        cool_until = t + c_["cooldown_s"]
 
-    def fill_of(reason, px, last, lv, st):
+    def fill_of(reason, px, last, lv, st, be=None):
         if reason == "tp1":
-            return lv["rhl"]
-        if not wick or reason not in ("stop", "trailing", "top"):
+            return lv.get("tp1_px") or lv["rhl"]
+        if reason == "tp2":   # 14.11. (DEMO): the rest at its +15 % net price, sold at the first tick at or over it
+            return rules.tp2_of(lv)
+        if not wick or reason not in ("stop", "trailing", "top", "breakeven"):
             return px
-        level = {"stop": lv["stop_px"], "trailing": (st.get("peak") or 0) * (1 - rules.RULES["trail"]),
-                 "top": lv["rht"]}[reason]
+        level = {"stop": lv["stop_px"], "trailing": (st.get("peak") or 0) * (1 - c_["trail"]),
+                 "top": lv["rht"], "breakeven": be or px}[reason]
         return level if last is not None and last >= level >= px else px
 
     def mark(px):
@@ -184,7 +197,10 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
 
     def open_pos(t, px, lv, score, rl, is_reclaim=False):
         eff = px * (1 + _fee()) / (1 - _impact(lot_usd, liq))
-        return {"opened": t, "lot1_px": px, "lots": [{"px": px, "usd": lot_usd, "qty": lot_usd / eff}], "realized": 0.0,
+        if demo:   # 14.11.: the demo round's own TP prices and stop clamp, from the entry
+            lv = rules.demo_levels(lv, px, _cost.round_trip(lot_usd, liq or BT_LIQ), cfg)
+        return {"opened": t, "lot1_px": px, "lots": [{"px": px, "usd": lot_usd, "qty": lot_usd / eff,
+                                                       "q0": lot_usd / eff}], "realized": 0.0,
                 "levels": lv, "state": {}, "exits": [], "entry_mc": round(px * supply), "score": score, "rl": rl,
                 "mae": 0.0, **({"reclaim": True} if is_reclaim else {})}
 
@@ -199,7 +215,8 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
             rng = rules.new_range(rng, new)
         was_open = pos is not None
         if pos:
-            lv = rules.merge_levels(pos["levels"], rules.levels_of(rng) if rng.get("active") and rng.get("zones") else None)
+            lv = rules.levels_in_force(pos["levels"], rules.levels_of(rng) if rng.get("active") and rng.get("zones")
+                                       else None)
             pos["levels"]["stop_px"] = lv["stop_px"]
             gu = st.get("give_up")
             gu = gu if gu and gu["ts"] >= pos["opened"] else None
@@ -210,15 +227,19 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
                 if not pos:
                     break
                 mark(px)
+                be = None
                 if gu and not gu_bar:
                     hit = (f"odustajanje: {gu['why']}", 1.0)
                 else:
                     q = sum(x["qty"] for x in pos["lots"])
                     cost_left = sum(x["usd"] for x in pos["lots"]) - pos["realized"]
                     be = cost_left / q / ((1 - _fee()) * (1 - _impact(cost_left, liq))) if q > 0 and cost_left > 0 else None
-                    hit = rules.exit_step(lv_t, pos["state"], px, t, pos["opened"], be)
+                    if demo:   # 14.11.: the rest's own break-even (the live _be_px after a partial sale), not the round's
+                        usd, q0 = sum(x["usd"] for x in pos["lots"]), sum(x["q0"] for x in pos["lots"])
+                        be = usd / q0 / ((1 - _fee()) * (1 - _impact(usd * q / q0, liq))) if q0 > 0 and q > 0 else None
+                    hit = rules.exit_step(lv_t, pos["state"], px, t, pos["opened"], be, cfg=cfg)
                 if hit:
-                    sell(hit[0], hit[1], fill_of(hit[0], px, last, lv, pos["state"]), t, lv)
+                    sell(hit[0], hit[1], fill_of(hit[0], px, last, lv, pos["state"], be), t, lv)
                 last = px
             if pos and close5 and bar_closes(candles, i):
                 px = c[4]
@@ -229,12 +250,17 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
             if pos and lot2 and len(pos["lots"]) == 1 and not pos["state"].get("tp1") and not rng.get("flip_block"):
                 px = c[4]
                 drop = 1 - px / pos["lot1_px"]
-                if rules.RULES["lot2_lo"] - 1e-9 <= drop <= rules.RULES["lot2_hi"] + 1e-9:
+                if c_["lot2_lo"] - 1e-9 <= drop <= c_["lot2_hi"] + 1e-9:
                     m = _metrics_at(candles, ts, i, t, supply, proxy_buys)
-                    if rules.lot2_check(pos["lot1_px"], px, lv, m) is None:
+                    if rules.lot2_check(pos["lot1_px"], px, lv, m, cfg) is None:
                         eff = px * (1 + _fee()) / (1 - _impact(lot_usd, liq))
-                        pos["lots"].append({"px": px, "usd": lot_usd, "qty": lot_usd / eff})
+                        pos["lots"].append({"px": px, "usd": lot_usd, "qty": lot_usd / eff, "q0": lot_usd / eff})
                         pos["lot2_mc"] = round(px * supply) if supply else None
+                        if demo:   # the TP prices follow the average entry of both lots
+                            avg = sum(x["usd"] for x in pos["lots"]) / sum(x["usd"] / x["px"] for x in pos["lots"])
+                            rt = _cost.round_trip(lot_usd * 2, liq or BT_LIQ)
+                            pos["levels"].update(tp1_px=avg * (1 + c_["tp1_net"]) / (1 - rt),
+                                                 tp2_px=avg * (1 + c_["tp2_net"]) / (1 - rt))
             if pos or rec is None:
                 prev_close = c[4]
                 continue
@@ -257,13 +283,16 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
         px = c[4]
         lv = rules.levels_of(rng)
         span = lv["rht"] - lv["rll"]
-        if px < lv["floor_px"] or not ((px - lv["rll"]) / span <= rules.RULES["entry_bottom"] or lv["rll"] <= px <= lv["rlt"]):
+        if px < lv["floor_px"] or not ((px - lv["rll"]) / span <= c_["entry_bottom"] or lv["rll"] <= px <= lv["rlt"]):
             continue
         m = _metrics_at(candles, ts, i, t, supply, proxy_buys)
         r2 = dict(rng, metrics=m)
         if (m.get("vol_h1") or 0) < detect.CFG["min_vol_h1"] or not supply or px * supply < detect.CFG["min_mcap"]:
             continue
-        if rules.entry_check(r2, px, min_score=score_min) is None:
+        if c_.get("survivor"):   # 14.11.: the crash survivor of now (rangedca/survivor), age = the data's span
+            lo25 = bisect.bisect_left(ts, t - 25 * 3600)
+            r2["survivor"] = _survivor.check(candles[lo25:i + 1], t, rng, price=px)
+        if rules.entry_check(r2, px, cfg, min_score=score_min) is None:
             pos = open_pos(t, px, lv, rng.get("score"), (rng.get("zones") or {}).get("range_low") or lv["rll"])
     if pos:   # still open at the end of the data: valued at the last close, marked open
         px = candles[-1][4]
@@ -302,18 +331,20 @@ def summary(rounds):
     return out
 
 
-def run_tokens(series, log=print, flip=True, stops=True, gate_exclude=()):
+def run_tokens(series, log=print, flip=True, stops=True, gate_exclude=(), demo=True):
     """series: {token: (candles, supply, liq, symbol)}. Returns the report dict. flip (11.11.): the timeline also
     carries the range_flip state (today's variants do not read it) and rep["flip"] compares today's rules with the
     new ones (flip_compare). stops (11.11., rangedca/stops.py; needs flip): rep["stops"] compares the stop variants
     (a-e, be), measured only. gate_exclude (11.11.): rep["flip_gate"] = rep["flip"] without these tokens (what the
-    range_flip live gate reads; the report keeps them)."""
+    range_flip live gate reads; the report keeps them). demo (14.11., needs flip): rep["demo"] compares today's rules
+    with the demo profile rules.DEMO (DemoCompare)."""
     var = {f"{th:.1f}{'' if l2 else '_bez_lota2'}": [] for th in THRESHOLDS for l2 in (True, False)}
     var[PROXY_OFF] = []
     per = {}
     fc = FlipCompare() if flip else None
     from . import stops as _stops
     sc = _stops.StopCompare() if stops and flip else None
+    dc = DemoCompare() if demo and flip else None
     t0 = time.time()
     for tok, (candles, supply, liq, sym) in series.items():
         if not candles or not supply or candles[-1][0] - candles[0][0] < detect.CFG["min_hist_h"] * 3600:
@@ -323,6 +354,8 @@ def run_tokens(series, log=print, flip=True, stops=True, gate_exclude=()):
             fc.add(tok, sym, candles, supply, liq, tl)
         if sc:
             sc.add(tok, sym, candles, supply, liq, tl)
+        if dc:
+            dc.add(tok, sym, candles, supply, liq, tl)
         act = [x for x in tl if x[1].get("active")]
         per[tok] = {"symbol": sym, "hours": round((candles[-1][0] - candles[0][0]) / 3600, 1), "detections": len(tl),
                     "active_detections": len(act), "best_score": max((x[1].get("score") or 0 for x in act), default=None),
@@ -345,6 +378,8 @@ def run_tokens(series, log=print, flip=True, stops=True, gate_exclude=()):
             rep["flip_gate"] = fc.report(gate_exclude)
     if sc:
         rep["stops"] = sc.report()
+    if dc:
+        rep["demo"] = dc.report(gate_exclude)
     return rep
 
 
@@ -472,7 +507,84 @@ class FlipCompare:
                "params": dict(detect.FLIP), "cost": "2 x fee_side + 2 x size / (liq / 2 + size), fee_side 1 %"}
         o, n = out["variants"]["old"], out["variants"]["new"]
         out["dd_ok"] = n["max_dd_sol"] <= o["max_dd_sol"] + 1e-9
+        # 11.11. (Jure): no conclusion below gate.FLIP_MIN_ROUNDS (30) closed rounds of BOTH rule sets
+        out["enough"] = min(o["rounds"], n["rounds"]) >= gate.FLIP_MIN_ROUNDS
         return out
+
+
+# ---------- 14.11. the demo profile (rules.DEMO, flag range_demo G32) vs today's rules -----------------------------------
+# The same timeline and simulate() with ticks "wick" (the live exit loop sees every second) and the ATR stop (decision
+# 1, rules.new_range "atr") for both, no reclaim, every round priced at the owner's round-trip cost (priced()):
+#   old              RULES (score 0.7, bottom 15 %, lot 2, half at the top zone, the rest at the top / trailing)
+#   demo             rules.DEMO exactly (what the demo account trades while range_demo is paper)
+#   demo_no_survivor DEMO without the crash-survivor filter (what the filter costs or saves)
+#   demo_old_exits   DEMO's entries with today's exits (which part does what)
+DEMO_VARIANTS = {"old": None, "demo": {}, "demo_no_survivor": {"survivor": False},
+                 "demo_old_exits": "entries"}
+
+
+def demo_cfg(key):
+    """The rule set of a DEMO_VARIANTS key (None = RULES)."""
+    v = DEMO_VARIANTS[key]
+    if v is None:
+        return None
+    if v == "entries":
+        return {**rules.RULES, **{k: rules.DEMO[k] for k in ("score_min", "entry_bottom", "ch5_min", "vol_ratio_min",
+                                                             "buy_share_min", "survivor")}}
+    return {**rules.DEMO, **v}
+
+
+def demo_summary(rounds):
+    """flip_summary plus hit_rate (wins / closed rounds) and ev_pct (the mean result per closed round, % of its cost,
+    after the owner's round-trip cost)."""
+    out = flip_summary(rounds)
+    closed = [r for r in rounds if r.get("closed")]
+    out["hit_rate"] = round(out["wins"] / len(closed), 3) if closed else None
+    out["ev_pct"] = round(statistics.mean(r["pnl_c"] / r["cost"] for r in closed) * 100, 2) if closed else None
+    return out
+
+
+class DemoCompare:
+    """Collects every DEMO_VARIANTS key per token (run_tokens), report() sums them."""
+
+    def __init__(self):
+        self.tokens, self.rounds = {}, {k: [] for k in DEMO_VARIANTS}
+
+    def add(self, tok, sym, candles, supply, liq, tl):
+        per = {"symbol": sym, **data_span(candles)}
+        for k in DEMO_VARIANTS:
+            cfg = demo_cfg(k)
+            rs = simulate(candles, supply, tl, rules._r(cfg)["score_min"], True, liq, new=("atr",), ticks="wick",
+                          cfg=cfg)
+            for r in rs:
+                r["token"], r["symbol"] = tok, sym
+                r["pnl_c"] = priced(r, liq)[0]
+            self.rounds[k] += rs
+            per[k] = demo_summary(rs)
+        self.tokens[tok] = per
+
+    def report(self, exclude=()):
+        ex = set(exclude or ())
+        toks = {t: p for t, p in self.tokens.items() if t not in ex}
+        hours = [p["hours"] for p in toks.values()]
+        return {"variants": {k: demo_summary([r for r in v if r.get("token") not in ex]) for k, v in self.rounds.items()},
+                "tokens": toks, "data": {"tokens": len(hours), "days_total": round(sum(hours) / 24, 2)},
+                "rules": {"old": "RULES (0.7, donjih 15 %, lot 2, izlaz u gornjoj zoni)",
+                          "demo": "rules.DEMO (0.6, donjih 25 %, preživio pad, TP +10/+15 % neto, stop -12..-25 %)"},
+                "ticks": "wick", "stop": "ATR (odluka 1)", "cost": "2 x fee_side + 2 x size / (liq / 2 + size)"}
+
+
+def demo_line(dr):
+    """The log line "range demo backtest: ..." of rep["demo"]."""
+    v, d = dr["variants"], dr["data"]
+
+    def s(x):
+        return (f"runde {x['rounds']}, pogodak {x['hit_rate'] * 100 if x['hit_rate'] is not None else 0:.0f} %, EV "
+                f"{x['ev_pct'] if x['ev_pct'] is not None else 0:+.2f} %/rundi, PnL {x['pnl_usd']:+.2f} $, DD "
+                f"{x['max_dd_usd']:.2f} $")
+    return (f"range demo backtest: {d['tokens']} tokena, {d['days_total']} dana; staro: {s(v['old'])}; demo 14.11.: "
+            f"{s(v['demo'])}; demo bez filtra preživljavanja: {s(v['demo_no_survivor'])}; demo ulazi + stari izlazi: "
+            f"{s(v['demo_old_exits'])}")
 
 
 def flip_line(fr):
@@ -482,9 +594,12 @@ def flip_line(fr):
     def s(x):
         return (f"runde {x['rounds']}, PnL {x['pnl_sol']:+.3f} SOL ({x['pnl_pct'] if x['pnl_pct'] is not None else 0:+.1f} %), "
                 f"DD {x['max_dd_sol']:.3f} SOL, lažni ulazi {x['false_entries']}")
-    return (f"range flip backtest: {d['tokens']} tokena, {d['days_total']} dana podataka ukupno (najviše "
-            f"{d['max_days']} dana po tokenu, medijan {d['median_hours']} h, {d['tokens_24h_plus']} tokena s 24 h+); "
-            f"staro: {s(v['old'])}; novo: {s(v['new'])}; samo ATR stop: {s(v['atr_only'])}; samo flip/pauza: "
+    head = (f"range flip backtest: {d['tokens']} tokena, {d['days_total']} dana podataka ukupno (najviše "
+            f"{d['max_days']} dana po tokenu, medijan {d['median_hours']} h, {d['tokens_24h_plus']} tokena s 24 h+); ")
+    if not fr.get("enough", True):   # 11.11. (Jure): below 30 rounds of both, only the count (no comparison)
+        return (head + f"premalo rundi za zaključak (staro {v['old']['rounds']}, novo {v['new']['rounds']}, treba "
+                f"{gate.FLIP_MIN_ROUNDS} za oba): usporedba čeka")
+    return (head + f"staro: {s(v['old'])}; novo: {s(v['new'])}; samo ATR stop: {s(v['atr_only'])}; samo flip/pauza: "
             f"{s(v['flip_only'])}; DD novo <= staro: {'da' if fr['dd_ok'] else 'ne'}")
 
 
@@ -505,7 +620,10 @@ def flip_md(fr):
             lines.append(f"| {name} | {h} | {k} | {x['rounds']} | {x['pnl_sol']:+.4f} | "
                          f"{x['pnl_pct'] if x['pnl_pct'] is not None else '-'} | {x['max_dd_sol']:.4f} | "
                          f"{x['false_entries']} | {x['stops']} |")
-    lines += ["", f"DD novo <= staro: {'da' if fr['dd_ok'] else 'ne'}"]
+    v = fr["variants"]
+    lines += ["", f"DD novo <= staro: {'da' if fr['dd_ok'] else 'ne'}" if fr.get("enough", True) else
+              f"Bez zaključka: premalo rundi (staro {v['old']['rounds']}, novo {v['new']['rounds']}, treba "
+              f"{gate.FLIP_MIN_ROUNDS} za oba)."]
     return "\n".join(lines) + "\n"
 
 
@@ -539,6 +657,8 @@ def md(rep, title="Range DCA backtest"):
         out += _stops.md(rep["stops"])
         if rep.get("stop_replay"):
             out += "\n" + _stops.replay_line(rep["stop_replay"]) + "\n"
+    if rep.get("demo"):   # 14.11.: the demo profile vs today's rules
+        out += "\n## Demo profil 14.11. (range_demo) vs današnja pravila\n\n" + demo_line(rep["demo"]) + "\n"
     return out
 
 
@@ -722,7 +842,8 @@ def run_server(now=None, days=14, gt=0, log=print, fetch=None):
         fr = rep.pop("flip_gate", None) or rep.get("flip")
         if fr:   # 11.11. (range_flip G26): the old vs new numbers the live gate reads (rangedca/gate.flip_refusal)
             data.kv_put(rcon, "flip_backtest", {"ts": now, "days": days, "tokens": fr["data"]["tokens"],
-                                                "data": fr["data"], "dd_ok": fr["dd_ok"], **fr["variants"]})
+                                                "data": fr["data"], "dd_ok": fr["dd_ok"], "enough": fr.get("enough", True),
+                                                **fr["variants"]})
         sr = rep.get("stops")
         if sr:   # 11.11.: the stop variants, for the owner's decision (nothing reads them to trade)
             nights = [d for d in (data.kv_get(rcon, "stop_backtest_nights") or []) if isinstance(d, str)]
@@ -736,6 +857,9 @@ def run_server(now=None, days=14, gt=0, log=print, fetch=None):
                 rec = None
             data.kv_put(rcon, "stop_backtest", {"ts": now, "days": days, "data": sr["data"], "vs_a": sr["vs_a"],
                                                 "nights": len(nights), "paper_reclaim": rec, **sr["variants"]})
+        if rep.get("demo"):   # 14.11.: the demo profile's numbers of the night (get_range_candidates / the owner)
+            data.kv_put(rcon, "demo_backtest", {"ts": now, "days": days, "data": rep["demo"]["data"],
+                                                **rep["demo"]["variants"]})
         rcon.commit()
     finally:
         rcon.close()
@@ -753,4 +877,6 @@ def run_server(now=None, days=14, gt=0, log=print, fetch=None):
             log(f"range reclaim: dokaz nije čitljiv ({type(e).__name__})")
     if rep.get("stop_replay"):
         log(_stops.replay_line(rep["stop_replay"]))
+    if rep.get("demo"):
+        log(demo_line(rep["demo"]))
     return rep

@@ -335,6 +335,19 @@ def range_source_rows(now, mode, lcon):
                                 if unrel is not None else "")) if key == "missed"
                     else f"range runde svih ostalih izvora (signal, event, market): PnL {pnl:+.2f} $",
                     "proposal": None})
+    # 14.11. (flag range_demo G32): the demo profile's rounds (levels "profile": "demo") vs the rest, once there are any
+    demo = [(ret, pnl or 0.0) for _ts, ret, pnl, lv in rows if gate.is_demo_profile(lv)]
+    if demo:
+        rest = [ret for _ts, ret, _p, lv in rows if not gate.is_demo_profile(lv)]
+        sd, sr = summary([r for r, _p in demo]), summary(rest)
+        out.append({"flag": "range_demo", "phase": mode, "part": "range:demo", "n": sd["n"], "n_outcomes": sd["n"],
+                    "hit_rate": sd["hit_rate"], "avg_pnl_pct": sd["avg_pnl_pct"], "ev_pct": sd["ev_pct"],
+                    "max_dd_pct": sd["max_dd_pct"], "baseline_ev_pct": sr["ev_pct"], "baseline_n": sr["n"],
+                    "delta_ev_pct": (_r(sd["ev_pct"] - sr["ev_pct"], 2) if sd["ev_pct"] is not None
+                                     and sr["ev_pct"] is not None else None),
+                    "note": (f"demo profil 14.11. (ocjena 0,6, donjih 25 %, TP +10/+15 % neto, stop -12..-25 %): PnL "
+                             f"{sum(p for _r, p in demo):+.2f} $; nikad pravi novac"),
+                    "proposal": None})
     return out
 
 
@@ -344,8 +357,10 @@ def momentum_rows(now, mode, lcon):
     from momentum import data as mdata, gate, rules, view
     from trade import settings
     since = now - WINDOW_D * 86400
-    sigs = sorted((s for s in mdata.read_signals(since) if s.get("status") == "done" and s.get("sim_ret") is not None),
-                  key=lambda s: s["resolved_ts"] or 0)
+    done = [s for s in mdata.read_signals(since) if s.get("status") == "done" and s.get("sim_ret") is not None]
+    # 14.11. (13.11.: EV +2.051.748 % from one bad tick): a result over rules.MAX_UP_X x the stake is not counted
+    sigs = sorted((s for s in done if rules.plausible(s["sim_ret"])), key=lambda s: s["resolved_ts"] or 0)
+    bad = len(done) - len(sigs)
     s = summary([x["sim_ret"] for x in sigs])
     hits = sum(int(x["hit"] or 0) for x in sigs)
     bt = view.backtest_latest() or {}
@@ -357,7 +372,9 @@ def momentum_rows(now, mode, lcon):
              "delta_ev_pct": _r(s["ev_pct"] - bev, 2) if s["ev_pct"] is not None and bev is not None else None,
              "note": (f"osnovna stopa svih signala (pogodak = +15 % prije -10 % u 45 min); prag isplativosti ~{be:.0%} "
                       "pri TP 15 / SL 10 i ~2-3 % troška, ne 45 %; osnovica = backtest "
-                      + (bt.get("file") or "nema")), "proposal": None}]
+                      + (bt.get("file") or "nema")
+                      + (f"; nepouzdano (cijena > {rules.MAX_UP_X:.0f}x ulaza, nije u EV-u): {bad}" if bad else "")),
+             "proposal": None}]
     if lcon is not None:
         try:
             tr = lcon.execute("SELECT ret, hit FROM momentum_trades WHERE user = ? AND status = 'closed' AND closed_ts >= ? "
