@@ -1,25 +1,27 @@
-"""The big-token range backtest and walk-forward (run_veliki.py once / night; read-only on everything but veliki.db).
+"""The midcap range backtest and walk-forward (run_veliki.py once / night; read-only on everything but veliki.db).
 
-Data: veliki.db c15 / c1h of the list (GeckoTerminal), BTC hourly / daily (DefiLlama). Per token the 1h candles the
-zones read are rebuilt from the 15m bars where those exist (rule.h1_from_15m), exactly as live does.
+Data: veliki.db c1h (GeckoTerminal 1h, the top 40 of the list + 20 tokens that fell out of it: survivorship) and c1d
+(daily, every token: the categories, metrics.py), BTC hourly / daily (DefiLlama). The rule trades 1h bars.
 
-Two rule variants (the owner 15.11.: "NE računajući velike padove Bitcoina"):
-  bez_padova   THE rule (live trades it): no entry while a BTC crash is active (rule.crash_hours: 4 h <= -3 % or 24 h
-               <= -5 %), zones after a crash only from the candles since its end (>= 24 h: the fresh range). The grid
-               is picked on THIS variant.
-  s_padovima   the same rule with neither (every period counts), for comparison.
-Grid (rule.GRID, small): target net +3 / +5 / +8 % or the range's mid / top x stop -3 / -5 / -7 % x time stop 12 / 24 /
-48 h x zone window 3 / 7 days = 90 configurations, at each size 0.1 / 0.5 / 1.0 SOL (the cost differs: the network fee
-is 1 % of 0.1 SOL and 0.1 % of 1 SOL).
-Walk-forward (no look-ahead: zones and signals read only completed candles; a config is picked only on older days):
-anchored, the first TRAIN_D (10) days train only, then test blocks of FOLD_D (5) days; before each block the config
-with the best EV on every earlier day (n >= MIN_TRAIN_N) is picked and only its trades INSIDE the block count. The
-holdout = all test blocks. Bootstrap 90 % interval by token-day (B 1000), trades / day, hit, EV % and $, $ / day, max
-drawdown, worst trade, per token, per BTC regime (market/makro's own _state on the BTC closes known at the entry).
-Also on the holdout at 0.5 SOL: the DCA variant (one more lot at half the stop), the stop filled at the bar's low,
-and the trades that overlapped a crash left out (the owner's view taken literally).
-The live rule = the best configuration of bez_padova on ALL days at the demo size (kv rule); the proof (kv proof) =
-the holdout per size of bez_padova (gate.py reads 0.1 SOL).
+Universe point in time (the critic): a token enters only while ITS MC at that hour was 5-150M (today's MC x the price
+then / now) and it was older than 15 days; the tokens that later died stay in (store.hist).
+Three BTC variants (the owner 15.11. popodne: "krivo je stati s ulazima nakon pada BTC-a ... kad nađe dno i volumen
+raste, to je signal za POČETI kupovati"):
+  dno          THE live rule: no entry in a BTC free fall (rule.Crash.regime "slobodan_pad"), the range rule when
+               normal, and while the bottom forms also a bounce with token inflow (LIVE_VARIANT)
+  zabrana      no NEW entry while a crash lasts (4 h <= -3 % or 24 h <= -5 %); open positions keep their losses
+  bez_filtra   no BTC rule
+Grid (rule.GRID, small): target net +8 / 15 / 25 % with / without a 5 % trailing after it x time stop 3 / 7 days x zone
+window 7 / 14 days, the owner's stop -20 %; at 0.5 SOL also -10 / -15 % and the ATR stop (below the support by 2 ATR,
+at most -20 %), and the holdout's picks with DCA at -10 % (off by default), the stop at the bar's low, and the entry only
+after BTC turned up. Sizes 0.1 / 0.5 / 1.0 SOL.
+Walk-forward (no look-ahead): anchored, TRAIN_D (10) days train only, then blocks of FOLD_D (5) days; before each block
+the config with the best EV on the trades CLOSED before it (n >= MIN_TRAIN_N) is picked, only its trades inside the
+block count. Numbers (the critic): n, per day, hit, EV % / $, CI90 by token-day, CI90 / CI95 blocked by DAY, EV at
+doubled costs, leave-one-token-out, profit factor, max drawdown, worst 5 %, MAE / MFE, hold time, per token, per BTC
+regime, per age bucket (16-30 / 31-90 / > 90 d), trades on tokens that later fell out.
+The live rule = the best configuration of "dno" on ALL days at the demo size (kv rule); the proof (kv proof) = the
+holdout per size of "dno" (gate.py reads the real size).
 """
 import json
 import os
@@ -36,6 +38,7 @@ MIN_TRAIN_N = 15
 MIN_ALL_N = 30
 B = 1000
 DEMO_SIZE = float(os.environ.get("VEL_DEMO_SOL", "0.5"))
+LIVE_VARIANT = "dno"   # the owner's correction 15.11. popodne: buy when BTC's bottom forms, never in a free fall
 D = 86400
 
 
@@ -80,11 +83,13 @@ class Regime:
 
 # ---------- stats ----------------------------------------------------------------------------------------------------
 
-def boot_ci(trades, b=B, seed=7):
-    """90 % interval of EV % a trade (sum ret / sum n), resampling token-days."""
+def boot_ci(trades, b=B, seed=7, by="token_day", q=0.05):
+    """The (q, 1 - q) interval of EV % a trade (sum ret / sum n). by "token_day": resample (token, day) groups;
+    by "day": resample calendar days with ALL their trades (the critic: simultaneous trades of memecoins that move
+    together are not independent, so the day is the block)."""
     g = {}
     for x in trades:
-        k = (x["token"], x["ts"] // D)
+        k = (x["token"], x["ts"] // D) if by == "token_day" else x["ts"] // D
         s = g.setdefault(k, [0.0, 0])
         s[0] += x["ret"]
         s[1] += 1
@@ -101,7 +106,7 @@ def boot_ci(trades, b=B, seed=7):
             sn += s[1]
         out.append(sr / sn * 100 if sn else 0.0)
     out.sort()
-    return [round(out[int(0.05 * b)], 3), round(out[int(0.95 * b) - 1], 3)]
+    return [round(out[int(q * b)], 3), round(out[int((1 - q) * b) - 1], 3)]
 
 
 def max_dd(trades):
@@ -113,13 +118,43 @@ def max_dd(trades):
     return round(dd, 2)
 
 
-def stats(trades, days, size_usd):
+def _med(xs):
+    xs = sorted(xs)
+    return xs[len(xs) // 2] if xs else None
+
+
+def stats(trades, days, size_usd, names=None):
+    """The holdout's numbers (the critic's list): n, per_day, hit, EV % / $, CI90 by token-day, CI90 / CI95 by day
+    (the pass criterion), EV at DOUBLED modeled costs, leave-one-token-out (the worst EV without one token), profit
+    factor, max drawdown, the worst 5 % of trades, MAE / MFE, hold time."""
     s = rule.summary(trades)
     n = s["n"]
     s.update({"days": days, "per_day": round(n / days, 2) if days else None,
               "usd_day": round(s["pnl_usd"] / days, 3) if days else None, "max_dd_usd": max_dd(trades) if n else 0.0,
               "ci90_ev_pct": boot_ci(trades) if n else None, "size_usd": round(size_usd, 2),
+              "ci90_day_pct": boot_ci(trades, by="day") if n else None,
+              "ci95_day_pct": boot_ci(trades, by="day", q=0.025) if n else None,
               "token_days": len({(x["token"], x["ts"] // D) for x in trades})})
+    if n:
+        r2 = [x["fx"] * (1 - 2 * x["rt"]) - 1 for x in trades]
+        s["ev_2x_cost_pct"] = round(sum(r2) / n * 100, 3)
+        gains = sum(x["pnl"] for x in trades if x["pnl"] > 0)
+        loss = -sum(x["pnl"] for x in trades if x["pnl"] < 0)
+        s["profit_factor"] = round(gains / loss, 3) if loss > 0 else None
+        rets = sorted(x["ret"] for x in trades)
+        k = max(1, int(round(0.05 * n)))
+        s["worst5_pct"] = round(sum(rets[:k]) / k * 100, 2)
+        s["mae_med_pct"] = round(_med([x["mae"] for x in trades]) * 100, 2)
+        s["mfe_med_pct"] = round(_med([x["mfe"] for x in trades]) * 100, 2)
+        s["hold_med_h"] = _med([x["hours"] for x in trades])
+        toks = {x["token"] for x in trades}
+        loto = {}
+        for t in toks:
+            rest = [x["ret"] for x in trades if x["token"] != t]
+            if rest:
+                loto[(names or {}).get(t, t[:6])] = round(sum(rest) / len(rest) * 100, 3)
+        s["loto_min_pct"] = min(loto.values()) if loto else None
+        s["loto_min_without"] = min(loto, key=loto.get) if loto else None
     return s
 
 
@@ -134,43 +169,80 @@ def by_key(trades, key):
 
 # ---------- the computation ------------------------------------------------------------------------------------------
 
-def load(con):
-    """{mint: {"bars", "h1", "liq", "dex", "symbol"}} of the list, BTC hourly / daily."""
+def pit_of(row, bars):
+    """The point-in-time universe of a token (the critic): at time t with close c its MC was mcap_now x c / c_last
+    (the same supply) and its age t - created; it qualifies while MC is MIN..MAX and age > MIN_AGE_D."""
+    from veliki import universe
+    c_last = bars[-1][4] if bars else None
+    mc = row.get("mcap") or 0
+    born = row.get("created_ts") or (bars[0][0] if bars else 0)
+    if not c_last or not mc:
+        return None
+
+    def ok(t, c):
+        m = mc * c / c_last
+        return universe.MIN_MCAP <= m <= universe.MAX_MCAP and (t - born) / D > universe.MIN_AGE_D
+    return ok
+
+
+def load(con, with_history=True):
+    """{mint: {"bars" (1h), "h1", "daily", "liq", "dex", "symbol", "row", "dead"}} of the list (and the history-only
+    tokens that fell out: survivorship), BTC hourly / daily."""
     series = {}
-    for r in store.tokens(con):
-        bars = store.candles(con, "c15", r["mint"])
-        if len(bars) < 200:
-            continue
-        h1 = rule.h1_from_15m(bars, store.candles(con, "c1h", r["mint"]))
-        series[r["mint"]] = {"bars": bars, "h1": h1, "liq": r.get("liq"), "dex": r.get("dex") or r.get("url"),
-                             "symbol": r.get("symbol")}
+    rows = store.tokens(con) + (store.history_rows(con) if with_history else [])
+    for r in rows:
+        bars = store.candles(con, "c1h", r["mint"])
+        daily = store.candles(con, "c1d", r["mint"])
+        series[r["mint"]] = {"bars": bars, "h1": bars, "daily": daily, "liq": r.get("liq"),
+                             "dex": r.get("dex") or r.get("url"), "symbol": r.get("symbol"), "row": r,
+                             "dead": bool(r.get("dead"))}
     return series, store.btc_hourly(con), store.btc_daily(con)
 
 
+def categories(series, btc_h, btc_d, now, crash=None):
+    """{mint: metrics.compute(...)} of every token with daily candles."""
+    from veliki import metrics
+    out = {}
+    for m, s in series.items():
+        if not s.get("daily"):
+            continue
+        try:
+            out[m] = metrics.compute(s["daily"], s["h1"], btc_d, btc_h, (s["row"] or {}).get("created_ts"), now, crash)
+        except Exception as e:  # noqa: BLE001 - one token's bad data never stops the table
+            out[m] = {"error": type(e).__name__, "cat": "C", "score": -9}
+        out[m].update(symbol=s["symbol"], mcap=(s["row"] or {}).get("mcap"), dead=s.get("dead"))
+    return out
+
+
 def compute(series, btc_h, btc_d, now=None, log=print, budget_s=BUDGET_S, sol_usd=None, sizes=rule.SIZES_SOL,
-            grid=None):
+            grid=None, stops=tuple(rule.STOPS)):
     now = int(now or time.time())
     t_end = time.time() + budget_s
     sol = sol_usd or sol_now()
-    crash = rule.Crash(rule.crash_hours(btc_h))
+    crash = rule.crash_of(btc_h)
     reg = Regime(btc_d, btc_h)
-    cfgs = rule.configs(grid)
-    looks = sorted({c["look_d"] for c in cfgs})
+    names = {m: s["symbol"] for m, s in series.items()}
+    tradable = {m: s for m, s in series.items() if len(s["bars"]) >= 200}
+    looks = sorted(set((grid or {}).get("look_d") or rule.GRID["look_d"]))
     tx = rule.tx_sol()[0]
-    days_all = sorted({b[0] // D for s in series.values() for b in s["bars"]})
-    variants = {"bez_padova": crash, "s_padovima": None}
+    days_all = sorted({b[0] // D for s in tradable.values() for b in s["bars"]})
+    variants = {LIVE_VARIANT: crash, "zabrana": crash, "bez_filtra": None}
+    vmode = {"dno": "dno", "zabrana": "zabrana", "bez_filtra": "bez"}
     cands = {}
     for v, cr in variants.items():
-        for m, s in series.items():
+        for m, s in tradable.items():
             zs = rule.Zones(s["h1"], cr)
+            pit = pit_of(s["row"] or {}, s["bars"])
             for lk in looks:
-                cands[(v, m, lk)] = rule.candidates(s["bars"], zs, lk, cr, {"crash_filter": cr is not None})
-    out = {"ts": now, "sol_usd": round(sol, 2), "tx_sol": tx, "days": len(days_all), "tokens": len(series),
+                cands[(v, m, lk)] = rule.candidates(s["bars"], zs, lk, cr, {"crash_filter": cr is not None,
+                                                                             "btc_mode": vmode[v]}, pit)
+    out = {"ts": now, "sol_usd": round(sol, 2), "tx_sol": tx, "days": len(days_all), "tokens": len(tradable),
+           "dead_included": sum(1 for s in tradable.values() if s.get("dead")),
            "crash_periods": [[a, b] for a, b in crash.periods if a >= (days_all[0] * D if days_all else 0)],
-           "variants": {}, "costs": {}, "grid_n": len(cfgs)}
+           "variants": {}, "costs": {}, "grid_n": len(rule.configs(grid)), "stops": {}}
     for size in sizes:
         out["costs"][f"{size:g}"] = {s["symbol"]: round(rule.cost_at(size, s["liq"], sol, rule.fee_side_of(s["dex"]),
-                                                                      tx)["rt"] * 100, 3) for s in series.values()}
+                                                                      tx)["rt"] * 100, 3) for s in tradable.values()}
     if len(days_all) < TRAIN_D + 2:
         out["note"] = f"premalo dana ({len(days_all)}): walk-forward treba barem {TRAIN_D + 2}"
     folds = []
@@ -179,101 +251,123 @@ def compute(series, btc_h, btc_d, now=None, log=print, budget_s=BUDGET_S, sol_us
         folds.append((days_all[k], days_all[min(k + FOLD_D, len(days_all)) - 1] + 1))
         k += FOLD_D
     test_days = sum(b - a for a, b in folds)
+    out["test_days"] = test_days
+
+    def walk_one(v, cr, size, stop):
+        usd = size * sol
+        per_cfg = {}
+        for c in rule.configs(grid, stop):
+            cc = {**c, "crash_filter": cr is not None, "btc_mode": vmode[v]}
+            trs = []
+            for m, s in tradable.items():
+                cost = rule.cost_at(size, s["liq"], sol, rule.fee_side_of(s["dex"]), tx)["rt"]
+                drt = rule.demo_rt(usd, s["liq"])
+                for x in rule.simulate(s["bars"], cands[(v, m, c["look_d"])], usd, cost, cc, drt, crash=crash):
+                    x["token"] = m
+                    x["day"] = x["ts"] // D
+                    trs.append(x)
+            per_cfg[rule.cfg_key(c)] = (c, trs)
+        picks, hold = [], []
+        for a, b in folds:
+            best = None
+            for key, (c, trs) in per_cfg.items():
+                tr = [x for x in trs if x["day"] < a and x["out_ts"] <= a * D]   # only trades CLOSED before the block
+                if len(tr) < MIN_TRAIN_N:
+                    continue
+                ev = sum(x["ret"] for x in tr) / len(tr)
+                if best is None or ev > best[0]:
+                    best = (ev, key, len(tr))
+            if best is None:
+                picks.append({"from": a * D, "to": b * D, "pick": None})
+                continue
+            te = [x for x in per_cfg[best[1]][1] if a <= x["day"] < b]
+            hold += te
+            picks.append({"from": a * D, "to": b * D, "pick": best[1], "train_n": best[2],
+                          "train_ev_pct": round(best[0] * 100, 3), "test_n": len(te)})
+        st = stats(hold, test_days, usd, names)
+        st["folds"] = picks
+        st["worst_trade"] = ({"token": names[min(hold, key=lambda x: x["ret"])["token"]],
+                              "ret_pct": round(min(x["ret"] for x in hold) * 100, 2)} if hold else None)
+        st["per_token"] = {names[m]: d for m, d in by_key(hold, lambda x: x["token"]).items()}
+        st["by_regime"] = by_key(hold, lambda x: reg.at(x["ts"]))
+        st["crash_overlap_n"] = sum(1 for x in hold if x.get("crash_overlap"))
+        best_all = None
+        for key, (c, trs) in per_cfg.items():
+            if len(trs) >= MIN_ALL_N:
+                ev = sum(x["ret"] for x in trs) / len(trs)
+                if best_all is None or ev > best_all[0]:
+                    best_all = (ev, key, len(trs), c)
+        st["best_all"] = ({"cfg": best_all[3], "key": best_all[1], "n": best_all[2],
+                           "ev_pct": round(best_all[0] * 100, 3)} if best_all else None)
+        st["grid_top"] = sorted(({"key": k2, "n": len(t2), "ev_pct": round(sum(x["ret"] for x in t2) / len(t2) * 100, 3)}
+                                 for k2, (_c2, t2) in per_cfg.items() if len(t2) >= MIN_TRAIN_N),
+                                key=lambda r: -r["ev_pct"])[:8]
+        return st, picks, per_cfg, hold
+
     for v, cr in variants.items():
         vo = out["variants"].setdefault(v, {})
         for size in sizes:
             if time.time() > t_end:
                 vo[f"{size:g}"] = {"error": "vremenski budžet potrošen"}
                 continue
-            usd = size * sol
-            per_cfg = {}
-            for c in cfgs:
-                cc = {**c, "crash_filter": cr is not None}
-                trs = []
-                for m, s in series.items():
-                    cost = rule.cost_at(size, s["liq"], sol, rule.fee_side_of(s["dex"]), tx)["rt"]
-                    drt = rule.demo_rt(usd, s["liq"])
-                    for x in rule.simulate(s["bars"], cands[(v, m, c["look_d"])], usd, cost, cc, drt, crash=crash):
-                        x["token"] = m
-                        x["day"] = x["ts"] // D
-                        trs.append(x)
-                per_cfg[rule.cfg_key(c)] = (c, trs)
-            picks, hold = [], []
-            for a, b in folds:
-                best = None
-                for key, (c, trs) in per_cfg.items():
-                    tr = [x for x in trs if x["day"] < a]
-                    if len(tr) < MIN_TRAIN_N:
-                        continue
-                    ev = sum(x["ret"] for x in tr) / len(tr)
-                    if best is None or ev > best[0]:
-                        best = (ev, key, len(tr))
-                if best is None:
-                    picks.append({"from": a * D, "to": b * D, "pick": None})
-                    continue
-                te = [x for x in per_cfg[best[1]][1] if a <= x["day"] < b]
-                hold += te
-                picks.append({"from": a * D, "to": b * D, "pick": best[1], "train_n": best[2],
-                              "train_ev_pct": round(best[0] * 100, 3), "test_n": len(te)})
-            st = stats(hold, test_days, usd)
-            st["folds"] = picks
-            st["worst_trade"] = (min(hold, key=lambda x: x["ret"]) and {
-                "token": series[min(hold, key=lambda x: x["ret"])["token"]]["symbol"],
-                "ret_pct": round(min(x["ret"] for x in hold) * 100, 2)}) if hold else None
-            st["per_token"] = {series[m]["symbol"]: d for m, d in by_key(hold, lambda x: x["token"]).items()}
-            st["by_regime"] = by_key(hold, lambda x: reg.at(x["ts"]))
-            st["crash_overlap_n"] = sum(1 for x in hold if x.get("crash_overlap"))
-            if hold and st["crash_overlap_n"]:
-                rest = [x for x in hold if not x.get("crash_overlap")]
-                st["bez_preklopa"] = rule.summary(rest) if rest else None
-            # the configuration on ALL days (the live rule's candidate) and its in-sample numbers
-            best_all = None
-            for key, (c, trs) in per_cfg.items():
-                if len(trs) >= MIN_ALL_N:
-                    ev = sum(x["ret"] for x in trs) / len(trs)
-                    if best_all is None or ev > best_all[0]:
-                        best_all = (ev, key, len(trs), c)
-            st["best_all"] = ({"cfg": best_all[3], "key": best_all[1], "n": best_all[2],
-                               "ev_pct": round(best_all[0] * 100, 3)} if best_all else None)
-            st["grid_top"] = sorted(({"key": k2, "n": len(t2), "ev_pct": round(sum(x["ret"] for x in t2) / len(t2) * 100, 3)}
-                                     for k2, (_c2, t2) in per_cfg.items() if len(t2) >= MIN_TRAIN_N),
-                                    key=lambda r: -r["ev_pct"])[:8]
-            if v == "bez_padova" and abs(size - DEMO_SIZE) < 1e-9 and hold:
-                st["variants_holdout"] = _variants(series, cands, picks, per_cfg, folds, usd, sol, tx, crash, test_days)
+            st, picks, per_cfg, hold = walk_one(v, cr, size, "pct20")
+            if v == LIVE_VARIANT and abs(size - DEMO_SIZE) < 1e-9 and hold:
+                st["variants_holdout"] = _variants(tradable, cands, picks, per_cfg, folds, size * sol, sol, tx, crash,
+                                                   test_days, names)
+                st["by_age"] = by_key(hold, lambda x: _age_k(series[x["token"]], x["ts"]))
+                st["dead_n"] = sum(1 for x in hold if series[x["token"]].get("dead"))
             vo[f"{size:g}"] = st
             log(PREFIX + line_size(v, size, st))
-    bp = out["variants"].get("bez_padova") or {}
+    # the owner's -20 % against -10 / -15 % and the ATR stop, the live variant at the demo size
+    for stop in stops:
+        if stop == "pct20" or time.time() > t_end:
+            continue
+        st, _p, _pc, _h = walk_one(LIVE_VARIANT, crash, DEMO_SIZE, stop)
+        out["stops"][stop] = {f: st.get(f) for f in ("n", "hit", "ev_pct", "ci95_day_pct", "usd_day", "max_dd_usd",
+                                                     "profit_factor", "worst5_pct")}
+    if out["stops"]:
+        log(PREFIX + "stopovi (0,5 SOL, pravilo dna BTC-a): " + "; ".join(
+            f"{k} n={x['n']} EV {_pct(x['ev_pct'])}" for k, x in out["stops"].items()))
+    bp = out["variants"].get(LIVE_VARIANT) or {}
     demo = (bp.get(f"{DEMO_SIZE:g}") or {}).get("best_all")
     out["live_rule"] = ({**demo["cfg"], "key": demo["key"], "n_all": demo["n"], "ev_all_pct": demo["ev_pct"],
                          "size_sol": DEMO_SIZE} if demo else None)
     out["proof"] = {"ts": now, "days": len(days_all), "test_days": test_days,
-                    "sizes": {s: {f: x.get(f) for f in ("n", "ev_pct", "ev_usd", "ci90_ev_pct", "usd_day", "hit",
-                                                        "max_dd_usd", "per_day", "token_days")}
+                    "sizes": {s: {f: x.get(f) for f in ("n", "ev_pct", "ev_usd", "ci90_ev_pct", "ci95_day_pct",
+                                                        "ev_2x_cost_pct", "loto_min_pct", "usd_day", "hit",
+                                                        "max_dd_usd", "per_day", "token_days", "profit_factor")}
                               for s, x in bp.items() if isinstance(x, dict) and "n" in x}}
     return out
 
 
-def _variants(series, cands, picks, per_cfg, folds, usd, sol, tx, crash, test_days):
-    """The holdout's picks re-run with a DCA lot at half the stop, and with the stop filled at the bar's low."""
+def _age_k(s, ts):
+    from veliki import metrics
+    born = (s.get("row") or {}).get("created_ts") or (s["bars"][0][0] if s["bars"] else ts)
+    return metrics.age_bucket_critic((ts - born) / D)
+
+
+def _variants(series, cands, picks, per_cfg, folds, usd, sol, tx, crash, test_days, names=None):
+    """The holdout's picks re-run with a DCA lot at -10 % (off by default), the stop at the bar's low, and the entry
+    only after BTC turned up (4 h > 0)."""
     res = {}
-    for name, extra in (("dca", lambda c: {"dca": c["stop_pct"] / 2}), ("stop_na_dnu_svijece", lambda c: {"stop_fill": "low"})):
+    for name, extra in (("dca_10", lambda c: {"dca": 0.10}), ("stop_na_dnu_svijece", lambda c: {"stop_fill": "low"}),
+                        ("btc_okrenut_gore", lambda c: {"btc_up": True})):
         hold = []
         for p, (a, b) in zip(picks, folds):
             if not p.get("pick"):
                 continue
             c = per_cfg[p["pick"]][0]
-            cc = {**c, "crash_filter": True, **extra(c)}
+            cc = {**c, "crash_filter": True, "btc_mode": "dno", **extra(c)}
             for m, s in series.items():
                 cost = rule.cost_at(usd / sol, s["liq"], sol, rule.fee_side_of(s["dex"]), tx,
-                                    lots=2 if name == "dca" else 1)["rt"]
-                for x in rule.simulate(s["bars"], cands[("bez_padova", m, c["look_d"])], usd, cost, cc, crash=crash,
+                                    lots=2 if name == "dca_10" else 1)["rt"]
+                for x in rule.simulate(s["bars"], cands[(LIVE_VARIANT, m, c["look_d"])], usd, cost, cc, crash=crash,
                                        t0=a * D, t1=b * D):
                     x["token"] = m
                     hold.append(x)
-        st = rule.summary(hold)
-        st["usd_day"] = round(st["pnl_usd"] / test_days, 3) if test_days else None
-        st["ci90_ev_pct"] = boot_ci(hold) if hold else None
-        res[name] = st
+        st = stats(hold, test_days, usd, names)
+        res[name] = {f: st.get(f) for f in ("n", "hit", "ev_pct", "ci95_day_pct", "usd_day", "max_dd_usd",
+                                            "profit_factor", "worst5_pct")}
     return res
 
 
@@ -281,14 +375,20 @@ def _pct(x):
     return "—" if x is None else f"{x:+.2f} %"
 
 
+VNAME = {"dno": "kupnja na dnu BTC-a (bez ulaza u slobodnom padu)", "zabrana": "s zabranom ulaza tijekom pada BTC-a",
+         "bez_filtra": "bez BTC pravila"}
+
+
 def line_size(v, size, st):
     if "n" not in st:
-        return f"backtest {size:g} SOL ({v.replace('_', ' ')}): {st.get('error')}"
-    ci = st.get("ci90_ev_pct")
-    return (f"backtest {size:g} SOL ({v.replace('_', ' ')} BTC-a): n={st['n']} ({st.get('per_day')}/dan), EV "
-            f"{_pct(st.get('ev_pct'))} ({st.get('ev_usd')} $), CI90 [{ci[0] if ci else '—'}; {ci[1] if ci else '—'}], "
-            f"$/dan {st.get('usd_day')}, pogodak {st.get('hit')}, max pad {st.get('max_dd_usd')} $, najgori "
-            f"{(st.get('worst_trade') or {}).get('ret_pct', '—')} %")
+        return f"backtest {size:g} SOL ({VNAME.get(v, v)}): {st.get('error')}"
+    ci = st.get("ci95_day_pct")
+    return (f"backtest {size:g} SOL ({VNAME.get(v, v)}): n={st['n']} ({st.get('per_day')}/dan), EV "
+            f"{_pct(st.get('ev_pct'))} ({st.get('ev_usd')} $), CI95 po danu [{ci[0] if ci else '—'}; "
+            f"{ci[1] if ci else '—'}], uz 2x trošak {_pct(st.get('ev_2x_cost_pct'))}, bez jednog tokena najmanje "
+            f"{_pct(st.get('loto_min_pct'))}, $/dan {st.get('usd_day')}, pogodak {st.get('hit')}, PF "
+            f"{st.get('profit_factor')}, max pad {st.get('max_dd_usd')} $, najgorih 5 % {st.get('worst5_pct')} %, MAE/MFE "
+            f"{st.get('mae_med_pct')}/{st.get('mfe_med_pct')} %, drži {st.get('hold_med_h')} h")
 
 
 def regime_line(st):
@@ -307,6 +407,29 @@ def markdown(data):
          f"mreža konfiguracija {data.get('grid_n')}.", ""]
     if data.get("note"):
         L += [f"**{data['note']}**", ""]
+    bn = data.get("btc_now") or {}
+    if bn:
+        L += [f"**BTC sada:** {bn.get('state')} — {bn.get('why')}", ""]
+    tab = data.get("table") or []
+    if tab:
+        from veliki import metrics
+        L += ["## Tablica (kategorije)", "", "A = " + metrics.CAT_TEXT["A"][3:] + "; B = " + metrics.CAT_TEXT["B"][3:]
+              + "; C = " + metrics.CAT_TEXT["C"][3:] + ". Stalnost = udio dana s volumenom ≥ $50k; odbijanja = dani na "
+              "dnu 30-dnevnog raspona (ne na dan pada BTC-a) nakon kojih je vrh u 7 dana bio ≥ +15 %.", "",
+              "| # | token | kat. | MC | starost | stalnost 30 / 90 d | CV vol. 30 d | beta / korel. BTC dnevno | 4 h | "
+              "od ATH | nakon BTC +3 % (24 / 72 h) | odbijanja n / +15 % / med. gore / med. dolje |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for i, x in enumerate(tab, 1):
+            L.append(f"| {i} | {x.get('symbol')} | {x.get('cat')} | ${(x.get('mcap') or 0) / 1e6:,.1f}M | "
+                     f"{x.get('age_d')} d ({x.get('age_bucket')}) | {x.get('pers30')} / {x.get('pers90')} | {x.get('cv30')} | "
+                     f"{x.get('beta_d')} / {x.get('corr_d')} | {x.get('beta_4h')} / {x.get('corr_4h')} | "
+                     f"{_pct((x.get('dd_ath') or 0) * 100) if x.get('dd_ath') is not None else '—'} | "
+                     f"{x.get('btc_up_24h')} / {x.get('btc_up_72h')} % (n {x.get('btc_up_n')}) | {x.get('bounce_n')} / "
+                     f"{x.get('hit15')} / {x.get('med_up7')} % / {x.get('med_dn7')} % |")
+        L.append("")
+    oor = data.get("out_of_range") or []
+    if oor:
+        L += ["**Izvan raspona MC (5-150M) ili bez pravog poola:** " + "; ".join(oor), ""]
     lst = data.get("list") or []
     if lst:
         L += ["## Lista", "", "| token | MC | likvidnost (sve / najdublji) | volumen 24 h | starost | 15m / 1h dana | kako |",
@@ -329,7 +452,7 @@ def markdown(data):
         L.append(f"| {s} SOL | " + " | ".join(f"{v:.2f}" for v in row.values()) + " |")
     L.append("")
     for v, sizes in (data.get("variants") or {}).items():
-        L += [f"## Walk-forward: {v.replace('_', ' ')} BTC-a", ""]
+        L += [f"## Walk-forward: {VNAME.get(v, v)}", ""]
         for s, st in sizes.items():
             L.append("- " + line_size(v, float(s), st))
         ref = sizes.get(f"{DEMO_SIZE:g}") or {}
@@ -343,9 +466,11 @@ def markdown(data):
             for k, x in ref["variants_holdout"].items():
                 L.append(f"- varijanta {k}: n {x.get('n')}, EV {_pct(x.get('ev_pct'))}, CI90 {x.get('ci90_ev_pct')}, "
                          f"$/dan {x.get('usd_day')}")
-        if ref.get("bez_preklopa"):
-            L.append(f"- bez tradeova koji su preklopili pad: n {ref['bez_preklopa']['n']}, EV "
-                     f"{_pct(ref['bez_preklopa']['ev_pct'])}")
+        if ref.get("by_age"):
+            L.append("- po starosti tokena: " + "; ".join(f"{k} n={x['n']} EV {_pct(x['ev_pct'])}"
+                                                         for k, x in ref["by_age"].items()))
+        if ref.get("dead_n") is not None:
+            L.append(f"- tradeova na tokenima koji su kasnije ispali s liste: {ref['dead_n']}")
         if ref.get("per_token"):
             L += ["", f"| token ({DEMO_SIZE:g} SOL) | n | pogodak | EV % | PnL $ |", "|---|---|---|---|---|"]
             L += [f"| {k} | {x['n']} | {x['hit']} | {x['ev_pct']:+.2f} | {x['pnl_usd']:+.2f} |"
@@ -353,6 +478,12 @@ def markdown(data):
         if ref.get("grid_top"):
             L += ["", "Najbolje konfiguracije na svim danima (u uzorku, samo za usporedbu): " + "; ".join(
                 f"{g['key']} n {g['n']} EV {g['ev_pct']:+.2f} %" for g in ref["grid_top"][:5])]
+        L.append("")
+    if data.get("stops"):
+        L += ["## Stop (0,5 SOL, pravilo dna BTC-a)", "", "- pct20 (vlasnikov, zadan): vidi gore"]
+        for k, x in data["stops"].items():
+            L.append(f"- {k}: n {x.get('n')}, EV {_pct(x.get('ev_pct'))}, CI95 po danu {x.get('ci95_day_pct')}, $/dan "
+                     f"{x.get('usd_day')}, PF {x.get('profit_factor')}, najgorih 5 % {x.get('worst5_pct')} %")
         L.append("")
     lr = data.get("live_rule")
     L += ["## Pravilo za demo", "", (f"{lr['key']} (svi dani: n {lr['n_all']}, EV {lr['ev_all_pct']:+.2f} %), "
@@ -371,26 +502,39 @@ def refresh(now=None, log=print, path=None, gt_budget=None):
     con = store.connect(path)
     try:
         rows, meta = universe.build(now, log)
+        hist = meta.pop("history", [])
         if rows:
             store.save_list(con, rows, now, meta)
+            store.save_history(con, hist, now)
         else:
             rows = store.tokens(con)
             log(PREFIX + "lista prazna (izvori nisu odgovorili): ostaje zadnja")
         log(universe.line(rows))
+        if meta.get("out_of_range"):
+            log(PREFIX + "izvan raspona MC / bez pravog poola: " + "; ".join(meta["out_of_range"]))
         nh, nd = store.fill_btc(con, now)
         used, budget = 0, store.GT_PASS if gt_budget is None else gt_budget
-        for r in rows:
+        hrows = store.history_rows(con)
+        # breadth first: daily candles for every token (list + the fallen), then 1h for the top 40 and 20 fallen
+        for r in rows + hrows:
             if used >= budget:
                 break
             if r.get("pool"):
-                used += store.fill(con, r["mint"], r["pool"], now, budget - used)
+                used += store.fill(con, r["mint"], r["pool"], now, budget - used, tables=("c1d",))
+        for r in rows[:store.TOP_1H] + hrows[:store.HIST_1H]:
+            if used >= budget:
+                break
+            if r.get("pool"):
+                used += store.fill(con, r["mint"], r["pool"], now, budget - used, tables=("c1h",))
         store.prune(con, now)
+        ng = store.archive_grok(con, [r["mint"] for r in rows], now)
         cov = store.coverage(con, [r["mint"] for r in rows])
         store.kv_put(con, "coverage", cov)
         store.kv_put(con, "refresh_ts", now)
         con.commit()
-        log(PREFIX + f"svijeće: {used} zahtjeva GeckoTerminalu, BTC {nh} sati / {nd} dana; pokrivenost: " + ", ".join(
-            f"{r['symbol']} {cov[r['mint']]['d15']:.0f} d 15m / {cov[r['mint']]['d1h']:.0f} d 1h" for r in rows))
+        log(PREFIX + f"svijeće: {used} zahtjeva GeckoTerminalu, BTC {nh} sati / {nd} dana, {len(hrows)} ispalih "
+            f"tokena za povijest, {ng} Grokovih signala arhivirano; pokrivenost (dani 1d / 1h): " + ", ".join(
+                f"{r['symbol']} {cov[r['mint']]['d1d']:.0f}/{cov[r['mint']]['d1h']:.0f}" for r in rows))
         store.reset_cache()
         return rows
     finally:
@@ -408,17 +552,30 @@ def run(now=None, log=print, mode="once", path=None, budget_s=BUDGET_S):
         series, btc_h, btc_d = load(con)
         lst = store.tokens(con)
         cov = store.kv_get(con, "coverage") or {}
+        meta = store.kv_get(con, "list") or {}
     finally:
         con.close()
     t0 = time.time()
+    crash = rule.crash_of(btc_h)
+    cats = categories(series, btc_h, btc_d, now, crash)
+    table = sorted(({"mint": m, **x} for m, x in cats.items() if not x.get("dead")),
+                   key=lambda x: (x.get("cat") or "C", -(x.get("score") or 0)))
     data = compute(series, btc_h, btc_d, now, log, budget_s)
-    data.update(mode=mode, list=lst, coverage=cov, secs=round(time.time() - t0, 1))
-    ref = ((data["variants"].get("bez_padova") or {}).get(f"{DEMO_SIZE:g}") or {})
-    if ref.get("by_regime"):
-        log(PREFIX + regime_line(ref))
-    ref2 = ((data["variants"].get("s_padovima") or {}).get(f"{DEMO_SIZE:g}") or {})
-    if ref2.get("by_regime"):
-        log(PREFIX + "s padovima BTC-a " + regime_line(ref2))
+    data.update(mode=mode, list=lst, coverage=cov, secs=round(time.time() - t0, 1), table=table,
+                out_of_range=meta.get("out_of_range") or [], seeds=meta.get("seeds") or {},
+                btc_now=dict(zip(("state", "why"), crash.regime(now))))
+    for v in (LIVE_VARIANT, "zabrana", "bez_filtra"):
+        ref = ((data["variants"].get(v) or {}).get(f"{DEMO_SIZE:g}") or {})
+        if ref.get("by_regime"):
+            log(PREFIX + f"{VNAME.get(v, v)}: " + regime_line(ref))
+    tab = data.get("table") or []
+    if tab:
+        cats = {}
+        for x in tab:
+            cats[x.get("cat")] = cats.get(x.get("cat"), 0) + 1
+        log(PREFIX + "tablica: " + ", ".join(f"{k} {v}" for k, v in sorted(cats.items())) + "; prvih 10: " + ", ".join(
+            f"{x['symbol']} ({x.get('cat')}, MC ${(x.get('mcap') or 0) / 1e6:,.0f}M, {x.get('age_bucket')}, stalnost 90 d "
+            f"{x.get('pers90')}, korelacija BTC {x.get('corr_d')}, odbijanja +15 % {x.get('hit15')})" for x in tab[:10]))
     store.save_run(data, now, path)
     try:
         from veliki import gate

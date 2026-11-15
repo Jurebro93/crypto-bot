@@ -1623,6 +1623,20 @@ TOOLS.append(
                      "n >= 40, EV and CI90 low > 0 at the real size). full: also per token / per regime / per fold "
                      "detail. Read-only."),
      "inputSchema": {"type": "object", "properties": {"full": {"type": "boolean", "default": False}}}})
+# 15.11. popodne (owner: "izloži listu, kategorije, zone i metrike Groku"; veliki/): the midcap table for Grok, read-only
+TOOLS.append(
+    {"name": "get_midcaps", "annotations": _READ,
+     "description": ("MemeSonar's midcap list (Solana memecoins MC $5M-$150M, older than 15 days; veliki/): every token "
+                     "ranked by category A (old + constant volume + follows BTC) / B / C with its metrics: age and "
+                     "age_bucket, pers30 / pers90 (share of days with >= $50k volume), cv30, beta / corr to BTC on daily "
+                     "and 4 h returns, dd_ath, btc_up_24h / 72h (mean return after a BTC +3 % day), bounce_n / hit15 / "
+                     "med_up7 / med_dn7 (bounces from the bottom of the 30-day range), the zone now (support / "
+                     "resistance, pos_pct), your own last archived verdict (grok_last), BTC's state (slobodan_pad / "
+                     "dno_se_potvrduje / normalno). Review the social momentum on X per token and answer with "
+                     "submit_signal_opinion; the queue get_grok_tasks lists them as midcap_review. limit 1-200 "
+                     "(default 60). Read-only."),
+     "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200,
+                                                                "default": 60}}}})
 # 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
 _P01 = {"type": "number", "minimum": 0, "maximum": 1}
 TOOLS.append(
@@ -1879,6 +1893,10 @@ def _tool(name, args, kid="local"):
     if name == "get_learned_exits":   # 15.11. izlazi/, read-only
         from izlazi import report as izreport
         d = izreport.mcp(args)
+        return d, "error" in d
+    if name == "get_midcaps":   # 15.11. veliki/, read-only
+        from veliki import view as vview
+        d = vview.midcaps(args)
         return d, "error" in d
     if name == "get_big_ranges":   # 15.11. veliki/, read-only
         from veliki import view as vview

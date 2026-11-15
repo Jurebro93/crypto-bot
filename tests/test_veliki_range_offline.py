@@ -3,7 +3,9 @@ velike padove Bitcoina"): veliki/ on synthetic data, no network.
 
   - a token oscillating in a range gets a valid zone and profitable trades; a trending one gets no zone (ER)
   - the ticker resolution picks the real mint (the most REAL liquidity), never the copycat with a fake $100M pool
-  - BTC crash: detected (4 h / 24 h), no entry while it lasts, after it only a fresh range (>= 24 h since its end)
+  - BTC: three states (slobodan pad: no entry; dno se potvrđuje: the bounce with inflow buys; normalno), the ban variant
+    and no filter reported too; after a crash only a fresh range (>= 24 h since its end); a broken range is not re-used
+  - point-in-time universe (MC 5-150M and age > 15 d at the signal), trailing after the target, stops fixed at entry
   - costs: never zero, the network fee's share falls with the size, a deep pool has ~no impact
   - walk-forward / zones: no look-ahead (changing the future never changes an earlier zone or the trades before it)
   - the switch off means never real money (gate, live tick, run_trade); the owner order puts the flag in paper last
@@ -30,138 +32,189 @@ T0 = 1_790_000_000 // 86400 * 86400
 M15, H = 900, 3600
 
 
-def bars15(kind, days=12, base=1.0, amp=0.06, period_h=20.0, t0=T0):
-    """15m bars: "range" (a sine +-amp around base, period period_h), "trend" (+4 % a day, small noise)."""
+def bars1h(kind, days=20, base=1.0, amp=0.10, period_h=48.0, t0=T0, vol=1000.0):
+    """1h bars: "range" (a sine +-amp around base), "trend" (+4 % a day, small noise)."""
     out = []
     prev = base
-    for i in range(int(days * 96)):
-        t = t0 + i * M15
-        x = i / 4.0
+    for i in range(int(days * 24)):
+        t = t0 + i * H
         if kind == "range":
-            c = base * (1 + amp * math.sin(2 * math.pi * x / period_h))
+            c = base * (1 + amp * math.sin(2 * math.pi * i / period_h))
         else:
-            c = base * (1.04 ** (x / 24)) * (1 + 0.002 * math.sin(x))
+            c = base * (1.04 ** (i / 24)) * (1 + 0.002 * math.sin(i))
         o = prev
-        out.append((t, o, max(o, c) * 1.001, min(o, c) * 0.999, c, 1000.0))
+        out.append((t, o, max(o, c) * 1.002, min(o, c) * 0.998, c, vol))
         prev = c
     return out
 
 
-def flat_btc(t0=T0 - 40 * 86400, hours=60 * 24, px=80_000.0):
+def flat_btc(t0=T0 - 40 * 86400, hours=80 * 24, px=80_000.0):
     return [(t0 + i * H, px) for i in range(hours)]
+
+
+def series_of(**kinds):
+    out = {}
+    for name, kind in kinds.items():
+        b = bars1h(kind, days=30)
+        out[name] = {"bars": b, "h1": b, "daily": [], "liq": 2e6, "dex": "raydium", "symbol": name, "row": {},
+                     "dead": False}
+    return out
 
 
 class Zones(unittest.TestCase):
     def test_range_valid_trend_rejected(self):
-        r = rule.h1_from_15m(bars15("range"))
-        tr = rule.h1_from_15m(bars15("trend"))
-        t = T0 + 10 * 86400
-        zr = rule.Zones(r).at(t, 3)
-        zt = rule.Zones(tr).at(t, 3)
+        t = T0 + 15 * 86400
+        zr = rule.Zones(bars1h("range")).at(t, 7)
+        zt = rule.Zones(bars1h("trend")).at(t, 7)
         self.assertTrue(zr["ok"], zr)
         self.assertLess(zr["s_hi"], zr["r_lo"])
         self.assertFalse(zt["ok"])
         self.assertIn("trend", zt["why"])
 
+    def test_broken_range_not_reused(self):
+        b = bars1h("range", days=20)
+        cut = 15 * 24
+        broken = b[:cut] + [(x[0], x[1] * 0.7, x[2] * 0.7, x[3] * 0.7, x[4] * 0.7, x[5]) for x in b[cut:]]
+        z = rule.Zones(broken).at(b[cut + 6][0], 7)
+        self.assertFalse(z["ok"])
+        self.assertIn("probijen", z["why"])
+
     def test_range_trades_profit_trend_none(self):
-        cfg = {"tp": 5.0, "stop_pct": 0.05, "time_h": 24, "look_d": 3}
+        cfg = {"tp": 8.0, "time_h": 72, "look_d": 7, "btc_mode": "bez", "crash_filter": False}
         for kind, want in (("range", True), ("trend", False)):
-            b = bars15(kind, days=14)
-            zs = rule.Zones(rule.h1_from_15m(b))
-            cands = rule.candidates(b, zs, 3)
+            b = bars1h(kind, days=30)
+            zs = rule.Zones(b)
+            cands = rule.candidates(b, zs, 7, None, cfg)
             rt = rule.cost_at(0.5, 2_000_000, 150.0, 0.0035, 0.0005)["rt"]
             trs = rule.simulate(b, cands, 75.0, rt, cfg)
             if want:
                 self.assertGreaterEqual(len(trs), 3, kind)
                 self.assertGreater(rule.summary(trs)["ev_pct"], 0)
                 self.assertIn("tp", {x["reason"] for x in trs})
+                self.assertTrue(all(x["mae"] <= 0 <= x["mfe"] + 1e-9 for x in trs))
             else:
                 self.assertEqual(trs, [])
 
+    def test_trailing_after_target(self):
+        pos = {"entry": 1.0, "ts": T0, "tp_px": 1.10, "stop_px": 0.8}
+        cfg = {"trail": 0.05, "time_h": 1000}
+        self.assertIsNone(rule.exit_on_bar(pos, (T0 + H, 1.0, 1.15, 1.0, 1.14, 0), cfg))   # target hit: trailing armed
+        self.assertAlmostEqual(pos["peak"], 1.15)
+        hit = rule.exit_on_bar(pos, (T0 + 2 * H, 1.12, 1.13, 1.05, 1.06, 0), cfg)
+        self.assertEqual(hit[0], "trail")
+        self.assertGreater(hit[1], 1.08)
+
+    def test_stops_fixed_and_atr_capped(self):
+        z = {"ok": True, "s_lo": 0.95, "atr": 0.2}
+        self.assertAlmostEqual(rule.stop_px(1.0, z, {"stop": "pct20"}), 0.8)
+        self.assertAlmostEqual(rule.stop_px(1.0, z, {"stop": "pct10"}), 0.9)
+        self.assertAlmostEqual(rule.stop_px(1.0, z, {"stop": "atr"}), 0.8)          # 0.95 - 0.4 capped at -20 %
+        self.assertAlmostEqual(rule.stop_px(1.0, dict(z, atr=0.01), {"stop": "atr"}), 0.93)
+
     def test_no_look_ahead(self):
-        b = bars15("range", days=14)
-        cut = len(b) - 96 * 3
+        b = bars1h("range", days=30)
+        cut = len(b) - 24 * 5
         changed = b[:cut] + [(x[0], x[1] * 0.5, x[2] * 0.5, x[3] * 0.5, x[4] * 0.5, x[5]) for x in b[cut:]]
-        t = b[cut - 1][0] + M15
-        za = rule.Zones(rule.h1_from_15m(b)).at(t, 3)
-        zb = rule.Zones(rule.h1_from_15m(changed)).at(t, 3)
+        t = b[cut - 1][0] + H
+        za = rule.Zones(b).at(t, 7)
+        zb = rule.Zones(changed).at(t, 7)
         self.assertEqual({k: za.get(k) for k in ("s_lo", "s_hi", "r_lo", "r_hi")},
                          {k: zb.get(k) for k in ("s_lo", "s_hi", "r_lo", "r_hi")})
-        cfg = {"tp": 5.0, "stop_pct": 0.05, "time_h": 12, "look_d": 3}
-        rt = 0.01
-        ta = [x for x in rule.simulate(b, rule.candidates(b, rule.Zones(rule.h1_from_15m(b)), 3), 75, rt, cfg)
+        cfg = {"tp": 8.0, "time_h": 72, "look_d": 7, "btc_mode": "bez", "crash_filter": False}
+        ta = [x for x in rule.simulate(b, rule.candidates(b, rule.Zones(b), 7, None, cfg), 75, 0.01, cfg)
               if x["out_ts"] <= t]
-        tb = [x for x in rule.simulate(changed, rule.candidates(changed, rule.Zones(rule.h1_from_15m(changed)), 3),
-                                       75, rt, cfg) if x["out_ts"] <= t]
+        tb = [x for x in rule.simulate(changed, rule.candidates(changed, rule.Zones(changed), 7, None, cfg), 75, 0.01,
+                                       cfg) if x["out_ts"] <= t]
         self.assertEqual([(x["ts"], round(x["ret"], 9)) for x in ta], [(x["ts"], round(x["ret"], 9)) for x in tb])
 
     def test_walk_forward_picks_on_older_days(self):
-        series = {"A": {"bars": bars15("range", days=24), "liq": 2e6, "dex": "raydium", "symbol": "A"},
-                  "B": {"bars": bars15("trend", days=24), "liq": 2e6, "dex": "raydium", "symbol": "B"}}
-        for s in series.values():
-            s["h1"] = rule.h1_from_15m(s["bars"])
-        with mock.patch.object(rule, "tx_sol", lambda: (0.0005, "test")), mock.patch.object(walk, "MIN_ALL_N", 5):
-            d = walk.compute(series, flat_btc(), [], now=T0 + 30 * 86400, log=lambda s: None, sol_usd=150.0,
-                             sizes=(0.5,), grid={"tp": (5.0, "mid"), "stop_pct": (0.05,), "time_h": (24,),
-                                                 "look_d": (3,)})
-        st = d["variants"]["bez_padova"]["0.5"]
+        series = series_of(A="range", B="trend")
+        with mock.patch.object(rule, "tx_sol", lambda: (0.0005, "test")), mock.patch.object(walk, "MIN_ALL_N", 3), \
+                mock.patch.object(walk, "MIN_TRAIN_N", 2):
+            d = walk.compute(series, flat_btc(), [], now=T0 + 31 * 86400, log=lambda s: None, sol_usd=150.0,
+                             sizes=(0.5,), grid={"tp": (8.0,), "trail": (0.0,), "time_h": (72,), "look_d": (7,)},
+                             stops=("pct20", "pct10"))
+        st = d["variants"]["dno"]["0.5"]
         self.assertTrue(st["folds"])
         for f in st["folds"]:
             self.assertGreaterEqual(f["from"], T0 + walk.TRAIN_D * 86400)
         self.assertGreater(st["n"], 0)
         self.assertGreater(st["ev_pct"], 0)
         self.assertEqual(set(st["per_token"]), {"A"})
-        self.assertIsNotNone(st["ci90_ev_pct"])
+        for k in ("ci95_day_pct", "ev_2x_cost_pct", "loto_min_pct", "profit_factor", "worst5_pct", "mae_med_pct",
+                  "hold_med_h"):
+            self.assertIn(k, st)
+        self.assertLess(st["ev_2x_cost_pct"], st["ev_pct"])
         self.assertIn("0.5", d["proof"]["sizes"])
+        self.assertIn("pct10", d["stops"])
+        self.assertEqual(set(d["variants"]), {"dno", "zabrana", "bez_filtra"})
         self.assertTrue(d["live_rule"])
 
+    def test_point_in_time_universe(self):
+        b = bars1h("range", days=30)
+        ok = walk.pit_of({"mcap": 6e6, "created_ts": T0 - 5 * 86400}, b)
+        self.assertFalse(ok(T0 + 5 * 86400, b[-1][4]))            # 10 days old then: not yet in the universe
+        self.assertTrue(ok(T0 + 20 * 86400, b[-1][4]))
+        self.assertFalse(ok(T0 + 20 * 86400, b[-1][4] * 0.5))     # MC $3M then: under the floor
 
-class Crash(unittest.TestCase):
-    def btc_with_crash(self, at):
+
+class Btc(unittest.TestCase):
+    def btc_with_crash(self, at, rebound=True):
         pts = []
-        for i in range(30 * 24):
+        for i in range(40 * 24):
             t = T0 + i * H
-            px = 80_000.0 if t < at else 75_000.0   # -6.25 % in one hour
+            if t < at:
+                px = 80_000.0
+            elif t < at + 3 * H:
+                px = 75_000.0 - 500 * (t - at) / H   # -6 % and new lows for 3 h
+            else:
+                px = 74_000.0 + (30 * (t - at - 3 * H) / H if rebound else 0)
             pts.append((t, px))
         return pts
 
-    def test_crash_detected_and_entries_blocked(self):
+    def test_three_states(self):
         at = T0 + 10 * 86400
-        cr = rule.Crash(rule.crash_hours(self.btc_with_crash(at)))
+        cr = rule.crash_of(self.btc_with_crash(at))
+        self.assertEqual(cr.regime(at + 3600)[0], "slobodan_pad")
+        self.assertEqual(cr.regime(at - 5 * H)[0], "normalno")
+        self.assertEqual(cr.regime(at + 12 * H)[0], "dno_se_potvrduje")
         self.assertTrue(cr.active(at + 600))
-        self.assertFalse(cr.active(at - H))
-        self.assertTrue(cr.periods)
-        end = cr.last_end(at + 3 * 86400)
-        self.assertIsNotNone(end)
-        self.assertGreater(end, at)
-        b = bars15("range", days=14)
-        z = rule.Zones(rule.h1_from_15m(b)).at(at + 1800, 3)
-        z = z if z.get("ok") else {"ok": True, "s_lo": 0.9, "s_hi": 1.0, "r_lo": 1.1, "r_hi": 1.2, "mid": 1.05}
-        i = next(k for k, x in enumerate(b) if x[0] + M15 >= at + 600)
-        self.assertIn("BTC pada", rule.base_signal(b, i, z, crash=cr))
+
+    def test_entries_by_btc_mode(self):
+        at = T0 + 15 * 86400
+        cr = rule.crash_of(self.btc_with_crash(at))
+        b = bars1h("range", days=30)
+        z = {"ok": True, "s_lo": 0.85, "s_hi": 0.95, "r_lo": 1.05, "r_hi": 1.1, "mid": 1.0}
+        i = next(k for k, x in enumerate(b) if x[0] + H >= at + 1800)
+        self.assertIn("slobodan pad", rule.base_signal(b, i, z, {"btc_mode": "dno"}, cr))
+        self.assertIn("zabrana", rule.base_signal(b, i, z, {"btc_mode": "zabrana"}, cr))
+        # bottom forming: a green bar with volume over its 6 h average buys even without a valid zone
+        j = next(k for k, x in enumerate(b) if x[0] + H >= at + 12 * H)
+        bb = list(b)
+        bb[j] = (b[j][0], b[j - 1][4], b[j - 1][4] * 1.03, b[j - 1][4] * 0.999, b[j - 1][4] * 1.02, 5000.0)
+        self.assertIsNone(rule.base_signal(bb, j, {"ok": False, "why": "raspon probijen"}, {"btc_mode": "dno"}, cr))
+        self.assertIsNotNone(rule.base_signal(bb, j, {"ok": False, "why": "x"}, {"btc_mode": "normal_only"}, cr))
 
     def test_fresh_range_after_crash(self):
         at = T0 + 10 * 86400
-        cr = rule.Crash(rule.crash_hours(self.btc_with_crash(at)))
+        cr = rule.crash_of(self.btc_with_crash(at))
         end = cr.last_end(at + 3 * 86400)
-        h1 = rule.h1_from_15m(bars15("range", days=20))
-        zs = rule.Zones(h1, cr)
+        self.assertIsNotNone(end)
+        zs = rule.Zones(bars1h("range", days=25), cr)
         early = zs.at(end + 10 * H, 7)
         self.assertFalse(early["ok"])
         self.assertIn("novi raspon", early["why"])
         later = zs.at(end + 30 * H, 7)
         self.assertTrue(later.get("fresh"))
-        self.assertGreaterEqual(later.get("t0", end), end)
 
-    def test_crash_variants_differ(self):
-        at = T0 + 14 * 86400
-        btc = self.btc_with_crash(at)
-        series = {"A": {"bars": bars15("range", days=24), "liq": 2e6, "dex": "raydium", "symbol": "A"}}
-        series["A"]["h1"] = rule.h1_from_15m(series["A"]["bars"])
+    def test_btc_variants_reported(self):
+        at = T0 + 18 * 86400
+        series = series_of(A="range")
         with mock.patch.object(rule, "tx_sol", lambda: (0.0005, "test")):
-            d = walk.compute(series, btc, [], now=T0 + 30 * 86400, log=lambda s: None, sol_usd=150.0, sizes=(0.5,),
-                             grid={"tp": (5.0,), "stop_pct": (0.05,), "time_h": (24,), "look_d": (3,)})
-        self.assertLessEqual(d["variants"]["bez_padova"]["0.5"]["n"], d["variants"]["s_padovima"]["0.5"]["n"])
+            d = walk.compute(series, self.btc_with_crash(at), [], now=T0 + 31 * 86400, log=lambda s: None,
+                             sol_usd=150.0, sizes=(0.5,), grid={"tp": (8.0,), "trail": (0.0,), "time_h": (72,),
+                                                                "look_d": (7,)}, stops=("pct20",))
+        self.assertLessEqual(d["variants"]["zabrana"]["0.5"]["n"], d["variants"]["bez_filtra"]["0.5"]["n"])
         self.assertTrue(d["crash_periods"])
 
 
@@ -211,15 +264,17 @@ class Resolve(unittest.TestCase):
             if jup:
                 gg["jup"] = jup
             return gg
-        groups = {"A": g("A", "AAA", 50e6, 2e6, 1e6), "B": g("B", "BBB", 10e6, 2e6, 1e6),
-                  "C": g("C", "CCC", 50e6, 200e3, 1e6), "D": g("D", "DDD", 50e6, 2e6, 100e3),
+        groups = {"A": g("A", "AAA", 50e6, 2e6, 1e6), "B": g("B", "BBB", 3e6, 1e6, 1e6),
+                  "C": g("C", "CCC", 50e6, 100e3, 1e6), "D": g("D", "DDD", 50e6, 2e6, 50e3),
+                  "J": g("J", "JJJ", 300e6, 5e6, 5e6),
                   "E": g("E", "EEE", 50e6, 2e6, 1e6, created=(now - 3 * 86400) * 1000),
                   "F": g("F", "FFF", 50e6, 2e6, 1e6, dex="pumpfun"), "G": g("G", "USDC", 50e6, 2e6, 1e6),
                   "H": g("H", "HHH", 50e6, 2e6, 1e6), "I": g("I", "III", 50e6, 2e6, 5e6, jup={"tags": ["defi"]}),
                   "S": g("S", "TROLL", 23e6, 1.5e6, 0.9e6)}
         rows, refused = universe.select(groups, now, seeds={"S"}, archived={"H"}, curve_dex=("pumpfun",))
         self.assertEqual([r["mint"] for r in rows], ["S", "A"])   # the seed first
-        for k, word in (("B", "MC"), ("C", "likvidnost"), ("D", "volumen"), ("E", "premlad"), ("F", "krivulja"),
+        for k, word in (("B", "ispod"), ("J", "iznad"), ("C", "likvidnost"), ("D", "volumen"), ("E", "premlad"),
+                        ("F", "krivulja"),
                         ("G", "memecoin"), ("H", "arhivi"), ("I", "memecoin")):
             self.assertIn(word, refused[k][1], k)
 
@@ -242,7 +297,7 @@ class Switch(SwitchBase):
         con.close()
         self.zone = {"ok": True, "s_lo": 0.9e-4, "s_hi": 1.0e-4, "r_lo": 1.15e-4, "r_hi": 1.2e-4, "mid": 1.07e-4}
         for obj, name, val in ((live, "_sol", lambda: 150.0),
-                               (live, "series", lambda t, now: ([(0, 1, 1, 1, 1, 0)] * 20, [])),
+                               (live, "series", lambda t, now: ([(0, 1, 1, 1, 1, 0)] * 30, [])),
                                (rule.Zones, "at", lambda self_, t, look: dict(self.zone)),
                                (rule, "signal", lambda *a, **k: None)):
             p = mock.patch.object(obj, name, val)
@@ -274,11 +329,16 @@ class Switch(SwitchBase):
         settings._FLAG_CACHE.clear()
         self.assertIn("treba 40", gate.real_refusal(con=self.con, proof={"sizes": {"0.1": {"n": 10}}}))
         bad = {"sizes": {"0.1": {"n": 100, "ev_pct": 1.0, "ci90_ev_pct": [-0.2, 2.0]}}}
-        self.assertIn("90 %", gate.real_refusal(con=self.con, proof=bad))
+        self.assertIn("intervala", gate.real_refusal(con=self.con, proof=bad))
+        loto = {"sizes": {"0.1": {"n": 100, "ev_pct": 1.0, "ci95_day_pct": [0.2, 2.0], "ev_2x_cost_pct": 0.5,
+                                  "loto_min_pct": -0.3}}}
+        self.assertIn("jednog tokena", gate.real_refusal(con=self.con, proof=loto))
+        dbl = {"sizes": {"0.1": {"n": 100, "ev_pct": 1.0, "ci95_day_pct": [0.2, 2.0], "ev_2x_cost_pct": -0.5}}}
+        self.assertIn("dvostruki", gate.real_refusal(con=self.con, proof=dbl))
         good = {"sizes": {"0.1": {"n": 100, "ev_pct": 1.0, "ci90_ev_pct": [0.2, 2.0]}}}
         self.assertIsNone(gate.real_refusal(con=self.con, proof=good, now=self.now))
-        with mock.patch.object(gate, "btc_refusal", lambda now=None: "BTC pada"):
-            self.assertEqual(gate.real_refusal(con=self.con, proof=good), "BTC pada")
+        with mock.patch.object(gate, "btc_refusal", lambda now=None: "BTC slobodan pad"):
+            self.assertEqual(gate.real_refusal(con=self.con, proof=good), "BTC slobodan pad")
         self.assertIn("demo", gate.real_refusal(con=self.con, proof=good, stats={"n": 5},
                                                 cfg={gate.SWITCH: {"dokaz": "demo"}}))
 

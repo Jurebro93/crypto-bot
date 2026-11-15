@@ -3,19 +3,21 @@
 Real money (LEAGUE_USER, mirrored by run_trade.py) only when ALL of:
   1. the owner's switch pravi_novac_veliki is "live" (trade/settings OWNER_SWITCHES: default off, only his own tap on
      /pravi-trade; no owner order in code turns it on);
-  2. the proof (PROOF), by default the walk-forward HOLDOUT of the rule "bez_padova" at the REAL size (0.1 SOL):
-       n >= 40 trades out of sample (configs picked on older days, traded on newer), EV per trade net of the real
-       costs > 0 AND the bootstrap 90 % interval's low (by token-day) > 0;
+  2. the proof (PROOF), by default the walk-forward HOLDOUT of the live rule (walk.LIVE_VARIANT "dno") at the REAL
+     size (0.1 SOL), the critic's criteria (15.11.): n >= 40 trades out of sample (configs picked on older days,
+     traded on newer), EV net of the real costs > 0, the 95 % interval's low > 0 with the bootstrap blocked by DAY
+     (memecoins move together), EV still > 0 at DOUBLED modeled costs, and > 0 without any one token
+     (leave-one-token-out);
      the owner may later accept the demo's own record instead (trade/config.json "pravi_novac_veliki": {"dokaz":
      "demo"}): then >= 40 closed demo trades of this strategy with EV > 0 and the 90 % interval's low > 0;
-  3. BTC known and no BTC crash active (rule.crash_hours: the same definition the backtest excludes).
+  3. BTC known and not in a free fall (rule.Crash.regime "slobodan_pad": the same definition the backtest uses).
 Caps (REAL; trade/config.json "pravi_novac_veliki" may LOWER them, and set size_sol up to MAX_SIZE_SOL 0.5): 0.1 SOL a
 trade, at most 5 open, a day's loss of 0.3 SOL stops the entries, one position a token. run_trade asks real_refusal()
 again on every real buy and its hard rules hold on top (kill switch trade/STOP, the wallet reserve, the rug archive,
 a stop on the server, the swap's cost cap max_cost_pct 6 %).
 """
 SWITCH = "pravi_novac_veliki"
-PROOF = {"n": 40, "ev_min_pct": 0.0, "ci_lo_min_pct": 0.0, "demo_n": 40}
+PROOF = {"n": 40, "ev_min_pct": 0.0, "ci_lo_min_pct": 0.0, "demo_n": 40, "ev_2x_min_pct": 0.0, "loto_min_pct": 0.0}
 REAL = {"size_sol": 0.1, "max_open": 5, "max_buys_day": 20, "max_loss_day_sol": 0.3}
 MAX_SIZE_SOL = 0.5
 
@@ -79,9 +81,13 @@ def wf_proof(proof=None, size_sol=None):
     ev = x.get("ev_pct")
     if ev is None or ev <= PROOF["ev_min_pct"]:
         return False, f"holdout EV {ev} % po tradeu nije iznad 0", x
-    lo = (x.get("ci90_ev_pct") or [None])[0]
+    lo = (x.get("ci95_day_pct") or x.get("ci90_ev_pct") or [None])[0]
     if lo is None or lo <= PROOF["ci_lo_min_pct"]:
-        return False, f"donja granica 90 % intervala {lo} % nije iznad 0", x
+        return False, f"donja granica 95 % intervala (po danu) {lo} % nije iznad 0", x
+    if x.get("ev_2x_cost_pct") is not None and x["ev_2x_cost_pct"] <= PROOF["ev_2x_min_pct"]:
+        return False, f"uz dvostruki trošak EV {x['ev_2x_cost_pct']} % nije iznad 0", x
+    if x.get("loto_min_pct") is not None and x["loto_min_pct"] <= PROOF["loto_min_pct"]:
+        return False, f"bez jednog tokena EV pada na {x['loto_min_pct']} %: rezultat nosi jedan token", x
     return True, "walk-forward holdout prošao", x
 
 
@@ -103,7 +109,7 @@ def btc_refusal(now=None):
     if not st.get("known"):
         return "BTC cijena po satu nepoznata: bez pravog novca"
     if st.get("crash"):
-        return "BTC pada (4 h <= -3 % ili 24 h <= -5 %): bez pravog novca"
+        return f"BTC slobodan pad ({st.get('why')}): bez novih pravih ulaza"
     return None
 
 

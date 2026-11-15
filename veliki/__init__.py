@@ -3,9 +3,12 @@ naprave 5-10 % u kratkom vremenu. Hvataj range velikih tokena, to su recimo sigu
 konsolidira se, oni će rangeati i na tome trebamo profitirati"; isti dan: "testiraj range trading povijesno, NE
 računajući velike padove Bitcoina ... sada se stvara novi range, iskoristi ga za veće tokene").
 
-    universe.py  the list "veliki": Solana memecoins with MC >= $20M, liquidity >= $500k, age >= 14 d, 24 h volume >=
-                 $500k, AMM pools only, not in the rug archive, + the owner's seeds USELESS / TROLL resolved to the
-                 REAL mint (copycats and fake pools refused); at most MAX_LIST (20)
+    universe.py  the list (15.11. popodne: the midcaps): Solana memecoins MC $5M-$150M, older than 15 d, liquidity
+                 >= $150k (a real buy $500k), 24 h volume >= $100k, AMM pools only, not in the rug archive, + the
+                 owner's examples ANSEM, TROLL, GOODGUY, CHILLGUY, FARTCOIN, USELESS resolved to the REAL mint
+                 (copycats and fake pools refused; outside 5-150M listed as such); up to 200, + up to 40 that fell out
+    metrics.py   per token: age bucket, volume persistence, BTC beta / correlation, drawdown from ATH, behaviour after
+                 BTC +3 % days, bounces from the 30-day range's bottom -> category A / B / C
     store.py     veliki.db: the list, 15m / 1h candles (GeckoTerminal, incremental, the shared budget), BTC hourly and
                  daily closes (DefiLlama, free), runs, kv
     rule.py      pure: BTC crash periods, quantile zones on 1h candles (fresh range after a crash), the bounce entry on

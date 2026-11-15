@@ -28,13 +28,19 @@ RUNS_KEEP = 20
 CACHE_S = 60
 DAYS_15M = int(os.environ.get("VEL_DAYS_15M", "31"))
 DAYS_1H = int(os.environ.get("VEL_DAYS_1H", "41"))
-GT_PASS = int(os.environ.get("VEL_GT_PASS", "90"))
+GT_PASS = int(os.environ.get("VEL_GT_PASS", "300"))
 GECKO = "https://api.geckoterminal.com/api/v2/networks/solana"
 LLAMA = "https://coins.llama.fi/chart/coingecko:bitcoin"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tokens (mint TEXT PRIMARY KEY, symbol TEXT, name TEXT, pool TEXT, dex TEXT, url TEXT,
     mcap REAL, liq REAL, liq_total REAL, vol24 REAL, age_d REAL, created_ts INTEGER, seed INTEGER, how TEXT,
     rank INTEGER, ts INTEGER);
+CREATE TABLE IF NOT EXISTS hist (mint TEXT PRIMARY KEY, symbol TEXT, name TEXT, pool TEXT, dex TEXT, url TEXT,
+    mcap REAL, liq REAL, liq_total REAL, vol24 REAL, age_d REAL, created_ts INTEGER, seed INTEGER, how TEXT,
+    rank INTEGER, ts INTEGER);
+CREATE TABLE IF NOT EXISTS c1d (token TEXT, ts INTEGER, o REAL, h REAL, l REAL, c REAL, v REAL, PRIMARY KEY (token, ts));
+CREATE TABLE IF NOT EXISTS grok_sig (token TEXT, ts INTEGER, kind TEXT, verdict TEXT, confidence REAL, data TEXT,
+    PRIMARY KEY (token, ts, kind));
 CREATE TABLE IF NOT EXISTS c15 (token TEXT, ts INTEGER, o REAL, h REAL, l REAL, c REAL, v REAL, PRIMARY KEY (token, ts));
 CREATE TABLE IF NOT EXISTS c1h (token TEXT, ts INTEGER, o REAL, h REAL, l REAL, c REAL, v REAL, PRIMARY KEY (token, ts));
 CREATE TABLE IF NOT EXISTS btc_h (ts INTEGER PRIMARY KEY, usd REAL);
@@ -110,6 +116,21 @@ def tokens(con):
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
+def save_history(con, rows, now):
+    """The tokens that fell out of the list (survivorship): kept, their candles fetched, never traded."""
+    for i, r in enumerate(rows):
+        con.execute(f"INSERT OR REPLACE INTO hist ({', '.join(COLS)}, ts) VALUES ({', '.join('?' * (len(COLS) + 1))})",
+                    tuple(r.get(k) if k != "rank" else i + 1 for k in COLS) + (int(now),))
+    con.execute("DELETE FROM hist WHERE mint IN (SELECT mint FROM tokens)")
+    con.commit()
+
+
+def history_rows(con):
+    cur = con.execute(f"SELECT {', '.join(COLS)}, ts FROM hist ORDER BY mcap DESC")
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, r), dead=1) for r in cur.fetchall()]
+
+
 # ---------- candles --------------------------------------------------------------------------------------------------
 
 def gt_ohlcv(pool, tf, agg, before, limit):
@@ -151,7 +172,10 @@ def span(con, table, token):
     return (r[0], r[1], r[2] or 0) if r else (None, None, 0)
 
 
-TF = {"c15": ("minute", 15, 900, DAYS_15M), "c1h": ("hour", 1, 3600, DAYS_1H)}
+# daily: 180 days (the free GeckoTerminal API answers 401 for older daily history; with the CoinGecko key it is served)
+TF = {"c15": ("minute", 15, 900, DAYS_15M), "c1h": ("hour", 1, 3600, DAYS_1H), "c1d": ("day", 1, 86400, 180)}
+TOP_1H = int(os.environ.get("VEL_TOP_1H", "40"))      # 1h candles for the top 40 of the list (breadth first: daily for all)
+HIST_1H = int(os.environ.get("VEL_HIST_1H", "20"))    # and for the 20 largest that fell out (survivorship)
 
 
 def fill(con, token, pool, now, budget, tables=("c15", "c1h"), log=None):
@@ -195,8 +219,10 @@ def coverage(con, tokens_):
     for m in tokens_:
         a = span(con, "c15", m)
         b = span(con, "c1h", m)
+        c = span(con, "c1d", m)
         out[m] = {"d15": round(((a[1] or 0) - (a[0] or 0)) / 86400, 1) if a[2] else 0.0, "n15": a[2],
-                  "d1h": round(((b[1] or 0) - (b[0] or 0)) / 86400, 1) if b[2] else 0.0, "n1h": b[2]}
+                  "d1h": round(((b[1] or 0) - (b[0] or 0)) / 86400, 1) if b[2] else 0.0, "n1h": b[2],
+                  "d1d": round(((c[1] or 0) - (c[0] or 0)) / 86400 + 1, 1) if c[2] else 0.0}
     return out
 
 
@@ -275,10 +301,41 @@ def btc_daily(con):
     return [tuple(r) for r in con.execute("SELECT day, usd FROM btc_d ORDER BY day")]
 
 
+def archive_grok(con, mints, now, since_s=4 * 3600):
+    """The critic (15.11.): Grok's per-token social signals (submit_signal_opinion notes, assistant_notes) copied here
+    with their own timestamps, so the strategy can later be compared with and without Grok out of sample. n copied."""
+    if not mints:
+        return 0
+    try:
+        from ui import kandidati
+        ops = kandidati.Sources().opinions(list(mints), int(now), since_s)
+    except Exception:  # noqa: BLE001 - no notes readable: nothing archived this pass
+        return 0
+    n = 0
+    for tok, rows in ops.items():
+        for r in rows:
+            con.execute("INSERT OR IGNORE INTO grok_sig VALUES (?,?,?,?,?,?)",
+                        (tok, int(r.get("ts") or 0), "signal_opinion", r.get("verdict"), r.get("confidence"),
+                         json.dumps({"interpretation": r.get("interpretation")}, ensure_ascii=False)))
+            n += 1
+    con.commit()
+    return n
+
+
+def grok_latest(con, mints):
+    """{mint: {"ts", "verdict", "confidence"}} of the newest archived Grok opinion."""
+    out = {}
+    for tok, ts, v, c in con.execute("SELECT token, ts, verdict, confidence FROM grok_sig ORDER BY ts"):
+        if tok in mints:
+            out[tok] = {"ts": ts, "verdict": v, "confidence": c}
+    return out
+
+
 def prune(con, now):
     cut = int(now) - KEEP_DAYS * 86400
     con.execute("DELETE FROM c15 WHERE ts < ?", (cut,))
     con.execute("DELETE FROM c1h WHERE ts < ?", (cut - 10 * 86400,))
+    con.execute("DELETE FROM c1d WHERE ts < ?", (int(now) - 420 * 86400,))
     con.commit()
 
 

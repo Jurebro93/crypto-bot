@@ -800,8 +800,9 @@ OWNER_FLAG_ORDERS = (
     # 15.11. (vlasnik: "Useless, Troll i slično: kad nađu dno ... 5-10 % ... hvataj range velikih tokena"; "počni
     # popunjavati tu listu većih tokena"; veliki/): the big-token range on the DEMO account from the deploy. Its real
     # money is the owner switch pravi_novac_veliki, which no order here ever turns on.
-    ("veliki_range", "paper", "vlasnik u chatu 15.11.: veliki tokeni (USELESS, TROLL i slični, MC 20M+) — range odmah u "
-                              "demo; pravi novac samo njegovim prekidačem pravi_novac_veliki uz dokaz na holdoutu"),
+    ("veliki_range", "paper", "vlasnik u chatu 15.11.: midcap memecoini (MC 5-150M; USELESS, TROLL, ANSEM, CHILLGUY, "
+                              "Fartcoin) — range odmah u demo, puno tradeova; pravi novac samo njegovim prekidačem "
+                              "pravi_novac_veliki"),
 )
 # 15.11. (the same order): Grok autotrade buys with real money too, so it goes off once as well (grokauto.set_on)
 OWNER_ONCE_1511 = "owner_once:real_money_off_1511"

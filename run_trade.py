@@ -400,6 +400,9 @@ def _no_stop(lg, t):
         if src.startswith("range lot") and lg.execute("SELECT 1 FROM range_rounds WHERE status='open' AND (lot1_id=? OR "
                                                       "lot2_id=?)", (t["id"], t["id"])).fetchone():
             return None   # rangedca/trade.exits_once: the round's hard stop every second
+        if src.startswith("veliki:") and lg.execute("SELECT 1 FROM veliki_trades WHERE trade_id=? AND status='open'",
+                                                    (t["id"],)).fetchone():
+            return None   # veliki/live.tick: its own stop every VEL_TICK_S (the real path still needs the owner's tap)
     except sqlite3.Error:
         pass
     return "bez server-side stopa (plan izlaza na pravom računu, vlastiti SL ili izlaz strategije): bez stopa nema pravog novca"

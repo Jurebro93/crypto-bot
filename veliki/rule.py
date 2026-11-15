@@ -44,17 +44,29 @@ import bisect
 
 SIZES_SOL = (0.1, 0.5, 1.0)
 SOL_USD = 150.0
-DEFAULT_LIQ = 1_000_000.0
+DEFAULT_LIQ = 500_000.0
 H, M15, D = 3600, 900, 86400
 CRASH = {"d4h": -0.03, "d24h": -0.05}
 FRESH_MIN_H = 24
-ZONE = {"q_slo": 0.05, "q_shi": 0.20, "q_rlo": 0.80, "q_rhi": 0.95, "width_min": 0.04, "width_max": 0.60,
-        "er_max": 0.35, "drift_min": -0.20, "min_h_frac": 0.6}
-RULE = {"look_d": 3, "tp": 5.0, "stop_pct": 0.05, "time_h": 24, "near": 0.01, "touch_bars": 4, "cooldown_s": 3600,
-        "entry_slip": 0.001, "exit_slip": 0.001, "stop_slip": 0.003, "stop_fill": "level", "min_net_mid": 0.01,
-        "crash_filter": True, "dca": 0.0}
-GRID = {"tp": (3.0, 5.0, 8.0, "mid", "top"), "stop_pct": (0.03, 0.05, 0.07), "time_h": (12, 24, 48), "look_d": (3, 7)}
-REASON_HR = {"tp": "cilj", "stop": "stop", "time": "vremenski stop", "kraj": "kraj podataka", "rug": "rug / slom"}
+BREAK = 0.03          # a 1h close this far under the support breaks the range: the zone restarts after it
+ZONE = {"q_slo": 0.05, "q_shi": 0.20, "q_rlo": 0.80, "q_rhi": 0.95, "width_min": 0.08, "width_max": 1.20,
+        "er_max": 0.40, "drift_min": -0.35, "min_h_frac": 0.6}
+# 15.11. popodne (owner: "drži duže ... stop -20 % ... TP 8 / 15 / 25 % neto + trailing ... DCA -10 %"; the critic: the
+# range from past prices only, a breakout invalidates it, a stop by the range's invalidation + volatility capped at
+# -20 %, never widened; DCA off by default): 1h bars, the zone of the last 7 / 14 days, target +8 / 15 / 25 % net with or
+# without a 5 % trailing after it, time stop 3 / 7 days, stop -20 % (the owner's) - -10 / -15 % and the ATR stop reported
+RULE = {"bar_s": 3600, "look_d": 7, "tp": 15.0, "trail": 0.0, "stop": "pct20", "stop_pct": 0.20, "time_h": 168,
+        "near": 0.02, "touch_bars": 3, "cooldown_s": 6 * 3600, "entry_slip": 0.002, "exit_slip": 0.002,
+        "stop_slip": 0.005, "stop_fill": "level", "min_net_mid": 0.03, "crash_filter": True, "dca": 0.0,
+        "btc_up": False, "atr_k": 2.0, "atr_n": 14, "stop_cap": 0.20, "btc_mode": "dno", "inflow_x": 1.0}
+# btc_mode (the owner's correction 15.11. popodne): "dno" = the live rule: no entry in a BTC free fall, the range rule
+# when normal, and while the bottom forms ALSO a bounce candle with token inflow (the hour's volume above its 6 h average)
+# anywhere under the range's middle; "zabrana" = no entry at all while a crash (crash_hours) lasts; "bez" = no BTC rule
+BTC_MODES = ("bez", "zabrana", "dno")
+GRID = {"tp": (8.0, 15.0, 25.0), "trail": (0.0, 0.05), "time_h": (72, 168), "look_d": (7, 14)}
+STOPS = {"pct10": 0.10, "pct15": 0.15, "pct20": 0.20, "atr": None}
+REASON_HR = {"tp": "cilj", "trail": "trailing nakon cilja", "stop": "stop", "time": "vremenski stop",
+             "kraj": "kraj podataka", "rug": "rug / slom"}
 
 
 def _f(x, d=None):
@@ -144,7 +156,9 @@ class Crash:
     """Crash state at any time from crash_hours(): active(t), last_end(t) (the end of the last crash period that ended
     at or before t, None), known(t) (a BTC hour within 3 h)."""
 
-    def __init__(self, hours):
+    def __init__(self, hours, closes=None):
+        self.px = sorted((int(t) // H * H, float(p)) for t, p in (closes or []) if p)
+        self.pts = [t for t, _ in self.px]
         self.ts = sorted(hours)
         self.flag = [hours[t] for t in self.ts]
         self.ends = []      # the first non-crash hour after each crash run
@@ -179,6 +193,65 @@ class Crash:
         i = bisect.bisect_right(self.ends, int(t)) - 1
         return self.ends[i] if i >= 0 else None
 
+    def regime(self, t, vol=None):
+        """(state, why) of BTC at t (the owner 15.11. popodne: "ako je BTC pao i ima znakova da je našao dno i volumen
+        raste ... to je signal za POČETI kupovati"), from the hourly closes known at t:
+          slobodan_pad      BTC's lowest close of the last 24 h is at most 2 h old AND 4 h <= -3 %: no new entries
+          dno_se_potvrduje  after a drop (the 72 h high -> the low since <= -5 %, or 7 d <= -10 %), no new low for
+                            >= 6 h, 4 h > 0, and (when known) BTC's 24 h volume above its own 24 h average
+          normalno          the rest
+        vol: {hour ts: BTC 24 h volume} or None (unknown: that condition is left out and said)."""
+        key = (int(t) // H, bool(vol))
+        hit = self._reg.get(key) if hasattr(self, "_reg") else None
+        if hit is not None:
+            return hit
+        if not hasattr(self, "_reg"):
+            self._reg = {}
+        i = bisect.bisect_right(self.pts, int(t)) - 1
+        if i < 0 or t - self.pts[i] > 3 * H + 59:
+            self._reg[key] = ("normalno", "BTC nepoznat")
+            return self._reg[key]
+        j24 = bisect.bisect_left(self.pts, self.pts[i] - 24 * H)
+        j72 = bisect.bisect_left(self.pts, self.pts[i] - 72 * H)
+        j7d = bisect.bisect_left(self.pts, self.pts[i] - 7 * D)
+        last24 = self.px[j24:i + 1]
+        lo24_t = min(last24, key=lambda x: x[1])[0]
+        d4 = self.chg(t, 4)
+        if d4 is not None and d4 <= CRASH["d4h"] and self.pts[i] - lo24_t <= 2 * H:
+            self._reg[key] = ("slobodan_pad", f"novo dno BTC-a prije {(self.pts[i] - lo24_t) / H:.0f} h, 4 h {d4:+.1%}")
+            return self._reg[key]
+        w72 = self.px[j72:i + 1]
+        hi_k = max(range(len(w72)), key=lambda k: w72[k][1])
+        after = w72[hi_k:]
+        low = min(after, key=lambda x: x[1])
+        drop = low[1] / w72[hi_k][1] - 1
+        d7 = self.px[i][1] / self.px[j7d][1] - 1 if j7d < i else None
+        if (drop <= -0.05 or (d7 is not None and d7 <= -0.10)) and self.pts[i] - low[0] >= 6 * H \
+                and d4 is not None and d4 > 0:
+            why = f"pad {drop:+.1%} (7 d {d7:+.1%})" if d7 is not None else f"pad {drop:+.1%}"
+            why += f", bez novog dna {(self.pts[i] - low[0]) / H:.0f} h, 4 h {d4:+.1%}"
+            if vol:
+                vs = [vol[h] for h in range(self.pts[i] - 24 * H, self.pts[i] + 1, H) if h in vol]
+                v = vol.get(self.pts[i])
+                if v is None or len(vs) < 6 or v <= sum(vs) / len(vs):
+                    self._reg[key] = ("normalno", why + ", ali volumen BTC-a nije iznad prosjeka 24 h")
+                    return self._reg[key]
+                why += ", volumen BTC-a iznad prosjeka 24 h"
+            else:
+                why += " (volumen BTC-a nepoznat)"
+            self._reg[key] = ("dno_se_potvrduje", why)
+            return self._reg[key]
+        self._reg[key] = ("normalno", f"4 h {d4:+.1%}" if d4 is not None else "normalno")
+        return self._reg[key]
+
+    def chg(self, t, hours=4):
+        """BTC's change over the last `hours` known at t (None without the closes)."""
+        i = bisect.bisect_right(self.pts, int(t)) - 1
+        j = bisect.bisect_left(self.pts, int(t) - hours * H)
+        if i < 0 or j >= i:
+            return None
+        return self.px[i][1] / self.px[j][1] - 1
+
     def overlaps(self, t0, t1):
         """True when a crash hour falls inside [t0, t1]."""
         i = bisect.bisect_left(self.ts, int(t0) // H * H)
@@ -190,6 +263,10 @@ class Crash:
 
 
 NO_CRASH = Crash({})
+
+
+def crash_of(btc_h, cfg=None):
+    return Crash(crash_hours(btc_h, cfg), btc_h)
 
 
 # ---------- zones ----------------------------------------------------------------------------------------------------
@@ -253,6 +330,39 @@ def window(h1_ts, h1, t, look_d, crash=None, cfg=None):
     return w, fresh, None
 
 
+def zone_at(h1_ts, h1, t, look_d, crash=None, cfg=None):
+    """The zone at t from PAST candles only; a range broken downwards inside the window (a 1h close BREAK under its
+    support) is not re-used: the window restarts after the last such close (>= FRESH_MIN_H of candles after it)."""
+    w, fresh, why = window(h1_ts, h1, t, look_d, crash, cfg)
+    if why:
+        return {"ok": False, "why": why, "fresh": fresh, "n": len(w)}
+    for _ in range(3):
+        zo = zone_of(w, cfg)
+        if not zo.get("s_lo"):
+            break
+        lim = zo["s_lo"] * (1 - BREAK)
+        k = max((i for i, c in enumerate(w) if c[4] < lim), default=None)
+        if k is None:
+            break
+        rest = w[k + 1:]
+        if len(rest) < FRESH_MIN_H * 0.8:
+            return {"ok": False, "why": "raspon probijen dolje: čeka se novi", "fresh": fresh, "n": len(rest),
+                    "broken": True}
+        w, fresh = rest, True
+    zo = zone_of(w, cfg)
+    zo["fresh"] = fresh
+    zo["atr"] = atr(w, (cfg or {}).get("atr_n", RULE["atr_n"]))
+    return zo
+
+
+def atr(h1, n=14):
+    """The mean true range of the last n candles (price units), None with fewer than 3."""
+    if len(h1) < 3:
+        return None
+    trs = [max(c[2] - c[3], abs(c[2] - p[4]), abs(c[3] - p[4])) for p, c in zip(h1, h1[1:])][-n:]
+    return sum(trs) / len(trs) if trs else None
+
+
 def h1_from_15m(bars, h1=None):
     """1h candles: the given 1h candles, every hour that has 15m bars rebuilt from them (live and backtest agree)."""
     agg = {}
@@ -284,12 +394,7 @@ class Zones:
         key = (int(t) // H, look_d)
         hit = self._c.get(key)
         if hit is None:
-            w, fresh, why = window(self.ts, self.h1, int(t) // H * H, look_d, self.crash, self.cfg)
-            if why:
-                hit = {"ok": False, "why": why, "fresh": fresh, "n": len(w)}
-            else:
-                hit = zone_of(w, self.cfg)
-                hit["fresh"] = fresh
+            hit = zone_at(self.ts, self.h1, int(t) // H * H, look_d, self.crash, self.cfg)
             self._c[key] = hit
         return hit
 
@@ -297,23 +402,31 @@ class Zones:
 # ---------- entry / exit ---------------------------------------------------------------------------------------------
 
 def base_signal(bars, i, zone, cfg=None, crash=None):
-    """The config-free part of the entry at the close of completed 15m bar i: None or why (Croatian)."""
+    """The config-free part of the entry at the close of completed bar i: None or why (Croatian)."""
     c = {**RULE, **(cfg or {})}
-    if not zone or not zone.get("ok"):
-        return (zone or {}).get("why") or "nema zone"
     if i < c["touch_bars"]:
-        return "premalo 15m svijeća"
-    t_dec = bars[i][0] + M15
-    if c["crash_filter"] and crash is not None and crash.active(t_dec):
-        return "BTC pada (4 h <= -3 % ili 24 h <= -5 %): bez ulaza"
+        return "premalo svijeća"
+    t_dec = bars[i][0] + c["bar_s"]
+    mode = c.get("btc_mode") if c["crash_filter"] else "bez"
     b, p = bars[i], bars[i - 1]
     px = b[4]
+    if crash is not None and mode == "zabrana" and crash.active(t_dec):
+        return "BTC pada (4 h <= -3 % ili 24 h <= -5 %): zabrana novih ulaza"
+    if crash is not None and mode == "dno":
+        st, why = crash.regime(t_dec)
+        if st == "slobodan_pad":
+            return f"BTC slobodan pad ({why}): bez novih ulaza"
+        if st == "dno_se_potvrduje" and inflow(bars, i, c) and px > p[4] and px > b[1] \
+                and (not zone or not zone.get("ok") or px <= zone["mid"]):
+            return None    # the bottom forms + money flows into the token: buy the bounce (under the range's middle)
+    if not zone or not zone.get("ok"):
+        return (zone or {}).get("why") or "nema zone"
     if px < zone["s_lo"]:
         return "ispod podrške (probija dolje)"
     if px > zone["s_hi"] * (1 + c["near"]):
         return "nije na podršci"
     if min(x[3] for x in bars[i - c["touch_bars"] + 1:i + 1]) > zone["s_hi"]:
-        return "zadnji sat nije dotaknuo podršku"
+        return "zadnje svijeće nisu dotaknule podršku"
     if not (px > p[4] and px > b[1]):
         return "nema odbijanja (zatvaranje nije iznad prethodnog i otvaranja)"
     if b[3] < min(x[3] for x in bars[max(0, i - 4):i]):
@@ -321,25 +434,52 @@ def base_signal(bars, i, zone, cfg=None, crash=None):
     return None
 
 
-def config_refusal(px, zone, rt, cfg=None):
-    """The config's part of the entry at a signal close px: the stop below the support, the target inside the range."""
+def inflow(bars, i, cfg=None):
+    """Money flowing into the token: bar i's volume above inflow_x x the mean of the 6 bars before it (the backtest's
+    proxy; live adds DexScreener's buy share, veliki/live.inflow_live)."""
+    c = {**RULE, **(cfg or {})}
+    if i < 6 or len(bars[i]) < 6:
+        return False
+    prev = [x[5] or 0.0 for x in bars[i - 6:i]]
+    m = sum(prev) / 6
+    return bool(m > 0 and (bars[i][5] or 0.0) > c["inflow_x"] * m)
+
+
+def stop_px(entry, zone, cfg=None):
+    """The stop price fixed at the entry (never widened): "pctNN" = entry x (1 - NN %); "atr" = under the support by
+    atr_k x ATR, at most stop_cap (20 %) under the entry."""
+    c = {**RULE, **(cfg or {})}
+    mode = c.get("stop") or "pct20"
+    if mode == "atr" and zone and zone.get("atr") and zone.get("s_lo"):
+        return max(entry * (1 - c["stop_cap"]), zone["s_lo"] - c["atr_k"] * zone["atr"])
+    p = STOPS.get(mode) or c["stop_pct"]
+    return entry * (1 - p)
+
+
+def config_refusal(px, zone, rt, cfg=None, crash=None, t=None):
+    """The config's part of the entry at a signal close px: the stop below the support, the target inside reach."""
     c = {**RULE, **(cfg or {})}
     e = px * (1 + c["entry_slip"])
-    if e * (1 - c["stop_pct"]) > zone["s_lo"] * 0.999:
-        return f"stop {c['stop_pct']:.0%} ne bi bio ispod podrške"
+    if zone and zone.get("ok") and stop_px(e, zone, c) > zone["s_lo"] * 0.999:
+        return "stop ne bi bio ispod podrške"
+    if c.get("btc_up") and crash is not None and t is not None:
+        ch = crash.chg(t, 4)
+        if ch is None or ch <= 0:
+            return "BTC se još nije okrenuo gore (4 h)"
+    if c["tp"] in ("mid", "top") and not (zone and zone.get("ok")):
+        return "cilj sredina / vrh traži raspon"
     tp = tp_price(e, c["tp"], rt, zone, c)
     if c["tp"] in ("mid", "top"):
         if net_ret(e, tp * (1 - c["exit_slip"]), rt) < c["min_net_mid"]:
             return "sredina / vrh raspona preblizu nakon troška"
-    elif tp > zone["r_hi"]:
-        return f"cilj +{c['tp']:g} % neto iznad vrha raspona"
-    return None
+    return None   # a net % target may lie above the range (the owner: hold longer for +8 / 15 / 25 %)
 
 
 def signal(bars, i, zone, rt, cfg=None, crash=None):
-    """None when the close of completed 15m bar i is an entry under this zone and config, else why (Croatian)."""
-    why = base_signal(bars, i, zone, cfg, crash)
-    return why if why else config_refusal(bars[i][4], zone, rt, cfg)
+    """None when the close of completed bar i is an entry under this zone and config, else why (Croatian)."""
+    c = {**RULE, **(cfg or {})}
+    why = base_signal(bars, i, zone, c, crash)
+    return why if why else config_refusal(bars[i][4], zone, rt, c, crash, bars[i][0] + c["bar_s"])
 
 
 def _path(b):
@@ -348,27 +488,41 @@ def _path(b):
 
 
 def exit_on_bar(pos, b, cfg=None):
-    """(reason, fill) when the open position exits inside bar b, else None. pos {entry, ts, tp_px, stop_px}."""
+    """(reason, fill) when the open position exits inside bar b, else None. pos {entry, ts, tp_px, stop_px, peak?}.
+    With trail > 0 the target arms a trailing stop trail under the highest high since (exit at it, never under the
+    target's own net level x (1 - trail))."""
     c = {**RULE, **(cfg or {})}
+    tr = c.get("trail") or 0.0
     for px, kind in _path(b):
         if kind in ("o", "l") and px <= pos["stop_px"]:
             base = b[3] if c["stop_fill"] == "low" else min(pos["stop_px"], b[1])
             return "stop", base * (1 - c["stop_slip"])
+        if tr and pos.get("peak"):
+            lvl = max(pos["peak"] * (1 - tr), pos["tp_px"] * (1 - tr))
+            if kind in ("o", "l") and px <= lvl:
+                return "trail", min(lvl, b[1]) * (1 - c["exit_slip"])
         if kind in ("o", "h") and px >= pos["tp_px"]:
-            return "tp", (max(pos["tp_px"], b[1]) if kind == "o" else pos["tp_px"]) * (1 - c["exit_slip"])
-    if b[0] + M15 - pos["ts"] >= c["time_h"] * H:
-        return "time", b[4] * (1 - c["exit_slip"])
+            if not tr:
+                return "tp", (max(pos["tp_px"], b[1]) if kind == "o" else pos["tp_px"]) * (1 - c["exit_slip"])
+            pos["peak"] = max(pos.get("peak") or 0.0, px)
+        if tr and pos.get("peak") and kind == "h":
+            pos["peak"] = max(pos["peak"], px)
+    if b[0] + c["bar_s"] - pos["ts"] >= c["time_h"] * H:
+        return ("trail" if pos.get("peak") else "time"), b[4] * (1 - c["exit_slip"])
     return None
 
 
-def candidates(bars, zones, look_d, crash=None, cfg=None):
+def candidates(bars, zones, look_d, crash=None, cfg=None, pit=None):
     """[(i, zone)] of the bars whose close passes the config-free part of the entry (zone valid, touch, near support,
-    bounce, no crash); simulate() adds the config's stop / target checks. Computed once per look_d."""
+    bounce, no crash) and, with pit(ts), the point-in-time universe (MC 5-150M and age > 15 d AT that time)."""
     c = {**RULE, **(cfg or {}), "look_d": look_d}
     out = []
     for i in range(c["touch_bars"], len(bars) - 1):
-        z = zones.at(bars[i][0] + M15, look_d)
-        if not z.get("ok"):
+        t = bars[i][0] + c["bar_s"]
+        if pit is not None and not pit(t, bars[i][4]):
+            continue
+        z = zones.at(t, look_d)
+        if not z.get("ok") and not (c.get("btc_mode") == "dno" and c["crash_filter"]):
             continue
         if base_signal(bars, i, z, c, crash) is None:
             out.append((i, z))
@@ -377,36 +531,40 @@ def candidates(bars, zones, look_d, crash=None, cfg=None):
 
 def simulate(bars, cands, size_usd, rt, cfg=None, drt=None, t0=None, t1=None, crash=None):
     """The trades of one token: entries from cands (candidates()) that pass this config, one position at a time, the
-    cooldown after an exit, filled at the next bar's open (no look-ahead). [{ts, out_ts, entry, exit, reason, ret, pnl,
-    ret_demo, hours, zone_fresh, crash_overlap}]."""
+    cooldown after an exit, filled at the next bar's open (no look-ahead); open positions keep their losses through a
+    crash (only NEW entries are banned). [{ts, out_ts, entry, exit, reason, ret, pnl, ret_demo, lots, hours, mae, mfe,
+    zone_fresh, crash_overlap}]."""
     c = {**RULE, **(cfg or {})}
     drt = rt if drt is None else drt
+    bs = c["bar_s"]
     out = []
     free_at = -1
     n = len(bars)
     for i, z in cands:
-        ts_dec = bars[i][0] + M15
+        ts_dec = bars[i][0] + bs
         if i + 1 >= n or i < free_at or ts_dec < (t0 or 0) or (t1 is not None and ts_dec >= t1):
             continue
-        if config_refusal(bars[i][4], z, rt, c):
+        if config_refusal(bars[i][4], z, rt, c, crash, ts_dec):
             continue
         b = bars[i + 1]
         e = b[1] * (1 + c["entry_slip"])
-        pos = {"entry": e, "ts": b[0], "tp_px": tp_price(e, c["tp"], rt, z, c), "stop_px": e * (1 - c["stop_pct"])}
+        pos = {"entry": e, "ts": b[0], "tp_px": tp_price(e, c["tp"], rt, z, c), "stop_px": stop_px(e, z, c)}
         if c["tp"] in ("mid", "top") and pos["tp_px"] <= e:
             continue
         lots = [e]
         dca_px = e * (1 - c["dca"]) if c.get("dca") else None
         hit, j = None, i + 1
+        lo, hi = e, e
         while j < n:
             bj = bars[j]
-            if dca_px is not None and len(lots) == 1 and bj[3] <= dca_px and bj[3] > pos["stop_px"]:
+            if dca_px is not None and len(lots) == 1 and bj[3] <= dca_px and dca_px > pos["stop_px"]:
                 lots.append(dca_px)    # one more lot at -dca: the average entry and the net target move with it
                 avg = 2 / (1 / lots[0] + 1 / lots[1])
                 pos["entry"] = avg
                 if c["tp"] not in ("mid", "top"):
                     pos["tp_px"] = tp_price(avg, c["tp"], rt, z, c)
             hit = exit_on_bar(pos, bj, c)
+            lo, hi = min(lo, bj[3]), max(hi, bj[2])
             if hit:
                 break
             j += 1
@@ -417,12 +575,14 @@ def simulate(bars, cands, size_usd, rt, cfg=None, drt=None, t0=None, t1=None, cr
         k = len(lots)
         r = net_ret(pos["entry"], fill, rt)
         rd = net_ret(pos["entry"], fill, drt)
-        out_ts = bars[j][0] + M15
+        out_ts = bars[j][0] + bs
         out.append({"ts": b[0], "out_ts": out_ts, "entry": pos["entry"], "exit": fill, "reason": reason, "ret": r,
                     "pnl": r * size_usd * k, "ret_demo": rd, "lots": k, "hours": round((out_ts - b[0]) / H, 2),
-                    "zone_fresh": bool(z.get("fresh")),
+                    "mae": round(max(-0.99, min(lo, fill) / pos["entry"] - 1), 4),
+                    "mfe": round(max(hi, fill) / pos["entry"] - 1, 4), "rt": rt, "fx": fill / pos["entry"],
+                    "zone_fresh": bool(z.get("fresh")), "zone_ok": bool(z.get("ok")),
                     "crash_overlap": bool(crash is not None and crash.overlaps(b[0], out_ts))})
-        free_at = j + int(c["cooldown_s"] // M15)
+        free_at = j + int(c["cooldown_s"] // bs)
     return out
 
 
@@ -440,12 +600,14 @@ def summary(trades, size_usd=None):
             "ev_demo_pct": round(sum(x["ret_demo"] for x in trades) / n * 100, 3), "reasons": rs}
 
 
-def configs(grid=None):
+def configs(grid=None, stop="pct20"):
     g = {**GRID, **(grid or {})}
-    return [{"tp": tp, "stop_pct": s, "time_h": th, "look_d": lk}
-            for lk in g["look_d"] for tp in g["tp"] for s in g["stop_pct"] for th in g["time_h"]]
+    return [{"tp": tp, "trail": tr, "time_h": th, "look_d": lk, "stop": stop}
+            for lk in g["look_d"] for tp in g["tp"] for tr in g["trail"] for th in g["time_h"]]
 
 
 def cfg_key(c):
     tp = c["tp"] if isinstance(c["tp"], str) else f"{c['tp']:g}%"
-    return f"tp{tp}/sl{c['stop_pct'] * 100:g}/{c['time_h']}h/{c['look_d']}d" + (f"/dca{c['dca'] * 100:g}" if c.get("dca") else "")
+    return (f"tp{tp}" + (f"+tr{c['trail'] * 100:g}" if c.get("trail") else "") + f"/{c.get('stop', 'pct20')}/"
+            f"{c['time_h'] // 24 if c['time_h'] % 24 == 0 else c['time_h']}{'d' if c['time_h'] % 24 == 0 else 'h'}/"
+            f"z{c['look_d']}d" + (f"/dca{c['dca'] * 100:g}" if c.get("dca") else ""))

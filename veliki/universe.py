@@ -23,19 +23,25 @@ import os
 import re
 import time
 
-MIN_MCAP = float(os.environ.get("VEL_MIN_MCAP", "20000000"))
-MIN_LIQ = float(os.environ.get("VEL_MIN_LIQ", "500000"))
-MIN_VOL = float(os.environ.get("VEL_MIN_VOL", "500000"))
-MIN_DEEP = float(os.environ.get("VEL_MIN_DEEP", "100000"))
+# 15.11. popodne (owner: "MC 5-150M, ne iznad (PENGU / PUMP), ne ispod 5M, starije od 15 dana; velika lista"): the
+# midcaps. The list (demo, analysis) needs liquidity >= MIN_LIQ ($150k); a REAL buy needs REAL_MIN_LIQ ($500k, live.py)
+MIN_MCAP = float(os.environ.get("VEL_MIN_MCAP", "5000000"))
+MAX_MCAP = float(os.environ.get("VEL_MAX_MCAP", "150000000"))
+MIN_LIQ = float(os.environ.get("VEL_MIN_LIQ", "150000"))
+REAL_MIN_LIQ = float(os.environ.get("VEL_REAL_MIN_LIQ", "500000"))
+MIN_VOL = float(os.environ.get("VEL_MIN_VOL", "100000"))
+MIN_DEEP = float(os.environ.get("VEL_MIN_DEEP", "50000"))
 JUP_URL = "https://lite-api.jup.ag/tokens/v2"
-JUP_LISTS = ("toptraded/24h", "toporganicscore/24h", "toptrending/24h")
+JUP_LISTS = ("toptraded/24h", "toporganicscore/24h", "toptrending/24h", "toptraded/6h", "toporganicscore/6h",
+             "toptrending/6h")
 JUP_NOT_MEME = frozenset(("stocks", "rwa", "lst", "defi", "equities", "xstocks", "stablecoin"))
-MIN_AGE_D = float(os.environ.get("VEL_MIN_AGE_D", "14"))
-MAX_LIST = int(os.environ.get("VEL_MAX_LIST", "20"))
-SEEDS = ("USELESS", "TROLL")
+MIN_AGE_D = float(os.environ.get("VEL_MIN_AGE_D", "15"))
+MAX_LIST = int(os.environ.get("VEL_MAX_LIST", "200"))
+MAX_HISTORY = int(os.environ.get("VEL_MAX_HISTORY", "40"))
+SEEDS = ("ANSEM", "TROLL", "GOODGUY", "CHILLGUY", "FARTCOIN", "USELESS")   # the owner's examples (Good Guy, Chill Guy...)
 SEED_MIN_VOL = 50_000
 FAKE_LIQ_MCAP = 0.5
-GT_PAGES = 2
+GT_PAGES = 4
 NON_MEME = frozenset(s.upper() for s in (
     "SOL", "WSOL", "USDC", "USDT", "PYUSD", "USDS", "USDE", "USDG", "FDUSD", "EURC", "USD1", "JUP", "JTO", "RAY", "PYTH",
     "W", "JLP", "ORCA", "DRIFT", "KMNO", "TNSR", "HNT", "RENDER", "MSOL", "JITOSOL", "BSOL", "JUPSOL", "INF", "HSOL",
@@ -82,7 +88,8 @@ def group(pairs):
         lq = _f((p.get("liquidity") or {}).get("usd")) or 0.0
         g["liq"] += lq
         g["vol24"] += _f((p.get("volume") or {}).get("h24")) or 0.0
-        g["mcap"] = max(g["mcap"], _f(p.get("marketCap") or p.get("fdv")) or 0.0)
+        if g["deep"] is None or lq > (_f((g["deep"].get("liquidity") or {}).get("usd")) or 0.0):
+            g["mcap"] = _f(p.get("marketCap") or p.get("fdv")) or 0.0   # the deepest pool's MC (one pool's can be wrong)
         c = p.get("pairCreatedAt")
         if c:
             c = int(c) // 1000 if int(c) > 10 ** 11 else int(c)
@@ -159,6 +166,8 @@ def judge(g, now, archived=frozenset(), curve_dex=()):
         return "najdublji pool je krivulja (uzimaju se bondani)"
     if g["mcap"] < MIN_MCAP:
         return f"MC ${g['mcap'] / 1e6:,.1f}M ispod ${MIN_MCAP / 1e6:,.0f}M"
+    if g["mcap"] > MAX_MCAP:
+        return f"MC ${g['mcap'] / 1e6:,.0f}M iznad ${MAX_MCAP / 1e6:,.0f}M"
     if lq < MIN_LIQ:
         return f"likvidnost ${lq / 1e3:,.0f}k ispod ${MIN_LIQ / 1e3:,.0f}k"
     if ld < MIN_DEEP:
@@ -217,7 +226,7 @@ def _dugo_candidates():
         if con is not None:
             try:
                 for r in con.execute("SELECT mint, symbol FROM tokens WHERE COALESCE(mcap, 0) >= ? AND "
-                                     "COALESCE(liquidity, 0) >= ?", (MIN_MCAP / 2, MIN_LIQ / 2)):
+                                     "COALESCE(liquidity, 0) >= ?", (MIN_MCAP / 5, 10_000)):
                     out.setdefault(r[0], r[1])
             finally:
                 con.close()
@@ -270,7 +279,7 @@ def _jup_candidates():
         except Exception:  # noqa: BLE001
             d = None
         for t in d if isinstance(d, list) else []:
-            if (_f(t.get("mcap")) or 0) < MIN_MCAP or not t.get("id"):
+            if not (MIN_MCAP <= (_f(t.get("mcap")) or 0) <= MAX_MCAP * 1.2) or not t.get("id"):
                 continue
             st = t.get("stats24h") or {}
             out[t["id"]] = {"symbol": t.get("symbol"), "tags": list(t.get("tags") or []), "liq": _f(t.get("liquidity")),
@@ -350,10 +359,26 @@ def build(now=None, log=print):
                                                      and h.startswith(f"{t}: {g['mint']}")), None)
                     or ("sjeme vlasnika" if g["mint"] in seeds else "automatski: MC, likvidnost, volumen, starost"))
             for g in ok]
+    oor = []
     for m in seeds:
         if m in refused:
             log(f"veliki: sjeme {refused[m][0]} nije na listi: {refused[m][1]}")
+            oor.append(f"{refused[m][0]} ({m[:6]}…): {refused[m][1]}")
+    for t, h in seed_how.items():
+        if not any(h.startswith(f"{t}: {m}") for m in seeds):
+            oor.append(h)
+    # survivorship (the critic): the tokens that fell out (MC under the floor, liquidity / volume gone, rugged) are
+    # kept for the backtest's point-in-time universe, never traded
+    hist = []
+    for m, (sym, why) in refused.items():
+        g = groups.get(m)
+        if not g or not (g.get("deep") or {}).get("pairAddress"):
+            continue
+        if any(w in why for w in ("ispod", "arhivi", "volumen", "likvidnost", "najdublji")) and "iznad" not in why:
+            hist.append(dict(row_of(g, now, False, f"samo povijest: {why}"), dead=1))
+    hist.sort(key=lambda r: -(r.get("mcap") or 0))
     return rows, {"seeds": seed_how, "candidates": len(cand), "refused": len(refused), "jupiter": len(jup),
+                  "out_of_range": oor, "history": hist[:MAX_HISTORY],
                   "refused_top": sorted(((s, w) for s, w in refused.values() if s), key=lambda x: x[0] or "")[:15]}
 
 

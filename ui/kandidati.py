@@ -1675,6 +1675,29 @@ def tasks(limit=20, now=None, src=None):
                                                   "proposed_change": {"insider_label": {"token": t["token"], "wallets": ws[:8],
                                                                                         "label": "<short name>",
                                                                                         "note": "<why>"}}}}})
+    # (d) 15.11. popodne (owner: "Grok neka pregleda društveni momentum za midcapove"; veliki/): the top of the midcap
+    # table without Grok's verdict in the last 6 h
+    def midcaps():
+        from veliki import view as vview
+        return (vview.summary(zones=False).get("table") or [])[:15]
+    mrows = safe(midcaps, [])
+    mops = safe(lambda: S.opinions([x["mint"] for x in mrows], now_i, 6 * 3600), {}) if mrows else {}
+    for k, x in enumerate(mrows):
+        if mops.get(x["mint"]):
+            continue
+        sym = x.get("symbol") or x["mint"][:6]
+        out.append({"id": f"mid:{x['mint']}", "kind": "midcap_review", "priority": 3, "token": x["mint"], "symbol": sym,
+                    "rank": 100 + k, "category": x.get("cat"),
+                    "why": (f"midcap {x.get('cat')} (MC ${(x.get('mcap') or 0) / 1e6:,.0f}M, stalnost volumena 90 d "
+                            f"{x.get('pers90')}, korelacija s BTC-om {x.get('corr_d')}) bez tvoje ocjene u zadnjih 6 h"),
+                    "instruction": (f"Search X for ${sym} and the CA {x['mint']}: is the social momentum rising or fading "
+                                    "(posts 15 / 60 min, organic authors, known callers, large accounts), any news or "
+                                    "team activity? Give one verdict: kupi or preskoči, with confidence. get_midcaps has "
+                                    "its zone and metrics."),
+                    "answer_with": {"tool": "submit_signal_opinion",
+                                    "arguments": {"token": x["mint"], "verdict": "kupi | preskoči", "confidence": "<0-1>",
+                                                  "interpretation": "<what you saw on X>",
+                                                  "evidence": {"source": "midcap_review"}}}})
     out.sort(key=lambda t: (t["priority"], t.get("rank") or 999))
 
     def intake():
