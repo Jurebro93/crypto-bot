@@ -87,6 +87,11 @@ a tighter stop); this module keeps the round's time stop and give-ups, and its o
 execute (switch off, plans paused). Lot 2 of the real account is a league.db buy run_trade.py mirrors as one more
 lot of the same real position (executor.buy add=True). The daily counter's goal is 100 and it shows the day's net
 PnL and the average per closed round.
+
+15.11. (owner: "Želim da demo trguje cijelo vrijeme ... Ulaziti u više pozicija"): the demo account's rules.DEMO enters
+on looser numbers (rules.DEMO_LOOSE: score 0.5, 5-min change > -8 %, volume ratio 20 %); the real account's rules.SCALP
+keeps 14.11.'s exactly (rules.DEMO_1414), so run_once takes each profile's candidates apart (cand_p). Nothing here reads
+the Autopilot switch, the kill switch or the macro state for the demo account (precheck is the real account's only).
 """
 import json
 import os
@@ -599,16 +604,25 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
             rngs.update(data.read_ranges(since=now - RANGE_FRESH_S, tokens=sorted(rest)))
     cand = {t for t, r in rngs.items() if _candidate(r)}
     cand_new = {t for t, r in rngs.items() if _candidate(rules.new_range(r))} if mflip != "off" else set()
-    # 14.11. (range_demo G32): the demo profile's own candidates (score >= 0.6) for the accounts that trade it
-    demo_u = {u for u in act if profile(u)}
-    cand_d = {t for t, r in rngs.items() if _candidate(r, rules.DEMO)} if demo_u else set()
-    cand_dn = ({t for t, r in rngs.items() if _candidate(rules.new_range(r), rules.DEMO)}
-               if demo_u and mflip != "off" else set())
+    # 14.11. (range_demo G32): the demo profile's own candidates for the accounts that trade it. 15.11.: per PROFILE
+    # (the demo account's rules.DEMO enters on looser numbers than the real account's rules.SCALP, so one pool for
+    # both would hand the real account the demo's candidates; _lot1 checks again with the account's own rules)
+    profs = {u: profile(u) for u in act}
+    demo_u = {u for u in act if profs[u]}
+    cand_p = {}
+    for u in demo_u:
+        key = profs[u].get("profile")
+        if key not in cand_p:
+            c_ = profs[u]
+            cand_p[key] = ({t for t, r in rngs.items() if _candidate(r, c_)},
+                           {t for t, r in rngs.items() if _candidate(rules.new_range(r), c_)} if mflip != "off" else set())
+    cand_d = set().union(*(a for a, _b in cand_p.values())) if cand_p else set()
+    cand_dn = set().union(*(b for _a, b in cand_p.values())) if cand_p else set()
     toks = sorted(cand | cand_new | cand_d | cand_dn | {r["token"] for r in open_r if r["user"] in act}
                   | {r["token"] for r in armed})
     if not toks:
         for user in demo_u:   # 14.11.: no candidate at all is a reason too (the daily counter)
-            _note_blocks(con, user, _demo_blocks(rngs, now, new=user in new_u), now)
+            _note_blocks(con, user, _demo_blocks(rngs, now, new=user in new_u, cfg=profs[user]), now)
             _demo_log(con, user, now)
         return []
     from league import copy
@@ -620,7 +634,7 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
         return done
     for user in act:
         new = user in new_u
-        cfg = profile(user)   # 14.11.: rules.DEMO on the demo account while range_demo is paper
+        cfg = profs[user]   # 14.11.: rules.DEMO on the demo account while range_demo is paper (15.11.: its own pool)
         blocks = {} if cfg else None
         lim_u = user_limits(user, cfg, lim)   # 14.11. popodne: the demo account's own max_open / day SOL
         mine = [r for r in open_r if r["user"] == user]
@@ -634,7 +648,7 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
                     n_open += 1
                     mine.append({"token": r["token"]})
                     done += got
-        pool = (cand_dn if new else cand_d) if cfg else (cand_new if new else cand)
+        pool = (cand_p[cfg.get("profile")][1 if new else 0]) if cfg else (cand_new if new else cand)
         if cfg and cfg.get("focus_n"):   # 14.11. popodne: the focus list (top 10 by 1 h volume x score)
             fx = {t: (rules.new_range(r) if new else r) for t, r in rngs.items() if allowed(r, user, now)}
             foc = focus(fx, cfg, keep={r["token"] for r in mine})
@@ -660,7 +674,8 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
                 done += got
         if blocks is not None:   # 14.11.: why every other fresh active range was no demo entry (the daily counter)
             held = {r["token"] for r in mine}
-            rest = _demo_blocks({t: r for t, r in rngs.items() if t not in pool and t not in held}, now, new=new)
+            rest = _demo_blocks({t: r for t, r in rngs.items() if t not in pool and t not in held}, now, new=new,
+                                cfg=cfg)
             _note_blocks(con, user, {**rest, **blocks}, now)
             _demo_log(con, user, now)
     if flip_sh:
@@ -723,15 +738,16 @@ def block_key(why):
     return " ".join(head.split())[:60] or "nepoznato"
 
 
-def _demo_blocks(rngs, now, new=False):
+def _demo_blocks(rngs, now, new=False, cfg=None):
     """{token: why} for the fresh active ranges that were no demo candidate this pass (their score / place / range;
-    the market price is not asked for them: the range's own numbers say why)."""
+    the market price is not asked for them: the range's own numbers say why). cfg (15.11.): the account's profile
+    (default rules.DEMO; the real account's rules.SCALP keeps its own reasons)."""
     out = {}
     for t, r in (rngs or {}).items():
         if not r or not r.get("active"):
             continue
         rx = rules.new_range(r) if new else r
-        why = entry_view(rx, (r.get("metrics") or {}).get("price"), now, cfg=rules.DEMO)
+        why = entry_view(rx, (r.get("metrics") or {}).get("price"), now, cfg=cfg or rules.DEMO)
         if why is None and (r.get("pos_pct") or 0) > 40:
             why = f"cijena na {r['pos_pct']:.0f} % raspona"
         out[t] = why or "nije kandidat ovog prolaza"

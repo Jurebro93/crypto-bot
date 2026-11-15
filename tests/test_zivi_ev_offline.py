@@ -11,6 +11,7 @@ left out), KUPI -> a proposals row of strategy "fast", PRESKOČI -> the skip jou
 
     python3 -m unittest tests.test_zivi_ev_offline -v
 """
+import json
 import os
 import re
 import sqlite3
@@ -399,7 +400,12 @@ class PaperMode(Env):
         got = paper.run_once(self.lg, self.market_fn(), now=REPLAY_TS + 3, path=self.fp, sol=SOL_USD, lim=self.lim)
         self.assertEqual(got[0][0], PU)
         p = exitplan.active(self.lg, TOK)
-        self.assertEqual((p["plan"]["stop"], p["plan"]["time_stop"]["after_min"]), ({"kind": "pct", "v": -10.0}, 45.0))
+        # 15.11. (owner: "brže uzimati profit"): the fast exit inside the quick-profit plan; its 45 min is the lot's own
+        # hold (league/auto tpsl "until"), not a plan time stop
+        self.assertEqual(p["plan"]["stop"], {"kind": "pct", "v": -10.0})
+        self.assertTrue(exitplan.is_quick(p))
+        t = self.lg.execute("SELECT auto, opened_ts FROM trades WHERE user=? AND token=?", (PU, TOK)).fetchone()
+        self.assertEqual(json.loads(t[0])["until"] - t[1], 45 * 60)
         self.assertIsNone(self.lg.execute("SELECT 1 FROM trades WHERE user=? AND token=?", (LU, TOK)).fetchone())
 
 

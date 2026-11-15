@@ -109,13 +109,8 @@ def gate(token, price, liq, mcap, t0, features=None, cfg=None):
     g = config(cfg)["gate"]
     if not g["enabled"]:
         return None
-    if g.get("makro_pad", True):   # 5.11.: no new entries while BTC is falling (market/makro.py)
-        try:
-            from market import makro
-            if makro.falling():
-                return "BTC pada (makro režim): bez novih ulaza dok se ne smiri"
-        except Exception:  # noqa: BLE001
-            pass
+    # 5.11.-14.11.: no new entries while BTC was falling (makro_pad). 15.11. (owner: "Želim da demo trguje cijelo
+    # vrijeme"): never a refusal any more; the stake is lowered instead (makro_size) and the trade records the state
     if mcap and mcap < g.get("min_mcap", 0):  # Nicholas 4.11.: ~$5k fresh listings are mostly rug pulls
         return f"market cap ${mcap:,.0f} ispod ${g['min_mcap']:,.0f} (premali, rizik ruga)".replace(",", ".")
     if (liq or 0) < g["min_liq"]:
@@ -400,6 +395,20 @@ def session_sizes(con, st, cfg, now, force=False):
     st["sessions"] = out
     st["history"] = (st.get("history") or [])[-60:]
     return out
+
+
+def makro_size(size, cfg=None, now=None):
+    """15.11.: (stake, note or None, the macro snapshot or None) of a demo entry. While BTC falls (market/makro.falling)
+    and gate.makro_pad is on: the stake x makro.MAKRO_DEMO_MULT (0.5), never 0: the demo keeps trading and learning,
+    the falling-BTC trades are measured apart (the snapshot goes into the trade's config "makro")."""
+    try:
+        from market import makro
+        snap = makro.snapshot(now)
+    except Exception:  # noqa: BLE001 - no market.db: the full stake, no state
+        return size, None, None
+    if not snap or not snap.get("falling") or not config(cfg)["gate"].get("makro_pad", True) or not size:
+        return size, None, snap
+    return round(size * makro.MAKRO_DEMO_MULT, 2), f"BTC pada (makro): ulog ×{makro.MAKRO_DEMO_MULT:g}".replace(".", ","), snap
 
 
 def size_for(st, token, size, now, cfg):

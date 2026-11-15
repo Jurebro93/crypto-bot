@@ -608,11 +608,17 @@ class Exits(Env):
     def test_the_fast_exit_plan_and_the_lots_own_levels(self):
         self.enter()
         p = exitplan.active(self.lg, TOK)
-        self.assertEqual(p["plan"]["take_profits"], [{"kind": "pct", "v": 15.0, "sell_share": 0.5}])
-        self.assertEqual(p["plan"]["trailing"], {"activate_pct": 15.0, "trail_pct": 8.0})
+        # 15.11. (owner: "brže uzimati profit"): the quick-profit plan with the fast path's own tighter numbers: half at
+        # +12 % net (+ the round-trip cost, here 2.05 %; never above its own +15 %), break-even after it, its own 8 %
+        # trailing and -10 % stop; the 45 min by the lot's own hold below; it runs on the demo account whatever
+        # exit_plans says
+        self.assertEqual(p["plan"]["take_profits"], [{"kind": "pct", "v": 14.05, "sell_share": 0.5}])
+        self.assertEqual(p["plan"]["trailing"], {"activate_pct": 14.05, "trail_pct": 8.0})
+        self.assertTrue(p["plan"]["breakeven_after_tp1"])
         self.assertEqual(p["plan"]["stop"], {"kind": "pct", "v": -10.0})
-        self.assertEqual(p["plan"]["time_stop"]["after_min"], 45.0)
+        self.assertIsNone(p["plan"]["time_stop"])
         self.assertEqual(p["plan"]["accounts"], [PU])
+        self.assertTrue(p["client"].startswith(exitplan.QUICK_SRC))
         a = json.loads(self.lg.execute("SELECT auto FROM trades WHERE user=? AND token=?", (PU, TOK)).fetchone()[0])
         self.assertEqual(a["mode"], "tpsl")
         self.assertTrue(a.get("until"))                                # 45 min hold

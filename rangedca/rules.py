@@ -127,8 +127,22 @@ DEMO = {**RULES, "profile": "demo", "score_min": 0.6, "entry_bottom": 0.50, "ent
 # the real account's rounds (pravi_novac_sve): the same rules at real costs, but the WHOLE position at the target (one
 # sale: every swap pays the network fee; backtest at the real costs, 0.0005 SOL a swap: all at +$0.60 EV +2.2 % ($0.17
 # a round, 50 rounds, DD 6.1 $) vs half + rest +2.0 % ($0.14, 47 rounds); at 0.001 SOL a swap the half + rest's three
-# swaps on lot 1 cost > 5 % and the fee guard refuses every entry, the single sale's two do not)
-SCALP = {**DEMO, "profile": "scalp", "tp1_share": 1.0}
+# swaps on lot 1 cost > 5 % and the fee guard refuses every entry, the single sale's two do not). 15.11.: built from
+# DEMO_1414 (the demo profile as it was on 14.11.), so the demo account's looser entry below never reaches it.
+DEMO_1414 = dict(DEMO)
+SCALP = {**DEMO_1414, "profile": "scalp", "tp1_share": 1.0}
+# 15.11. (owner: "Želim da demo trguje cijelo vrijeme ... Ulaziti u više pozicija ali brže uzimati profit"; the night of
+# 14./15.11. the demo account bought nothing between 23:00 and 06:00 UTC: "ocjena raspona ispod praga", "pad u zadnjih
+# 5 min" and "slab volumen 15 min" were three of the four reasons that held the 4-22 active ranges off): the DEMO
+# account only (PAPER_USER, paper money; trade/settings NEVER_LIVE range_demo) enters on looser numbers, so it learns
+# from more rounds. The real account trades SCALP above (14.11.'s numbers exactly) and RULES. Backtest DemoCompare on
+# the 6 range fixtures (12.5 token-days, ticks wick, the owner's round-trip cost): DEMO_1414 41 rounds, hit 90 %, EV
+# +4.1 % (+$0.35), DD $4.6; this profile 43 rounds, hit 91 %, EV +3.8 % (+$0.34), DD $4.3; the entry up to 60 % of the
+# range on top of it fell to EV +1.9 % with DD $6.2, so the lower half (entry_bottom 0.50) stays.
+#   score_min 0.6 -> 0.5, ch5_min -5 % -> -8 % (a 5-minute dip of a memecoin in its range is noise more than a break),
+#   vol_ratio_min 35 % -> 20 % (the night's quiet hours); everything else (exits, stop, DCA, fee guard, caps) as 14.11.
+DEMO_LOOSE = {"score_min": 0.5, "ch5_min": -0.08, "vol_ratio_min": 0.20}
+DEMO = {**DEMO_1414, **DEMO_LOOSE}
 DEMO_GOAL = 100   # 14.11. popodne (owner: "100 tradeova dnevno"): the daily counter's goal (was 5)
 TP_EXITS = ("tp1", "tp2", "top", "trailing", "breakeven", "time")   # a profitable / flat exit: the short cooldown
 PROFILES = ("demo", "scalp")

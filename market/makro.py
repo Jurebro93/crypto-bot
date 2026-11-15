@@ -7,8 +7,11 @@ altove". Daily closes (DefiLlama, free: market.db btc / eth) plus hourly BTC for
   neutralno             the rest
 Score 0-1 (how friendly to memecoins): konsolidacija_rasta 1.0, raste 0.7, neutralno 0.5, konsolidacija_pada 0.3,
 pada 0.0; BTC weighs 0.6, ETH 0.4. Stored hourly in market.db `makro` (as-of: only what was known at ts).
-Used as the hype feature `makro` (weight 8, learning may move it but not below 4) and as a demo-bot gate: no new
-entries while BTC is in `pada` (paper/config.json gate.makro_pad)."""
+Used as the hype feature `makro` (weight 8, learning may move it but not below 4) and, until 15.11., as a demo-bot gate:
+no new entries while BTC was in `pada` (paper/config.json gate.makro_pad). 15.11. (owner: "Želim da demo trguje cijelo
+vrijeme"): the demo never stops on it: while BTC falls the demo bot's stake is x MAKRO_DEMO_MULT (paper/rules.
+makro_size) and every demo trade carries the state it was opened in (snapshot(): paper.db trades.config "makro",
+league.db trades.makro of the Autopilot's accounts), so the falling-BTC entries are measured apart."""
 import json
 import time
 
@@ -137,6 +140,20 @@ def feature(now=None):
     return r["score"] if r else None
 
 
+MAKRO_DEMO_MULT = 0.5   # 15.11.: the demo bot's stake while BTC falls (was: no entry at all)
+
+
+def snapshot(now=None):
+    """{"btc", "eth", "score", "falling", "ts"} known at now (falling() included), None without data. What a demo trade
+    records of the macro state at its entry (15.11.)."""
+    now = now or time.time()
+    r = at(now)
+    if not r:
+        return None
+    return {"btc": r.get("btc"), "eth": r.get("eth"), "score": r.get("score"), "ts": r.get("ts"),
+            "falling": bool(r.get("btc") == "pada" and now - r["ts"] < 3 * 3600)}
+
+
 def falling(now=None):
     """True while BTC is in 'pada': the demo bot opens nothing new (paper gate)."""
     r = at(now or time.time())
@@ -150,4 +167,4 @@ def line(now=None):
         return "Makro (BTC/ETH): još nema podataka."
     b, e = r.get("btc"), r.get("eth")
     return (f"Makro: BTC {NAMES.get(b, b)}, ETH {NAMES.get(e, e) if e else '–'}; sklonost altovima {r['score']:.0%}"
-            + (", novi demo ulazi zaustavljeni dok BTC pada" if b == "pada" else "") + ".")
+            + (", demo ulazi s pola uloga dok BTC pada (demo trguje uvijek)" if b == "pada" else "") + ".")

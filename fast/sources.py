@@ -213,7 +213,11 @@ def record(sid, kind, now=None, league_db=None):
         if fids:
             q = ",".join("?" * len(fids))
             fr = _q(lc, f"SELECT pnl_usd, size_usd FROM trades WHERE follow_id IN ({q}) AND status='closed'", fids)
-        pr = _q(lc, "SELECT pnl_usd, size_usd FROM fast_trades WHERE source_id=? AND status='closed'", (sid,))
+        # 15.11.: one row per signal (a decision the switch sent to the real account is also a parallel demo entry,
+        # fast/paper.py) and never the demo account's soft-skip lessons (decision DEMO_SOFT): the record stays as it was
+        pr = _q(lc, "SELECT pnl_usd, size_usd FROM fast_trades WHERE source_id=? AND status='closed' AND "
+                    "COALESCE(decision, '') != 'DEMO_SOFT' AND id IN (SELECT MIN(id) FROM fast_trades WHERE "
+                    "source_id=? AND COALESCE(decision, '') != 'DEMO_SOFT' GROUP BY signal_id)", (sid, sid))
     finally:
         if lc is not None:
             lc.close()

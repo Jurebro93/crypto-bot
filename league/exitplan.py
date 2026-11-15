@@ -500,27 +500,201 @@ def switch_client(client, user, on=None):
 # the owner's own and Grok's lots keep their own exits (a panel plan, Grok's default plan): no protective stop over them
 OWN_SOURCES = ("ručno", "Grok auto")
 
+# 15.11. (owner: "Zašto je portfolio u minusu ako je dosta pozicija moglo biti izvučeno u profitu" and "autopilot mora
+# bolje uzimati profit ... brže uzimati profit"; 14.11. GTA$ was +35 % an hour before its sale at -21 %: a wallet copy
+# exits "mirror", when the source sells, and had only the -30 % protective stop): the QUICK PROFIT plan ("brzi profit")
+# of every automatic position on the real account under pravi_novac_sve and of every automatic position on the demo
+# account PAPER_USER (24/7, whatever exit_plans' mode or the Autopilot switch):
+#   TP1     half (QUICK_SHARE) at +QUICK_TP_NET % NET of the round-trip cost (trade/cost.round_trip of the position's
+#           stake in its pool: the TP's price is the average entry x (1 + 12 % + cost))
+#   rest    the stop moves to break-even (the average entry + the round-trip cost of the rest: breakeven_after_tp1) and
+#           a QUICK_TRAIL (10 %) trailing stop from the peak, active from TP1; the strategy's own TP sells it when that is
+#           lower (the lot's own TP/SL and the strategy's own exits keep running: the plan only adds, like SWITCH_SRC)
+#   stop    -QUICK_STOP (20 %) from the average entry, or the position's own stop when that is tighter (a fast path's
+#           -10 %, a copy's tpsl -15 %); a copy's "mirror" sale (the source sold) stays an exit on top
+# Not for the owner's own and Grok's lots (OWN_SOURCES), nor for a range round (its scalp TP +$0.60 net is lower than
+# +12 % net on any stake of 0.1 SOL, its plan "range scalp:" or its own exits run) or a momentum trade (its own exits:
+# half at +15 %, trailing 8 %, stop -10 %, are at or inside this rule): those keep the protective stop only
+# (STOP_ONLY_SOURCES). One plan per token: a second account holding the same token JOINS the plan (its own stop, its own
+# average entry; join()).
+QUICK_TP_NET = 12.0
+QUICK_SHARE = 0.5
+QUICK_TRAIL = 10.0
+QUICK_STOP = 20.0
+QUICK_TAG = "brzi profit"
+QUICK_SRC = f"{QUICK_TAG}:"   # the client of a demo-account plan; a real-account one is f"{SWITCH_SRC} {QUICK_TAG} ..."
+STOP_ONLY_SOURCES = ("range lot", "momentum")
+_QSWEEP = {"ts": 0.0}
 
-def switch_stop(con, token, user=None, now=None, log=print):
-    """The protective stop of a real-account position under pravi_novac_sve: a stop-only plan (accounts [user]) at the
-    position's own stop when it has one (current_stop_px: an auto SL, a range round's stop; one looser than sl_default
-    is held at -sl_default, the widest a plan may have), else -min(DEFAULT_PLAN_SL, sl_default) from the average
-    entry. Only when the token has no active plan (one plan per token: an existing plan is never replaced here).
-    Returns the plan id or None."""
+
+def is_quick(plan):
+    return bool(plan) and QUICK_TAG in str(plan.get("client") or "")
+
+
+def quick_live(plan, user):
+    """True when a quick-profit plan executes on the DEMO account (paper money, it only sells): always, whatever
+    exit_plans' mode, the Autopilot switch or the kill switch (only the owner's "Pauziraj exit planove" stops it).
+    The real account's part runs as a switch plan (switch_live: its client starts with SWITCH_SRC)."""
+    try:
+        from trade import settings as ts
+        return is_quick(plan) and user == ts.PAPER_USER
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def quick_ok(sources):
+    """May a position whose lots have these sources take the quick-profit plan? (not OWN_SOURCES, not
+    STOP_ONLY_SOURCES)."""
+    srcs = [str(x or "") for x in sources or ()]
+    return not any(x.startswith(OWN_SOURCES) or x.startswith(STOP_ONLY_SOURCES) for x in srcs)
+
+
+def _liq_of(lots):
+    """The pool's liquidity at the entry, from the lot's own fill (league/store.buy: entry_eff = price x (1 + FEE) /
+    (1 - impact), impact = size / (liq / 2 + size)); None when it cannot be told."""
+    for t in lots or ():
+        px, eff, size = t.get("entry_px"), t.get("entry_eff"), t.get("size_usd")
+        try:
+            imp = 1 - px * (1 + store.FEE) / eff
+        except (TypeError, ZeroDivisionError):
+            continue
+        if size and 1e-6 < imp < 0.9:
+            return 2 * size * (1 - imp) / imp
+    return None
+
+
+def quick_plan(lots, user, cur_stop_px=None, liq=None, own=None):
+    """The quick-profit plan (see QUICK_TP_NET) of `user`'s position in these lots, as set_plan takes it. own
+    (optional): the strategy's own tighter numbers, {"stop_pct": -10, "trail_pct": 8, "tp_max_pct": 15,
+    "time_stop": {...}}: a tighter stop or trailing, a lower TP1 and a time stop are kept. cur_stop_px: the position's
+    stop in force (current_stop_px); a tighter one stays. None without an entry price."""
+    from trade import cost
+    avg = _avg(lots)
+    if not avg:
+        return None
+    own = own or {}
+    size = sum(t.get("size_usd") or 0 for t in lots) or None
+    rt = cost.round_trip(size, liq or _liq_of(lots)) * 100
+    tp1 = QUICK_TP_NET + rt
+    if own.get("tp_max_pct") and own["tp_max_pct"] < tp1:
+        tp1 = float(own["tp_max_pct"])
+    tp1 = round(tp1, 2)
+    trail = min(QUICK_TRAIL, float(own.get("trail_pct") or QUICK_TRAIL))
+    pct = -min(QUICK_STOP, sl_floor())
+    if own.get("stop_pct") is not None:
+        pct = max(pct, float(own["stop_pct"]))
+    if cur_stop_px and cur_stop_px > 0:
+        pct = max(pct, (cur_stop_px / avg - 1) * 100)
+    pct = math.ceil(pct * 100 - 1e-6) / 100   # 2 decimals, rounded toward the tighter side (never looser)
+    plan = {"accounts": [user], "take_profits": [{"at_pct": tp1, "sell_share": QUICK_SHARE}],
+            "breakeven_after_tp1": True, "trailing": {"activate_pct": tp1, "trail_pct": trail},
+            "stop": {"at_pct": pct},
+            "reason": (f"brzi profit: pola na +{QUICK_TP_NET:g} % neto (MC x {1 + tp1 / 100:.3f}, trošak "
+                       f"{rt:.1f} %), ostatak stop na break-even i trailing {trail:g} %, stop {round(pct, 1):+g} %")}
+    if own.get("time_stop"):
+        plan["time_stop"] = dict(own["time_stop"])
+    return plan
+
+
+def quick_words(plan):
+    """"pola na +14,1 % (+12 % neto), BE, trailing 10 %, stop -20 %" for a log line / copy_log note."""
+    tp = (plan.get("take_profits") or [{}])[0]
+    st = plan.get("stop") or {}
+    v = st.get("at_pct", st.get("v"))
+    return (f"brzi profit: pola na +{tp.get('at_pct', tp.get('v', 0)):.1f} % (+{QUICK_TP_NET:g} % neto), ostatak BE + "
+            f"trailing {(plan.get('trailing') or {}).get('trail_pct', QUICK_TRAIL):g} %"
+            + (f", stop {v:+.1f} %" if v is not None else "")).replace(".", ",")
+
+
+def _client(user, client):
+    from trade import settings as ts
+    tail = f"{QUICK_TAG} {client}".strip()
+    return f"{SWITCH_SRC} {tail}" if user == ts.LEAGUE_USER else f"{QUICK_SRC} {client}".strip()
+
+
+def join(con, p, user, lots, liq=None, own=None):
+    """15.11.: `user` joins the token's active plan `p` (one plan per token): it goes into the plan's accounts with
+    its own stop (its quick_plan's stop from its own average entry, a tighter own stop kept) and its own base; the
+    take profits and the trailing are the plan's, measured from its own average entry. A real account joining turns
+    the client into a switch plan's (SWITCH_SRC), so its part executes there. Returns the plan id."""
+    from trade import settings as ts
+    tok = p["token"]
+    q = quick_plan(lots, user, current_stop_px(con, user, tok, lots), liq, own)
+    avg = _avg(lots)
+    if not q or not avg:
+        return None
+    plan, st = p["plan"], p["state"]
+    plan["accounts"] = sorted(set(plan.get("accounts") or _users()) | {user})
+    st.setdefault("stop_px", {})[user] = avg * (1 + q["stop"]["at_pct"] / 100)
+    st.setdefault("base_qty", {})[user] = sum(t["qty"] or 0 for t in lots)
+    client = p.get("client") or ""
+    if user == ts.LEAGUE_USER and not client.startswith(SWITCH_SRC):
+        client = f"{SWITCH_SRC} {client}"
+    con.execute("UPDATE exit_plans SET plan=?, state=?, client=? WHERE id=?",
+                (json.dumps(plan), json.dumps(st), client, p["id"]))
+    con.commit()
+    return p["id"]
+
+
+def quick_cover(con, token, user, now=None, liq=None, own=None, client="", log=print):
+    """15.11.: the quick-profit plan of `user`'s position in `token`: set when the token has no active plan, joined
+    (join) when its active plan is a quick-profit one of the other account; an account already in the plan's scope
+    keeps it. Any other plan (Grok's, a panel plan, a range scalp round's, a strategy's own) stays and the account
+    keeps its own exits. Returns the plan id or None. Never raises."""
+    try:
+        lots = _lots(con, user, token)
+        if not lots:
+            return None
+        p = active(con, token)
+        if p is not None:
+            if _covered(p, user):
+                return p["id"]
+            if is_quick(p):
+                pid = join(con, p, user, lots, liq, own)
+                if pid:
+                    log(f"plan izlaza: {token[:6]} {user} se pridružio planu #{pid} (brzi profit)")
+                return pid
+            return None
+        plan = quick_plan(lots, user, current_stop_px(con, user, token, lots), liq, own)
+        if not plan:
+            return None
+        got = set_plan(con, token, plan, sl_floor(), client=_client(user, client), now=now)
+        log(f"plan izlaza: {token[:6]} {user} {quick_words(plan)} (plan #{got['plan_id']})")
+        return got["plan_id"]
+    except (ValueError, sqlite3.Error) as e:
+        log(f"plan izlaza: {token[:6]} {user} bez brzog profita: {e}")
+        return None
+
+
+def switch_stop(con, token, user=None, now=None, log=print, quick=None, liq=None, own=None, client=""):
+    """The server-side exit of a real-account position under pravi_novac_sve. 15.11.: the quick-profit plan
+    (quick_cover: half at +12 % net, break-even, trailing 10 %, stop -20 % or the position's own when tighter) for a
+    position whose lots take it (quick_ok, or quick=True), else (a range lot, a momentum trade; quick=False) the
+    protective stop only: a stop-only plan (accounts [user]) at the position's own stop when it has one
+    (current_stop_px: an auto SL, a range round's stop; one looser than the quick stop is held at -QUICK_STOP, was
+    -30 %), else -QUICK_STOP from the average entry. Only when the token has no active plan (one plan per token: an
+    existing plan is never replaced here; a quick plan of the demo account is joined). Returns the plan id or None."""
     from trade import settings as ts
     user = user or ts.LEAGUE_USER
     try:
+        lots = _lots(con, user, token)
+        if quick is None:
+            quick = quick_ok(t.get("source") for t in lots)
+        if quick:
+            return quick_cover(con, token, user, now=now, liq=liq, own=own, client=client, log=log)
         if active(con, token):
             return None
-        lots = _lots(con, user, token)
         avg = _avg(lots) if lots else None
         if not avg:
             return None
         floor = sl_floor()
-        pct = -min(DEFAULT_PLAN_SL, floor)
+        # a range round keeps its own stop exactly as before 15.11. (held at -sl_default; -30 % without one): its rules
+        # chose the ATR stop at -17..-25 %; a momentum trade (own stop -10 %) and anything else: at most -QUICK_STOP
+        rng = any(str(t.get("source") or "").startswith("range lot") for t in lots)
+        pct = -min(DEFAULT_PLAN_SL if rng else QUICK_STOP, floor)
         cur = current_stop_px(con, user, token, lots)
         if cur and cur > 0:
-            pct = max((cur / avg - 1) * 100, -floor)
+            pct = max((cur / avg - 1) * 100, -floor if rng else pct)
         pct = math.ceil(pct * 100 - 1e-6) / 100   # 2 decimals, rounded toward the tighter side (never looser)
         plan = {"accounts": [user], "stop": {"at_pct": pct},
                 "reason": f"pravi_novac_sve: zaštitni stop {round(pct, 1):+g} % (pravi račun, server-side)"}
@@ -533,9 +707,32 @@ def switch_stop(con, token, user=None, now=None, log=print):
         return None
 
 
+PROTECT_CLIENT = f"{SWITCH_SRC} zaštitni stop"
+
+
+def _upgrade(con, p, user, lots, now, log=print):
+    """15.11.: a protective stop-only plan of the real account set before the quick-profit rule (client
+    PROTECT_CLIENT, only `user` in its scope) becomes the quick-profit plan; its stop only tightens (-30 % -> -20 %, a
+    tighter one stays). Returns the new plan id or None."""
+    if p.get("client") != PROTECT_CLIENT or p["plan"].get("accounts") != [user] or p["plan"].get("take_profits"):
+        return None
+    try:
+        plan = quick_plan(lots, user, current_stop_px(con, user, p["token"], lots))
+        if not plan:
+            return None
+        got = set_plan(con, p["token"], plan, sl_floor(), client=_client(user, ""), now=now)
+        log(f"plan izlaza: {p['token'][:6]} zaštitni stop #{p['id']} -> {quick_words(plan)} (plan #{got['plan_id']})")
+        return got["plan_id"]
+    except (ValueError, sqlite3.Error) as e:
+        log(f"plan izlaza: {p['token'][:6]} zaštitni stop ostaje ({e})")
+        return None
+
+
 def ensure_switch_stops(con, now=None, log=print, every=SWITCH_SWEEP_S):
     """While pravi_novac_sve is on: every open real-account token of an automatic strategy (not the owner's own, not
-    Grok's) without an active plan gets switch_stop. At most every `every` seconds. [token]."""
+    Grok's) without an active plan gets switch_stop (15.11.: the quick-profit plan, or the protective stop for a range
+    lot / a momentum trade); a protective stop set before 15.11. becomes the quick-profit plan (_upgrade) and a
+    quick-profit plan of the demo account in the same token is joined. At most every `every` seconds. [token]."""
     from trade import settings as ts
     now = now or time.time()
     if every and now - _SWEEP["ts"] < every:
@@ -545,13 +742,75 @@ def ensure_switch_stops(con, now=None, log=print, every=SWITCH_SWEEP_S):
         return []
     ensure(con)
     rows = con.execute("SELECT t.token, GROUP_CONCAT(COALESCE(t.source, ''), char(31)) FROM trades t WHERE t.user=? "
-                       "AND t.status='open' AND NOT EXISTS (SELECT 1 FROM exit_plans p WHERE p.token=t.token AND "
-                       "p.status='active') GROUP BY t.token", (ts.LEAGUE_USER,)).fetchall()
+                       "AND t.status='open' GROUP BY t.token", (ts.LEAGUE_USER,)).fetchall()
+    plans = _active_map(con, [r[0] for r in rows])
     out = []
     for tok, srcs in rows:
-        if any(s.startswith(OWN_SOURCES) for s in (srcs or "").split(chr(31))):
+        srcs = (srcs or "").split(chr(31))
+        if any(s.startswith(OWN_SOURCES) for s in srcs):
             continue
-        if switch_stop(con, tok, ts.LEAGUE_USER, now=int(now), log=log):
+        p = plans.get(tok)
+        quick = quick_ok(srcs)
+        if p is None:
+            if switch_stop(con, tok, ts.LEAGUE_USER, now=int(now), log=log, quick=quick):
+                out.append(tok)
+        elif quick and is_quick(p) and not _covered(p, ts.LEAGUE_USER):
+            if quick_cover(con, tok, ts.LEAGUE_USER, now=int(now), log=log):
+                out.append(tok)
+        elif quick and _upgrade(con, p, ts.LEAGUE_USER, _lots(con, ts.LEAGUE_USER, tok), int(now), log):
+            out.append(tok)
+    return out
+
+
+def _active_map(con, tokens):
+    """{token: plan dict (as active() gives it)} of the newest active plan of each of these tokens, one query."""
+    toks = sorted(set(tokens or ()))
+    if not toks:
+        return {}
+    out = {}
+    cur = con.execute(f"SELECT * FROM exit_plans WHERE status='active' AND token IN ({','.join('?' * len(toks))}) "
+                      "ORDER BY id", toks)
+    cols = [c[0] for c in cur.description]
+    for row in cur.fetchall():
+        d = dict(zip(cols, row))
+        try:
+            d["plan"], d["state"] = json.loads(d["plan"] or "{}"), json.loads(d["state"] or "{}")
+        except ValueError:
+            continue
+        out[d["token"]] = d   # ORDER BY id: the newest wins
+    return out
+
+
+def _covered(p, user):
+    """True when `user` is in the plan's scope with its own stop in the plan's state (a joined account whose state a
+    concurrent pass of the 1-s executor wrote over is joined again)."""
+    return user in _scope(p["plan"]) and bool((p["state"].get("stop_px") or {}).get(user))
+
+
+def ensure_quick_plans(con, now=None, log=print, every=SWITCH_SWEEP_S):
+    """15.11. (owner: "demo trguje cijelo vrijeme ... brže uzimati profit"): every open demo-account (PAPER_USER) token
+    of an automatic strategy (quick_ok) gets the quick-profit plan (quick_cover), 24/7 and whatever the Autopilot
+    switch, pravi_novac_sve or exit_plans say (paper money; it only sells). Only the owner's plan pause stops it. At
+    most every `every` seconds. [token]."""
+    from trade import settings as ts
+    now = now or time.time()
+    if every and now - _QSWEEP["ts"] < every:
+        return []
+    _QSWEEP["ts"] = now
+    if paused():
+        return []
+    ensure(con)
+    rows = con.execute("SELECT token, GROUP_CONCAT(COALESCE(source, ''), char(31)) FROM trades WHERE user=? AND "
+                       "status='open' GROUP BY token", (ts.PAPER_USER,)).fetchall()
+    plans = _active_map(con, [r[0] for r in rows])
+    out = []
+    for tok, srcs in rows:
+        if not quick_ok((srcs or "").split(chr(31))):
+            continue
+        p = plans.get(tok)
+        if p is not None and (_covered(p, ts.PAPER_USER) or not is_quick(p)):
+            continue   # covered already, or another plan (Grok's, a panel / range / strategy plan): its own exits
+        if quick_cover(con, tok, ts.PAPER_USER, now=int(now), log=log):
             out.append(tok)
     return out
 
@@ -613,6 +872,9 @@ def execution(user, lots, m=None, plan=None):
     if real and switch_live(plan, user):   # 14.11.: the plan of a real-account entry under pravi_novac_sve
         return {"mode": "live", "executes": True, "real_account": True,
                 "why": "pravi_novac_sve: plan pozicije pravog računa izvršava se na pravom računu"}
+    if not real and quick_live(plan, user):   # 15.11.: the demo account's quick-profit plan, 24/7
+        return {"mode": "paper", "executes": True, "real_account": False,
+                "why": "brzi profit: plan demo računa izvršava se uvijek (paper novac, samo prodaje)"}
     why = {"paper": "exit_plans je paper: na pravom računu samo zapis (sjena), izvršava se na demo računu "
                     "autopilot-paper; zadani TP/SL pozicije ostaje",
            "shadow": "exit_plans je u sjeni: samo zapis, zadani TP/SL ostaje",
@@ -643,7 +905,8 @@ def in_force_tokens(con, user):
         ensure(con)
         rows = [(t, cl) for t, pl, cl in con.execute("SELECT token, plan, client FROM exit_plans WHERE status='active'")
                 if user in _scope(json.loads(pl or "{}"))
-                and not str(cl or "").startswith(SWITCH_SRC)]   # 14.11.: a switch plan only adds, never replaces
+                and not str(cl or "").startswith(SWITCH_SRC)   # 14.11.: a switch plan only adds, never replaces
+                and QUICK_TAG not in str(cl or "")]   # 15.11.: nor a quick-profit plan (the lot's own TP stays)
         if on:
             return {t for t, _cl in rows}
         return {t for t, cl in rows if (sc and str(cl or "").startswith(SCALP_SRC))
@@ -960,8 +1223,13 @@ def run_once(con, market, now=None):
         ensure_switch_stops(con, now)
     except Exception as e:  # noqa: BLE001 - the plans that exist keep running
         print(f"plan izlaza: zaštitni stopovi: {type(e).__name__}: {e}", flush=True)
+    try:   # 15.11.: the demo account's quick-profit plans, 24/7
+        ensure_quick_plans(con, now)
+    except Exception as e:  # noqa: BLE001 - the plans that exist keep running
+        print(f"plan izlaza: brzi profit demo: {type(e).__name__}: {e}", flush=True)
     if m == "off" and not sw and not sc and con.execute(
-            "SELECT 1 FROM exit_plans WHERE status='active' AND client LIKE ? LIMIT 1", (SWITCH_SRC + "%",)).fetchone() is None:
+            "SELECT 1 FROM exit_plans WHERE status='active' AND (client LIKE ? OR client LIKE ?) LIMIT 1",
+            (SWITCH_SRC + "%", QUICK_SRC + "%")).fetchone() is None:
         return []
     if paused():
         return []
@@ -999,6 +1267,8 @@ def run_once(con, market, now=None):
                 on, via = True, SCALP_FLAG
             if not on and switch_live(p, user):   # 14.11.: a real-account plan set under pravi_novac_sve
                 on, via = True, "pravi_novac_sve"
+            if not on and quick_live(p, user):   # 15.11.: the demo account's quick-profit plan, 24/7
+                on, via = True, QUICK_TAG
             if not on and is_scalp(p):   # switch off: rangedca's own exits sell it; no shadow (its state stays clean)
                 continue
             if not (on or sh):
@@ -1050,7 +1320,9 @@ def run_once(con, market, now=None):
                 text = f"plan izlaza #{p['id']} {tok[:6]} ({user}, sjena): bi {trig} {share:.0%}"
             if trig == "tp1" and p["plan"].get("breakeven_after_tp1"):   # 13.11. (owner's order point 4)
                 text += breakeven(con, p, user, tok, lots, px, mc, liq, frac, "izvršeno" if on else "sjena")
-            if on:
+            if on and via == QUICK_TAG:   # 15.11.: the demo's quick-profit sales (paper money): the log, no Telegram
+                print(text, flush=True)
+            elif on:
                 try:
                     from ui import grokauto
                     grokauto.notify(text)

@@ -4,6 +4,7 @@ Separate from paper.db: the bot's automatic paper trading never reads or writes 
 dashboard process writes here, so there is a single writer.
 Prices come in from the caller (live DexScreener in the UI); fills use the same fee + AMM impact as paper/sim.py.
 """
+import json
 import os
 import sqlite3
 import time
@@ -91,6 +92,28 @@ def set_data(con, trade_id, **cols):
 
 
 AUTO = object()   # buy(runup=AUTO): an Autopilot account's trade gets its run-up from kol.db by itself
+_MAKRO = {"at": 0.0, "v": None}
+MAKRO_TTL_S = 60
+
+
+def _makro(now=None):
+    """15.11. (owner: "demo trguje cijelo vrijeme"; the demo never stops while BTC falls): the macro state at an entry
+    of an Autopilot account, as league.db trades.makro, e.g. '{"btc": "pada", "eth": "neutralno", "score": 0.2,
+    "falling": true}' (market/makro.snapshot, read at most every MAKRO_TTL_S); None without market.db. Data only: no
+    entry reads it, so the falling-BTC trades can be measured apart."""
+    t = now or time.time()
+    if t - _MAKRO["at"] < MAKRO_TTL_S:
+        return _MAKRO["v"]
+    v = None
+    try:
+        from market import makro
+        snap = makro.snapshot(t)
+        if snap:
+            v = json.dumps({k: snap.get(k) for k in ("btc", "eth", "score", "falling")}, separators=(",", ":"))
+    except Exception:  # noqa: BLE001 - data only, never fails the buy
+        v = None
+    _MAKRO.update(at=t, v=v)
+    return v
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (user TEXT PRIMARY KEY, start_usd REAL, created INTEGER);
@@ -153,7 +176,7 @@ def _migrate(con):
     have = {r[1] for r in con.execute("PRAGMA table_info(trades)")}
     for col, typ in (("entry_mcap", "REAL"), ("exit_mcap", "REAL"),
                      ("realized", "REAL DEFAULT 0"), ("auto", "TEXT"), ("auto_state", "TEXT"),   # auto sell
-                     *DATA_COLS):
+                     *DATA_COLS, ("makro", "TEXT")):   # 15.11.: the macro state at an Autopilot entry (_makro)
         if col not in have:
             try:
                 con.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
@@ -217,6 +240,13 @@ def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None, m
                       "source, score, entry_mcap) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                       (user, token, symbol, int(time.time()), "open", size_usd, price, eff, size_usd / eff, source, score,
                        mcap))
+    if user in _autopilot_users():   # 15.11.: the macro state at the entry (data only)
+        mk = _makro()
+        if mk:
+            try:
+                con.execute("UPDATE trades SET makro=? WHERE id=?", (mk, cur.lastrowid))
+            except sqlite3.OperationalError:   # a database whose ALTER failed (full disk): no column, no data
+                pass
     if runup is AUTO:
         runup = None
         if user in _autopilot_users():

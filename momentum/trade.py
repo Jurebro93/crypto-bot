@@ -290,10 +290,32 @@ def exits_once(con, market_fn, now=None):
         t = lots[0]
         rule = EXIT_RULE[reason]
         note = f"momentum: {REASON_HR[reason]}"
+        from trade import settings as _ts
+        real = r["user"] == _ts.LEAGUE_USER
         try:
             if frac >= 0.999:
                 pnl = store.sell(con, r["user"], t["id"], price, liq, note, mcap=mcap, exit_rule=rule)
+                if real and st.get("part_usd"):
+                    # 15.11.: the lot's close books its partial sales too (store.sell_part keeps them in realized):
+                    # this sale's PnL already holds TP1's part, which st["pnl"] counted when it was sold
+                    pnl -= float(st.pop("part_usd") or 0)
                 left = False
+            elif real:
+                # 15.11. (owner: "brže uzimati profit"; league/exitplan._sell, 11.11.): on the REAL account a partial
+                # sale keeps the lot's size and lowers its quantity (store.sell_part), because run_trade mirrors the
+                # share still held (qty / bought qty) into the real position; store.sell_partial scaled both, so TP1's
+                # half at +15 % was never sold for real (the whole position waited for the trailing / stop)
+                q = (t["qty"] or 0) * frac
+                net = store.sell_part(con, t["id"], frac, price, liq)
+                pnl = net - q * (t.get("entry_eff") or t.get("entry_px") or 0)
+                st["part_usd"] = round(float(st.get("part_usd") or 0) + pnl, 6)
+                con.execute("UPDATE trades SET note=? WHERE id=?", (f"{note} ({frac:.0%})", t["id"]))
+                left = True
+                try:
+                    from trade import wake
+                    wake.ring(f"momentum {r['token'][:6]} {reason}")   # run_trade sends the real sale now
+                except Exception:  # noqa: BLE001
+                    pass
             else:
                 pnl, sold_all = store.sell_partial(con, r["user"], t["id"], frac, price, liq, mcap=mcap)
                 part = t["id"] if sold_all else con.execute(
