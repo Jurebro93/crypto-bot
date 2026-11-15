@@ -344,6 +344,23 @@ def _veliki_refusal():
         return f"veliki: dokaz se ne može pročitati ({type(e).__name__})"
 
 
+def _veliki_dca(con, lg, t):
+    """15.11. (vlasnik: "uključi DCA", veliki/live.dca): (why, add) of a big-token DCA lot's real buy: one more lot of the
+    first lot's real position (add) and only while that one is open (a DCA lot never lands on a position the strategy
+    does not own); every other limit holds (the gate's caps were asked in veliki/live, the switch and BTC here)."""
+    if not (t["source"] or "").startswith("veliki: DCA"):
+        return None, False
+    try:
+        r = lg.execute("SELECT trade_id FROM veliki_trades WHERE dca_trade_id=?", (t["id"],)).fetchone()
+    except sqlite3.OperationalError:
+        r = None
+    first = con.execute("SELECT 1 FROM positions WHERE league_id=? AND status IN ('open','pending')",
+                        (r[0],)).fetchone() if r else None
+    if not first:
+        return "veliki DCA bez pravog prvog lota (nije kupljen ili je već prodan)", False
+    return None, True
+
+
 def _veliki_size():
     """The real stake of a big-token range buy (veliki/gate.real_caps: 0.1 SOL, up to 0.5 by the owner)."""
     try:
@@ -400,8 +417,8 @@ def _no_stop(lg, t):
         if src.startswith("range lot") and lg.execute("SELECT 1 FROM range_rounds WHERE status='open' AND (lot1_id=? OR "
                                                       "lot2_id=?)", (t["id"], t["id"])).fetchone():
             return None   # rangedca/trade.exits_once: the round's hard stop every second
-        if src.startswith("veliki:") and lg.execute("SELECT 1 FROM veliki_trades WHERE trade_id=? AND status='open'",
-                                                    (t["id"],)).fetchone():
+        if src.startswith("veliki:") and lg.execute("SELECT 1 FROM veliki_trades WHERE (trade_id=? OR dca_trade_id=?) "
+                                                    "AND status='open'", (t["id"], t["id"])).fetchone():
             return None   # veliki/live.tick: its own stop every VEL_TICK_S (the real path still needs the owner's tap)
     except sqlite3.Error:
         pass
@@ -708,6 +725,9 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                     if why and wait:
                         continue
                     rng_sol = rng_sol or _veliki_size()
+                    if not why:
+                        why, dca_add = _veliki_dca(con, lg, t)
+                        rng_add = rng_add or dca_add
             auto_sw = sw and not size   # 14.11.: an automatic real buy under pravi_novac_sve (the owner's own: as before)
             strat = executor.strategy_of(t["source"])
             if not why and auto_sw:

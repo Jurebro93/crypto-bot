@@ -19,6 +19,8 @@ One short process a pass (start.sh: run_veliki.py midcap every MIDCAP every_s, 9
   X          scan/xmom (twitterapi.io): the trending members first, x_pass a pass, each every x_every_min, inside the
              scanner's own day cap (scan/config.json x_usd_day, $0.30; the scanner itself is off under the switch)
   priority   veliki/prioritet.py on every pass (kv prio: the live loop's order), the top 10 in the log every hour
+  macro      every hour veliki/makro.refresh: the platforms' volumes (market.db / DefiLlama), the Solana meme sector
+             (CoinGecko, free), the members' volume, BTC -> the regime risk_on / neutral / risk_off (table makro_h)
 
 Membership: a mint joins when data_judge passes; it leaves after leave_after_h (24 h) out of range or unseen; at most
 data_max_tokens (600) members, the largest 24 h volume first. Retention: snap rows older than snap_keep_days (14 d).
@@ -524,6 +526,12 @@ def run_pass(now=None, log=print, path=None, force=False):
             log(hour_line(con, c, now, path, prio))
             if prio:
                 log(prioritet.line(prio, int(c["prio_top"])))
+            try:   # 15.11. (vlasnik: "prati kretanje volumena najpoznatijih platformi"): the macro regime, free
+                from veliki import makro
+                if not FETCH or makro.FETCH:    # tests replace the collector's sources: no macro call of their own
+                    makro.refresh(con, now, log)
+            except Exception as e:  # noqa: BLE001 - the regime is a help, the data is the job
+                log(PREFIX + f"makro: {type(e).__name__}: {e}")
             if first:
                 kv_put(con, "start_said", now)
                 dn = kv_get(con, "disc_n", {}) or {}

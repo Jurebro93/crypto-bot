@@ -115,7 +115,8 @@ def position(entry, ts, z, rt, cfg=None):
 def simulate(b15, h1, rt, size_usd, cfg=None, crash=None):
     """Offline replay on one token's 15m bars (and its 1h candles; None: rebuilt from the 15m): decide at each
     completed 15m bar's close, fill at the next bar's open; one position at a time, the cooldown and MAX_ROUNDS a UTC
-    day. [{ts, out_ts, entry, exit, reason, ret, pnl, half}]."""
+    day. [{ts, out_ts, entry, exit, reason, ret, pnl, half, ret_demo, rt, fx, hours, mae, mfe}] (walk.stats reads
+    them)."""
     c = cfg_of(cfg)
     hh = rule.h1_from_15m(b15, h1)
     out, free_at, day_n = [], 0, {}
@@ -136,8 +137,10 @@ def simulate(b15, h1, rt, size_usd, cfg=None, crash=None):
         pos = position(e, b[0], z, rt, c)
         day_n[d] = day_n.get(d, 0) + 1
         j, hit = i + 1, None
+        lo = hi = e
         while j < len(b15):
-            hit = rule.exit_on_bar(pos, b15[j], {**c, "time_h": c["time_h"]})
+            hit = rule.exit_on_bar(pos, b15[j], c)
+            lo, hi = min(lo, b15[j][3]), max(hi, b15[j][2])
             if hit:
                 break
             j += 1
@@ -147,7 +150,9 @@ def simulate(b15, h1, rt, size_usd, cfg=None, crash=None):
         r = rule.blend_ret(pos, hit[1], rt, c)
         out_ts = b15[j][0] + M15
         out.append({"ts": b[0], "out_ts": out_ts, "entry": e, "exit": hit[1], "reason": hit[0], "ret": r,
-                    "pnl": r * size_usd, "half": bool(pos.get("half_px"))})
+                    "pnl": r * size_usd, "half": bool(pos.get("half_px")), "ret_demo": r, "rt": rt,
+                    "fx": hit[1] / e, "hours": round((out_ts - b[0]) / H, 2), "mae": round(lo / e - 1, 4),
+                    "mfe": round(hi / e - 1, 4)})
         free_at = out_ts + COOLDOWN_S
         i = j + 1
     return out
