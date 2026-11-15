@@ -239,9 +239,16 @@ def player_names(lpath=None):
 
 
 def learned_exits(tcon, now, dbs):
-    """The learned per-source exits (another agent's nightly learned_exits table) when that table exists in one of
-    the databases: its row count and up to 40 rows (aliased and scrubbed like every result). None otherwise. A
-    module's own summary function can replace this later (CONTEXT_BLOCKS)."""
+    """The learned per-source exits (izlazi/, nightly): izlazi.report.critic_summary (priors, the sources with the
+    biggest out-of-sample gain and every proven one: params, n, n_out, EV out vs default, intervals, the source's
+    behaviour), else the raw learned_exits rows of whichever database has that table. None before the first night."""
+    try:
+        from izlazi import report as izreport
+        d = izreport.critic_summary(top=30)
+        if d:
+            return d
+    except Exception:  # noqa: BLE001 - fall back to the table itself
+        pass
     for name, path in dbs.items():
         try:
             con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)

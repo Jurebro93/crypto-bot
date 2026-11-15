@@ -265,6 +265,20 @@ def validate(con, token, plan, sl_default, now=None, extra=None, tighten_only=Tr
             out["breakeven_buffer_pct"] = buf
     elif plan.get("breakeven_buffer_pct") is not None:
         raise ValueError("breakeven_buffer_pct goes with breakeven_after_tp1 true")
+    # 15.11. (izlazi/, owner: "širi stop loss i čekati duže"): the learned exit's grace (only the catastrophic stop and
+    # the rug flags in its first minutes), whether a copy sells when its source sells, and where it was learned
+    if plan.get("grace") is not None:
+        g = plan["grace"]
+        if not isinstance(g, dict):
+            raise ValueError("grace must be {min, cat_pct, liq_floor, liq0}")
+        out["grace"] = {"min": _num(g.get("min", 0), "grace.min", 0, 1440),
+                        "cat_pct": _num(g.get("cat_pct", 50), "grace.cat_pct", 5, min(99.0, sl_default)),
+                        "liq_floor": _num(g.get("liq_floor", 0.5), "grace.liq_floor", 0.05, 0.95),
+                        "liq0": _num(g["liq0"], "grace.liq0", 0, 1e12) if g.get("liq0") else None}
+    if plan.get("mirror") is not None:
+        out["mirror"] = bool(plan["mirror"])
+    if isinstance(plan.get("learned"), dict):
+        out["learned"] = {k: plan["learned"].get(k) for k in LEARNED_KEYS if k in plan["learned"]}
     acc = plan.get("accounts")
     if acc is not None:
         acc = [acc] if isinstance(acc, str) else acc
@@ -526,6 +540,68 @@ QUICK_SRC = f"{QUICK_TAG}:"   # the client of a demo-account plan; a real-accoun
 STOP_ONLY_SOURCES = ("range lot", "momentum")
 _QSWEEP = {"ts": 0.0}
 
+# 15.11. (owner: "nauči iz podataka najbolji stop loss i najbolji take profit, po izvoru ... ako odmah nakon našeg ulaza
+# ide dolje, čekaj duže"; izlazi/): when the position's source has a LEARNED exit (izlazi.db learned_exits, the nightly
+# run_izlazi.py), the quick-profit plan of a new automatic position takes the source's learned numbers instead of the
+# fixed ones (izlazi/apply.plan_for): the stop (never wider than sl_default), a grace in which only the catastrophic
+# stop (grace.cat_pct, -50 %) and the rug flags apply (the pool under grace.liq_floor of the entry's, rugfilter's
+# collapse with the dev / a top holder selling: _rug_flag, also after the grace), TP1 and its share (NET of the round
+# trip, as here), break-even + trailing for the rest, the time stop, and whether a copy still sells when its source
+# sells (mirror). Demo (PAPER_USER): as soon as the source has a learned row. Real money (LEAGUE_USER, under
+# pravi_novac_sve): only a row proven out of sample against this default (izlazi/store.proven); else this default.
+# Such a plan is IN FORCE for that account (in_force_tokens: the lot's own TP/SL steps aside, as for Grok's plans); its
+# numbers are copied at open time (a later run never changes an open position). Two accounts in one token keep their
+# own numbers (plan["by_user"], user_plan).
+LEARNED_TAG = "naučen izlaz"
+LEARNED_KEYS = ("key", "src", "ev_out", "default_ev_out", "n", "n_out", "proof", "learned_ts", "params", "sl_capped",
+                "words")
+USER_KEYS = ("take_profits", "trailing", "breakeven_after_tp1", "breakeven_buffer_pct", "time_stop", "time_stop_min",
+             "min_profit_pct", "grace", "mirror", "learned")
+
+
+def user_plan(plan, user):
+    """The plan as it applies to `user`: its own numbers (plan["by_user"][user], set when an account with a learned
+    exit and one without share the token's one plan) over the plan's."""
+    o = ((plan or {}).get("by_user") or {}).get(user)
+    return {**plan, **o} if o else plan
+
+
+def _learned(con, user, lots, liq=None):
+    """(the learned plan of a new position, info) or (None, why): izlazi/apply.plan_for. Never raises."""
+    try:
+        from izlazi import apply
+        return apply.plan_for(con, user, lots, liq)
+    except Exception as e:  # noqa: BLE001 - no learned exit: the quick-profit plan
+        return None, f"{type(e).__name__}: {e}"
+
+
+def mirror_off(con, token, user):
+    """True when `user`'s position in `token` runs a learned exit that does NOT sell when the source sells (league/copy
+    skips the mirror sale then)."""
+    try:
+        p = active(con, token)
+        if not p or user not in _scope(p["plan"]):
+            return False
+        pu = user_plan(p["plan"], user)
+        return bool(pu.get("learned")) and pu.get("mirror") is False and not paused()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _rug_flag(p, price, liq, mcap, now, gr):
+    """The rug flag that sells a learned exit's position at once, grace or not (Croatian text), or None: the pool under
+    grace.liq_floor of the entry's, or rugfilter/collapse (the pool pulled, a crash with the dev / a top holder
+    selling; league/auto._collapsed, cached 10 s a token)."""
+    liq0, fl = gr.get("liq0"), gr.get("liq_floor") or 0.5
+    if liq0 and liq is not None and 0 < liq < fl * liq0:
+        return f"likvidnost ${liq:,.0f} ispod {fl:.0%} ulazne ${liq0:,.0f}"
+    try:
+        from . import auto
+        col = auto._collapsed(p["token"], mcap, liq, now)
+    except Exception:  # noqa: BLE001 - the check is a guard: unknown is no rug flag
+        col = None
+    return f"rug: {col['text']}" if col else None
+
 
 def is_quick(plan):
     return bool(plan) and QUICK_TAG in str(plan.get("client") or "")
@@ -619,13 +695,24 @@ def join(con, p, user, lots, liq=None, own=None):
     the client into a switch plan's (SWITCH_SRC), so its part executes there. Returns the plan id."""
     from trade import settings as ts
     tok = p["token"]
-    q = quick_plan(lots, user, current_stop_px(con, user, tok, lots), liq, own)
+    lp, info = _learned(con, user, lots, liq)   # 15.11. (izlazi/): its own learned numbers, when it has them
+    q = lp or quick_plan(lots, user, current_stop_px(con, user, tok, lots), liq, own)
     avg = _avg(lots)
     if not q or not avg:
         return None
     plan, st = p["plan"], p["state"]
+    mine = None
+    if lp or plan.get("learned") or (plan.get("by_user") or {}):
+        # the plan's numbers are another account's learned (or default) ones: this account keeps its own
+        norm, spx = validate(con, tok, dict(q, accounts=[user]), sl_floor(), tighten_only=not lp)
+        mine = {k: norm.get(k) for k in USER_KEYS}
+        stop_px = spx[user]
+    else:
+        stop_px = avg * (1 + q["stop"]["at_pct"] / 100)
     plan["accounts"] = sorted(set(plan.get("accounts") or _users()) | {user})
-    st.setdefault("stop_px", {})[user] = avg * (1 + q["stop"]["at_pct"] / 100)
+    if mine is not None:
+        plan.setdefault("by_user", {})[user] = mine
+    st.setdefault("stop_px", {})[user] = stop_px
     st.setdefault("base_qty", {})[user] = sum(t["qty"] or 0 for t in lots)
     client = p.get("client") or ""
     if user == ts.LEAGUE_USER and not client.startswith(SWITCH_SRC):
@@ -633,6 +720,8 @@ def join(con, p, user, lots, liq=None, own=None):
     con.execute("UPDATE exit_plans SET plan=?, state=?, client=? WHERE id=?",
                 (json.dumps(plan), json.dumps(st), client, p["id"]))
     con.commit()
+    if lp:
+        print(f"plan izlaza: {tok[:6]} {user} {info['words']} (pridružen planu #{p['id']})", flush=True)
     return p["id"]
 
 
@@ -655,6 +744,12 @@ def quick_cover(con, token, user, now=None, liq=None, own=None, client="", log=p
                     log(f"plan izlaza: {token[:6]} {user} se pridružio planu #{pid} (brzi profit)")
                 return pid
             return None
+        lp, info = _learned(con, user, lots, liq)   # 15.11. (izlazi/): the source's learned exit, when it has one
+        if lp:
+            got = set_plan(con, token, lp, sl_floor(), client=_client(user, f"{LEARNED_TAG} {client}".strip()),
+                           now=now, tighten_only=False)
+            log(f"plan izlaza: {token[:6]} {user} {info['words']} (plan #{got['plan_id']})")
+            return got["plan_id"]
         plan = quick_plan(lots, user, current_stop_px(con, user, token, lots), liq, own)
         if not plan:
             return None
@@ -900,19 +995,45 @@ def in_force_tokens(con, user):
         on = m != "off" and flags.applies("exit_plans", user, m)
         sw = not on and user == ts.LEAGUE_USER and flags.mode(LIVE_FLAG) == "live"
         sc = not on and user == ts.LEAGUE_USER and flags.mode(SCALP_FLAG) == "live"   # 14.11. popodne
-        if not (on or sw or sc) or paused():
+        if paused():
             return set()
+        learned = _learned_in_force(con, user)   # 15.11. (izlazi/): a learned exit replaces the lot's own TP/SL
+        if not (on or sw or sc):
+            return learned
         ensure(con)
         rows = [(t, cl) for t, pl, cl in con.execute("SELECT token, plan, client FROM exit_plans WHERE status='active'")
                 if user in _scope(json.loads(pl or "{}"))
                 and not str(cl or "").startswith(SWITCH_SRC)   # 14.11.: a switch plan only adds, never replaces
                 and QUICK_TAG not in str(cl or "")]   # 15.11.: nor a quick-profit plan (the lot's own TP stays)
         if on:
-            return {t for t, _cl in rows}
+            return {t for t, _cl in rows} | learned
         return {t for t, cl in rows if (sc and str(cl or "").startswith(SCALP_SRC))
-                or (sw and (str(cl or "").startswith(PANEL_SRC) or grok_live(user, _lots(con, user, t))))}
+                or (sw and (str(cl or "").startswith(PANEL_SRC) or grok_live(user, _lots(con, user, t))))} | learned
     except Exception:  # noqa: BLE001
         return set()
+
+
+def _learned_in_force(con, user):
+    """15.11.: tokens whose active plan runs a LEARNED exit for `user` where that plan executes for it (the demo
+    account's quick plan; the real account's switch plan): the lot's own TP/SL steps aside for those."""
+    from trade import settings as ts
+    out = set()
+    try:
+        rows = con.execute("SELECT token, plan, client FROM exit_plans WHERE status='active' AND plan LIKE ?",
+                           ("%learned%",)).fetchall()
+    except sqlite3.Error:
+        return out
+    for tok, pl, cl in rows:
+        try:
+            plan = json.loads(pl or "{}")
+        except ValueError:
+            continue
+        cl = str(cl or "")
+        if user not in _scope(plan) or not user_plan(plan, user).get("learned"):
+            continue
+        if (user == ts.PAPER_USER and QUICK_TAG in cl) or (user == ts.LEAGUE_USER and cl.startswith(SWITCH_SRC)):
+            out.add(tok)
+    return out
 
 
 def quote(market, tokens, now):
@@ -1031,7 +1152,7 @@ def net_pnl_pct(lots, price, liq=None):
 def levels(p, user):
     """13.11.: {"stop": USD per token, "trailing": the trailing's level now (its peak - trail_pct) or None} of one
     account; the price a downside trigger fires at."""
-    st, tr = p["state"], p["plan"].get("trailing")
+    st, tr = p["state"], user_plan(p["plan"], user).get("trailing")
     pk = st.get("trail_peak_px", {}).get(user)
     return {"stop": st.get("stop_px", {}).get(user),
             "trailing": pk * (1 - tr["trail_pct"] / 100) if tr and pk else None}
@@ -1043,7 +1164,7 @@ def decide(p, user, lots, price, mcap, age_s, now, liq=None, low_px=None):
     low_px (13.11., owner's order point 2): a fresher price of the token (fresh_prices: the newest PumpPortal trade);
     the stop and the trailing fire on the lower of it and `price`, everything else (peaks, take profits, time stops)
     stays on `price`."""
-    st, plan = p["state"], p["plan"]
+    st, plan = p["state"], user_plan(p["plan"], user)   # 15.11.: the account's own (learned) numbers
     dn = min(price, low_px) if low_px and low_px > 0 else price
     avg, ratio = _avg(lots), _mc_ratio(lots)
     if not avg:
@@ -1062,6 +1183,19 @@ def decide(p, user, lots, price, mcap, age_s, now, liq=None, low_px=None):
             if price > st["trail_peak_px"].get(user, 0):
                 st["trail_peak_px"][user] = price
     stop = st["stop_px"].get(user)
+    gr = plan.get("grace")
+    if gr:   # 15.11. (izlazi/): a learned exit. The rug flags sell at once, in the grace or not (fresh quotes only)
+        why = _rug_flag(p, price, liq, mcap, now, gr) if not stale else None
+        if why:
+            st.setdefault("rug", {})[user] = why
+            return "rug", left, 1.0
+        first = min((t.get("opened_ts") or now) for t in lots)
+        if gr.get("min") and sold <= 1e-9 and now - first < gr["min"] * 60:
+            # the grace: the stop sleeps (the owner: "ako odmah nakon našeg ulaza ide dolje, čekaj duže"); only the
+            # catastrophic stop holds. After TP1 (break-even) there is no grace.
+            if dn <= avg * (1 - gr.get("cat_pct", 50) / 100):
+                return "katastrofa", left, 1.0
+            stop = None
     if stop and dn <= stop:
         return "stop", left, 1.0
     if stale:
@@ -1120,7 +1254,7 @@ def breakeven(con, p, user, tok, lots, price, mcap, liq, frac, mode):
     under the stop in force (state stop_px only goes up here) and never at / over the TP1 price itself (BE_MIN_GAP
     under it, so the rest is not sold the next second when TP1 sat under the cost). An exit_events row (trigger
     "breakeven", share 0) and state["be"][user]. Returns the words for the TP1 notice."""
-    st, plan = p["state"], p["plan"]
+    st, plan = p["state"], user_plan(p["plan"], user)
     avg = _avg(lots)
     if not avg:
         return ""
@@ -1283,14 +1417,21 @@ def run_once(con, market, now=None):
             # 13.11. (owner's order point 2): the price that crossed the level (the lower, fresher one for a stop or a
             # trailing, as decide compared), its feed and age, and the level itself (after decide moved the peak)
             lv = levels(p, user)
+            pu = user_plan(p["plan"], user)
             px, mc, src, px_age = price, mcap, "tržište", age
-            if trig in ("stop", "trailing") and low is not None:
+            if trig in ("stop", "trailing", "katastrofa") and low is not None:
                 px, src, px_age = low, "pumpportal", low_age
                 mc = mcap * low / price if mcap and price else mcap
-            tp = p["plan"]["take_profits"][int(trig[2:]) - 1] if trig.startswith("tp") else None
+            tp = pu["take_profits"][int(trig[2:]) - 1] if trig.startswith("tp") else None
             level = (lv.get(trig) if trig in ("stop", "trailing") else
+                     _avg(lots) * (1 - (pu.get("grace") or {}).get("cat_pct", 50) / 100) if trig == "katastrofa" else
                      _px(tp["kind"], tp["v"], _avg(lots), _mc_ratio(lots)) if tp else None)
             be_note = "break-even" if trig == "stop" and (p["state"].get("be") or {}).get(user) else ""
+            why_x = ""
+            if trig == "rug":   # 15.11.: a learned exit's rug flag (_rug_flag), in the grace or not
+                why_x = str((p["state"].get("rug") or {}).get(user) or "rug")
+            elif trig == "katastrofa":
+                why_x = "katastrofalni stop u grace periodu (naučeni izlaz)"
             if trig.startswith("tp"):
                 p["state"]["fired"].setdefault(user, []).append(int(trig[2:]) - 1)
             p["state"]["sold"][user] = min(1.0, p["state"]["sold"].get(user, 0.0) + share)
@@ -1301,7 +1442,7 @@ def run_once(con, market, now=None):
                 except ValueError as e:   # closed meanwhile: next pass sees it
                     print(f"plan izlaza #{p['id']} {tok[:6]}: {e}", flush=True)
                     continue
-                note = "; ".join(x for x in (via, be_note) if x)
+                note = "; ".join(x for x in (via, be_note, why_x) if x)
                 _event(con, p, user, tok, trig, px, mc, share, pnl, "izvršeno", age > STALE_S, note,
                        level_px=level, px_src=src, px_age_s=px_age, trig_ts=t_trig)
                 if user == ts.LEAGUE_USER:   # 13.11.: run_trade sends the real sell now, not at its next pass (rung
@@ -1309,16 +1450,16 @@ def run_once(con, market, now=None):
                 # 11.11.: the account in words (pravi račun = run_trade mirrors it into the real swap), never "sjena"
                 acc = "pravi račun, live" if user == ts.LEAGUE_USER else "demo račun, paper"
                 text = (f"plan izlaza #{p['id']} {lots[0].get('symbol') or tok[:6]} ({user}, {acc}): {trig}"
-                        + (" (break-even)" if be_note else "")
+                        + (" (break-even)" if be_note else "") + (f" ({why_x})" if why_x else "")
                         + f", prodano {share:.0%} pozicije na MC ${mc or 0:,.0f}, {pnl:+.2f} $"
                         + _level_words(level, px, mc, src, px_age))
             else:
                 flags.shadow(con, "exit_plans", None, tok, f"izlaz {trig}", f"prodaj {share:.0%}",
                              {"plan_id": p["id"], "price": px, "mcap": mc}, now)
-                _event(con, p, user, tok, trig, px, mc, share, None, "sjena", age > STALE_S, be_note,
+                _event(con, p, user, tok, trig, px, mc, share, None, "sjena", age > STALE_S, be_note or why_x,
                        level_px=level, px_src=src, px_age_s=px_age, trig_ts=t_trig)
                 text = f"plan izlaza #{p['id']} {tok[:6]} ({user}, sjena): bi {trig} {share:.0%}"
-            if trig == "tp1" and p["plan"].get("breakeven_after_tp1"):   # 13.11. (owner's order point 4)
+            if trig == "tp1" and pu.get("breakeven_after_tp1"):   # 13.11. (owner's order point 4)
                 text += breakeven(con, p, user, tok, lots, px, mc, liq, frac, "izvršeno" if on else "sjena")
             if on and via == QUICK_TAG:   # 15.11.: the demo's quick-profit sales (paper money): the log, no Telegram
                 print(text, flush=True)
@@ -1350,20 +1491,22 @@ def view(con, token, user, price=None, mcap=None):
     if price is None and mcap and ratio:
         price = mcap / ratio
     st = p["state"]
+    pl = user_plan(p["plan"], user)   # 15.11.: this account's own (learned) numbers
     peak = st["peak_px"].get(user, avg)
     out = {"plan_id": p["id"], "set_ts": p["created_ts"], "client": p["client"], "reason": p["reason"], "plan": p["plan"],
            "execution": execution(user, lots, plan=p),   # 11.11.: live (sells on the real account) or paper, and why
            "panel": is_panel(p),   # 11.11.: set by the owner's own exit (a buy from the panel, Uredi SL-TP)
            # 12.11.: the net time stop and the widest stop, None when the plan has none
-           "time_stop_min": p["plan"].get("time_stop_min"), "min_profit_pct": p["plan"].get("min_profit_pct"),
-           "max_stop_pct": p["plan"].get("max_stop_pct"), "summary": describe(p["plan"]),
+           "time_stop_min": pl.get("time_stop_min"), "min_profit_pct": pl.get("min_profit_pct"),
+           "max_stop_pct": pl.get("max_stop_pct"), "summary": describe(pl),
            "sold_share": st["sold"].get(user, 0.0), "peak_mc_since_entry": round(peak * ratio) if ratio else None,
-           "trailing_active": bool(st["trail_peak_px"].get(user)), "triggers": []}
-    if p["plan"].get("breakeven_after_tp1"):   # 13.11. (owner's order point 4): armed, and moved once TP1 sold
+           "trailing_active": bool(st["trail_peak_px"].get(user)), "triggers": [],
+           "learned": pl.get("learned"), "grace": pl.get("grace"), "mirror": pl.get("mirror")}
+    if pl.get("breakeven_after_tp1"):   # 13.11. (owner's order point 4): armed, and moved once TP1 sold
         be = (st.get("be") or {}).get(user)
-        out["breakeven"] = {"after_tp1": True, "buffer_pct": p["plan"].get("breakeven_buffer_pct"),
+        out["breakeven"] = {"after_tp1": True, "buffer_pct": pl.get("breakeven_buffer_pct"),
                             "buffer": "round-trip cost (trade/cost.round_trip)"
-                            if p["plan"].get("breakeven_buffer_pct") is None else "fixed",
+                            if pl.get("breakeven_buffer_pct") is None else "fixed",
                             "active": bool(be), "stop_px": be["px"] if be else None,
                             "stop_mc": round(be["px"] * ratio) if be and ratio else None,
                             "buffer_pct_used": be["buf_pct"] if be else None}
@@ -1372,7 +1515,7 @@ def view(con, token, user, price=None, mcap=None):
 
     def dist(px):
         return round((px / price - 1) * 100, 2)
-    for i, tp in enumerate(p["plan"].get("take_profits") or []):
+    for i, tp in enumerate(pl.get("take_profits") or []):
         px = _px(tp["kind"], tp["v"], avg, ratio)
         out["triggers"].append({"trigger": f"tp{i + 1}", "fired": i in st["fired"].get(user, []),
                                 "mc": round(px * ratio) if ratio else None, "distance_pct": dist(px)})
@@ -1380,22 +1523,22 @@ def view(con, token, user, price=None, mcap=None):
         px = st["stop_px"][user]
         out["triggers"].append({"trigger": "stop", "mc": round(px * ratio) if ratio else None, "distance_pct": dist(px),
                                 "breakeven": bool((st.get("be") or {}).get(user))})
-    tr = p["plan"].get("trailing")
+    tr = pl.get("trailing")
     if tr:
         tpk = st["trail_peak_px"].get(user)
         px = tpk * (1 - tr["trail_pct"] / 100) if tpk else avg * (1 + tr["activate_pct"] / 100)
         out["triggers"].append({"trigger": "trailing" if tpk else "trailing_activation",
                                 "mc": round(px * ratio) if ratio else None, "distance_pct": dist(px)})
-    ts_ = p["plan"].get("time_stop")
+    ts_ = pl.get("time_stop")
     if ts_:
         last_entry = max(t["opened_ts"] or 0 for t in lots)
         out["triggers"].append({"trigger": "time_stop", "at_ts": int(last_entry + ts_["after_min"] * 60),
                                 "if_pnl_below_pct": ts_["if_pnl_below_pct"]})
-    if p["plan"].get("time_stop_min"):   # 12.11.: the net time stop, with the net result now
+    if pl.get("time_stop_min"):   # 12.11.: the net time stop, with the net result now
         last_entry = max(t["opened_ts"] or 0 for t in lots)
         net = net_pnl_pct(lots, price)
-        out["triggers"].append({"trigger": "time_stop_min", "at_ts": int(last_entry + p["plan"]["time_stop_min"] * 60),
-                                "min_profit_pct_net": p["plan"].get("min_profit_pct") or 0.0,
+        out["triggers"].append({"trigger": "time_stop_min", "at_ts": int(last_entry + pl["time_stop_min"] * 60),
+                                "min_profit_pct_net": pl.get("min_profit_pct") or 0.0,
                                 "net_pnl_pct_now": round(net, 2) if net is not None else None})
     return out
 
@@ -1571,6 +1714,13 @@ def describe(plan):
         buf = plan.get("breakeven_buffer_pct")
         bits.append("nakon TP1 stop na break-even ("
                     + (f"ulaz {pct_words(buf)}" if buf is not None else "ulaz + trošak") + ")")
+    g = plan.get("grace")
+    if g and g.get("min"):   # 15.11. (izlazi/): the learned exit's grace
+        bits.append(f"grace {g['min']:g} min (samo {pct_words(-g.get('cat_pct', 50))} / rug)")
+    if plan.get("mirror") is False:
+        bits.append("ne prodaje kad izvor proda")
+    if plan.get("learned"):
+        bits.append(f"naučeno: {plan['learned'].get('src') or '?'}")
     return " · ".join(bits)
 
 
