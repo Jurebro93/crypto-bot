@@ -84,6 +84,8 @@ class LaterOrders(Base):
                                 "zastavica pravi_novac_veliki: off → live",
                                 # 15.11. navečer (vlasnik: nikakvi resursi na mikrokapove; ops/fokus.py)
                                 "zastavica fokus_midcap: off → live",
+                                # 15.11. navečer (vlasnik: „Arhiviraj onda dok ima prostora na disku”; ops/arhiva.py)
+                                "zastavica arhiva_mikrokapova: off → live",
                                 # the one-time step of the real-money order runs after the flag orders
                                 "veliki dokaz: walk-forward → nalog vlasnika (pravi novac odmah)"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")

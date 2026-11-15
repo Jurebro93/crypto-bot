@@ -278,7 +278,17 @@ def collect(now=None):
     data["insajderi"] = insajderi(now)   # 10.11. (flag insider_copy, kol/precall.py)
     data["momentum"] = momentum(now)     # 11.11. (flags momentum_scalp, grok_ev_gate; momentum/)
     data["kriticar"] = kriticar(now)     # 15.11. (critic/: the OpenAI critic's review, verdicts, record, cost)
+    data["arhiva"] = arhiva(now)         # 15.11. (ops/arhiva.py: microcap / rug rows moved to .gz archives last night)
     return data
+
+
+def arhiva(now):
+    """The last night's archive move (ops/arhiva.summary): rows moved, MB freed, MB of .gz, free disk. None without one."""
+    try:
+        from ops import arhiva as arh
+        return arh.summary(now=now)
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
 
 
 def kriticar(now):
