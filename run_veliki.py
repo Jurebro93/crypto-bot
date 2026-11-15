@@ -10,6 +10,9 @@ list and the live rule from veliki.db.
     python3 run_veliki.py once     the backtest after a deploy (start.sh: low priority under the heavy lock, VEL_BUDGET_S
                                    ~15 min); skipped when the last run is younger than MIN_GAP_S (--force runs anyway)
     python3 run_veliki.py night    nightly, 01-06 Zagreb, once a day (start.sh: ops.heavy --night): list + backtest
+    python3 run_veliki.py candles  the current list's candles only: own bars from the DexScreener polls + GeckoTerminal
+                                   by need, 1h of the top first (start.sh every 15 min, low priority, no heavy lock)
+    python3 run_veliki.py midcap   one midcap collector pass (veliki/midcap.py; only with the owner switch fokus_midcap)
     python3 run_veliki.py report   the markdown of the latest run
     python3 run_veliki.py status   the summary (list, zones, backtest, demo, real-money gate), one screen
 """
@@ -22,6 +25,7 @@ import time
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 MIN_GAP_S = int(os.environ.get("VEL_MIN_GAP_S", str(3 * 3600)))
+RETRY_GAP_S = int(os.environ.get("VEL_RETRY_GAP_S", "3600"))   # 15.11. navečer: no rule picked yet: again after 1 h
 
 
 def in_night(now):
@@ -44,15 +48,25 @@ def main(argv=None):
     if cmd == "list":
         walk.refresh(now, log)
         return 0
+    if cmd == "candles":   # 15.11. navečer: candles of the current list only (own bars + GeckoTerminal by need)
+        walk.candles_pass(now, log)
+        return 0
+    if cmd == "midcap":    # 15.11. navečer: the midcap collector (veliki/midcap.py; only with the owner switch fokus_midcap)
+        from veliki import midcap
+        midcap.run_pass(now, log, force="--force" in argv)
+        return 0
     if cmd in ("once", "night"):
         last_ts, last_day = store.last()
+        if "--ako-nema-pravila" in argv and store.live_rule():   # 15.11. navečer: the hourly retry only without a rule
+            return 0
         if cmd == "night":
             if "--force" not in argv and not in_night(now):
                 return 0
             if "--force" not in argv and last_day == time.strftime("%Y-%m-%d", time.gmtime(now + 3600)):
                 return 0
             walk.refresh(now, log)
-        elif "--force" not in argv and last_ts and now - int(last_ts) < MIN_GAP_S:
+        elif "--force" not in argv and last_ts and now - int(last_ts) < (MIN_GAP_S if store.live_rule() else RETRY_GAP_S):
+            # 15.11. navečer: without a picked rule (the candles had not arrived) it tries again after RETRY_GAP_S
             log(walk.PREFIX + f"zadnji backtest prije {(now - int(last_ts)) / 60:.0f} min, preskačem")
             return 0
         try:
