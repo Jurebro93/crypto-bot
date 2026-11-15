@@ -1098,6 +1098,8 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             if user != settings.PAPER_USER:   # 15.11. (holderi/): real entries after the loop, own order (no listing bonus)
                 deferred.append((real_rank.get(tok, len(real_rank)), tok, user, q, zone, regime, bars, i, link))
                 continue
+            if _makroinf_blocks(now, out):   # 15.11. (makroinf/, flag makroinf_indeks): a DEMO input only
+                continue
             link = _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx,
                               prioritet, pr) or link
     for _k, tok, user, q, zone, regime, bars, i, link in sorted(deferred, key=lambda x: x[0]):
@@ -1107,6 +1109,27 @@ def tick(con, market_fn, now=None, force=False, toks=None):
         con.execute("DELETE FROM veliki_bars WHERE ts < ?", (int(now - 10 * 86400),))
         con.commit()
     return out
+
+
+def _makroinf_blocks(now, out):
+    """True when the DEMO account must skip a new 7-day-rule entry because of makroinf's index (flag makroinf_indeks
+    paper, the input active, the index of the most accurate accounts bearish beyond its threshold: veliki/makro.
+    demo_regime). Shadow only logs "bi preskočio". Once an hour a line; never raises; never asked for the real account."""
+    try:
+        from veliki import makro
+        blocks, why, mode = makro.demo_index(now)
+    except Exception:  # noqa: BLE001 - unreadable: no effect
+        return False
+    if not blocks:
+        return False
+    hour = int(now) // 3600
+    if _ST.get("mi_said") != hour:
+        _ST["mi_said"] = hour
+        out.append(f"veliki demo: {'bez novih ulaza' if mode == 'paper' else 'sjena, demo bi preskočio ulaze'} — {why}")
+    if mode != "paper":
+        return False
+    _refused("makro influenceri: indeks najtočnijih medvjeđi")
+    return True
 
 
 def _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, prioritet, pr):

@@ -402,6 +402,31 @@ FLAGS[INSAJDERI2] = ("P23", "Insajderi 2.0: demo račun ulazi kad potvrđena gru
 NEVER_LIVE[INSAJDERI2] = "insajderi2 nikad ne trguje pravim novcem (samo demo račun); vlasnik odlučuje kasnije s brojkama"
 PROFILE_FLAGS = PROFILE_FLAGS | {INSAJDERI2}   # its paper mode never makes the paper account follow anybody
 
+# 15.11. (vlasnik: "Slažem se s prijedlogom koraka za plan makroinfluencera s dopunama kritičara"; makroinf/): FLAG
+# "makroinf_indeks": the consensus index of the most accurate macro influencers as a DEMO input of the midcap macro
+# regime (veliki/makro.demo_regime): paper = the DEMO account takes no new midcap entry while the index (prospective,
+# the most accurate accounts) is bearish beyond the walk-forward's threshold AND makroinf's input state is "aktivan"
+# (quality check passed, enough accounts with a stance, no degradation of the incremental EV); shadow = only the line
+# "bi blokirao"; the REAL account never reads it. Never live (NEVER_LIVE): real money only after the critic's proof.
+MAKROINF = "makroinf_indeks"
+FLAGS[MAKROINF] = ("MI1", "Makro influenceri: indeks najtočnijih makro računa kao DEMO ulaz makro režima midcapova; demo "
+                          "ne ulazi dok je indeks medvjeđi ispod praga walk-forwarda i ulaz je aktivan (provjera prošla, "
+                          "bez degradacije dodatnog EV-a); pravi račun ga nikad ne čita")
+NEVER_LIVE[MAKROINF] = ("makroinf_indeks nikad ne trguje pravim novcem (samo DEMO ulaz), dok indeks ne dokaže dodatni EV "
+                        "prema kritičarevom pragu")
+PROFILE_FLAGS = PROFILE_FLAGS | {MAKROINF}   # its paper mode never makes the paper account follow anybody
+# The owner switch of the PUBLIC pages (/macro-influencers, /hr/makro-influenceri, one page per account): publishing is
+# "sending out", so default off (the routes answer 404 and nothing is in the sitemap) and only the owner's own tap
+# turns it on ("uživo" = published), never an order or any other code path.
+MAKROINF_JAVNO = "makroinf_javno"
+FLAGS[MAKROINF_JAVNO] = ("MI2", "Javne stranice makro influencera (EN + HR): zbirne ocjene s intervalima, metodologija, "
+                                "stav s odgodom 7 dana; isključeno = stranice ne postoje (404) i nisu u sitemapu")
+OWNER_SWITCHES = OWNER_SWITCHES | {MAKROINF_JAVNO}
+OWNER_SWITCH_NOTES[MAKROINF_JAVNO] = ("Tvoj prekidač: „uživo” = javne stranice /macro-influencers i /hr/makro-influenceri "
+                                      "(i po jedna za svaki račun) postoje i ulaze u sitemap; svaki drugi mod = 404 i "
+                                      "ništa u sitemapu. Uključuje samo vlasnik (objava je slanje van).")
+PROFILE_FLAGS = PROFILE_FLAGS | {MAKROINF_JAVNO}
+
 
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""
@@ -708,7 +733,7 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     cur = flag_state(con)[name]
     if mode == cur["mode"]:
         return cur
-    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH, VEL_SWITCH) and not is_owner(who):
+    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH, VEL_SWITCH, MAKROINF_JAVNO) and not is_owner(who):
         # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
         # chat order, an applied suggestion or any other code path
         raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")

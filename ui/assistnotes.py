@@ -829,6 +829,12 @@ OWNER_FLAG_ORDERS = (
     # gives it real money.
     ("insajderi2", "paper", "vlasnik u chatu 15.11.: Insajderi 2.0 (kupili prije poziva i prodali u skok) u demo; pravi "
                             "novac nikad iz ove zastavice, vlasnik odlučuje kasnije s brojkama"),
+    # 15.11. (vlasnik: "Slažem se s prijedlogom koraka za plan makroinfluencera s dopunama kritičara"; makroinf/): the
+    # index of the most accurate macro influencers as a DEMO input of the midcap macro regime from the deploy (it acts
+    # only once makroinf's own input state is "aktivan"). NEVER_LIVE; the public pages' switch makroinf_javno is NOT
+    # ordered here (only the owner's own tap publishes).
+    ("makroinf_indeks", "paper", "vlasnik u chatu 15.11.: plan makro influencera s dopunama kritičara — indeks ide u "
+                                 "midcap strategiju samo kao DEMO ulaz dok ne dokaže dodatni EV"),
 )
 # 15.11. (the same order): Grok autotrade buys with real money too, so it goes off once as well (grokauto.set_on)
 OWNER_ONCE_1511 = "owner_once:real_money_off_1511"

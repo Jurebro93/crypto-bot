@@ -36,8 +36,13 @@ def _paths():
     from scan import store as sstore
     from usage import meter
     from trade import settings
+    try:
+        from makroinf import store as mstore
+        mpath = mstore.db_path()
+    except Exception:  # noqa: BLE001
+        mpath = None
     return {"kol": kstore.DB, "scan": sstore.db_path(), "hype": lstore.HYPE_DB, "usage": meter.DB,
-            "ai": os.path.join(ROOT, "ai.db"), "trade": settings.DB}
+            "ai": os.path.join(ROOT, "ai.db"), "trade": settings.DB, "makroinf": mpath}
 
 
 def _ro(path):
@@ -115,11 +120,29 @@ def twitterapi(now, paths):
                  "discover": kv(f"twdisc:{day}"), "trending": kv(f"twtrend:{day}"), "obrisane": flash}
         parts = {k: round(v, 4) for k, v in parts.items()}
         parts["ostalo"] = round(max(0.0, total - sum(parts.values())), 4)
+        _n, mi = _makroinf_day(paths, ("twitterapi",), day)   # 15.11. (makroinf/): booked in makroinf.db, not kol.db
+        if mi:
+            parts["makroinf"] = mi
+            total += mi
         return {"usd": round(total, 4), "dijelovi": parts}
     finally:
         for c in (kcon, scon):
             if c is not None:
                 c.close()
+
+
+def _makroinf_day(paths, srcs, day):
+    """15.11. (makroinf/): (requests, USD) of the macro influencers on one UTC day for these sources (makroinf.db
+    spend); (0, 0.0) without the database (tests pass their own paths without it)."""
+    con = _ro(paths.get("makroinf"))
+    if con is None:
+        return 0, 0.0
+    try:
+        q = ",".join("?" * len(srcs))
+        r = _all(con, f"SELECT COUNT(*), COALESCE(SUM(usd), 0) FROM spend WHERE src IN ({q}) AND day = ?", (*srcs, day))
+        return (int(r[0][0]), round(_f(r[0][1]), 4)) if r else (0, 0.0)
+    finally:
+        con.close()
 
 
 def _account(ucon, service, now):
@@ -191,8 +214,9 @@ def ai(now, paths):
 
 def openai(now, paths):
     """15.11.: the OpenAI critic's UTC day (trade.db critic_calls / critic_verdicts / its assistant notes) plus the other
-    OpenAI jobs the usage meter counts under service "openai" (the token pages' opinions, tokenstranice/misljenje.py:
-    per method in po_vrsti); None before the first call of either."""
+    OpenAI jobs the usage meter counts under service "openai" (the token pages' opinions, tokenstranice/misljenje.py;
+    the macro influencers' classification and check, makroinf/store.book: methods makroinf / makroinf_provjera; per
+    method in po_vrsti); None before the first call of either."""
     day0 = int(now) // 86400 * 86400
     ucon = _ro(paths.get("usage"))
     try:
