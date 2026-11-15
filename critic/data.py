@@ -354,11 +354,25 @@ def reports(now=None, budget_chars=2500):
             put("veliki_tokeni_range", v, None)
     except Exception:  # noqa: BLE001
         pass
+    try:   # 15.11. (holderi/): listing signals with outcomes, insider cautions, profitable holders' buys
+        from holderi import view as hview
+        h = hview.critic_summary()
+        if h:
+            put("holderi_listing", h, None)
+    except Exception:  # noqa: BLE001
+        pass
     try:   # 15.11. (oscilator/): the oscillating tokens' scalp walk-forward per size and its demo
         from oscilator import view as oview
         o = oview.critic_summary()
         if o:
             put("oscilator", o, None)
+    except Exception:  # noqa: BLE001
+        pass
+    try:   # 15.11. (insajderi/): Insajderi 2.0: who bought before calls / jumps and sold into them, copyability
+        from insajderi import report as i2report
+        i2 = i2report.critic_summary()
+        if i2:
+            put("insajderi2", i2, i2.get("ts"))
     except Exception:  # noqa: BLE001
         pass
     try:   # 15.11. (konsenzus/): the source consensus walk-forward and its demo

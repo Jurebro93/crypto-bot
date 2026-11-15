@@ -918,10 +918,11 @@ class Priorities(unittest.TestCase):
                 name, kind, _ = g.classify(["python3", m.group(1)] + m.group(2).split())
                 self.assertIn(name, ("minute", "sched", "report", "top", "watch", "simianx", "skener", "grupe", "range", "insajderi",
                                      "momentum", "shill-mreza", "eventi", "prijedlozi", "zonewatch", "fast", "disk",
-                                     "retencija", "kriticar", "veliki", "arhiva"), ln)   # 15.11.: veliki/ candles (run_veliki.py candles)   # 11.11.: momentum/, kol/preshill.py, topics/, proposals/,
+                                     "retencija", "kriticar", "veliki", "arhiva", "holderi"), ln)   # 15.11.: veliki/ candles (run_veliki.py candles)   # 11.11.: momentum/, kol/preshill.py, topics/, proposals/,
                 # zonewatch/, fast/ (run_fast.py, flag fast_path G24), ops/retencija.py (the retention, owner switches);
                 # 15.11.: critic/ (run_critic.py loop, the OpenAI critic's watcher of real-money fills; advice only);
                 # 15.11. navečer: veliki/ (run_veliki.py candles every 15 min, the midcap collector every 90 s; JOBS class)
+                # 15.11. navečer: holderi/ (run_holderi.py pass every 10 min: holder snapshots, listing signals; JOBS class)
                 self.assertNotIn(name, ("ui", "trade", "kol", "tg", "live", "paper"), ln)
 
     def test_guard_starts_right_after_ui_and_trade_before_the_background(self):

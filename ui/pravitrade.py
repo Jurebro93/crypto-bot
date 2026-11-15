@@ -1466,6 +1466,25 @@ def _veliki_card(owner):
     return view.card_html(_sec, _item, esc, owner)
 
 
+def _holderi_card(owner):
+    """15.11. (vlasnik, holderi/): "Listing signali i holderi", one closed row under Ostalo (owner only): red badges of
+    the PRE-LISTING signals, the signals with their outcome, the insider cautions, the holder classes of the top
+    midcaps and what the profitable holders buy."""
+    if not owner:
+        return ""
+    from holderi import view
+    return view.card_html(_sec, _item, esc, owner)
+
+
+def _insajderi2_card(owner):
+    """15.11. (vlasnik, insajderi/, flag insajderi2): "Insajderi 2.0", one closed row under Ostalo (owner only): the copy
+    verdict at our constraints, the walk-forward per MC bucket, the top groups and today's top jumps."""
+    if not owner:
+        return ""
+    from insajderi import report
+    return report.card_html(_sec, _item, esc, owner)
+
+
 def _konsenzus_card(owner):
     """15.11. (vlasnik, konsenzus/, flag konsenzus): "Konsenzus izvora", one closed row under Postavke (owner only):
     the best candidate of the source consensus walk-forward, its holdout numbers, the demo so far and why real money

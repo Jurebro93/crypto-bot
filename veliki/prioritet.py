@@ -14,6 +14,14 @@ Components (each in the row, the score is their sum):
           kupi +10 x confidence, preskoči -10 x confidence
   dip     the price is down over 24 h (snap c24) or 7 d (daily candles) while liquidity (>= 80 % of a day ago) and
           volume (>= 60 % of a day ago) hold: + the size of the dip (0-20) when the reason is market-wide or benign
+  listing 15.11. (holderi/, vlasnik: "kad dio ponude ode na novčanik burze ... jak signal"): a PRE-LISTING signal (supply
+          reaching an exchange that does not list the token yet) of score >= 40: + 0.5 x score, at most 40. It orders the
+          DEMO entries; the real account's order leaves it out until holderi/config.json listing_real (default off;
+          the critic: 0 SOL on the transfer alone until it is measured)
+  oprez   15.11. (holderi/, vlasnik: "do insiders hold a large share of supply — if yes, be careful"): insiders without
+          exchanges and LP over 30 %: - the excess (at most 30); team / insiders moving supply out to sell -20; whales
+          depositing to an exchange that lists it -15. From 50 % insiders or with the team selling: "block" (veliki/live
+          does not enter; the reason is in the row and in "zašto je pao")
 Dip reason (classify):
   los         LP pulled (liquidity -30 % in 24 h), RugCheck danger flags, mint / freeze authority, top-10 > 50 %, dev
               >= 5 %, sells > 1.6 x buys over 24 h while the price falls (holders dumping), Grok's dip verdict preskoči
@@ -60,6 +68,9 @@ def classify(d):
     g = d.get("grok_dip") or {}
     if g.get("verdict") == "preskoči" and (g.get("confidence") or 0) >= 0.5:
         bad.append("Grok: razlog pada loš")
+    h = d.get("holders") or {}
+    if h.get("block"):   # 15.11. holderi/: insiders hold too much or the team is selling
+        bad.append("holderi: " + h["block"])
     if bad:
         return "los", "; ".join(bad)
     if (d.get("btc24") is not None and d["btc24"] <= -3) or (d.get("market_med") is not None and d["market_med"] <= -5):
@@ -98,7 +109,21 @@ def score(d):
         if dip.get("kind") in ("trzisni", "benigni") and holds else 0.0
     if dip.get("kind") == "los":
         p["dip"] = -50.0
+    h = d.get("holders") or {}
+    if h.get("listing"):
+        p["listing"] = round(float(h["listing"]), 1)
+    if h.get("oprez"):
+        p["oprez"] = round(float(h["oprez"]), 1)
     return round(sum(p.values()), 1), p
+
+
+def _holders():
+    """{mint: holderi facts} (holderi/view.prio_facts: listing bonus, caution, block), {} without holderi."""
+    try:
+        from holderi import view as hview
+        return hview.prio_facts() or {}
+    except Exception:  # noqa: BLE001 - no holder data: no listing / caution component
+        return {}
 
 
 def _btc24(now):
@@ -170,6 +195,7 @@ def refresh(con, now=None):
     c24s = [x[6] for x in last.values() if x[6] is not None]
     med = statistics.median(c24s) if len(c24s) >= 10 else None
     btc = _btc24(now)
+    hold = _holders()
     facts = {}
     for mint, tid, sym, vol24, trend, liq in toks:
         ls = last.get(tid)
@@ -183,7 +209,7 @@ def refresh(con, now=None):
              "vol_ratio": round(v24 / o[1], 2) if o and o[1] and v24 else None,
              "sells_buys": round(s24 / b24, 2) if b24 and s24 else None, "safety": sa.get(mint),
              "btc24": None if btc is None else round(btc, 1), "market_med": None if med is None else round(med, 1),
-             "x": xs.get(mint) or {}}
+             "x": xs.get(mint) or {}, "holders": hold.get(mint) or {}}
         facts[mint] = d
     dipped = [m for m, d in facts.items() if min(d.get("c24") or 0, d.get("c7d") or 0) <= -5]
     gk = _grok(sorted(set(dipped) | {m for m, d in facts.items() if d.get("trend")}), now) if facts else {}
@@ -198,9 +224,15 @@ def refresh(con, now=None):
             d["dip"] = {"kind": "nejasno", "why": "likvidnost pala 20-30 %: oprez", "c24": d.get("c24"),
                         "c7d": d.get("c7d")}
         sc, parts = score(d)
-        rows.append({"mint": m, "symbol": d.get("symbol"), "score": sc, "parts": parts, "dip": d.get("dip"),
-                     "facts": {k: d.get(k) for k in ("c24", "c7d", "liq_ratio", "vol_ratio", "sells_buys", "trend",
-                                                     "vol24", "btc24", "market_med")}})
+        row = {"mint": m, "symbol": d.get("symbol"), "score": sc, "parts": parts, "dip": d.get("dip"),
+               "facts": {k: d.get(k) for k in ("c24", "c7d", "liq_ratio", "vol_ratio", "sells_buys", "trend",
+                                               "vol24", "btc24", "market_med")}}
+        h = d.get("holders") or {}
+        if h.get("block"):
+            row["block"] = "holderi: " + h["block"]
+        if h.get("listing") or h.get("oprez"):
+            row["holders"] = {k: h.get(k) for k in ("listing", "listing_score", "listing_ex", "oprez", "why")}
+        rows.append(row)
     rows.sort(key=lambda r: -r["score"])
     prio = {"ts": now, "rows": rows[:KEEP]}
     midcap.kv_put(con, "prio", prio)
@@ -231,11 +263,27 @@ def cached(path=None):
     return v
 
 
-def order(tokens, prio=None):
-    """The tokens in priority order (unknown ones after, in their own order)."""
+def real_score(r):
+    """The score the REAL account orders by: without the listing bonus unless holderi/config.json listing_real (15.11.,
+    the critic: 0 SOL on the transfer alone until the signal is measured)."""
+    lb = (r.get("parts") or {}).get("listing") or 0
+    if not lb:
+        return r["score"]
+    try:
+        from holderi import run as hrun
+        if hrun.config().get("listing_real"):
+            return r["score"]
+    except Exception:  # noqa: BLE001
+        pass
+    return round(r["score"] - lb, 1)
+
+
+def order(tokens, prio=None, real=False):
+    """The tokens in priority order (unknown ones after, in their own order); real=True: the real account's order."""
     p = cached() if prio is None else prio
     idx = {t: i for i, t in enumerate(tokens)}
-    return sorted(tokens, key=lambda t: (0, -p[t]["score"]) if t in p else (1, idx[t]))
+    key = real_score if real else (lambda r: r["score"])
+    return sorted(tokens, key=lambda t: (0, -key(p[t])) if t in p else (1, idx[t]))
 
 
 def meta(tok, prio=None):
@@ -253,6 +301,9 @@ def line(prio, n=10):
         f"{r.get('symbol') or r['mint'][:6]} {r['score']:.0f} (trend {r['parts']['trend']:.0f}, vol "
         f"{r['parts']['vol']:.0f}, buzz {r['parts']['buzz']:.0f}"
         + (f", pad {r['dip']['kind']} {min(r['dip'].get('c24') or 0, r['dip'].get('c7d') or 0):+.0f} %" if r.get("dip") else "")
+        + (f", LISTING +{r['parts']['listing']:.0f}" if r["parts"].get("listing") else "")
+        + (f", oprez {r['parts']['oprez']:.0f}" if r["parts"].get("oprez") else "")
+        + (", BLOK" if r.get("block") else "")
         + ")" for r in rows[:n]) or "još nema podataka")
 
 

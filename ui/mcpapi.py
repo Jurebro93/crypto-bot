@@ -1357,7 +1357,9 @@ TOOLS += [
                      "and ticker; answer with submit_x_features: it can lift a rug risk rating and saves MemeSonar's "
                      "paid X lookup), resolve_conflict (sources disagree, e.g. good callers but falling X momentum; "
                      "answer with submit_signal_opinion), label_group / label_insiders (name a hidden wallet list, a "
-                     "caller crew or pre-call insiders; answer with submit_suggestion group_label / insider_label). "
+                     "caller crew or pre-call insiders; answer with submit_suggestion group_label / insider_label), "
+                     "listing_check (15.11.: a midcap's supply reached an exchange that does not list it yet: search X "
+                     "/ news for a listing; answer with submit_signal_opinion, evidence.source listing_check). "
                      "Each task carries the exact tool and arguments; a task disappears once your answer is stored. "
                      "limit 1-100 (default 20). Read-only; never trade outside grok_autotrade limits."),
      "inputSchema": {"type": "object", "properties": {
@@ -1637,6 +1639,73 @@ TOOLS.append(
                      "(default 60). Read-only."),
      "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200,
                                                                 "default": 60}}}})
+# 15.11. (owner, holderi/): midcap holder classes, PRE-LISTING signals, profitable holders, exchange wallets
+TOOLS.append(
+    {"name": "get_holder_profile", "annotations": _READ,
+     "description": ("One midcap's top 20 holders classified (holderi/, RugCheck free + Helius within a daily cap): lp, "
+                     "burn, exchange (known wallet with confidence / heuristic), team (creator / funded by it), insider "
+                     "(RugCheck flag, same funder, wallets.db label), whale (>= 1 %), normal; shares_pct per class, "
+                     "insider_ex_pct = insiders without exchanges and LP, hhi (0-10000), top10_ex_pct, exchanges_pct; "
+                     "diff_vs_previous (holders that lost / gained >= 0.5 % of supply, new / gone); moves_7d (traced "
+                     "supply moves: to_exchange, deposit_sweep, sell, transfer, new_balance, balance_jump, mm_funded); "
+                     "priority_facts (listing bonus, caution, block for veliki/prioritet); history (14 snapshots). "
+                     "Read-only."),
+     "inputSchema": {"type": "object", "properties": {"token": {"type": "string", "description": "Solana token mint"}},
+                     "required": ["token"]}})
+TOOLS.append(
+    {"name": "get_listing_signals", "annotations": _READ,
+     "description": ("MemeSonar's exchange-listing signals for the midcaps (holderi/): kind pre_listing = supply reaching "
+                     "the wallet of an exchange that does NOT list the token yet (contract-address match on the "
+                     "exchanges' public market lists / CoinGecko; a symbol-only match counts as nesigurno), the strong "
+                     "buy-side signal; kind deposit_sell = the same to an exchange that already lists it (a deposit to "
+                     "sell, bearish). score 0-100 with reasons (see score_definition), the exchange, mcap and price at "
+                     "the signal, ret_1h/24h/7d_pct after it and control_*_pct (median midcap, same window); measure: the "
+                     "measured mean / vs control / hit per kind; exchange_wallets: how many known addresses (confirmed / "
+                     "unconfirmed). Check X / news for each fresh pre_listing (get_grok_tasks lists them as "
+                     "listing_check). days (7), min_score (0), kind, limit (50). Read-only."),
+     "inputSchema": {"type": "object", "properties": {
+         "days": {"type": "number", "minimum": 0.1, "maximum": 60, "default": 7},
+         "min_score": {"type": "number", "minimum": 0, "maximum": 100, "default": 0},
+         "kind": {"type": "string", "enum": ["pre_listing", "deposit_sell"]},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}}})
+TOOLS.append(
+    {"name": "get_profitable_holders", "annotations": _READ,
+     "description": ("Profitable 'diamond' holders of established midcaps (holderi/profit.py): value >= $25k, held >= 30 "
+                     "days, >= 2x on the known cost (first buys from the token account's history, SOL legs at that "
+                     "day's SOL/USD); clusters (same funder, co-buys within 10 min, transfers between them); "
+                     "recent_buys (table holder_buys: wallet, cluster, token, ts, sol, usd, mc_at_buy, src_mint); "
+                     "digest 'Što kupuju profitabilni holderi' (tokens bought by >= 2 clusters in 7 days with MC, "
+                     "liquidity, holders, first buy); follow: the measured 1 h / 24 h / 7 d outcome of entering when a "
+                     "token qualifies, net of the round-trip cost (demo measurement only; microcaps are never traded). "
+                     "limit (30). Read-only."),
+     "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200,
+                                                                "default": 30}}}})
+TOOLS.append(
+    {"name": "submit_exchange_wallet",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+     "description": ("Propose a Solana wallet of a centralized exchange (hot / cold / deposit) with your evidence (an "
+                     "explorer label, an exchange's proof-of-reserves list, a news post). Stored as nepotvrđeno with "
+                     "confidence at most 0.6 (it weighs a listing signal less than an owner-confirmed address); the "
+                     "owner confirms it in holderi/burze_vlasnik.json. Buys nothing. At most 30 an hour."),
+     "inputSchema": {"type": "object", "properties": {
+         "address": {"type": "string"}, "exchange": {"type": "string", "description": "binance, coinbase, okx, ..."},
+         "kind": {"type": "string", "enum": ["hot", "cold", "deposit", "custodian"]},
+         "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "evidence": {"type": "string", "maxLength": 300}},
+         "required": ["address", "exchange", "evidence"]}})
+# 15.11. (vlasnik: "koji su novčanici prodavali u skok nakon poziva i jesu li kupili prije"; insajderi/): Insajderi 2.0
+TOOLS.append(
+    {"name": "get_insiders2", "annotations": _READ,
+     "description": ("Insajderi 2.0 (insajderi/): the influencer calls (X, Telegram, crews) and market jumps whose price "
+                     "jumped, the wallets that BOUGHT up to 7 days before and SOLD into the jump, merged by funding "
+                     "owner; groups classed insajder (confirmed out of sample) / bot_snajper / relayer / kandidat with "
+                     "n tokens, distinct callers front-run, lift vs chance, median lead, PnL; the copyability "
+                     "walk-forward at OUR constraints (bonded, MC >= 5M vs smaller; entry after their buy +60 s, exit "
+                     "when they sell / stop / time, net of cost) with n, hit %, EV, CI90 and the verdict; the top jumps "
+                     "with their catalyst and early buyers; the smart-money list. class filters the groups; limit "
+                     "1-100. Read-only; never real money."),
+     "inputSchema": {"type": "object", "properties": {
+         "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+         "class": {"type": "string", "enum": ["insajder", "bot_snajper", "relayer", "kandidat", "promatra"]}}}})
 # 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
 _P01 = {"type": "number", "minimum": 0, "maximum": 1}
 TOOLS.append(
@@ -1894,9 +1963,22 @@ def _tool(name, args, kid="local"):
         from izlazi import report as izreport
         d = izreport.mcp(args)
         return d, "error" in d
+    if name == "get_insiders2":   # 15.11. insajderi/, read-only
+        from insajderi import report as i2report
+        d = i2report.mcp(args)
+        return d, "error" in d
     if name == "get_midcaps":   # 15.11. veliki/, read-only
         from veliki import view as vview
         d = vview.midcaps(args)
+        return d, "error" in d
+    if name in ("get_holder_profile", "get_listing_signals", "get_profitable_holders"):   # 15.11. holderi/, read-only
+        from holderi import view as hview
+        d = {"get_holder_profile": hview.holder_profile, "get_listing_signals": hview.listing_signals,
+             "get_profitable_holders": hview.profitable_holders}[name](args)
+        return d, "error" in d
+    if name == "submit_exchange_wallet":   # 15.11. holderi/: Grok's proposal, always nepotvrđeno
+        from holderi import view as hview
+        d = hview.submit_exchange_wallet(args, who=f"mcp:{kid}")
         return d, "error" in d
     if name == "get_big_ranges":   # 15.11. veliki/, read-only
         from veliki import view as vview

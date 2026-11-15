@@ -207,9 +207,18 @@ PROCESSES = (
     ("veliki", "run_veliki.py", (), JOBS,
      "veliki tokeni: lista svaka 3 h, svijeće svakih 15 min, sakupljač midcapova svakih 90 s (midcap.db), walk-forward "
      "range pravila nakon deploya i noću"),
+    # 15.11. (owner, holderi/): midcap holder snapshots, transfer traces, listing signals every 10 min; network bound,
+    # a short process; may be paused (the signal waits a pass, no money path)
+    ("holderi", "run_holderi.py", (), JOBS,
+     "holderi midcapova i listing signali: svakih 10 min top holderi (RugCheck), tragovi prijenosa na burze (Helius u "
+     "dnevnom stropu), PRE-LISTING signali, profitabilni holderi"),
     # 15.11. (owner, oscilator/): read-only walk-forward after a deploy and nightly; writes only oscilator.db
     ("oscilator", "run_oscilator.py", (), JOBS,
      "oscilator: walk-forward skalpiranja tokena koji osciliraju (samo čita minutne podatke), nakon deploya i noću"),
+    # 15.11. (owner, insajderi/): Insajderi 2.0 under the heavy lock (nice), a Helius day cap; writes only insajderi.db
+    ("insajderi2", "run_insajderi.py", (), JOBS,
+     "Insajderi 2.0: kupci prije poziva / skokova koji prodaju u skok, pametni novac; nakon deploya, svaka 3 h i noću, "
+     "strop Helius kredita dnevno"),
     # 15.11. (owner, konsenzus/): read-only research after a deploy and nightly; writes only konsenzus.db
     ("konsenzus", "run_konsenzus.py", (), JOBS,
      "konsenzus izvora: walk-forward influencera, Telegram kanala i novčanika (samo čita baze), nakon deploya i noću"),

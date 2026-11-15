@@ -16,6 +16,8 @@ touch "$DATA_DIR/early.db"; ln -sfn "$DATA_DIR/early.db" early.db
 # 11.11. events.db (one log of every call, wallet trade, price, trade and signal, events/store.py): persistent too; the
 # collectors write into it only once this file exists
 touch "$DATA_DIR/events.db"; ln -sfn "$DATA_DIR/events.db" events.db
+# 15.11. insajderi.db (Insajderi 2.0, insajderi/store.py): persistent too
+touch "$DATA_DIR/insajderi.db"; ln -sfn "$DATA_DIR/insajderi.db" insajderi.db
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1 UI_SNAP_DIR="$DATA_DIR/pagecache"
 # memory: glibc gives every thread its own malloc arena (up to 8 per CPU the host reports, not our 0.5 CPU), and
 # freed memory stays parked in them, so the threaded dashboard climbed to ~200 MB and the 512 MB server ran out
@@ -282,6 +284,17 @@ low keep zonewatch python3 run_zonewatch.py loop
 # Writes konsenzus.db (DATA_DIR), output/konsenzus.md and "konsenzus: " lines; the demo entries (flag konsenzus) read it.
 ( sleep "${KONSENZUS_FIRST_S:-420}"; python3 -m ops.heavy run_konsenzus.py once || echo "konsenzus nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_konsenzus.py night || echo "konsenzus (noć) nije uspio"; done ) &
 
+# 15.11. (vlasnik: "Nastavi koristiti influencere, posebno u grupama ... insajdere i botove koji kupuju prije poziva ...
+# koji su novčanici prodavali u skok i jesu li kupili danima prije ... dio resursa za ovo, veći dio na midcapove";
+# insajderi/, run_insajderi.py): an explicit, budgeted exception of fokus_midcap (ops/fokus.EXCEPTIONS). A Helius day
+# cap (INSAJDERI: 16 % of what the old insider / crew / shill / wallet jobs used, usage.db; 3500 without a measurement),
+# nice 10 under the heavy lock. INSAJDERI_FIRST_S (600 s) after a start: the existing data, Helius at most 40 % of the
+# cap (skipped when the last pass is younger than 3 h); nightly 01-06 Zagreb (--night, once in 20 h) the rest of the
+# cap; every 3 h a light pass over the new calls (at most 10 % of the cap). Writes insajderi.db, output/insajderi.md,
+# output/pametni_novac.md and "insajderi2: " lines; the demo (flag insajderi2, league/auto.loop) reads the groups.
+( sleep "${INSAJDERI_FIRST_S:-600}"; python3 -m ops.heavy run_insajderi.py once || echo "insajderi2 nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_insajderi.py night || echo "insajderi2 (noć) nije uspio"; done ) &
+( sleep "${INSAJDERI_INCR_FIRST_S:-3600}"; while true; do python3 -m ops.heavy run_insajderi.py incr || echo "insajderi2 (3 h) nije uspio"; sleep "${INSAJDERI_INCR_S:-10800}"; done ) &
+
 # 15.11. (vlasnik: "token koji ide gore-dolje tijekom dana ... 50 puta dnevno, 1-2 $ na svakom", oscilator/,
 # run_oscilator.py): per token-day the zigzag swings larger than the round-trip cost at 0.1-1 SOL + 1 $ net, then the
 # walk-forward (top 10 of day D traded on D+1 with the scalp rule) per size and the range scalp on the same token-days;
@@ -317,6 +330,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 # veliki/live; one "midcap: sat:" line an hour (counts, API use, MB a day). Switch off: the pass ends at once.
 ( sleep "${MIDCAP_FIRST_S:-120}"; while true; do r0=$(date +%s); low python3 run_veliki.py midcap || echo "midcap sakupljač nije uspio"; rs=$(( ${MIDCAP_EVERY_S:-90} - $(date +%s) + r0 )); [ "$rs" -lt 10 ] && rs=10; sleep "$rs"; done ) &
 ( sleep "${VELIKI_FIRST_S:-420}"; python3 -m ops.heavy run_veliki.py once || echo "veliki nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_veliki.py night || echo "veliki (noć) nije uspio"; done ) &
+# 15.11. (vlasnik: "insajderi drže velik dio ponude? oprez — ali to su često BURZE ... kad dio ponude ode na novčanik
+# burze, a token tamo još nije listan, to je jak signal"; holderi/, run_holderi.py): every HOLDERI_EVERY_S (10 min), a
+# short low-priority process outside the heavy lock, only with the owner switch fokus_midcap: the top 20 holders of the
+# midcaps (RugCheck free; top 50 every 6 h = the transfer watch), classes and insider share without exchanges / LP, the
+# moves of supply traced to exchange wallets (Helius inside holderi/config.json helius_credits_day, 15000), the
+# exchanges' free market lists once a day -> PRE-LISTING signals (loud log line + Telegram), the caution / listing
+# components of veliki/prioritet, the profitable holders' buys; one "holderi: sat:" line an hour with the cost.
+( sleep "${HOLDERI_FIRST_S:-300}"; while true; do low python3 run_holderi.py pass || echo "holderi nisu uspjeli"; sleep "${HOLDERI_EVERY_S:-600}"; done ) &
 
 # 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and
 # every call of a followed influencer -> fast.db queue -> five checks (rug, holders, flow, price vs the wallet's entry,

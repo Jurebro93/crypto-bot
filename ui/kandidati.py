@@ -1718,6 +1718,37 @@ def tasks(limit=20, now=None, src=None):
                                     "arguments": {"token": x["mint"], "verdict": "kupi | preskoči", "confidence": "<0-1>",
                                                   "interpretation": "<zašto je pao: what you found>",
                                                   "evidence": {"source": "midcap_dip_reason"}}}})
+    # 15.11. (vlasnik: "ako dio ponude ode na novčanik burze koja ga još ne lista ... mogući listing"; holderi/): every
+    # fresh PRE-LISTING signal (score >= 40, 48 h) without Grok's listing_check in the last 24 h -> listing_check; his
+    # answer (evidence.source listing_check) is read back by holderi/run.grok_listing into the score (+-10 x confidence)
+    def listing_rows():
+        from holderi import run as hrun, view as hview
+        sig = hview.listing_signals({"days": 2, "min_score": 40, "kind": "pre_listing"}).get("signals") or []
+        done = hrun.grok_listing({x["mint"] for x in sig}, now_i)
+        seen, rows = set(), []
+        for x in sig:
+            if x["mint"] in seen or x["mint"] in done:
+                continue
+            seen.add(x["mint"])
+            rows.append(x)
+        return rows[:5]
+    for k, x in enumerate(safe(listing_rows, [])):
+        sym = x.get("symbol") or x["mint"][:6]
+        exn = x.get("exchange_name") or x.get("exchange")
+        out.append({"id": f"lst:{x['mint']}", "kind": "listing_check", "priority": 1, "token": x["mint"], "symbol": sym,
+                    "rank": 10 + k,
+                    "why": (f"PRE-LISTING signal {x.get('score'):.0f}: {'; '.join((x.get('reasons') or [])[:3])} "
+                            f"(MC ${(x.get('mcap') or 0) / 1e6:,.1f}M)"),
+                    "instruction": (f"Supply of ${sym} (CA {x['mint']}) just reached a wallet of {exn}, which does not "
+                                    f"list it yet. Search X and news (the exchange's announcements, the team's posts, "
+                                    f"'{sym} {exn} listing', leaks, market-maker hires): is a listing on {exn} (or another "
+                                    "exchange) announced or likely? Verdict dobar = listing likely / announced, loš = no "
+                                    "sign or the team is dumping, neutralan = unclear; confidence 0-1; name the exchange "
+                                    "in evidence.exchange."),
+                    "answer_with": {"tool": "submit_signal_opinion",
+                                    "arguments": {"token": x["mint"], "verdict": "dobar | loš | neutralan",
+                                                  "confidence": "<0-1>", "interpretation": "<what you found>",
+                                                  "evidence": {"source": "listing_check", "exchange": x.get("exchange")}}}})
     mops = safe(lambda: S.opinions([x["mint"] for x in mrows], now_i, 6 * 3600), {}) if mrows else {}
     for k, x in enumerate(mrows):
         if mops.get(x["mint"]):
@@ -1735,6 +1766,26 @@ def tasks(limit=20, now=None, src=None):
                                     "arguments": {"token": x["mint"], "verdict": "kupi | preskoči", "confidence": "<0-1>",
                                                   "interpretation": "<what you saw on X>",
                                                   "evidence": {"source": "midcap_review"}}}})
+    # 15.11. (vlasnik, Insajderi 2.0: "za svaki skok klasificiraj katalizator ... vijest: Grokov zadatak catalyst_check";
+    # insajderi/report.catalyst_tasks): the biggest jumps of the last 48 h without Grok's catalyst answer, 5 at most;
+    # his answer is archived (assistant_notes) and read back by insajderi/events.catalyze as the catalyst "vijest"
+    for k, e in enumerate(safe(lambda: __import__("insajderi.report", fromlist=["x"]).catalyst_tasks(5, now_i), [])):
+        sym = e.get("symbol") or e["token"][:6]
+        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(e["t0"]))
+        out.append({"id": f"cat:{e['token']}:{e['t0']}", "kind": "catalyst_check", "priority": 3, "token": e["token"],
+                    "symbol": sym, "rank": 150 + k,
+                    "why": (f"skok +{e['peak_pct']:.0f} % od {when}, naš katalizator: {e.get('catalyst') or 'nepoznato'}"),
+                    "instruction": (f"Why did ${sym} (CA {e['token']}) jump +{e['peak_pct']:.0f} % starting {when}? "
+                                    "Search X and news around that time: an influencer / Telegram call or a crew, an "
+                                    "exchange listing or listing rumour, a DexScreener boost / paid profile / community "
+                                    "takeover, a partnership or other news, a whale buying, or nothing visible. Name "
+                                    "the catalyst and its time; verdict neutralan (this is research, not a trade)."),
+                    "answer_with": {"tool": "submit_signal_opinion",
+                                    "arguments": {"token": e["token"], "verdict": "neutralan", "confidence": "<0-1>",
+                                                  "interpretation": "<katalizator i vrijeme: what you found>",
+                                                  "evidence": {"source": "catalyst_check",
+                                                               "catalyst": "poziv | listing | boost | vijest | kit | "
+                                                                           "nepoznato"}}}})
     out.sort(key=lambda t: (t["priority"], t.get("rank") or 999))
 
     def intake():

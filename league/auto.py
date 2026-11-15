@@ -551,6 +551,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"konsenzus ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 15.11. (flag insajderi2, insajderi/live.py): the confirmed insider groups' buys -> demo entries, exit
+                from insajderi import live as ilive   # when the group sells; NEVER_LIVE (the demo account only). Not
+                for user, what in ilive.run_once(con):   # behind fokus_midcap: its budgeted exception (MC >= 5M gate)
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"insajderi2 ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:
                 for user, name, what in run_once(con, market):
                     print(f"natjecanje {user} {name}: {what}", flush=True)

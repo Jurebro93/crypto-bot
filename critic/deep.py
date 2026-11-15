@@ -285,6 +285,11 @@ CONTEXT_BLOCKS = [
     ("oscilator", lambda tcon, now, dbs: __import__("oscilator.view", fromlist=["critic_summary"]).critic_summary()),
     # 15.11. (veliki/): the big tokens' range: holdout per size without / with BTC crashes, the demo, the decision
     ("veliki_tokeni_range", lambda tcon, now, dbs: __import__("veliki.view", fromlist=["critic_summary"]).critic_summary()),
+    # 15.11. (holderi/): PRE-LISTING / deposit-to-sell signals with their 1 h / 24 h / 7 d outcome vs the median midcap,
+    # the insider cautions, what profitable holders of established midcaps buy and the follow measurement
+    ("holderi_listing", lambda tcon, now, dbs: __import__("holderi.view", fromlist=["critic_summary"]).critic_summary()),
+    # 15.11. (insajderi/): Insajderi 2.0: the copy walk-forward per MC bucket, the verdict, the classes, smart money
+    ("insajderi2", lambda tcon, now, dbs: __import__("insajderi.report", fromlist=["critic_summary"]).critic_summary()),
 ]
 
 

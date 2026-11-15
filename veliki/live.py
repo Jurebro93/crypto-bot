@@ -65,6 +65,13 @@ DEMO_MIN_LIQ = float(os.environ.get("VEL_DEMO_MIN_LIQ", "100000"))
 DEMO_MIN_VOL = float(os.environ.get("VEL_DEMO_MIN_VOL", "100000"))
 DEMO_UNIV_MAX = int(os.environ.get("VEL_DEMO_UNIV_MAX", "250"))
 UNIV_EVERY_S = 30     # the demo universe's quotes this often (the open positions every tick)
+# 15.11. (vlasnik: "uključi DCA: tokeni poput Uselessa su se puno puta oporavili na prvi znak oporavka Bitcoina"): one
+# DCA lot per position (real 0.1 SOL -> at most 0.2 SOL a token; demo the same lot again) at DCA_PCT under the FIRST
+# entry (VEL_DCA_MODE "zona" / "atr": the zone's low / 3 x ATR), only when rule.dca_refusal passes (BTC not in a free
+# fall, the macro regime not risk_off, the dip's reason not bad, category A / B with a history of recovering after BTC
+# +3 % days, the volume holding, the day's caps: the lot counts in the buys a day and the day's loss); VEL_DCA=0 off
+DCA_PCT = float(os.environ.get("VEL_DCA", "0.10"))
+DCA_MODE = os.environ.get("VEL_DCA_MODE", "pct")
 MID_RELOAD_S = 300    # midcap.db's 15m / 1h candles and snapshots re-read this often (read-only)
 LIST_MAX_AGE_S = 72 * 3600
 BARS_RELOAD_S = 600
@@ -121,10 +128,11 @@ def cfg_now():
     rule, DEFAULT_RULE over rule.RULE (c["default"] True)."""
     from veliki import rule, store
     lr = store.live_rule() or {}
-    picked = {k: lr[k] for k in ("tp", "trail", "time_h", "look_d") if lr.get(k) is not None}
+    picked = {k: lr[k] for k in ("tp", "trail", "time_h", "look_d", "near", "touch_bars") if lr.get(k) is not None}
     c = {**rule.RULE, **(picked or DEFAULT_RULE)}
     c["default"] = not picked
-    c["crash_filter"], c["btc_mode"], c["dca"] = True, "dno", 0.0   # the owner's -20 % stop stays; DCA off (critic)
+    # the owner's -20 % stop stays; 15.11. (vlasnik: "uključi DCA"): one smart DCA lot (rule.dca_refusal) at DCA_PCT
+    c["crash_filter"], c["btc_mode"], c["dca"], c["dca_mode"] = True, "dno", DCA_PCT, DCA_MODE
     return c
 
 
@@ -278,10 +286,12 @@ def caps(user, btc_state=None, kind=None):
         c = gate.real_caps()
         return {"size_sol": c["size_sol"], "max_open": c["max_open"], "per_day": c["max_buys_day"],
                 "loss_day_sol": c["max_loss_day_sol"], "real": True, "kind": None}
+    on = _ST.get("macro") == "risk_on"     # 15.11.: the macro regime risk_on -> more demo entries (never real)
     if kind == "intra":
-        return {"size_sol": INTRA_DEMO_SOL, "max_open": INTRA_MAX_OPEN, "per_day": INTRA_PER_DAY,
+        k = 1.5 if on else 1.0
+        return {"size_sol": INTRA_DEMO_SOL, "max_open": int(INTRA_MAX_OPEN * k), "per_day": int(INTRA_PER_DAY * k),
                 "loss_day_sol": None, "real": False, "kind": "intra"}
-    k = DOWN_BONUS if btc_state == "dno_se_potvrduje" else 1.0
+    k = (DOWN_BONUS if btc_state == "dno_se_potvrduje" else 1.0) * (1.5 if on else 1.0)
     return {"size_sol": DEMO_SOL, "max_open": int(DEMO_MAX_OPEN * k), "per_day": int(DEMO_PER_DAY * k),
             "loss_day_sol": None, "real": False, "kind": "range"}
 
@@ -501,7 +511,179 @@ def manage(con, r, q, age, now, cfg):
         col = None
     if col:
         out.append(close(con, r, price, q[1], q[3], "rug", now))
+        return out
+    ctx = context(r["token"], now)
+    rs, tight = rule.reasoned_exit(pos, price, r["rt"], ctx, {**rc, "exit_slip": 0.0})
+    if rs:
+        return out + [close(con, r, price, q[1], q[3] if len(q) > 3 else None, rs, now, why=ctx_text(ctx))]
+    if tight and tight > r["stop_px"]:
+        con.execute("UPDATE veliki_trades SET stop_px=? WHERE id=?", (tight, r["id"]))
+        con.commit()
+        r["stop_px"] = tight
+        out.append(f"veliki {r['symbol']}: stop pooštren na {tight:.6g} ({tight / pos['first'] - 1:+.0%} od prvog ulaza): "
+                   f"{ctx_text(ctx)}")
+    out += dca(con, r, q, pos, now, cfg, ctx)
     return out
+
+
+# ---------- the context of the DCA and the reasoned exits (cached, read-only) ----------------------------------------
+
+def _holderi_bad(tok, now):
+    """The listing agent's newest deposit-to-sell signal of the token (holderi.db signals, read-only, if the table
+    exists: a transfer of supply to an exchange where the token is already listed) within 24 h, else None."""
+    hit = _ST.get("holderi")
+    if not hit or now - hit[0] > 300:
+        sig = {}
+        try:
+            import sqlite3
+            path = os.environ.get("HOLDERI_DB") or (os.path.join(os.environ["DATA_DIR"], "holderi.db")
+                                                    if os.environ.get("DATA_DIR") else
+                                                    os.path.join(os.path.dirname(os.path.dirname(
+                                                        os.path.abspath(__file__))), "holderi.db"))
+            if os.path.exists(path):
+                hc = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+                try:
+                    for mint, kind, ex, ts in hc.execute(
+                            "SELECT mint, kind, exchange, ts FROM signals WHERE ts >= ? ORDER BY ts", (int(now - 86400),)):
+                        k = (kind or "").lower()
+                        if "deposit" in k or "prodaj" in k or "sell" in k or "depozit" in k:
+                            sig[mint] = f"prijenos na burzu {ex or '?'} (depozit za prodaju)"
+                finally:
+                    hc.close()
+        except Exception:  # noqa: BLE001 - no listing data: no such reason
+            sig = {}
+        hit = _ST["holderi"] = (now, sig)
+    return hit[1].get(tok)
+
+
+def vol_ratio_live(tok, now):
+    """24 h volume (the newest priority facts / the collector's member row) against the mean of the last 7 complete
+    daily candles (midcap.db / veliki.db c1d), None unknown. Cached an hour a token."""
+    c = _ST.setdefault("vr", {})
+    hit = c.get(tok)
+    if hit and now - hit[0] < 3600:
+        return hit[1]
+    v24 = None
+    try:
+        from veliki import prioritet
+        v24 = ((prioritet.cached().get(tok) or {}).get("facts") or {}).get("vol24")
+    except Exception:  # noqa: BLE001
+        v24 = None
+    vals = []
+    try:
+        from veliki import midcap, store
+        for opener in (midcap.ro, store.ro):
+            con = opener()
+            if con is None:
+                continue
+            try:
+                d0 = int(now) // 86400 * 86400
+                vals = [r[0] for r in con.execute("SELECT v FROM c1d WHERE token=? AND ts < ? AND ts >= ? ORDER BY ts",
+                                                  (tok, d0, d0 - 7 * 86400)).fetchall() if r[0]]
+            except Exception:  # noqa: BLE001
+                vals = []
+            finally:
+                con.close()
+            if len(vals) >= 5:
+                break
+    except Exception:  # noqa: BLE001
+        vals = []
+    r = (v24 / (sum(vals) / len(vals))) if v24 and len(vals) >= 5 and sum(vals) > 0 else None
+    c[tok] = (now, r)
+    return r
+
+
+def context(tok, now):
+    """The DCA's and the reasoned exits' view of one token now: BTC's state, the macro regime, the category and
+    metrics (veliki.db kv cats of the newest backtest run), the dip's reason (veliki/prioritet, read-only), a bad
+    reason (prioritet "los" or the listing agent's deposit to sell), the volume ratio."""
+    from veliki import store
+    st = btc_state(now)
+    try:
+        from veliki import makro
+        mac = makro.regime_now(now)
+    except Exception:  # noqa: BLE001
+        mac = None
+    try:
+        from veliki import prioritet
+        pr = prioritet.cached().get(tok) or {}
+    except Exception:  # noqa: BLE001
+        pr = {}
+    dip = pr.get("dip") or {}
+    m = store.cats().get(tok) or {}
+    bad = _holderi_bad(tok, now) or (dip.get("why") if dip.get("kind") == "los" else None)
+    return {"btc_state": st.get("state"), "macro": mac, "cat": m.get("cat"), "metrics": m, "dip_kind": dip.get("kind"),
+            "bad": bad, "vol_ratio": vol_ratio_live(tok, now)}
+
+
+def ctx_text(ctx):
+    vr = ctx.get("vol_ratio")
+    return (f"BTC {ctx.get('btc_state') or '?'}, makro {ctx.get('macro') or 'nepoznat'}, pad "
+            f"{ctx.get('dip_kind') or '—'}" + (f", loš razlog: {ctx['bad']}" if ctx.get("bad") else "")
+            + (f", volumen {vr:.0%} prosjeka 7 d" if vr is not None else ""))
+
+
+def dca(con, r, q, pos, now, cfg, ctx):
+    """The one DCA lot of an open position (rule.dca_level / rule.dca_refusal; the same lot size again, counted in the
+    day's buys and loss): the average entry, the target and the break-even recomputed on it at the two lots' cost, the
+    stop stays the FIRST entry's. [text]."""
+    import json
+    from league import store as lstore
+    from veliki import intra, rule
+    if not cfg.get("dca") and cfg.get("dca_mode") not in ("zona", "atr"):
+        return []
+    if (r.get("lots") or 1) >= 2 or r.get("half_px"):
+        return []
+    price, liq = q[0], q[1]
+    try:
+        zone = json.loads(r.get("zone") or "{}")
+    except (TypeError, ValueError):
+        zone = {}
+    lvl = rule.dca_level(pos["first"], zone, cfg)
+    if lvl is None or price > lvl or price <= r["stop_px"] * 1.02:
+        return []
+    user = r["user"]
+    sol = _sol()
+    cp = caps(user, ctx.get("btc_state"), r.get("kind"))
+    rm = room(con, user, now, sol, cp, new_position=False)
+    if not rm and user == _league_user():
+        try:
+            from veliki import gate
+            rm = gate.real_refusal(now=now)
+        except Exception as e:  # noqa: BLE001 - an unreadable gate is no real money
+            rm = f"vrata nečitljiva ({type(e).__name__})"
+    full = {**ctx, "lots": r.get("lots") or 1, "room": rm}
+    why = rule.dca_refusal(full, cfg)
+    if why:
+        if now - _ST["said"].get(("dca", r["id"]), 0) > 3600:
+            _ST["said"][("dca", r["id"])] = now
+            return [f"veliki DCA {r['symbol']} odbijen ({why})"]
+        return []
+    lot_usd = r["size_usd"] / (r.get("lots") or 1)
+    dwhy = rule.dca_why(ctx, cfg)
+    try:
+        tid = lstore.buy(con, user, r["token"], r["symbol"], lot_usd, price, liq,
+                         f"veliki: DCA {r['symbol']} {lot_usd / sol:.2g} SOL ({dwhy})"[:200], None,
+                         q[3] if len(q) > 3 else None, allow_open=True)
+    except ValueError as e:
+        return [f"veliki DCA {r['symbol']} nije prošao ({e})"]
+    con.execute("UPDATE trades SET auto=NULL, auto_state=NULL WHERE id=?", (tid,))
+    avg = 2 / (1 / r["entry_px"] + 1 / price)
+    c2 = rule.cost_at(lot_usd / sol, liq, sol, rule.fee_side_of(url=q[2] if len(q) > 2 else None), rule.tx_sol()[0],
+                      lots=2)
+    tp_cfg = intra.cfg_of() if r.get("kind") == "intra" else cfg
+    tp = rule.tp_price(avg, tp_cfg["tp"], c2["rt"], zone, tp_cfg) if not isinstance(tp_cfg["tp"], str) else r["tp_px"]
+    be = rule.be_price(avg, c2["rt"], {"exit_slip": 0.0})
+    con.execute("UPDATE veliki_trades SET dca_trade_id=?, dca_px=?, dca_ts=?, dca_why=?, lots=2, entry_px=?, size_usd=?, "
+                "size_sol=?, tp_px=?, be_px=?, rt=? WHERE id=?",
+                (tid, price, int(now), dwhy[:300], avg, lot_usd * 2, (r.get("size_sol") or 0) * 2, tp, be, c2["rt"],
+                 r["id"]))
+    con.commit()
+    r.update(dca_trade_id=tid, lots=2, entry_px=avg, size_usd=lot_usd * 2, tp_px=tp, be_px=be, rt=c2["rt"])
+    head = "veliki PRAVI NOVAC: DCA" if user == _league_user() else "veliki DCA"
+    return [f"{head} {r['symbol']} {lot_usd / sol:.2g} SOL na {price:.6g} ({price / pos['first'] - 1:+.0%} od prvog "
+            f"ulaza), prosjek {avg:.6g}, novi TP {tp:.6g} ({tp / avg - 1:+.1%}), stop ostaje {r['stop_px']:.6g} "
+            f"({r['stop_px'] / pos['first'] - 1:+.0%} od prvog ulaza); razlog: {dwhy}"]
 
 
 def exit_why(r, price, age, now, mq, time_h):
@@ -811,6 +993,21 @@ def tick(con, market_fn, now=None, force=False, toks=None):
     if _ST.get("btc_said") != btc["state"]:
         _ST["btc_said"] = btc["state"]
         out.append(f"veliki BTC: {btc['state'].replace('_', ' ')} — {btc['why']}")
+    try:
+        from veliki import makro
+        snap = makro.current(now)
+    except Exception:  # noqa: BLE001
+        snap = None
+    mac = (snap or {}).get("regime")
+    _ST["macro"] = mac
+    if _ST.get("macro_said") != mac:
+        _ST["macro_said"] = mac
+        out.append(f"veliki makro režim: {mac or 'nepoznat (neutralno)'}"
+                   + (f" — {snap.get('why')}" if snap else "") + ("; bez novih ulaza i bez DCA" if mac == "risk_off"
+                                                                 else "; demo stropovi x1,5" if mac == "risk_on" else ""))
+    if mac == "risk_off":
+        _refused("makro risk-off: bez novih ulaza")
+        return out
     sol = _sol()
     tx = rule.tx_sol()[0]
     held = {(r["user"], r["token"]) for r in open_rows(con)}
@@ -822,8 +1019,11 @@ def tick(con, market_fn, now=None, force=False, toks=None):
         pr = prioritet.cached()
         lst = prioritet.order(lst, pr)
         univ = prioritet.order(univ, pr)
+        real_rank = {t: k for k, t in enumerate(prioritet.order(lst, pr, real=True))}
     except Exception:  # noqa: BLE001 - no priority: the list order
         prioritet, pr = None, {}
+        real_rank = {t: k for k, t in enumerate(lst)}
+    deferred = []   # 15.11. (holderi/): the real account's entries, taken after the loop in its own order (no listing bonus)
     for tok in lst:
         if _ST["bar"].get(tok) == hour:
             continue
@@ -832,6 +1032,12 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             if now - _ST["said"].get(("dip", tok), 0) > 3600:
                 _ST["said"][("dip", tok)] = now
                 out.append(f"veliki {(pr[tok].get('symbol') or tok[:6])}: preskočen, pad iz lošeg razloga ({dip.get('why')})")
+            continue
+        blk = (pr.get(tok) or {}).get("block")
+        if blk:   # 15.11. (holderi/): insiders hold too much / the team is selling: no entry (demo or real)
+            if now - _ST["said"].get(("blk", tok), 0) > 3600:
+                _ST["said"][("blk", tok)] = now
+                out.append(f"veliki {(pr[tok].get('symbol') or tok[:6])}: preskočen, oprez ({blk})")
             continue
         q = mk.get(tok)
         if not q or not q[0]:
@@ -855,26 +1061,38 @@ def tick(con, market_fn, now=None, force=False, toks=None):
         for user in users:   # the demo first: the real trade of the same signal carries its id (link_id)
             if (user, tok) in held:
                 continue
-            cp = caps(user, btc["state"])
-            c = rule.cost_at(cp["size_sol"], q[1], sol, rule.fee_side_of(url=q[2] if len(q) > 2 else None), tx)
-            why = rule.signal(bars, i, zone, c["rt"], cfg, btc["crash_obj"])
-            if why is not None:
-                _refused("7 d: " + why)
+            if user != settings.PAPER_USER:   # 15.11. (holderi/): real entries after the loop, own order (no listing bonus)
+                deferred.append((real_rank.get(tok, len(real_rank)), tok, user, q, zone, regime, bars, i, link))
                 continue
-            text, no, vid = enter(con, user, tok, q, now, sol, zone, cfg, regime, btc, link,
-                                  meta=prioritet.meta(tok, pr) if prioritet else None)
-            link = link or vid
-            if text:
-                out.append(text)
-                held.add((user, tok))
-            elif no and now - _ST["said"].get((user, tok), 0) > 3600:
-                _ST["said"][(user, tok)] = now
-                out.append(f"veliki {(q[4] if len(q) > 4 else None) or tok[:6]}: signal bez ulaza ({no})")
+            link = _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx,
+                              prioritet, pr) or link
+    for _k, tok, user, q, zone, regime, bars, i, link in sorted(deferred, key=lambda x: x[0]):
+        _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, prioritet, pr)
     out += intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet)
     if int(now) % 3600 < TICK_S:
         con.execute("DELETE FROM veliki_bars WHERE ts < ?", (int(now - 10 * 86400),))
         con.commit()
     return out
+
+
+def _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, prioritet, pr):
+    """One user's entry on one token when the 7 d rule signals (the cost at its size). The new trade id or None."""
+    from veliki import rule
+    cp = caps(user, btc["state"])
+    c = rule.cost_at(cp["size_sol"], q[1], sol, rule.fee_side_of(url=q[2] if len(q) > 2 else None), tx)
+    why = rule.signal(bars, i, zone, c["rt"], cfg, btc["crash_obj"])
+    if why is not None:
+        _refused("7 d: " + why)
+        return None
+    text, no, vid = enter(con, user, tok, q, now, sol, zone, cfg, regime, btc, link,
+                          meta=prioritet.meta(tok, pr) if prioritet else None)
+    if text:
+        out.append(text)
+        held.add((user, tok))
+    elif no and now - _ST["said"].get((user, tok), 0) > 3600:
+        _ST["said"][(user, tok)] = now
+        out.append(f"veliki {(q[4] if len(q) > 4 else None) or tok[:6]}: signal bez ulaza ({no})")
+    return vid
 
 
 def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None):
@@ -899,6 +1117,9 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
         dip = (pr.get(tok) or {}).get("dip") or {}
         if dip.get("kind") == "los":
             _refused("dnevni: pad iz lošeg razloga")
+            continue
+        if (pr.get(tok) or {}).get("block"):   # 15.11. (holderi/): insiders / the team selling: no entry
+            _refused("dnevni: oprez (holderi)")
             continue
         b15, h1 = bars_intra(tok, now)
         z = intra.zone(h1, m15, icfg)

@@ -2870,6 +2870,8 @@ def ostalo_html(tcon, cfg, owner, now, prefill=""):
             pt._safe("konsenzus", pt._konsenzus_card, owner),   # 15.11. (konsenzus/): the source consensus strategy
             pt._safe("oscilator", pt._oscilator_card, owner),   # 15.11. (oscilator/): the oscillating tokens' scalp
             pt._safe("veliki", pt._veliki_card, owner),   # 15.11. (veliki/): the big tokens' range
+            pt._safe("holderi", pt._holderi_card, owner),   # 15.11. (holderi/): listing signals + holder classes
+            pt._safe("insajderi2", pt._insajderi2_card, owner),   # 15.11. (insajderi/): insiders before calls
             pt._recs_section(),
             # 15.11. (owner): the OpenAI critic's suggestions under "Preporuke alata", accepted / applied once or rejected
             pt._safe("openai-prijedlozi", pt._suggest_section, tcon, owner, "openai"),
