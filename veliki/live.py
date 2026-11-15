@@ -80,11 +80,21 @@ def _day_start(now):
     return lcopy._day_start(int(now))
 
 
+# 15.11. navečer (coordinator: "if no backtest-picked rule exists yet, let veliki/live use a documented DEFAULT rule ...
+# so demo and real start as soon as zones exist"): zone from the last 7 days, TP +8 % net then a 5 % trailing (the
+# grid's trailing), the owner's stop -20 %, time stop 3 days. Used only while store.live_rule() is None; the log says so
+# ("veliki: zadano pravilo (backtest još nema podataka)") once an hour; each trade carries its cfg key.
+DEFAULT_RULE = {"tp": 8.0, "trail": 0.05, "time_h": 72, "look_d": 7}
+
+
 def cfg_now():
-    """The live rule: store.live_rule() merged over rule.RULE (crash filter always on)."""
+    """The live rule: store.live_rule() merged over rule.RULE (crash filter always on); without a backtest-picked
+    rule, DEFAULT_RULE over rule.RULE (c["default"] True)."""
     from veliki import rule, store
     lr = store.live_rule() or {}
-    c = {**rule.RULE, **{k: lr[k] for k in ("tp", "trail", "time_h", "look_d") if lr.get(k) is not None}}
+    picked = {k: lr[k] for k in ("tp", "trail", "time_h", "look_d") if lr.get(k) is not None}
+    c = {**rule.RULE, **(picked or DEFAULT_RULE)}
+    c["default"] = not picked
     c["crash_filter"], c["btc_mode"], c["dca"] = True, "dno", 0.0   # the owner's -20 % stop stays; DCA off (critic)
     return c
 
@@ -449,6 +459,10 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             _ST["q"][tok] = (q, now)
     con.commit()
     cfg = cfg_now()
+    if cfg.get("default") and now - _ST.get("default_said", 0) >= 3600:
+        _ST["default_said"] = now
+        out.append("veliki: zadano pravilo (backtest još nema podataka): zona zadnjih 7 d, TP +8 % neto pa trailing 5 %, "
+                   "stop −20 %, vremenski stop 3 d")
     for r in opened:
         q, ts = _ST["q"].get(r["token"], (None, 0))
         if not q:

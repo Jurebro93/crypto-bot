@@ -495,6 +495,61 @@ def markdown(data):
 
 # ---------- the run --------------------------------------------------------------------------------------------------
 
+GT_PASS_S = float(os.environ.get("VEL_GT_PASS_S", "900"))   # 15.11. navečer: the longest a pass waits on GeckoTerminal
+
+
+def top_up(con, rows, hrows, now, budget, log=print, pass_s=None):
+    """The list's candles, most needed first (15.11. navečer, coordinator: the backtest and the zones need the 1h; the
+    3-hourly pass used its budget on the daily candles of 60 tokens and the 429s stopped it before any 1h): the own
+    bars from veliki/live's DexScreener polls merged in (free), then 1h for the top TOP_1H of the list (by rank, so
+    the top tokens first), then the daily candles of the list, then the fallen tokens' daily and 1h (survivorship).
+    GeckoTerminal requests at most `budget`, waiting on the shared limiter within pass_s (GT_PASS_S). Requests used."""
+    try:
+        own = store.own_bars([r["mint"] for r in rows], now - 9 * 86400)
+        n15, n1h = store.merge_own_bars(con, own, now)
+        if n15 or n1h:
+            log(PREFIX + f"vlastite svijeće iz DexScreener cijena: +{n15} × 15m, +{n1h} × 1h (GeckoTerminal ih zamijeni "
+                         "kad stigne)")
+    except Exception as e:  # noqa: BLE001 - the fallback is a help; GeckoTerminal below
+        log(PREFIX + f"vlastite svijeće: {type(e).__name__}: {e}")
+    store.DEADLINE[0] = time.monotonic() + (GT_PASS_S if pass_s is None else pass_s)
+    used = 0
+    try:
+        plan = [(r, "c1h") for r in rows[:store.TOP_1H]] + [(r, "c1d") for r in rows] + \
+               [(r, "c1d") for r in hrows] + [(r, "c1h") for r in hrows[:store.HIST_1H]]
+        for r, t in plan:
+            if used >= budget or time.monotonic() >= store.DEADLINE[0]:
+                break
+            if r.get("pool"):
+                used += store.fill(con, r["mint"], r["pool"], now, budget - used, tables=(t,))
+    finally:
+        store.DEADLINE[0] = 0.0
+    return used
+
+
+def candles_pass(now=None, log=print, path=None, budget=None, pass_s=None):
+    """run_veliki.py candles (start.sh every VEL_CANDLES_EVERY_S, 15 min): only the candles of the current list topped
+    up (no list rebuild): the own bars, then GeckoTerminal by need (top_up). Returns requests used."""
+    now = int(now or time.time())
+    con = store.connect(path)
+    try:
+        rows = store.tokens(con)
+        if not rows:
+            return 0
+        used = top_up(con, rows, store.history_rows(con), now, store.GT_PASS if budget is None else budget, log,
+                      pass_s if pass_s is not None else float(os.environ.get("VEL_CANDLES_PASS_S", "480")))
+        cov = store.coverage(con, [r["mint"] for r in rows])
+        store.kv_put(con, "coverage", cov)
+        con.commit()
+        n1h = sum(1 for m in cov.values() if (m.get("d1h") or 0) >= 3)
+        log(PREFIX + f"svijeće (dopuna): {used} zahtjeva GeckoTerminalu (odbijeno {store.GT_STATS['refused']}, čekano "
+                     f"{store.GT_STATS['waited_s']:.0f} s), {n1h} od {len(rows)} tokena ima 3+ dana 1h svijeća")
+        store.reset_cache()
+        return used
+    finally:
+        con.close()
+
+
 def refresh(now=None, log=print, path=None, gt_budget=None):
     """The list + candles + BTC (run_veliki.py list): the list from scratch, the candles topped up. Returns rows."""
     from veliki import universe
@@ -515,17 +570,7 @@ def refresh(now=None, log=print, path=None, gt_budget=None):
         nh, nd = store.fill_btc(con, now)
         used, budget = 0, store.GT_PASS if gt_budget is None else gt_budget
         hrows = store.history_rows(con)
-        # breadth first: daily candles for every token (list + the fallen), then 1h for the top 40 and 20 fallen
-        for r in rows + hrows:
-            if used >= budget:
-                break
-            if r.get("pool"):
-                used += store.fill(con, r["mint"], r["pool"], now, budget - used, tables=("c1d",))
-        for r in rows[:store.TOP_1H] + hrows[:store.HIST_1H]:
-            if used >= budget:
-                break
-            if r.get("pool"):
-                used += store.fill(con, r["mint"], r["pool"], now, budget - used, tables=("c1h",))
+        used = top_up(con, rows, hrows, now, budget)
         store.prune(con, now)
         ng = store.archive_grok(con, [r["mint"] for r in rows], now)
         cov = store.coverage(con, [r["mint"] for r in rows])

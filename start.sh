@@ -289,6 +289,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 # once a day). Writes veliki.db (DATA_DIR), output/veliki.md and "veliki: " lines; the demo (flag veliki_range,
 # league/auto.fast_loop) reads the list and the live rule from it.
 ( sleep "${VELIKI_LIST_FIRST_S:-90}"; while true; do nice -n 10 python3 run_veliki.py list || echo "veliki lista nije uspjela"; sleep 10800; done ) &
+# 15.11. navečer (coordinator: every backtest variant n=0, the 1h candles never arrived: GeckoTerminal 429 and the pass
+# gave up at the first refusal, 3 h until the next): every VEL_CANDLES_EVERY_S (15 min) the list's candles only: our own
+# 15m / 1h bars from veliki/live's DexScreener polls (free; GeckoTerminal's candle replaces ours when it arrives), then
+# GeckoTerminal by need (1h of the top tokens first), waiting on the shared limiter instead of giving up; veliki and
+# the midcap collector have the CoinGecko key's priority (event_calendar/http CG_PRIORITY). Then, while no rule is
+# picked yet, the backtest again (at most once an hour, run_veliki.py once --ako-nema-pravila; veliki/live trades the
+# documented default rule until then).
+( sleep "${VELIKI_CANDLES_FIRST_S:-240}"; while true; do low python3 run_veliki.py candles || echo "veliki svijeće nisu uspjele"; python3 -m ops.heavy run_veliki.py once --ako-nema-pravila || true; sleep "${VEL_CANDLES_EVERY_S:-900}"; done ) &
 ( sleep "${VELIKI_FIRST_S:-420}"; python3 -m ops.heavy run_veliki.py once || echo "veliki nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_veliki.py night || echo "veliki (noć) nije uspio"; done ) &
 
 # 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and
