@@ -22,6 +22,7 @@ process that ends and gives its memory back; this process only keeps the clock. 
   kriticar_dan run_critic.py daily  at the first check after a start when today (Zagreb) has none, then daily at
                                 KRITICAR_DAILY_HOUR:40 (default 06:40, before the 07:00 morning e-mail); light
   kriticar_dubinski run_critic.py deep --auto  every 10 min a look: the deep session when due (critic/deep.py); light
+  tokenstranice run_tokenstranice.py sat  every TOKENSTRANICE_EVERY_MIN (60): the token pages + AI opinions; light
 """
 import datetime as dt
 import json
@@ -323,6 +324,11 @@ JOBS = [
     # 15.11. navečer: the deep session (critic/deep.py decides: the first right after this deploy, then every 48 h in
     # the night window); the SQL is read-only, paced and capped per query
     ("kriticar_dubinski", every, (["run_critic.py", "deep", "--auto"], 10.0, True)),
+    # 15.11. (vlasnik: "svi novi tokeni ... svoj page sa statistikom, feedbackom, tko ga je zvao ... i mišljenje";
+    # tokenstranice/): every hour the token pages from our own databases (read-only) and a small batch of AI opinions
+    # (gpt-5-mini, its own cap 0.30 $/day); nice 10 inside, light (no heavy lock: it only reads and waits on the API)
+    ("tokenstranice", every, (["run_tokenstranice.py", "sat"], float(os.environ.get("TOKENSTRANICE_EVERY_MIN", "60")),
+                              True)),
 ]
 
 
