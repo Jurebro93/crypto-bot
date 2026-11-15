@@ -144,6 +144,41 @@ class OwnerOrder(SwitchBase):
             self.assertFalse(settings.pravi_novac_sve(con=self.con))
 
 
+class OwnerOrder1511(SwitchBase):
+    """15.11. (Jure, after the OpenAI critic: no real-money strategy proven): "Ok, ugasi pravi novac za sada" -> the
+    switch off and Grok autotrade off, once; the strategies stay in paper (demo); his later "on" is never undone."""
+
+    def test_his_order_turns_real_money_and_grok_off_once(self):
+        from ui import assistnotes, grokauto
+        settings.set_flag(self.con, SW, "live", settings.owner())
+        grokauto.set_on(self.con, True, "Jure")
+        for n, m, _w in assistnotes.OWNER_FLAG_ORDERS:   # production: every earlier order already applied
+            if "15.11." not in _w:
+                settings.put(self.con, f"owner_flag_once:{n}:{m}", 1, "Jure")
+        settings._FLAG_CACHE.clear()
+        self.assertTrue(settings.pravi_novac_sve(con=self.con))
+        done = assistnotes.owner_flag_orders(self.con)
+        settings._FLAG_CACHE.clear()
+        self.assertIn(f"zastavica {SW}: live → off", done)
+        self.assertIn("Grok autotrade: uključen → ugašen", done)
+        self.assertFalse(settings.pravi_novac_sve(con=self.con))
+        self.assertFalse(grokauto.state(self.con)["on"])
+        # he switches either back on later: the order never undoes it
+        settings.set_flag(self.con, SW, "live", settings.owner())
+        grokauto.set_on(self.con, True, "Jure")
+        settings._FLAG_CACHE.clear()
+        self.assertEqual(assistnotes.owner_flag_orders(self.con), [])
+        settings._FLAG_CACHE.clear()
+        self.assertTrue(settings.pravi_novac_sve(con=self.con))
+        self.assertTrue(grokauto.state(self.con)["on"])
+
+    def test_a_fresh_database_ends_with_the_switch_off(self):
+        from ui import assistnotes
+        assistnotes.owner_flag_orders(self.con)
+        settings._FLAG_CACHE.clear()
+        self.assertFalse(settings.pravi_novac_sve(con=self.con))
+
+
 # ---------- the switch itself -----------------------------------------------------------------------------------------
 
 class TheSwitch(SwitchBase):
