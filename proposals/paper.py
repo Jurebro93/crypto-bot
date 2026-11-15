@@ -277,9 +277,13 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
         if got is None or got[0] <= 0:
             continue
         b = r.get("buy") or {}
+        src = f"{SRC_REAL if real else SRC}: {p.get('strategy')}"
+        from trade import capgate   # 15.11. (vlasnik): MC >= 5M, below only the demo's moonshot (half, tagged)
+        gw, src, size = capgate.check(tok, mcap, src, user, size, now, unit="sol", liq=liq, symbol=p.get("symbol"))
+        if gw:
+            continue
         try:
-            tid = lstore.buy(con, user, tok, p.get("symbol"), size * sol, price, liq,
-                             f"{SRC_REAL if real else SRC}: {p.get('strategy')}", None, mcap)
+            tid = lstore.buy(con, user, tok, p.get("symbol"), size * sol, price, liq, src, None, mcap)
         except ValueError as e:
             print(f"prijedlozi paper {tok[:6]}: ulaz nije prošao ({e})", flush=True)
             continue

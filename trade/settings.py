@@ -301,6 +301,35 @@ OWNER_SWITCH_NOTES[OSC_SWITCH] = ("Tvoj prekidač: „uživo” = ulazi oscilato
                                   "3 otvorena, 30 dnevno, dnevni gubitak 0,3 SOL. Svaki drugi mod = samo demo.")
 
 
+# 15.11. (vlasnik: "Od sada nema smisla, čak ni u demu, tradati ove mikrokapove tražeći 10 % ... moonshot samo ako vidimo
+# ogromnu bazu na društvenim mrežama i puno influencera ... Inače sada tradamo samo mid-capove: 5M-150M $"; trade/capgate):
+# an owner switch, "uživo" = on: every AUTOMATIC entry (demo and real) needs MC >= 5M (trade/config.json mikrokap
+# min_mc), except the moonshot below; the owner's manual buy is never held by it. Switched on once by his order 15.11.
+# (ui/assistnotes.OWNER_FLAG_ORDERS); any other mode = the old behaviour (MC >= 30k only).
+MIKROKAP = "mikrokap_blokada"
+FLAGS[MIKROKAP] = ("MK1", "Mikrokap blokada: automatski ulazi (demo i pravi račun) samo uz MC od 5M $ naviše; ispod toga "
+                          "samo moonshot iznimka u demu (jaka društvena baza); tvoje ručne kupnje ne drži")
+OWNER_SWITCHES = OWNER_SWITCHES | {MIKROKAP}
+OWNER_SWITCH_NOTES[MIKROKAP] = ("Tvoj prekidač: „uživo” (uključeno tvojim nalogom 15.11.) = automatski ulazi svih strategija "
+                                "samo uz MC ≥ 5M $, ispod toga samo moonshot iznimka u demu; pravi račun ispod 5M nikad "
+                                "(tvrdo pravilo „MC ispod 5M (mikrokap)”). Svaki drugi mod = kao prije (samo MC ≥ 30k).")
+# The moonshot exception of the gate (coordinator 15.11. after the OpenAI critic: demo only, locked rules, its own
+# measured strategy): "paper" = the exception on the DEMO accounts (default, FLAG_DEFAULTS), "off" = no exception at
+# all; never live (NEVER_LIVE): no switch or order ever lets a moonshot use real money.
+MIKROKAP_MOON = "mikrokap_moonshot"
+FLAGS[MIKROKAP_MOON] = ("MK2", "Moonshot iznimka mikrokap blokade, samo demo: MC 30k+ bondan, likvidnost 50k+, top10 holdera "
+                               "do 45 %, 4+ neovisna influencera / TG kanala u 6 h (klasteri jednom, bez botova i shill "
+                               "mreža), X momentum 1+ i organski autori u rastu; pola uloga, najviše 0,05 SOL, oznaka "
+                               "moonshot")
+FLAG_DEFAULTS[MIKROKAP_MOON] = "paper"
+NEVER_LIVE[MIKROKAP_MOON] = "moonshot iznimka nikad ne trguje pravim novcem (samo demo računi)"
+PROFILE_FLAGS = PROFILE_FLAGS | {MIKROKAP_MOON}   # its paper mode never makes the paper account follow anybody
+OWNER_SWITCHES = OWNER_SWITCHES | {MIKROKAP_MOON}
+OWNER_SWITCH_NOTES[MIKROKAP_MOON] = ("Tvoj prekidač: „paper” (zadano) = moonshot iznimka vrijedi na demo računima; "
+                                     "„isključeno” = ispod 5M nema nikakve iznimke; „uživo” nije moguće (nikad pravi "
+                                     "novac). Pravila su zaključana unaprijed (config.json ih smije samo pooštriti).")
+
+
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""
     try:

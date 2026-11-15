@@ -386,6 +386,15 @@ def _no_stop(lg, t):
     return "bez server-side stopa (plan izlaza na pravom računu, vlastiti SL ili izlaz strategije): bez stopa nema pravog novca"
 
 
+def _mikrokap(t, now):
+    """15.11. (vlasnik: "inače sada tradamo samo mid-capove: 5M-150M $"; trade/capgate): why an AUTOMATIC real buy of
+    the league trade t is refused by the microcap gate (MC unknown included), or None (the gate off, MC >= MIN_MC).
+    The real account never takes the moonshot exception (demo only)."""
+    from trade import capgate
+    return capgate.refusal(t["token"], t["entry_mcap"], t["source"], settings.LEAGUE_USER, now, real=True,
+                           symbol=t["symbol"])
+
+
 def _switch_hard(lg, t, now, market_fn=None):
     """(why or None, wait) of the hard rules on an automatic real buy under pravi_novac_sve (see above). wait: not yet
     decided (a stop or a quote that is still coming), the next pass asks again."""
@@ -646,6 +655,8 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 # known bad only (P1/P7). 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno
                 # dobar razlog"): only his own manual buy he confirmed with a reason passes; copies, Grok, automatics never
                 why = f"MC ${t['entry_mcap']:,.0f} ispod 30k (pravilo: ispod 30k se ne kupuje)"
+            elif not (size and not is_copy) and (mk := _mikrokap(t, now)):
+                why = mk   # 15.11. (vlasnik, trade/capgate): an automatic real buy only at MC >= 5M; the owner's own is not held
             elif live and not size and (t["follow_id"] is not None or is_copy) and not sw:   # a copy never passes as
                 why = _no_proof(lg, t["follow_id"])   # "manual"; 14.11.: pravi_novac_sve buys without the demo proof
             limit = None
@@ -692,7 +703,8 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                              tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15),   # 15: the page default (ui/pravitrade)
                              add=(bool(size) and not is_copy) or rng_add,
                              manual=bool(size) and not is_copy,   # 10.11. (Jure: "makni limit"): no day spend limit
-                             override=ov, **kw)   # 11.11.: only the SOFT limits; kill switch and balance still hold
+                             override=ov, mcap=t["entry_mcap"], **kw)   # 11.11.: only the SOFT limits; kill switch
+                             # and balance still hold; 15.11.: the microcap gate HARD on an automatic buy
             if r["status"] == "open":
                 over = "; ".join(r.get("overridden") or []) or ov
                 _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})"
@@ -794,6 +806,11 @@ def cmd_follow(a):
         pass
     if not a.once:   # one pass (cron, a check by hand) measures nothing: the snapshots belong to the loop that stays
         _start_equity()
+    try:   # 15.11. (trade/capgate): the microcap gate's rule, one line at the start
+        from trade import capgate
+        capgate.start_line()
+    except Exception as e:  # noqa: BLE001 - never stops the start
+        print(f"mikrokap blokada: {type(e).__name__}: {e}", flush=True)
     beat = {"ts": 0, "live": None}
     while not STOPPING["flag"]:
         rung = wake.stamp()   # 13.11.: an exit rung during this pass starts the next one at once (wake.nap below)

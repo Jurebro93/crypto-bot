@@ -497,6 +497,14 @@ def _guards(tok, m):
     return why
 
 
+def _mikrokap(tok, mcap, user, now, liq, mq, rng):
+    """15.11. (vlasnik: "inače sada tradamo samo mid-capove: 5M-150M $"; trade/capgate): why a range lot may not be
+    bought under the microcap gate, or None. A range round is a price rule: it takes no moonshot exception."""
+    from trade import capgate
+    sym = (mq[4] if mq and len(mq) > 4 else None) or (rng or {}).get("symbol")
+    return capgate.refusal(tok, mcap, "range", user, now, liq=liq, symbol=sym)
+
+
 def _held(con, user, tok):
     return con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (user, tok)).fetchone() is not None
 
@@ -1058,6 +1066,8 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None, cfg=
             why = f"već {n_tok} rundi u tokenu danas (najviše {cfg['rounds_token_day']})"
     if why is None:
         why = _guards(tok, mq)
+    if why is None:   # 15.11. (vlasnik, trade/capgate): a new round only at MC >= 5M (small-token rounds are microcaps)
+        why = _mikrokap(tok, mcap, user, now, liq, mq, rng)
     split = bool(cfg and cfg.get("lot2") is not False and cfg.get("lot1_share"))
     if split:   # 14.11. popodne: lot 1 = 60 % of the stake, lot 2 (DCA) the rest
         lot = min(lim["size_sol"] * cfg["lot1_share"], lim["dca_token_cap"])
@@ -1184,6 +1194,8 @@ def _lot2(con, user, r, rng, mq, lim, sol, now):
         why = "dnevni limit SOL-a za range ulaze"
     if why is None:
         why = _guards(r["token"], mq)
+    if why is None:   # 15.11. (trade/capgate): no DCA lot into a microcap either (the round keeps its exits)
+        why = _mikrokap(r["token"], mcap, user, now, liq, mq, None)
     nlv, parts = None, None
     if why is None and scalp:   # the TP on the average entry of both lots, net of both buys; the fee guard again
         u1 = con.execute("SELECT size_usd FROM trades WHERE id=?", (r["lot1_id"],)).fetchone()[0] or 0.0
@@ -1567,6 +1579,8 @@ def _reclaim(con, user, r, rng, mq, lim, sol, now, n_open):
         why = "već drži token"
     if why is None:
         why = _guards(tok, mq)
+    if why is None:   # 15.11. (trade/capgate): a reclaim is a new round: MC >= 5M too
+        why = _mikrokap(tok, mcap, user, now, liq, mq, rng)
     lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"])
     lot = _sized(lot, liq, sol, rng)
     if why is None and lot <= 0:

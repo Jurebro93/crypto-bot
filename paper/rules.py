@@ -105,7 +105,17 @@ def is_pump(mint):
 
 
 def gate(token, price, liq, mcap, t0, features=None, cfg=None):
-    """Reason (plain Croatian) to refuse this entry, or None. t0: 'prolaz' / 'pad' / 'nije' / None (no row)."""
+    """Reason (plain Croatian) to refuse this entry, or None. t0: 'prolaz' / 'pad' / 'nije' / None (no row).
+    15.11. (vlasnik: "nema smisla, čak ni u demu, tradati mikrokapove tražeći 10 %"; trade/capgate): first the
+    microcap gate (MC >= 5M while mikrokap_blokada is on); the classic demo bot takes no moonshot exception (that one
+    is measured on the Autopilot's demo account, league.db)."""
+    try:
+        from trade import capgate
+        why = capgate.refusal(token, mcap, "demo bot (paper.db)", "paper-bot", None, liq=liq, real=False)
+    except Exception:  # noqa: BLE001 - trade/ unreadable: the old gate below
+        why = None
+    if why:
+        return why
     g = config(cfg)["gate"]
     if not g["enabled"]:
         return None

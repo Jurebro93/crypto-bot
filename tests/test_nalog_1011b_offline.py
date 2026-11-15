@@ -75,7 +75,9 @@ class LaterOrders(Base):
                                 # 15.11. (vlasnik: konsenzus izvora odmah u demo; pravi novac samo njegovim prekidačem)
                                 "zastavica konsenzus: off → paper",
                                 # 15.11. (vlasnik: oscilator odmah u demo; pravi novac samo njegovim prekidačem)
-                                "zastavica oscilator: off → paper"])
+                                "zastavica oscilator: off → paper",
+                                # 15.11. (vlasnik: automatski ulazi samo MC ≥ 5M $, trade/capgate)
+                                "zastavica mikrokap_blokada: off → live"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")
         keys = {x["key"] for x in assistnotes.applied(self.tc)}
         self.assertTrue({"flag:market_scan", "flag:group_discovery", "flag:range_dca", "flag:insider_copy"} <= keys)

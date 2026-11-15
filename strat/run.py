@@ -163,6 +163,17 @@ def _kopija(con, rid, srcs, token, now, px, mcap):
     return out
 
 
+def _mikrokap(tok, mcap, key, now, liq):
+    """15.11. (vlasnik: "nema smisla, čak ni u demu, tradati mikrokapove"; trade/capgate): these five comparison
+    accounts are research on demo money, but they buy automatically, so the microcap gate holds them too (no moonshot
+    exception: that one is measured on the Autopilot's demo account). The reason or None."""
+    try:
+        from trade import capgate
+        return capgate.refusal(tok, mcap or None, f"strategija {key}", f"strat:{key}", now, liq=liq, real=False)
+    except Exception:  # noqa: BLE001 - trade/ unreadable: the old rules
+        return None
+
+
 def band_of(cfg, key, mcap):
     """Is this market cap inside the band of strategy `key` (alat_bands)? Strategies without a band take any."""
     b = (cfg.get("alat_bands") or {}).get(key)
@@ -317,6 +328,8 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
                     reason = "premali token"            # pump.fun entry gave the KOL account a 70x in 8 min no one could sell
                 elif mcap > cfg["max_mcap"]:
                     reason = "prevelik token"
+                elif (gw := _mikrokap(tok, mcap, k, now, liq)):
+                    reason = gw   # 15.11. (vlasnik, trade/capgate): the comparison accounts too (research, demo money)
                 elif not band_of(cfg, k, mcap):
                     reason = "drugi razred market capa"
                 elif k == "kol_potvrdjen" and not volume_confirmed(m, cfg):

@@ -501,7 +501,18 @@ def run_once(con, market, now=None):
 
 def loop(market, every=EVERY_S):
     """Background thread body for run_ui.py."""
+    try:   # 15.11. (trade/capgate): the microcap gate's rule once at the start; the day's counter at each new day
+        from trade import capgate
+        capgate.start_line()
+        capgate.day_tick()
+    except Exception as e:  # noqa: BLE001 - never stops the loop
+        print(f"mikrokap blokada: {type(e).__name__}: {e}", file=sys.stderr)
     while True:
+        try:
+            from trade import capgate
+            capgate.day_tick()   # "mikrokap 15.11.: odbijeno N ulaza ispod 5M, moonshot iznimki M" once a day
+        except Exception:  # noqa: BLE001
+            pass
         try:
             con = store.connect()
             # 9.11. (audit P27): copy trading goes FIRST (the wake-up from a webhook is for it: every second of a fresh

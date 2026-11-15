@@ -612,6 +612,13 @@ def page(qs):
     b = ["<h1>Demo trading</h1><p class=mut>Bez pravog novca. Prvo: koje strategije zarađuju, koje su blizu nule i "
          "što bi ih dovelo u plus. Sve tablice su dolje pod Detalji. <span id=upd class=mut></span></p>"
          "<div class=grid id=cards></div>"]
+    try:   # 15.11. (vlasnik, trade/capgate): the microcap gate's rule and today's counters on the demo page
+        from trade import capgate
+        if capgate.on():
+            b.append(f"<p class=mut><b>Mikrokap blokada:</b> {esc(capgate.rule_text())}. "
+                     f"{esc(capgate.summary_line())}.</p>")
+    except Exception:  # noqa: BLE001 - never break the page
+        pass
     try:
         b.append(paperverdict.top_html(trades))
     except Exception as e:  # noqa: BLE001 - never break the page

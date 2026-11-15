@@ -271,6 +271,10 @@ def enter(con, spec, user, tok, fire_ts, why, mq, now, sol):
     sym = (mq[4] if len(mq) > 4 else None) or tok[:6]
     size_usd = DEMO_SOL * sol
     src = f"{SRC} {spec.get('key')}: {why}"[:200]
+    from trade import capgate   # 15.11. (vlasnik): MC >= 5M, below only the demo's moonshot (half, tagged)
+    gw, src, size_usd = capgate.check(tok, mcap, src, user, size_usd, now, sol=sol, liq=liq, symbol=sym)
+    if gw:
+        return None, gw
     try:
         tid = lstore.buy(con, user, tok, sym, size_usd, price, liq, src, None, mcap)
     except ValueError as e:

@@ -2172,6 +2172,7 @@ def switches_html(d, tcon, cfg, owner, now=None):
     auto = (pt._switch_html(on) if owner else f'<b>{"uključen" if on else "isključen"}</b>')
     grp.append(f'<div class=apx-swr id=sw-autopilot><div><b>Autopilot</b><span class=apx-mut>nove kupnje bota; isti '
                f'prekidač je i u naslovu stranice</span></div>{auto}</div>')
+    grp.append(pt._safe("mikrokap", mikrokap_html, tcon, owner, now))   # 15.11.: the microcap gate (trade/capgate)
     grp.append(pt._safe("vlasnikovi-prekidaci", owner_switches_html, tcon, owner))
     plans = pt._safe("exit-planovi", pt._exit_plans_block, tcon, owner)
     if plans:
@@ -2191,13 +2192,47 @@ def _fold(name, reason, inner, value, tone, iid, open_=False):
             f'<div class=in>{inner}</div></details>')
 
 
+def _flag_form(name, m):
+    opts = "".join(f'<option value={mm}{" selected" if mm == m else ""}>{pt.FLAG_WORDS[mm]}</option>'
+                   for mm in settings.FLAG_MODES)
+    return (f'<form method=post action=/pravi-trade/flag class=ap-btns style="margin:0 0 10px">'
+            f'<input type=hidden name=name value={esc(name)}><select name=mode>{opts}</select>'
+            f'<button>Spremi</button></form>')
+
+
+def mikrokap_html(tcon, owner, now=None):
+    """15.11. (vlasnik: "Inače sada tradamo samo mid-capove: 5M-150M $"; trade/capgate): one closed row in Prekidači:
+    the rule, today's counters (refused entries, moonshot exceptions), the moonshot demo strategy so far (net EV) and,
+    for the owner, the forms of both switches (mikrokap_blokada, mikrokap_moonshot)."""
+    from trade import capgate
+    st = settings.flag_state(tcon)
+    m, mm = st[settings.MIKROKAP]["mode"], st[settings.MIKROKAP_MOON]["mode"]
+    gate_on = m == "live"
+    bits = [f'<p><b>Pravilo:</b> {esc(capgate.rule_text())}.</p>',
+            f'<p class=mut>{esc(capgate.summary_line(now))}.</p>',
+            '<p class=mut>Tvoje ručne kupnje blokada ne drži. Pravi račun ispod praga nikad (tvrdo pravilo „MC ispod 5M '
+            '(mikrokap)”); moonshot iznimka samo na demo računima, s oznakom „moonshot” u izvoru i zasebnim EV-om.</p>']
+    for name in (settings.MIKROKAP, settings.MIKROKAP_MOON):
+        mode = st[name]["mode"]
+        bits.append(f'<p class=mut><b>{esc(name)}</b>: {pt.dot(pt.FLAG_TONE[mode], pt.FLAG_WORDS[mode])} · '
+                    f'{esc(settings.OWNER_SWITCH_NOTES.get(name) or "")}</p>')
+        if owner:
+            bits.append(_flag_form(name, mode))
+    c = capgate.counts(now)
+    reason = (f"automatski ulazi samo MC ≥ {capgate.money(capgate.cfg()['min_mc'])} $ · danas odbijeno {c['refused']}, "
+              f"moonshot {c['moon']}" if gate_on else "isključena: automatski ulazi od 30k kao prije")
+    value = ("uključena" + ("" if mm == "paper" else ", bez moonshota")) if gate_on else "isključena"
+    return _fold("Mikrokap blokada", reason, "".join(bits), value, "good" if gate_on else "warn", "sw-mikrokap")
+
+
 def owner_switches_html(tcon, owner):
     """The owner's switches other than pravi_novac_sve (trade/settings.OWNER_SWITCHES), one closed row each with its
     state, what "uživo" does and, for the owner, the same flag form as under Zastavice (Postavke leaves them out)."""
     st = settings.flag_state(tcon)
     rows = []
     for name, (item, words) in settings.FLAGS.items():
-        if name not in settings.OWNER_SWITCHES or name == settings.SWITCH_ALL:
+        if name not in settings.OWNER_SWITCHES or name in (settings.SWITCH_ALL, settings.MIKROKAP,
+                                                           settings.MIKROKAP_MOON):   # 15.11.: own row (mikrokap_html)
             continue
         m = st[name]["mode"]
         note = settings.OWNER_SWITCH_NOTES.get(name) or ("Tvoj prekidač: „uživo” ga uključuje (bez backtesta, samo "
