@@ -262,6 +262,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 # uses it for new positions at once, real money only when proven out of sample (league/exitplan.quick_cover).
 ( sleep "${IZLAZI_FIRST_S:-1290}"; while true; do python3 -m ops.heavy --night run_izlazi.py night || echo "naučeni izlazi (noć) nisu uspjeli"; sleep 3600; done ) &
 
+# 15.11. (vlasnik: "hitno pronađi profitabilnu strategiju kombiniranjem profitabilnih novčanika i influencera ... kreni
+# odmah", konsenzus/, run_konsenzus.py): X influencers, Telegram channels and tracked wallets scored point-in-time,
+# candidates (top sources, 2+ independent sources, wallet + KOL, Telegram only) walk-forward with an untouched holdout;
+# read-only, no API call. KONSENZUS_FIRST_S (420 s) after a start under the heavy-job lock (nice 10, the CPU guard's
+# job class, a 20-min budget; skipped when the last run is younger than 3 h), then nightly (01-06 Zagreb, once a day).
+# Writes konsenzus.db (DATA_DIR), output/konsenzus.md and "konsenzus: " lines; the demo entries (flag konsenzus) read it.
+( sleep "${KONSENZUS_FIRST_S:-420}"; python3 -m ops.heavy run_konsenzus.py once || echo "konsenzus nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_konsenzus.py night || echo "konsenzus (noć) nije uspio"; done ) &
+
 # 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and
 # every call of a followed influencer -> fast.db queue -> five checks (rug, holders, flow, price vs the wallet's entry,
 # source) and a decision within seconds, 20 at once. Time-sensitive, so a supervised process polling every 0.5 s (and

@@ -1576,6 +1576,20 @@ TOOLS.append(
          "source_id": {"type": "string"},
          "top": {"type": "integer", "minimum": 1, "maximum": 200, "default": 30},
          "proven_only": {"type": "boolean", "default": False}}}})
+# 15.11. (owner, konsenzus/): the source consensus strategy (influencers + Telegram channels + wallets), read-only
+TOOLS.append(
+    {"name": "get_source_strategy", "annotations": _READ,
+     "description": ("MemeSonar's source consensus research (konsenzus/, after a deploy and nightly, read-only on its own "
+                     "30 days): X influencers, Telegram channels and tracked wallets scored point-in-time (shrunk EV "
+                     "after real costs and stop slippage, correlated sources merged), candidates S1 top-K sources, S2 "
+                     "2+ independent sources within W min, S3 wallet + X/Telegram, S4 Telegram-only, each with exits E "
+                     "(half +15 %, trailing 8 %, stop -10 %, 45 min), B (brzi profit) and W (wider stop); parameters "
+                     "chosen on the earlier 75 % of days, the last 25 % (holdout) evaluated once: n, per_day, ev_pct, "
+                     "ci_lo_pct / ci_hi_pct (day-block bootstrap), hit, worst_pct, max_dd, rug_share. best: the candidate "
+                     "the demo account trades; demo: its closed demo trades; real_money: whether the owner switch "
+                     "pravi_novac_izvori is on and the holdout proof (n >= 30, EV >= +3 %, CI low > 0) passed. full: also "
+                     "every configuration's train numbers. Read-only."),
+     "inputSchema": {"type": "object", "properties": {"full": {"type": "boolean", "default": False}}}})
 # 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
 _P01 = {"type": "number", "minimum": 0, "maximum": 1}
 TOOLS.append(
@@ -1832,6 +1846,10 @@ def _tool(name, args, kid="local"):
     if name == "get_learned_exits":   # 15.11. izlazi/, read-only
         from izlazi import report as izreport
         d = izreport.mcp(args)
+        return d, "error" in d
+    if name == "get_source_strategy":   # 15.11. konsenzus/, read-only
+        from konsenzus import view as kview
+        d = kview.mcp(args)
         return d, "error" in d
     if name == "get_hourly_brief":   # 11.11. events/brief.py
         from events import brief

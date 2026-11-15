@@ -782,6 +782,11 @@ OWNER_FLAG_ORDERS = (
     ("event_tokens", "paper", "vlasnik u chatu 14.11.: sve strategije pravim novcem, event_tokens iz shadowa u paper"),
     ("pravi_novac_sve", "live", "vlasnik u chatu 14.11.: „uključi prekidač, imaš moje dopuštenje da odmah krene tradati "
                                 "što prije” (0,1 SOL po tradeu, 10 otvorenih, 100 dnevno, dnevni gubitak 0,5 SOL)"),
+    # 15.11. (vlasnik: "nova strategija ... praćenjem profitabilnih influencera i novčanika ... pozadinu ostavi za demo
+    # trading ... kreni odmah"): the source consensus strategy on the DEMO account from the deploy. Its real money is
+    # the owner switch pravi_novac_izvori, which no order here ever turns on.
+    ("konsenzus", "paper", "vlasnik u chatu 15.11.: konsenzus izvora (influenceri, Telegram kanali, novčanici) odmah u "
+                           "demo; pravi novac samo njegovim prekidačem pravi_novac_izvori uz dokaz na holdoutu"),
 )
 
 
