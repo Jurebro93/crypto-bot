@@ -26,6 +26,7 @@
     grok_calibration   momentum/evgate.report: Grok's p_tp on execute_trade against what happened (Brier, buckets)
     grok_predictions   events/predictions.brief_part: Grok's predictions scored since `since` and the calibration
                        per p_tp bucket, Grok's and MemeSonar's
+    listing_signals    holderi/view: PRE-LISTING signals (score >= 40) and deposits to sell since `since` (15.11.)
     health             the feeds' gap alerts (events/health), last night's batch (start, duration, calls processed,
                        Helius credits, errors) and the alert when it had not finished by 04:30 Zagreb; disk
                        (ops/diskreport.brief_part: used %, growth, runway, top cleanup candidates) with an alert when
@@ -400,6 +401,16 @@ def predictions_part(econ, since, now):
     return predictions.brief_part(econ, since, now)
 
 
+def listing_part(since_s, now):
+    """15.11. (holderi/): PRE-LISTING signals (supply reaching an exchange that does not list the token yet, score >=
+    40) and deposits to sell since `since`, newest first (one read of holderi.db)."""
+    from holderi import view
+    d = view.listing_signals({"days": max(0.1, (now - since_s) / 86400), "min_score": 40})
+    return {"signals": [{k: x.get(k) for k in ("symbol", "mint", "ts", "kind", "exchange_name", "score", "mcap",
+                                               "reasons", "ret_1h_pct", "ret_24h_pct")} for x in d.get("signals") or []][:20],
+            "min_score_loud": d.get("min_score")}
+
+
 def health_part(econ, now=None):
     from events import night
     now = int(now or time.time())
@@ -470,6 +481,7 @@ def build(since=None, limit_signals=None, now=None, include_closed=False):
         out["grok_calibration"] = _timed(out, "grok_calibration", calibration_part, now)
         out["grok_predictions"] = _timed(out, "grok_predictions", predictions_part, econ, since_s, now)
         out["health"] = _timed(out, "health", health_part, econ, now)
+        out["listing_signals"] = _timed(out, "listing_signals", listing_part, since_s, now)
     finally:
         if econ is not None:
             econ.close()

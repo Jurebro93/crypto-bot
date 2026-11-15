@@ -17,8 +17,11 @@ Heuristics (no address list needed):
                 that exchange (confidence = the hot wallet's x 0.9)
 
 Listing status (listed(mint, symbol)): the exchanges' own public market lists (free, no keys, cached a day in holderi.db
-kv lst:<exchange>) and CoinGecko's free coin-by-contract tickers (dugo/holders.listings, by contract address). A contract
-address match is "da"; a symbol-only match is "nesigurno" (symbols collide); nothing is "ne".
+kv lst:<exchange>; Gate, MEXC, Bitget and Binance Alpha carry Solana contract addresses) and CoinGecko's free
+coin-by-contract tickers (dugo/holders.listings). A symbol match is resolved by contract where the exchange tells it per
+currency (KuCoin, Coinbase; cached a day). A contract match is "da"; a symbol-only match is "nesigurno" (symbols
+collide); a symbol whose contract differs is "ne"; nothing is "ne". Binance and Bybit refuse some regions (geo block):
+then "nepoznato" unless CoinGecko knows.
 """
 import json
 import os
@@ -332,6 +335,39 @@ def cg_listed(con, mint, now=None, ttl=86400):
     return ex
 
 
+def _resolve_kucoin(sym):
+    d = _g(f"https://api.kucoin.com/api/v3/currencies/{sym}")
+    return [c.get("contractAddress") for c in ((d or {}).get("data") or {}).get("chains") or []
+            if str(c.get("chainName") or c.get("chainId") or "").upper() in ("SOL", "SOLANA") and c.get("contractAddress")]
+
+
+def _resolve_coinbase(sym):
+    d = _g(f"https://api.exchange.coinbase.com/currencies/{sym}")
+    return [n.get("contract_address") for n in (d or {}).get("supported_networks") or []
+            if n.get("id") == "solana" and n.get("contract_address")]
+
+
+RESOLVERS = {"kucoin": _resolve_kucoin, "coinbase": _resolve_coinbase}   # symbol -> Solana contracts (free, per symbol)
+
+
+def resolve(con, ex, sym, now=None):
+    """The Solana contract addresses `ex` trades under `sym` (cached a day in kv res:<ex>:<sym>), None when unknown."""
+    from holderi import store
+    if ex not in RESOLVERS and "resolve" not in FETCH:
+        return None
+    now = int(now or time.time())
+    k = f"res:{ex}:{sym}"
+    old = store.kv_get(con, k)
+    if old and now - int(old.get("ts") or 0) < 86400:
+        return old.get("c")
+    try:
+        c = FETCH["resolve"](ex, sym) if "resolve" in FETCH else RESOLVERS[ex](sym)
+    except Exception:  # noqa: BLE001
+        c = None
+    store.kv_put(con, k, {"ts": now, "c": c})
+    return c
+
+
 def listed(con, mint, symbol, exchange, now=None, use_cg=True):
     """("da" | "nesigurno" | "ne" | "nepoznato", why) of one token on one exchange (see the module text)."""
     from holderi import store
@@ -348,5 +384,10 @@ def listed(con, mint, symbol, exchange, now=None, use_cg=True):
     if not lst.get("symbols"):
         return "nepoznato", NAMES.get(ex, ex) + ": lista nije dostupna"
     if _sym(symbol) and _sym(symbol) in set(lst["symbols"]):
+        cons = resolve(con, ex, _sym(symbol), now)
+        if cons and mint in cons:
+            return "da", f"{NAMES.get(ex, ex)}: simbol {_sym(symbol)} s istom adresom ugovora"
+        if cons:
+            return "ne", f"{NAMES.get(ex, ex)}: simbol {_sym(symbol)} je drugi token (druga adresa)"
         return "nesigurno", f"{NAMES.get(ex, ex)}: isti simbol {_sym(symbol)} (možda drugi token)"
     return "ne", NAMES.get(ex, ex) + ": nije na listi"

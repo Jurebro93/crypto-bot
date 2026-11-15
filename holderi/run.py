@@ -6,6 +6,7 @@ like the midcap collector whose list it reads).
              watch_every_h (6 h) = the transfer watch, the rest every snap_every_h (24 h); RugCheck first (free, its 1 h
              cache file is the collector's), Helius getTokenLargestAccounts only when RugCheck has nothing (3 credits);
              at most rc_pass reports a pass. Classified (holderi/klasa), stored with the profile; diff vs the previous
+  behaviour  whales >= 2 % checked once a week for exchange-like behaviour (2 credits; at most beh_pass a pass)
   trace      a holder (not a pool / exchange / burn) that lost >= min_move_pct (0.5 %) of supply since the previous
              snapshot: its transactions since then (10 credits) -> where the tokens went: an exchange wallet (known or a
              deposit address that sweeps into one: +10 credits; or exchange-like by behaviour: +2) / a swap (sell) /
@@ -174,6 +175,36 @@ def due(con, c, toks, now):
     return [x[3] for x in out]
 
 
+def behaviour_check(con, c, rows, budget, now, counters):
+    """Big unclassified holders (whales >= beh_min_pct, 2 %) checked once a week for exchange-like behaviour (>= busy_sol
+    SOL and 1000 signatures within busy_h hours; 2 credits): a hit goes to burze_dodane as a heuristic exchange wallet
+    (nepotvrđeno, 0.45) and is classified so from the next snapshot. n found."""
+    n = 0
+    for r in rows:
+        if r["cls"] != "whale" or (r["pct"] or 0) < float(c.get("beh_min_pct") or 2.0):
+            continue
+        if counters["beh"] >= int(c.get("beh_pass") or 10):
+            break
+        k = f"beh:{r['owner']}"
+        if now - int(store.kv_get(con, k, 0) or 0) < 7 * 86400:
+            continue
+        counters["beh"] += 1
+        try:
+            b = chain.busy(r["owner"], budget)
+        except Exception:  # noqa: BLE001
+            b = None
+        if b is None:
+            continue
+        store.kv_put(con, k, int(now))
+        conf = burze.behaviour(*b, busy_sol=float(c.get("busy_sol") or 5000), busy_h=float(c.get("busy_h") or 24))
+        if conf:
+            burze.add(con, r["owner"], "nepoznata", "hot", conf,
+                      f"heuristika: top holder {r['pct']:.1f} %, {b[0]:,.0f} SOL, {b[1]} tx u {b[2]:.1f} h", "heuristika",
+                      now)
+            n += 1
+    return n
+
+
 # ---------- trace ------------------------------------------------------------------------------------------------------
 
 def check_dest(con, c, dest, mint, after_ts, budget, reg, rows, pools=(), now=None):
@@ -287,9 +318,9 @@ def xbal_pass(con, c, toks, now, budget, reg):
             continue
         try:
             bal = chain.token_accounts(w, mints, budget)
-        except Exception:  # noqa: BLE001
-            bal = None
-        if bal is None:
+        except Exception:  # noqa: BLE001 - one wallet's answer (too large / busy) costs only itself
+            continue
+        if bal is None:   # over the cap
             break
         n += 1
         checked = store.kv_get(con, f"xchk:{w}")
@@ -597,7 +628,7 @@ def run_pass(now=None, log=print, path=None, force=False, toks=None):
             store.count(con, now, lists=out["lists"])
         reg = burze.registry(fresh=True)
         cross = burze.cross_token(con, now, int(c["cross_min"]))
-        counters = {"trace": 0, "mm": 0, "rc": 0, "helius": 0}
+        counters = {"trace": 0, "mm": 0, "rc": 0, "helius": 0, "beh": 0}
         for tok in due(con, c, toks, now):
             if counters["rc"] >= int(c["rc_pass"]):
                 break
@@ -614,6 +645,7 @@ def run_pass(now=None, log=print, path=None, force=False, toks=None):
                 continue
             out["snaps"] += 1
             ts, rows, _prof, pools, supply = r
+            behaviour_check(con, c, rows, budget, now, counters)
             if prev:
                 d = klasa.diff(prev, rows, float(c["min_move_pct"]))
                 if d["out"] or d["in"] or d["new"]:

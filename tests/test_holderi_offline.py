@@ -97,8 +97,9 @@ class Base(unittest.TestCase):
         self.addCleanup(run.NOTIFY.update, fn=None)
         self.lists = {"mexc": {"symbols": ["BTC", "ETH"], "contracts": []}, "bybit": {"symbols": ["BTC"], "contracts": []}}
         self.cg = []
+        self.res = {}
         burze.FETCH.update(lists=lambda ex: self.lists.get(ex, {"symbols": ["BTC"], "contracts": []}),
-                           cg=lambda m: self.cg)
+                           cg=lambda m: self.cg, resolve=lambda ex, sym: self.res.get((ex, sym)))
         self.rc = {}
         self.txs = {}
         self.bal = {}
@@ -191,6 +192,16 @@ class Score(Base):
         self.cg = ["kucoin"]
         store.kv_put(con, f"cg:{MINT}", {"ts": 0})
         self.assertEqual(burze.listed(con, MINT, "MEME", "kucoin", NOW)[0], "da")   # CoinGecko by contract
+        self.lists["okx"] = {"symbols": ["MEME"], "contracts": []}
+        store.kv_put(con, "lst:okx", {"ts": 0})
+        burze.refresh_lists(con, NOW, log=self.logs.append)
+        self.assertEqual(burze.listed(con, MINT, "MEME", "okx", NOW)[0], "nesigurno")
+        self.res[("okx", "MEME")] = ["OtherMemeMint1111111111111111111111"]
+        store.kv_put(con, "res:okx:MEME", {"ts": 0})
+        self.assertEqual(burze.listed(con, MINT, "MEME", "okx", NOW)[0], "ne")      # the same symbol, another token
+        self.res[("okx", "MEME")] = [MINT]
+        store.kv_put(con, "res:okx:MEME", {"ts": 0})
+        self.assertEqual(burze.listed(con, MINT, "MEME", "okx", NOW)[0], "da")
 
     def test_caution_on_insider_share(self):
         self.assertEqual(signal.caution({"insider_ex": 20.0})["pts"], 0.0)
@@ -285,6 +296,17 @@ class Pass(Base):
         self.assertEqual((kind, score), ("pre_listing", 45.0))   # 30 + untraced 5 + tier 10 (one reading: no growth)
         self.assertEqual(self.sent, [])                      # under the loud threshold
         self.assertEqual(view.prio_facts(self.db, 10 ** 9)[MINT]["listing"], 22.5)
+
+    def test_a_rich_busy_whale_becomes_a_heuristic_exchange(self):
+        self.rc[MINT] = rc([(W1, 6.0), (TEAM, 2.0)])
+        chain.FETCH["busy"] = lambda a: (25000.0, 1000, 3.5) if a == W1 else (1.0, 5, 900.0)
+        self.pass_(NOW)
+        reg = burze.registry(fresh=True)
+        self.assertEqual((reg[W1]["status"], reg[W1]["confidence"]), ("nepotvrđeno", 0.45))
+        self.pass_(NOW + 7 * 3600)
+        prof = store.latest_profiles(self.con(), {MINT}, 10 ** 9)[MINT]
+        self.assertEqual(prof["shares"]["exchange"], 6.0)    # classified as an exchange from the next snapshot
+        self.assertEqual(prof["insider_ex"], 2.0)
 
     def test_outcomes_against_the_control(self):
         con = self.con()
