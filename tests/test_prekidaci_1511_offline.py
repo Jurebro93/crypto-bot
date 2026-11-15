@@ -53,13 +53,19 @@ class Prekidaci(_Base):
             self.assertIn(k, sw, k)
         self.assertIn("id=fl-pravi_novac_sve", sw)
 
-    def test_a_waiting_grok_request_comes_open(self):
+    def test_a_waiting_grok_request_is_a_badge_on_the_closed_card(self):
+        # 15.11. navečer (owner, the 3rd time: "minimizira pa da se na klikom na karticu otvori tijelo"): the request
+        # opens nothing by itself: a badge on the closed card, a closed row inside; his tap opens it
         code, out = mcpapi.trade_request({"token": REQ, "side": "buy", "amount": 0.1, "require_approval": True,
                                           "reason": "range dno"})
         self.assertEqual(out["status"], "pending_approval", out)
         sw = self.switches(self.page())
-        self.assertIn("<details class=ap-it id=sw-mcp open>", sw)
-        self.assertIn("action=/pravi-trade/mcpok", sw)
+        self.assertIn('<details class="apx-acc apx-sws" id=prekidaci-d data-tap><summary>', sw)
+        self.assertIn('<b class=apx-swbadge title="Grokov zahtjev čeka tvoje Odobri / Odbij">1 čeka</b>', sw)
+        self.assertRegex(sw, r"\d+ prekidača, \d+ uključen\w*, 1 čeka tebe")
+        self.assertIn("<details class=ap-it id=sw-mcp>", sw)
+        self.assertNotRegex(sw, r"<details[^>]*\sopen[\s>]")
+        self.assertIn("action=/pravi-trade/mcpok", sw)                         # the buttons are inside, folded
 
     def test_no_request_no_request_row(self):
         self.assertNotIn("id=sw-mcp", self.switches(self.page()))
