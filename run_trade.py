@@ -334,6 +334,25 @@ def _osc_refusal():
         return f"oscilator: dokaz se ne može pročitati ({type(e).__name__})"
 
 
+def _veliki_refusal():
+    """15.11. (veliki/): None when a big-token range trade of the real account may become a real buy (the owner's switch
+    pravi_novac_veliki on AND the holdout proof AND BTC not crashing, veliki/gate.real_refusal), else why not."""
+    try:
+        from veliki import gate
+        return gate.real_refusal()
+    except Exception as e:  # noqa: BLE001 - no proof, no real money
+        return f"veliki: dokaz se ne može pročitati ({type(e).__name__})"
+
+
+def _veliki_size():
+    """The real stake of a big-token range buy (veliki/gate.real_caps: 0.1 SOL, up to 0.5 by the owner)."""
+    try:
+        from veliki import gate
+        return gate.real_caps()["size_sol"]
+    except Exception:  # noqa: BLE001
+        return 0.1
+
+
 # 14.11. (owner: "Ja sada ne govorim o demu ... idemo s pravim novcem"; trade/settings "pravi_novac_sve"): while his
 # switch is on, every automatic demo trade of the real account is a real buy without the demo proof (PROOF, the
 # momentum gate), within trade/executor.SWITCH_CAPS. The hard rules are asked once more right here, on the real buy
@@ -381,9 +400,21 @@ def _no_stop(lg, t):
         if src.startswith("range lot") and lg.execute("SELECT 1 FROM range_rounds WHERE status='open' AND (lot1_id=? OR "
                                                       "lot2_id=?)", (t["id"], t["id"])).fetchone():
             return None   # rangedca/trade.exits_once: the round's hard stop every second
+        if src.startswith("veliki:") and lg.execute("SELECT 1 FROM veliki_trades WHERE trade_id=? AND status='open'",
+                                                    (t["id"],)).fetchone():
+            return None   # veliki/live.tick: its own stop every VEL_TICK_S (the real path still needs the owner's tap)
     except sqlite3.Error:
         pass
     return "bez server-side stopa (plan izlaza na pravom računu, vlastiti SL ili izlaz strategije): bez stopa nema pravog novca"
+
+
+def _mikrokap(t, now):
+    """15.11. (vlasnik: "inače sada tradamo samo mid-capove: 5M-150M $"; trade/capgate): why an AUTOMATIC real buy of
+    the league trade t is refused by the microcap gate (MC unknown included), or None (the gate off, MC >= MIN_MC).
+    The real account never takes the moonshot exception (demo only)."""
+    from trade import capgate
+    return capgate.refusal(t["token"], t["entry_mcap"], t["source"], settings.LEAGUE_USER, now, real=True,
+                           symbol=t["symbol"])
 
 
 def _switch_hard(lg, t, now, market_fn=None):
@@ -646,6 +677,8 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 # known bad only (P1/P7). 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno
                 # dobar razlog"): only his own manual buy he confirmed with a reason passes; copies, Grok, automatics never
                 why = f"MC ${t['entry_mcap']:,.0f} ispod 30k (pravilo: ispod 30k se ne kupuje)"
+            elif not (size and not is_copy) and (mk := _mikrokap(t, now)):
+                why = mk   # 15.11. (vlasnik, trade/capgate): an automatic real buy only at MC >= 5M; the owner's own is not held
             elif live and not size and (t["follow_id"] is not None or is_copy) and not sw:   # a copy never passes as
                 why = _no_proof(lg, t["follow_id"])   # "manual"; 14.11.: pravi_novac_sve buys without the demo proof
             limit = None
@@ -668,6 +701,13 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                     why, wait = _switch_hard(lg, t, now)
                     if why and wait:
                         continue
+            if not why and (t["source"] or "").startswith("veliki:"):   # 15.11. (veliki/): its own switch + the
+                why = _veliki_refusal()                                  # holdout proof; pravi_novac_sve never routes it
+                if not why:
+                    why, wait = _switch_hard(lg, t, now)
+                    if why and wait:
+                        continue
+                    rng_sol = rng_sol or _veliki_size()
             auto_sw = sw and not size   # 14.11.: an automatic real buy under pravi_novac_sve (the owner's own: as before)
             strat = executor.strategy_of(t["source"])
             if not why and auto_sw:
@@ -692,7 +732,8 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                              tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15),   # 15: the page default (ui/pravitrade)
                              add=(bool(size) and not is_copy) or rng_add,
                              manual=bool(size) and not is_copy,   # 10.11. (Jure: "makni limit"): no day spend limit
-                             override=ov, **kw)   # 11.11.: only the SOFT limits; kill switch and balance still hold
+                             override=ov, mcap=t["entry_mcap"], **kw)   # 11.11.: only the SOFT limits; kill switch
+                             # and balance still hold; 15.11.: the microcap gate HARD on an automatic buy
             if r["status"] == "open":
                 over = "; ".join(r.get("overridden") or []) or ov
                 _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})"
@@ -794,6 +835,11 @@ def cmd_follow(a):
         pass
     if not a.once:   # one pass (cron, a check by hand) measures nothing: the snapshots belong to the loop that stays
         _start_equity()
+    try:   # 15.11. (trade/capgate): the microcap gate's rule, one line at the start
+        from trade import capgate
+        capgate.start_line()
+    except Exception as e:  # noqa: BLE001 - never stops the start
+        print(f"mikrokap blokada: {type(e).__name__}: {e}", flush=True)
     beat = {"ts": 0, "live": None}
     while not STOPPING["flag"]:
         rung = wake.stamp()   # 13.11.: an exit rung during this pass starts the next one at once (wake.nap below)

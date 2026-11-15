@@ -195,6 +195,9 @@ def _enter(con, user, tok, s, mq, lim, sol, now):
     price, liq, _url, mcap = mq[:4]
     if guards(tok, mq, s["price"]):
         return []
+    from trade import capgate   # 15.11. (vlasnik): MC >= 5M; a price signal takes no moonshot exception (logged once)
+    if capgate.refusal(tok, mcap, SRC, user, now, liq=liq, symbol=(mq[4] if len(mq) > 4 else None) or s.get("symbol")):
+        return []
     lot = float(lim["size_sol"])
     if _spent_today(con, user, now, sol) + lot > float(lim["max_sol_per_day"]) + 1e-9:
         return []

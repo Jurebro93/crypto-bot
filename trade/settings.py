@@ -301,6 +301,61 @@ OWNER_SWITCH_NOTES[OSC_SWITCH] = ("Tvoj prekidač: „uživo” = ulazi oscilato
                                   "3 otvorena, 30 dnevno, dnevni gubitak 0,3 SOL. Svaki drugi mod = samo demo.")
 
 
+# 15.11. (vlasnik: "Od sada nema smisla, čak ni u demu, tradati ove mikrokapove tražeći 10 % ... moonshot samo ako vidimo
+# ogromnu bazu na društvenim mrežama i puno influencera ... Inače sada tradamo samo mid-capove: 5M-150M $"; trade/capgate):
+# an owner switch, "uživo" = on: every AUTOMATIC entry (demo and real) needs MC >= 5M (trade/config.json mikrokap
+# min_mc), except the moonshot below; the owner's manual buy is never held by it. Switched on once by his order 15.11.
+# (ui/assistnotes.OWNER_FLAG_ORDERS); any other mode = the old behaviour (MC >= 30k only).
+MIKROKAP = "mikrokap_blokada"
+FLAGS[MIKROKAP] = ("MK1", "Mikrokap blokada: automatski ulazi (demo i pravi račun) samo uz MC od 5M $ naviše; ispod toga "
+                          "samo moonshot iznimka u demu (jaka društvena baza); tvoje ručne kupnje ne drži")
+OWNER_SWITCHES = OWNER_SWITCHES | {MIKROKAP}
+OWNER_SWITCH_NOTES[MIKROKAP] = ("Tvoj prekidač: „uživo” (uključeno tvojim nalogom 15.11.) = automatski ulazi svih strategija "
+                                "samo uz MC ≥ 5M $, ispod toga samo moonshot iznimka u demu; pravi račun ispod 5M nikad "
+                                "(tvrdo pravilo „MC ispod 5M (mikrokap)”). Svaki drugi mod = kao prije (samo MC ≥ 30k).")
+# The moonshot exception of the gate (coordinator 15.11. after the OpenAI critic: demo only, locked rules, its own
+# measured strategy): "paper" = the exception on the DEMO accounts (default, FLAG_DEFAULTS), "off" = no exception at
+# all; never live (NEVER_LIVE): no switch or order ever lets a moonshot use real money.
+MIKROKAP_MOON = "mikrokap_moonshot"
+FLAGS[MIKROKAP_MOON] = ("MK2", "Moonshot iznimka mikrokap blokade, samo demo: MC 30k+ bondan, likvidnost 50k+, top10 holdera "
+                               "do 45 %, 4+ neovisna influencera / TG kanala u 6 h (klasteri jednom, bez botova i shill "
+                               "mreža), X momentum 1+ i organski autori u rastu; pola uloga, najviše 0,05 SOL, oznaka "
+                               "moonshot")
+FLAG_DEFAULTS[MIKROKAP_MOON] = "paper"
+NEVER_LIVE[MIKROKAP_MOON] = "moonshot iznimka nikad ne trguje pravim novcem (samo demo računi)"
+PROFILE_FLAGS = PROFILE_FLAGS | {MIKROKAP_MOON}   # its paper mode never makes the paper account follow anybody
+OWNER_SWITCHES = OWNER_SWITCHES | {MIKROKAP_MOON}
+OWNER_SWITCH_NOTES[MIKROKAP_MOON] = ("Tvoj prekidač: „paper” (zadano) = moonshot iznimka vrijedi na demo računima; "
+                                     "„isključeno” = ispod 5M nema nikakve iznimke; „uživo” nije moguće (nikad pravi "
+                                     "novac). Pravila su zaključana unaprijed (config.json ih smije samo pooštriti).")
+
+# 15.11. (vlasnik: "Useless, Troll i slično: kad nađu dno, vrlo vjerojatno se odbiju gore i naprave 5-10 % ... hvataj
+# range velikih tokena"; veliki/): FLAG "veliki_range": paper = the DEMO account PAPER_USER trades the list "veliki"
+# (MC 20M+, liquidity 500k+, 14+ days, volume 500k+; USELESS, TROLL) with the range rule of veliki/rule (support from
+# the last 3-7 days of 1h candles, the bounce on 15m, target / stop / time stop picked by the walk-forward, no entry
+# while BTC crashes), 0.5 SOL a trade (VEL_DEMO_SOL), 8 open, 40 a day; never live by this flag (NEVER_LIVE).
+VELIKI = "veliki_range"
+FLAGS[VELIKI] = ("P21", "Veliki tokeni — range: demo račun trguje 15-20 velikih memecoina (MC 20M+, likvidnost 500k+, "
+                        "USELESS, TROLL) na odbijanju od podrške raspona zadnjih 3-7 dana; cilj, stop i vremenski stop "
+                        "iz walk-forwarda, bez ulaza dok BTC pada; 0,5 SOL, najviše 8 otvorenih, 40 ulaza dnevno")
+NEVER_LIVE[VELIKI] = "veliki_range sam nikad ne trguje pravim novcem: pravi novac samo kroz prekidač pravi_novac_veliki"
+PROFILE_FLAGS = PROFILE_FLAGS | {VELIKI}   # its paper mode never makes the paper account follow anybody
+# The owner switch (15.11., real money NOT now): "uživo" = the big-token range entries ALSO buy on the real account, but
+# only while veliki/gate.real_refusal() is None: the walk-forward holdout at the real size (n >= 40, EV > 0, the 90 %
+# interval's low > 0; or, once the owner says so in trade/config.json, the demo's own record), BTC known and not
+# crashing; caps veliki/gate.REAL (0.1 SOL, up to 0.5 by the owner; 5 open; a day's loss 0.3 SOL). Default off; only
+# the owner's own tap (set_flag), never an order.
+VEL_SWITCH = "pravi_novac_veliki"
+FLAGS[VEL_SWITCH] = ("P22", "Pravi novac za velike tokene: ulazi range pravila velikih tokena kupuju i pravim novcem, samo "
+                            "dok holdout walk-forwarda na 0,1 SOL ima dokaz (n 40+, EV i donja granica 90 % intervala > 0) "
+                            "i BTC ne pada; 0,1 SOL po tradeu, najviše 5 otvorenih, dnevni gubitak 0,3 SOL")
+OWNER_SWITCHES = OWNER_SWITCHES | {VEL_SWITCH}
+OWNER_SWITCH_NOTES[VEL_SWITCH] = ("Tvoj prekidač: „uživo” = ulazi velikih tokena kupuju i pravim novcem, ali samo dok "
+                                  "holdout walk-forwarda na 0,1 SOL ima dokaz (n 40+, EV > 0, donja granica 90 % intervala "
+                                  "> 0 nakon pravog troška) i BTC ne pada; stropovi 0,1 SOL (do 0,5 u trade/config.json), "
+                                  "5 otvorenih, dnevni gubitak 0,3 SOL; kill switch, rezerva walleta, arhiva rugova, jedna "
+                                  "pozicija po tokenu, trošak do 6 % i stop na serveru uvijek. Svaki drugi mod = samo demo.")
+
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""
     try:
@@ -606,7 +661,7 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     cur = flag_state(con)[name]
     if mode == cur["mode"]:
         return cur
-    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH) and not is_owner(who):
+    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH, VEL_SWITCH) and not is_owner(who):
         # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
         # chat order, an applied suggestion or any other code path
         raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")

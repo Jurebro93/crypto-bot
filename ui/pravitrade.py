@@ -1456,6 +1456,16 @@ def _oscilator_card(owner):
     return view.card_html(_sec, _item, esc, owner)
 
 
+def _veliki_card(owner):
+    """15.11. (vlasnik, veliki/, flag veliki_range): "Veliki tokeni — range", one closed row under Ostalo (owner only):
+    the list with its zones and where the price is now, the walk-forward per size (without / with BTC crashes), the
+    demo so far and why real money (owner switch pravi_novac_veliki) is on or off."""
+    if not owner:
+        return ""
+    from veliki import view
+    return view.card_html(_sec, _item, esc, owner)
+
+
 def _konsenzus_card(owner):
     """15.11. (vlasnik, konsenzus/, flag konsenzus): "Konsenzus izvora", one closed row under Postavke (owner only):
     the best candidate of the source consensus walk-forward, its holdout numbers, the demo so far and why real money

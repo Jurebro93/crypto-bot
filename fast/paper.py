@@ -318,6 +318,10 @@ def enter(con, s, user, live, mq, lim, sol, now, path=None, switch=False, demo_w
         src = f"{SRC} demo {s['decision'].lower()}: {label} ({demo_why})"[:200]
     else:   # 14.11.: on the real account by pravi_novac_sve too (run_trade reads "fast path" as the strategy)
         src = f"{SRC} {s['decision'].lower()}: {label}"
+    from trade import capgate   # 15.11. (vlasnik): MC >= 5M, below only the demo's moonshot (half, tagged)
+    why, src, size = capgate.check(tok, mcap, src, user, size, now, unit="sol", liq=liq, symbol=sym)
+    if why:
+        return None, why
     try:
         tid = lstore.buy(con, user, tok, sym, size * sol, price, liq, src, None, mcap)
     except ValueError as e:

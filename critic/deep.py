@@ -283,6 +283,8 @@ CONTEXT_BLOCKS = [
     # 15.11. (oscilator/): the oscillator scalp: walk-forward per size (top 10 of day D traded on D+1), the range scalp on
     # the same token-days, the demo so far, the real-money decision
     ("oscilator", lambda tcon, now, dbs: __import__("oscilator.view", fromlist=["critic_summary"]).critic_summary()),
+    # 15.11. (veliki/): the big tokens' range: holdout per size without / with BTC crashes, the demo, the decision
+    ("veliki_tokeni_range", lambda tcon, now, dbs: __import__("veliki.view", fromlist=["critic_summary"]).critic_summary()),
 ]
 
 

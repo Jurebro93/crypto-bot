@@ -359,6 +359,10 @@ def safety_ex(token, market=None, info=None):
         return f"premala likvidnost (${liq or 0:,.0f}, treba ${floor:,.0f})", []
     if (mcap or 0) < c["min_mcap"]:
         return f"MC ${mcap or 0:,.0f} ispod 30k", []
+    from trade import capgate   # 15.11. (vlasnik): Grok's autotrade buys real money: MC >= 5M, never a moonshot
+    gw = capgate.refusal(token, mcap, "Grok autotrade", "grok-autotrade", None, liq=liq, real=True)
+    if gw:
+        return gw, []
     if mcap > c["max_mcap"]:
         return "velik token (preko $50M)", []
     if liq > mcap:

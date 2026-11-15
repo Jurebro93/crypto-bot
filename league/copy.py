@@ -145,6 +145,23 @@ def _q(con, sql, args=()):
         return []
 
 
+def _mikrokap_gated(user):
+    """15.11. (trade/capgate): the accounts the microcap gate holds: the Autopilot's demo and real account."""
+    try:
+        from trade import settings as ts
+        return user in (ts.PAPER_USER, ts.LEAGUE_USER)
+    except Exception:  # noqa: BLE001 - league/ without trade/
+        return False
+
+
+def _sol_usd():
+    try:
+        from trade import equity
+        return (equity.rates() or {}).get("sol_usd")
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _paths():
     return {"kol": os.environ.get("KOL_DB") or os.path.join(ROOT, "kol.db"),
             "hype": os.environ.get("HYPE_DB") or os.path.join(ROOT, "hype.db"),
@@ -1398,6 +1415,15 @@ def _enter(con, auto, mk, todo, now, paths=None):
         conc_shown = "nepoznato"
         if not why:   # 9.11. (audit P6): supply concentration, blocks only on KNOWN bad data
             why, conc_shown = _concentration(tok)
+        moon = None
+        if not why and _mikrokap_gated(f["user"]):
+            # 15.11. (vlasnik, trade/capgate): the Autopilot's copies (demo and real) only at MC >= 5M, below that only
+            # the moonshot exception on the demo account (half the stake, tagged); other players' copies are not held
+            from trade import capgate
+            ok, moon = capgate.allow_entry(tok, mcap, f"copy {KIND_HR[f['kind']]} {name}", f["user"], now,
+                                           {"liq": liq, "symbol": sym})
+            if not ok:
+                why, moon = moon, None
         dx = None
         if not why and f["exit"].get("mode") == "podaci":
             if now - ts > DATA_MAX_LATE_S:
@@ -1412,11 +1438,15 @@ def _enter(con, auto, mk, todo, now, paths=None):
             _log(con, f, tok, side, ts, now, "preskočeno", why, sym, mcap=mcap)
             continue
         src = f"copy {KIND_HR[f['kind']]} {name}"
+        size_usd = f["size_usd"]
+        if moon:   # 15.11.: a moonshot entry (demo only): its own tag, half the stake (at most 0.05 SOL)
+            from trade import capgate
+            src, size_usd = capgate.tag(src, moon), capgate.size_usd(size_usd, moon, _sol_usd())
         # the entry's data is written below, after the buy (no read in front of it); a run-up the gate already
         # measured (runup_default) goes in with the row, so run_trade's limit has it from the first moment
         pre = runup_from_first(tok, price, first=firsts[tok] or {}) if tok in firsts else None
         try:
-            tid = store.buy(con, f["user"], tok, sym, f["size_usd"], price, liq, src, None, mcap, runup=pre)
+            tid = store.buy(con, f["user"], tok, sym, size_usd, price, liq, src, None, mcap, runup=pre)
         except ValueError as e:
             _log(con, f, tok, side, ts, now, "preskočeno", str(e), sym)
             continue

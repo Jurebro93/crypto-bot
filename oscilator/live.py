@@ -179,6 +179,10 @@ def enter(con, user, tok, mq, now, sol, why):
         return None, g
     price, liq, url, mcap = mq[:4]
     sym = (mq[4] if len(mq) > 4 else None) or tok[:6]
+    from trade import capgate   # 15.11. (vlasnik): MC >= 5M; a price scalp takes no moonshot exception
+    g = capgate.refusal(tok, mcap, f"{SRC}: {why}", user, now, liq=liq, symbol=sym)
+    if g:
+        return None, g
     size_usd = cp["size_sol"] * sol
     c = rule.cost_at(cp["size_sol"], liq, sol, rule.real_fee_side(url=url), rule.tx_sol()[0])
     drt = rule.demo_rt(size_usd, liq)

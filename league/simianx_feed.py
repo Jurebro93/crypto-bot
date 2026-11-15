@@ -64,6 +64,10 @@ def run_once(con, market, now=None, on=None, sx_con=None, cfg=None):
             price, liq, _, mcap = mk[s["mint"]]
             try:
                 _require_signal(con, user, s["mint"], now)   # 10.11. (Jure, flag require_signal)
+                from trade import capgate   # 15.11. (vlasnik): MC >= 5M (the real account: no exception)
+                gw = capgate.refusal(s["mint"], mcap, "simianx", user, now, liq=liq, symbol=s["symbol"])
+                if gw:
+                    raise ValueError(gw)
                 tid = store.buy(con, user, s["mint"], s["symbol"], cfg["real_usd"], price, liq, "simianx", None, mcap)
                 from . import auto
                 auto.set_auto(con, user, tid, "tpsl", f"{100 * s['target_pct']:+.1f}%", f"{100 * s['stop_pct']:+.1f}%")
