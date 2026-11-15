@@ -245,7 +245,7 @@ def learned_exits(tcon, now, dbs):
     try:
         from izlazi import report as izreport
         d = izreport.critic_summary(top=30)
-        if d:
+        if d and d.get("available", True) is not False:   # before the first night: the table scan below (None)
             return d
     except Exception:  # noqa: BLE001 - fall back to the table itself
         pass

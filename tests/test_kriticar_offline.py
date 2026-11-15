@@ -840,6 +840,10 @@ class DeepReview(Base):
             self.assertNotIn("kvar", deep_mod.context(self.con, NOW, self.dbs, {}, self.log))
         self.assertIn("MAE", prompts.DEEP)
         self.assertIn("minute.call_path", prompts.DEEP)
+        # 15.11.: once izlazi/ has learned (nightly), its own summary is the block
+        from izlazi import report as izreport
+        with mock.patch.object(izreport, "critic_summary", lambda top=30, path=None: {"available": True, "izvori": [1]}):
+            self.assertEqual(deep_mod.learned_exits(self.con, NOW, self.dbs), {"available": True, "izvori": [1]})
 
     def test_session_cap(self):
         self.key()
