@@ -23,10 +23,46 @@ import os
 import re
 import time
 
+CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+
+
+def config(path=None):
+    """veliki/config.json (15.11. navečer: ONE place for the ranges): data_* = what the midcap collector gathers
+    (veliki/midcap.py, default MC 2M-200M), trade_* = what veliki/live may enter (the floor: trade_min_mcap, null =
+    trade/capgate's min_mc, 5M unless the owner changes trade/config.json). An unreadable file: the defaults."""
+    c = {"data_min_mcap": 2e6, "data_max_mcap": 2e8, "data_min_liq": 25_000, "data_max_tokens": 600,
+         "trade_min_mcap": None, "trade_max_mcap": 150e6}
+    try:
+        with open(path or CONFIG) as f:
+            own = json.load(f) or {}
+        c.update({k: v for k, v in own.items() if not k.startswith("_")})
+    except (OSError, ValueError):
+        pass
+    return c
+
+
+def _trade_floor(c):
+    """The trading floor: config trade_min_mcap, never under trade/capgate's min_mc (5M by default)."""
+    floor = 5e6
+    try:
+        from trade import capgate
+        floor = float(capgate.cfg().get("min_mc") or floor)
+    except Exception:  # noqa: BLE001 - capgate unreadable: its locked 5M
+        pass
+    own = c.get("trade_min_mcap")
+    return max(float(own), floor) if isinstance(own, (int, float)) else floor
+
+
+_C = config()
 # 15.11. popodne (owner: "MC 5-150M, ne iznad (PENGU / PUMP), ne ispod 5M, starije od 15 dana; velika lista"): the
 # midcaps. The list (demo, analysis) needs liquidity >= MIN_LIQ ($150k); a REAL buy needs REAL_MIN_LIQ ($500k, live.py)
-MIN_MCAP = float(os.environ.get("VEL_MIN_MCAP", "5000000"))
-MAX_MCAP = float(os.environ.get("VEL_MAX_MCAP", "150000000"))
+# 15.11. navečer: MIN_MCAP / MAX_MCAP = the TRADING range (veliki/live's entries), from veliki/config.json + the capgate
+# floor; DATA_MIN_MCAP / DATA_MAX_MCAP = what the midcap collector gathers (2M-200M)
+MIN_MCAP = float(os.environ.get("VEL_MIN_MCAP") or _trade_floor(_C))
+MAX_MCAP = float(os.environ.get("VEL_MAX_MCAP") or _C.get("trade_max_mcap") or 150e6)
+DATA_MIN_MCAP = float(os.environ.get("VEL_DATA_MIN_MCAP") or _C.get("data_min_mcap") or 2e6)
+DATA_MAX_MCAP = float(os.environ.get("VEL_DATA_MAX_MCAP") or _C.get("data_max_mcap") or 2e8)
+DATA_MIN_LIQ = float(os.environ.get("VEL_DATA_MIN_LIQ") or _C.get("data_min_liq") or 25_000)
 MIN_LIQ = float(os.environ.get("VEL_MIN_LIQ", "150000"))
 REAL_MIN_LIQ = float(os.environ.get("VEL_REAL_MIN_LIQ", "500000"))
 MIN_VOL = float(os.environ.get("VEL_MIN_VOL", "100000"))
@@ -38,10 +74,13 @@ JUP_NOT_MEME = frozenset(("stocks", "rwa", "lst", "defi", "equities", "xstocks",
 MIN_AGE_D = float(os.environ.get("VEL_MIN_AGE_D", "15"))
 MAX_LIST = int(os.environ.get("VEL_MAX_LIST", "200"))
 MAX_HISTORY = int(os.environ.get("VEL_MAX_HISTORY", "40"))
-SEEDS = ("ANSEM", "TROLL", "GOODGUY", "CHILLGUY", "FARTCOIN", "USELESS")   # the owner's examples (Good Guy, Chill Guy...)
+# the owner's examples (15.11. navečer: "Skip Good Guy": GOODGUY is no longer a seed; SKIP never enters any list)
+SEEDS = ("ANSEM", "TROLL", "CHILLGUY", "FARTCOIN", "USELESS")
+SKIP_SYMBOLS = frozenset({"GOODGUY"})
 SEED_MIN_VOL = 50_000
 FAKE_LIQ_MCAP = 0.5
 GT_PAGES = 4
+GT_TREND_PAGES = 2   # trending pools pages a duration in the 3-hourly list build (the collector reads more)
 NON_MEME = frozenset(s.upper() for s in (
     "SOL", "WSOL", "USDC", "USDT", "PYUSD", "USDS", "USDE", "USDG", "FDUSD", "EURC", "USD1", "JUP", "JTO", "RAY", "PYTH",
     "W", "JLP", "ORCA", "DRIFT", "KMNO", "TNSR", "HNT", "RENDER", "MSOL", "JITOSOL", "BSOL", "JUPSOL", "INF", "HSOL",
@@ -158,6 +197,8 @@ def judge(g, now, archived=frozenset(), curve_dex=()):
     tags = set((g.get("jup") or {}).get("tags") or ())
     if g["mint"] in archived:
         return "u arhivi rugova"
+    if (g.get("symbol") or "").upper().strip() in SKIP_SYMBOLS:
+        return "vlasnik: preskoči (Good Guy)"
     if non_meme(g.get("symbol"), g.get("name")) or tags & JUP_NOT_MEME:
         return "nije memecoin (stable / LST / platforma / dionica)"
     if g.get("jup") and "meme" not in tags:
@@ -206,7 +247,93 @@ def select(groups, now, seeds=(), archived=frozenset(), curve_dex=(), cap=MAX_LI
     return ok[:cap], refused
 
 
+def data_judge(g, archived=frozenset(), curve_dex=(), lo=None, hi=None, min_liq=None):
+    """Why this mint is NOT in the midcap DATA universe (veliki/midcap.py), else None. Wider than judge(): MC lo-hi
+    (DATA_MIN_MCAP-DATA_MAX_MCAP, 2M-200M), the deepest pool an AMM (bonded, never a curve) with liquidity >= min_liq,
+    not a fake pool (liquidity >= half the MC), not in the rug archive, not a stable / LST / stock; no age or volume
+    floor (the data wants the young trending midcaps too)."""
+    lo = DATA_MIN_MCAP if lo is None else lo
+    hi = DATA_MAX_MCAP if hi is None else hi
+    min_liq = DATA_MIN_LIQ if min_liq is None else min_liq
+    deep = g.get("deep") or {}
+    dex = (deep.get("dexId") or "").lower()
+    if g["mint"] in archived:
+        return "u arhivi rugova"
+    if (g.get("symbol") or "").upper().strip() in SKIP_SYMBOLS:
+        return "vlasnik: preskoči"
+    if non_meme(g.get("symbol"), g.get("name")) or set((g.get("jup") or {}).get("tags") or ()) & JUP_NOT_MEME:
+        return "nije memecoin"
+    if dex in curve_dex or "pump.fun" in dex or dex == "pumpfun":
+        return "krivulja (uzimaju se bondani)"
+    mc = g.get("mcap") or 0
+    if mc < lo:
+        return f"MC ${mc / 1e6:,.1f}M ispod ${lo / 1e6:,.0f}M"
+    if mc > hi:
+        return f"MC ${mc / 1e6:,.0f}M iznad ${hi / 1e6:,.0f}M"
+    ld = _f((deep.get("liquidity") or {}).get("usd")) or 0.0
+    if ld < min_liq:
+        return f"najdublji pool ${ld / 1e3:,.0f}k ispod ${min_liq / 1e3:,.0f}k"
+    if g["liq"] >= FAKE_LIQ_MCAP * mc:
+        return "lažni pool (likvidnost ≥ pola MC-a)"
+    return None
+
+
 # ---------- the candidates (I/O) -------------------------------------------------------------------------------------
+
+def _dex_trending_candidates():
+    """{mint: {"src": rank}} of DexScreener's free promoted / trending lists (Solana only): the top boosts (the
+    site's trending is driven by them), the latest boosts, the latest token profiles, the community takeovers.
+    Five requests at the 60/min limit (dexscreener/client._SLOW). Rank = position in that list (1 = first)."""
+    from veliki import store
+    if "dex_trending" in store.FETCH or store.FETCH:   # tests: only what they replace, never the network
+        return store.FETCH["dex_trending"]() if "dex_trending" in store.FETCH else {}
+    from dexscreener import client
+    out = {}
+    for name, fn in (("dex_boost_top", client.top_boosts), ("dex_boost", client.latest_boosts),
+                     ("dex_profile", client.latest_token_profiles), ("dex_cto", client.community_takeovers)):
+        try:
+            d = fn()
+        except Exception:  # noqa: BLE001 - one list missing: the others
+            continue
+        for i, x in enumerate(d if isinstance(d, list) else []):
+            if (x.get("chainId") or "") == "solana" and x.get("tokenAddress"):
+                out.setdefault(x["tokenAddress"], {}).setdefault(name, i + 1)
+    return out
+
+
+def _gt_trending_candidates(pages=3):
+    """{mint: {"gt_trend": rank}} of GeckoTerminal's trending Solana pools (1h and 24h, `pages` pages each; the
+    shared GeckoTerminal pacing and budget through event_calendar/http)."""
+    from veliki import store
+    if "gt_trending" in store.FETCH or store.FETCH:   # tests: only what they replace, never the network
+        return store.FETCH["gt_trending"](pages) if "gt_trending" in store.FETCH else {}
+    from event_calendar import http
+    out, rank = {}, 0
+    for dur in ("1h", "24h"):
+        for page in range(1, pages + 1):
+            try:
+                d = http.get_json(f"{store.GECKO}/trending_pools", {"page": page, "duration": dur, "include": "base_token"},
+                                  ttl=600, headers={"Accept": "application/json"}, retries=0)
+            except Exception:  # noqa: BLE001
+                d = None
+            if not d:
+                break
+            for p in d.get("data") or []:
+                rank += 1
+                bid = (((p.get("relationships") or {}).get("base_token") or {}).get("data") or {}).get("id") or ""
+                if bid.startswith("solana_"):
+                    out.setdefault(bid[7:], {}).setdefault("gt_trend", rank)
+    return out
+
+
+def _midcap_candidates():
+    """{mint: symbol} of the midcap data universe (midcap.db members, veliki/midcap.py): merged into the list."""
+    try:
+        from veliki import midcap
+        return {r["mint"]: r.get("symbol") for r in midcap.members()}
+    except Exception:  # noqa: BLE001 - no midcap.db yet
+        return {}
+
 
 def _dugo_candidates():
     """{mint: symbol} from dugo.db (MC >= MIN_MCAP / 2 by its own last numbers) and dugo/config.json."""
@@ -279,7 +406,8 @@ def _jup_candidates():
         except Exception:  # noqa: BLE001
             d = None
         for t in d if isinstance(d, list) else []:
-            if not (MIN_MCAP <= (_f(t.get("mcap")) or 0) <= MAX_MCAP * 1.2) or not t.get("id"):
+            if not (min(MIN_MCAP, DATA_MIN_MCAP) <= (_f(t.get("mcap")) or 0) <= max(MAX_MCAP, DATA_MAX_MCAP) * 1.2) \
+                    or not t.get("id"):
                 continue
             st = t.get("stats24h") or {}
             out[t["id"]] = {"symbol": t.get("symbol"), "tags": list(t.get("tags") or []), "liq": _f(t.get("liquidity")),
@@ -339,6 +467,17 @@ def build(now=None, log=print):
         if (j.get("symbol") or "").upper() in SEEDS and m not in seeds:
             continue   # a copycat of a seed's ticker
         cand.setdefault(m, j.get("symbol"))
+    # 15.11. navečer (owner: "posebno TRENDING tokene na DexScreeneru"): the trending / promoted lists and the midcap
+    # data universe join the candidates; dedupe by mint here, the deepest pool and the fake-pool check in group / judge
+    n_trend = 0
+    for fn in (_dex_trending_candidates, lambda: _gt_trending_candidates(GT_TREND_PAGES), _midcap_candidates):
+        try:
+            for m in fn():
+                if m not in cand:
+                    cand[m] = None
+                    n_trend += 1
+        except Exception as e:  # noqa: BLE001
+            log(f"veliki: izvor trendova nije stigao ({type(e).__name__})")
     pairs = _dex_tokens(sorted(cand)) if cand else []
     groups = group(pairs)
     for m, g in groups.items():
@@ -378,6 +517,7 @@ def build(now=None, log=print):
             hist.append(dict(row_of(g, now, False, f"samo povijest: {why}"), dead=1))
     hist.sort(key=lambda r: -(r.get("mcap") or 0))
     return rows, {"seeds": seed_how, "candidates": len(cand), "refused": len(refused), "jupiter": len(jup),
+                  "trending_new": n_trend,
                   "out_of_range": oor, "history": hist[:MAX_HISTORY],
                   "refused_top": sorted(((s, w) for s, w in refused.values() if s), key=lambda x: x[0] or "")[:15]}
 

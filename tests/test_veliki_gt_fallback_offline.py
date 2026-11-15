@@ -3,7 +3,7 @@ GeckoTerminal 429): offline, no network.
 
   - a refused GeckoTerminal call (429, another job's reservation) waits on the limiter and tries again instead of
     giving the pass up; it stops at GT_TRIES or at the pass deadline
-  - veliki and the midcap collector have the CoinGecko key's priority (CG_PRIORITY)
+  - veliki has the CoinGecko key's priority (CG_PRIORITY); the midcap collector does not
   - our own 15m bars (veliki/live's DexScreener polls) become c15 / c1h candles where GeckoTerminal has none; a
     GeckoTerminal candle is never overwritten by ours and replaces ours when it arrives
   - the candle top-up asks for the top tokens' 1h first
@@ -75,7 +75,7 @@ class GtPatience(unittest.TestCase):
 
     def test_priority(self):
         self.assertIn("veliki", http.CG_PRIORITY)
-        self.assertIn("midcap", http.CG_PRIORITY)
+        self.assertNotIn("midcap", http.CG_PRIORITY)   # the collector leaves the end of every hour's slice to veliki
         ok, _why = http.cg_allow({"n": 2990 * 0 + int(3000 * 0.99 / 24), "jobs": {}}, "veliki", 3600 * 0 + 10, cap=3000)
         self.assertTrue(ok)   # inside the hour's slice a priority job may spend it all
 

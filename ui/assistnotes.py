@@ -808,6 +808,11 @@ OWNER_FLAG_ORDERS = (
     ("veliki_range", "paper", "vlasnik u chatu 15.11.: midcap memecoini (MC 5-150M; USELESS, TROLL, ANSEM, CHILLGUY, "
                               "Fartcoin) — range odmah u demo, puno tradeova; pravi novac samo njegovim prekidačem "
                               "pravi_novac_veliki"),
+    # 15.11. navečer (vlasnik: "Ne želim više mikrokapove uopće ... nikakvi resursi na njih: ni trgovanje, ni skeniranje,
+    # ni analiza. Sve resurse prebaci na midcapove ... 2M do 200M ... posebno TRENDING tokene"; ops/fokus.py): the
+    # owner switch fokus_midcap on (live = on); he turns it off under Prekidači any time (everything as before)
+    ("fokus_midcap", "live", "vlasnik u chatu 15.11.: „ne želim više mikrokapove uopće ... sve resurse prebaci na "
+                             "midcapove 2M-200M, posebno trending” (poslovi za mikrokapove ugašeni ili preusmjereni)"),
 )
 # 15.11. (the same order): Grok autotrade buys with real money too, so it goes off once as well (grokauto.set_on)
 OWNER_ONCE_1511 = "owner_once:real_money_off_1511"

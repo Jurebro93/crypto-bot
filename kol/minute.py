@@ -301,7 +301,18 @@ def _set_retry(mcon, token, until, now):
 
 
 def candidates(kcon, c, now):
-    """[(tweet_id, token, handle, ts, n_callers)] of real calls in the window (kol.db), crews first, newest first."""
+    """[(tweet_id, token, handle, ts, n_callers)] of real calls in the window (kol.db), crews first, newest first.
+    15.11. (owner switch fokus_midcap, ops/fokus.py): while it is on, only the calls of tokens on the midcap list."""
+    try:
+        from ops import fokus
+        mids = fokus.midcap_mints() if fokus.on() else None
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour
+        mids = None
+    rows = _candidates(kcon, c, now)
+    return rows if mids is None else [r for r in rows if r[1] in mids]
+
+
+def _candidates(kcon, c, now):
     return kcon.execute("""
         SELECT c.tweet_id, c.token, c.handle, c.ts,
                (SELECT COUNT(DISTINCT handle) FROM calls x WHERE x.token = c.token AND x.kind = 'call'

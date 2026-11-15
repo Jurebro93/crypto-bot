@@ -92,11 +92,24 @@ def _q(con, sql, args=()):
         return []
 
 
-def wanted(now=None, paper_db=None, strat_db=None, hype_db=None, kol_db=None, league_db=None, min_mcap=30000):
+def _fokus():
+    """15.11. (owner switch fokus_midcap, ops/fokus.py): True while the microcaps get no resources."""
+    try:
+        from ops import fokus
+        return fokus.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def wanted(now=None, paper_db=None, strat_db=None, hype_db=None, kol_db=None, league_db=None, min_mcap=30000,
+           fokus=None):
     """(tokens, wallets, open_tokens): what to subscribe to. Tokens: open demo and strategy positions first, then the
     freshest scored candidates (last 2 h, mcap >= min_mcap). Wallets: the Helius webhook list (KOLs, copy, insiders)
-    and every wallet a player follows. Capped so one subscription message stays small."""
+    and every wallet a player follows. Capped so one subscription message stays small.
+    fokus (15.11., owner switch fokus_midcap; None = read it): only the open positions and the wallets a player follows
+    (no freshly bonded tokens, no microcap candidates, no KOL / insider webhook list)."""
     now = now or int(time.time())
+    fokus = _fokus() if fokus is None else fokus
     tokens, open_tokens = [], set()
     pc = _ro(paper_db or os.path.join(ROOT, "paper.db"))
     for (t,) in _q(pc, "SELECT token FROM trades WHERE status='open'"):
@@ -119,7 +132,7 @@ def wanted(now=None, paper_db=None, strat_db=None, hype_db=None, kol_db=None, le
     for (t,) in _q(lc, "SELECT DISTINCT token FROM exit_plans WHERE status='active'"):
         open_tokens.add(t)
     tokens += sorted(open_tokens)
-    hc = _ro(hype_db or os.path.join(ROOT, "hype.db"))
+    hc = None if fokus else _ro(hype_db or os.path.join(ROOT, "hype.db"))
     for (t,) in _q(hc, "SELECT mint FROM live_launches WHERE pool = 'migration' AND ts >= ? ORDER BY ts DESC LIMIT 60",
                    (now - 7200,)):   # bonded in the last 2 h: the moment worth watching
         if t not in open_tokens and t not in tokens:
@@ -129,7 +142,7 @@ def wanted(now=None, paper_db=None, strat_db=None, hype_db=None, kol_db=None, le
         if t not in open_tokens and t not in tokens:
             tokens.append(t)
     wallets = []
-    kc = _ro(kol_db or os.path.join(ROOT, "kol.db"))
+    kc = None if fokus else _ro(kol_db or os.path.join(ROOT, "kol.db"))
     for (v,) in _q(kc, "SELECT value FROM kv WHERE key='chain_hook'"):
         try:
             wallets += json.loads(v).get("wallets") or []
@@ -268,15 +281,19 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
     from live import pulse, store
     backoff = 5
     while not (stop and stop()):
-        tokens, wallets, open_tokens = wanted()
+        fk = _fokus()   # 15.11. (owner switch fokus_midcap): no launch firehose, no migrations, positions + follows only
+        tokens, wallets, open_tokens = wanted(fokus=fk)
         feed = Feed(con, followed=set(wallets), log=log)
         cur = (set(), set())
         try:
             async with websockets.connect(ws_url(), ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
                 backoff = 5
-                if new_tokens:   # every new pump.fun launch (free): on by default since 10.11. (run_live.new_tokens_on)
+                if fk and (new_tokens or migrations):
+                    log("live: fokus midcap: bez novih pump.fun lansiranja i migracija; pratim samo otvorene pozicije "
+                        "i novčanike koje igrači prate")
+                if new_tokens and not fk:   # every new pump.fun launch (free): on by default since 10.11. (run_live.new_tokens_on)
                     await ws.send(json.dumps({"method": "subscribeNewToken"}))
-                if migrations:   # tokens that bonded (graduated to PumpSwap): free, and these are the ones worth a look
+                if migrations and not fk:   # tokens that bonded (graduated to PumpSwap): free, and these are the ones worth a look
                     await ws.send(json.dumps({"method": "subscribeMigration"}))
                 for m in subscribe_msgs(tokens, wallets, cur):
                     await ws.send(json.dumps(m))
@@ -316,7 +333,10 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
                         continue
                     if now - last_refresh >= refresh_s:
                         last_refresh = now
-                        tokens, wallets, open_tokens = wanted()
+                        if _fokus() != fk:   # the owner flipped fokus_midcap: reconnect with the other subscription
+                            log("live: prekidač fokus_midcap promijenjen, spajam se ponovno")
+                            break
+                        tokens, wallets, open_tokens = wanted(fokus=fk)
                         day_n = _day_count(con, feed, now)
                         mins = max(1.0, refresh_s / 60)   # per_token counts cover one refresh interval
                         for m, c in feed.per_token.items():

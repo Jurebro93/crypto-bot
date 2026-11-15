@@ -190,6 +190,12 @@ def main(argv=None):
         sys.exit("upotreba: python3 -m ops.heavy [--prio] [--night] SKRIPTA.py [argumenti]")
     if argv[0].endswith(".py") or argv[0] == "-m":
         argv = [sys.executable] + argv
+    try:   # 15.11. (owner switch fokus_midcap, ops/fokus.py): a microcap job ends at once, before the night wait / lock
+        from ops import fokus
+        if fokus.skip_cmd(argv):
+            return 0
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour
+        pass
     if night:
         wait_for_night(_label(argv))
     return run(argv, priority=priority).returncode

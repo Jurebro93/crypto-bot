@@ -37,6 +37,12 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 def run(name, args, light=False):
     from ops import heavy   # one heavy job at a time (2.11.: overlapping jobs ran the 512 MB server out of memory)
     cmd = [sys.executable, os.path.join(ROOT, args[0]), *args[1:]]
+    try:   # 15.11. (owner switch fokus_midcap, ops/fokus.py): the microcap jobs (learn, shadow, masovno, postai, corr,
+        from ops import fokus   # token status, kolfill, exits fit) do not start while it is on
+        if fokus.skip_cmd(cmd):
+            return 0
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour
+        pass
     # 7.11. 10:45: a "light" job waits on an API (masovno: 500 GeckoTerminal calls at 30/min = 17 min), uses little
     # memory and would otherwise hold the lock most of the time: the token status, shadow, collect and the learning
     # fit all queued behind it for 12+ min after every deploy. Light jobs run without the lock.

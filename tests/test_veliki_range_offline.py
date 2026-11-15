@@ -366,9 +366,11 @@ class Switch(SwitchBase):
         self.assertIn(gate.SWITCH, settings.OWNER_SWITCHES)
         self.assertIn("veliki_range", settings.NEVER_LIVE)
         self.assertEqual(settings.flag(gate.SWITCH, con=self.con), "off")
-        self.assertEqual(assistnotes.OWNER_FLAG_ORDERS[-1][:2], ("veliki_range", "paper"))
+        # 15.11. navečer: fokus_midcap's order (ops/fokus.py) came after it
+        mine = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == "veliki_range")
+        self.assertEqual([o[:2] for o in mine], [("veliki_range", "paper")])
         self.assertNotIn(gate.SWITCH, [n for n, _m, _w in assistnotes.OWNER_FLAG_ORDERS])
-        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", assistnotes.OWNER_FLAG_ORDERS[-1:]):
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", mine):
             assistnotes.owner_flag_orders(self.con)
         self.assertEqual(settings.flag_state(self.con)["veliki_range"]["mode"], "paper")
         self.assertEqual(settings.flag_state(self.con)[gate.SWITCH]["mode"], "off")

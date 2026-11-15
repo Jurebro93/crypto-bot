@@ -62,7 +62,7 @@ def ensure(con):
         con.executescript(SCHEMA)
     have = {r[1] for r in con.execute("PRAGMA table_info(veliki_trades)")}
     for col, typ in (("btc_state", "TEXT"), ("proof", "TEXT"), ("link_id", "INTEGER"), ("peak", "REAL"),
-                     ("trail", "REAL"), ("time_h", "REAL")):
+                     ("trail", "REAL"), ("time_h", "REAL"), ("prio", "TEXT"), ("dip", "TEXT")):
         if col not in have:
             con.execute(f"ALTER TABLE veliki_trades ADD COLUMN {col} {typ}")
 
@@ -271,7 +271,7 @@ def stress_room(con, user, add_usd, stop_frac):
     return None
 
 
-def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_id=None):
+def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_id=None, meta=None):
     """One entry; (text or None, why not or None, veliki_trades id or None)."""
     import json
     from league import store as lstore
@@ -332,11 +332,11 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     zj["fresh"] = bool((zone or {}).get("fresh"))
     cur = con.execute(
         "INSERT INTO veliki_trades (user, token, symbol, opened_ts, trade_id, size_sol, size_usd, entry_px, tp_px, "
-        "stop_px, rt, drt, liq, mcap, cfg, zone, regime, status, why, btc_state, proof, link_id, trail, time_h) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?)",
+        "stop_px, rt, drt, liq, mcap, cfg, zone, regime, status, why, btc_state, proof, link_id, trail, time_h, prio, "
+        "dip) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?)",
         (user, tok, sym, int(now), tid, cp["size_sol"], size_usd, price, tp, stop, c["rt"], drt, liq, mcap,
          rule.cfg_key(cfg), json.dumps(zj), regime, why[:200], st, proof, link_id, cfg.get("trail") or 0.0,
-         cfg["time_h"]))
+         cfg["time_h"], (meta or (None, None))[0], (meta or (None, None))[1]))
     con.commit()
     head = "veliki PRAVI NOVAC: kupnja" if real else "veliki demo ulaz"
     return (f"{head} {sym} {cp['size_sol']:g} SOL na MC ${(mcap or 0) / 1e6:,.1f}M, zona {zt}, stop {stop:.6g} "
@@ -483,8 +483,23 @@ def tick(con, market_fn, now=None, force=False, toks=None):
     sol = _sol()
     tx = rule.tx_sol()[0]
     held = {(r["user"], r["token"]) for r in open_rows(con)}
+    # 15.11. navečer (vlasnik: "kreni od TRENDING i najvećeg VOLUMENA, usporedi BUZZ ... posebno one koji su malo PALI;
+    # istraži ZAŠTO"; veliki/prioritet.py): candidates in priority order; a dip with a bad reason is skipped; every
+    # trade stores its priority components and its dip reason (prio, dip) for the critic / backtest
+    try:
+        from veliki import prioritet
+        pr = prioritet.cached()
+        lst = prioritet.order(lst, pr)
+    except Exception:  # noqa: BLE001 - no priority: the list order
+        prioritet, pr = None, {}
     for tok in lst:
         if _ST["bar"].get(tok) == hour:
+            continue
+        dip = (pr.get(tok) or {}).get("dip") or {}
+        if dip.get("kind") == "los":
+            if now - _ST["said"].get(("dip", tok), 0) > 3600:
+                _ST["said"][("dip", tok)] = now
+                out.append(f"veliki {(pr[tok].get('symbol') or tok[:6])}: preskočen, pad iz lošeg razloga ({dip.get('why')})")
             continue
         q = mk.get(tok)
         if not q or not q[0]:
@@ -512,7 +527,8 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             why = rule.signal(bars, i, zone, c["rt"], cfg, btc["crash_obj"])
             if why is not None:
                 continue
-            text, no, vid = enter(con, user, tok, q, now, sol, zone, cfg, regime, btc, link)
+            text, no, vid = enter(con, user, tok, q, now, sol, zone, cfg, regime, btc, link,
+                                  meta=prioritet.meta(tok, pr) if prioritet else None)
             link = link or vid
             if text:
                 out.append(text)

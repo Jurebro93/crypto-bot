@@ -85,6 +85,9 @@ def ensure(con):
 
 def mode():
     try:
+        from ops import fokus
+        if fokus.on():   # 15.11. (owner switch fokus_midcap): no new fast-path entries; the open ones keep their exits
+            return "off"
         from league import flags
         return flags.mode(FLAG)
     except Exception:  # noqa: BLE001

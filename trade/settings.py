@@ -356,6 +356,23 @@ OWNER_SWITCH_NOTES[VEL_SWITCH] = ("Tvoj prekidač: „uživo” = ulazi velikih 
                                   "5 otvorenih, dnevni gubitak 0,3 SOL; kill switch, rezerva walleta, arhiva rugova, jedna "
                                   "pozicija po tokenu, trošak do 6 % i stop na serveru uvijek. Svaki drugi mod = samo demo.")
 
+# 15.11. navečer (vlasnik: "Ne želim više mikrokapove uopće: ni trgovanje, ni skeniranje, ni analiza ... sve resurse
+# prebaci na midcapove, 2M do 200M, posebno TRENDING tokene na DexScreeneru"; ops/fokus.py): ONE owner switch, "uživo" =
+# every recurring microcap job (scanner, launch pricing, insiders, crews, the hype scan and its learning, range_market,
+# momentum, oscilator, konsenzus research, events backfill ...) stops or is pointed at the midcap list, and the midcap
+# collector (veliki/midcap.py, MC 2M-200M) runs; any other mode = exactly the old behaviour. Switched on once by his
+# order 15.11. (ui/assistnotes.OWNER_FLAG_ORDERS); one tap under Prekidači undoes it. Never trades by itself.
+FOKUS = "fokus_midcap"
+FLAGS[FOKUS] = ("MK3", "Fokus midcap: nikakvi resursi na mikrokapove (skener, nova lansiranja, insajderi, ekipe, hype "
+                       "sken, range_market, momentum, oscilator, konsenzus, noćni backfill su ugašeni ili preusmjereni); "
+                       "prikupljanje podataka o midcapovima 2M-200M (DexScreener trending, GeckoTerminal, Jupiter)")
+OWNER_SWITCHES = OWNER_SWITCHES | {FOKUS}
+OWNER_SWITCH_NOTES[FOKUS] = ("Tvoj prekidač: „uživo” (uključeno tvojim nalogom 15.11.) = poslovi za mikrokapove ne rade "
+                             "ili rade samo na midcap listi (popis: python3 -m ops.fokus, output/midpivot.md), a "
+                             "sakupljač midcapova 2M-200M radi svakih 90 s; otvorene pozicije, tvoje ručne kupnje, "
+                             "veliki/, kritičar i sigurnosne provjere ostaju. Svaki drugi mod = sve kao prije.")
+
+
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""
     try:

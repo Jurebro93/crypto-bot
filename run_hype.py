@@ -814,4 +814,9 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    try:   # 15.11. (owner switch fokus_midcap, ops/fokus.py): its microcap sub-commands end at once while it is on
+        from ops import fokus
+        fokus.gate()
+    except ImportError:
+        pass
     sys.exit(main())

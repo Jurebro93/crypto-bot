@@ -79,7 +79,9 @@ class LaterOrders(Base):
                                 # 15.11. (vlasnik: automatski ulazi samo MC ≥ 5M $, trade/capgate)
                                 "zastavica mikrokap_blokada: off → live",
                                 # 15.11. (vlasnik: veliki tokeni — range odmah u demo; pravi novac samo prekidačem)
-                                "zastavica veliki_range: off → paper"])
+                                "zastavica veliki_range: off → paper",
+                                # 15.11. navečer (vlasnik: nikakvi resursi na mikrokapove; ops/fokus.py)
+                                "zastavica fokus_midcap: off → live"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")
         keys = {x["key"] for x in assistnotes.applied(self.tc)}
         self.assertTrue({"flag:market_scan", "flag:group_discovery", "flag:range_dca", "flag:insider_copy"} <= keys)

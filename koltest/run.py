@@ -174,7 +174,14 @@ def step(now=None, cfg=None, path=None, market_fn=None, events_fn=None, quiet=Fa
     try:
         _fix_gap_fills(con, cfg)
         start, end = store.window(con, cfg, now)
-        if now < end:
+        fk = False
+        if events_fn is None:   # 15.11. (owner switch fokus_midcap): no new test entries, the open ones keep their exits
+            try:
+                from ops import fokus
+                fk = fokus.on()
+            except Exception:  # noqa: BLE001
+                fk = False
+        if now < end and not fk:
             intake(con, cfg, now, (events_fn or _events)(now, cfg))
         con.commit()
         pending = con.execute("SELECT id, token, seen_ts FROM positions WHERE status='pending'").fetchall()
