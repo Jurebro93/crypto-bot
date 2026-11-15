@@ -16,6 +16,7 @@ collector's MC, else price x supply (1e9 for pump.fun) x SOL/USD (DefiLlama day 
 entry >= bond_mcap, a migration before the entry, or a midcap.db token (Pretpostavka for the first).
 """
 import bisect
+import sqlite3
 import time
 from collections import defaultdict
 
@@ -54,15 +55,23 @@ def wallet_trades(con, p, wallets):
     ec = store.ro(p.get("early_db"))
     wc = store.ro(p.get("wallet_db"))
     hc = store.ro(p.get("hype_db"))
-    for ch in _chunks(ws):
-        for t in ("precall_trades", "group_buys"):
-            out += store.q(ec, f"SELECT wallet, mint, ts, side, sol, tokens FROM {t} WHERE wallet IN ({_in(ch)})", ch)
+    for ch in _chunks(ws):   # tables with a wallet index: by chunks
+        out += store.q(ec, f"SELECT wallet, mint, ts, side, sol, tokens FROM group_buys WHERE wallet IN ({_in(ch)})", ch)
         out += [(w, m, ts, k, abs(s) if s is not None else None, abs(tk) if tk is not None else None)
                 for w, m, ts, k, s, tk in store.q(wc, f"SELECT wallet, mint, ts, kind, sol, tokens FROM wallet_trades "
                                                       f"WHERE kind IN ('buy', 'sell') AND wallet IN ({_in(ch)})", ch)]
-        out += store.q(hc, f"SELECT wallet, mint, ts, side, sol, tokens FROM live_trades WHERE wallet IN ({_in(ch)})", ch)
-        out += [(w, m, ts, s, sol, None) for w, m, ts, s, sol in
-                store.q(hc, f"SELECT wallet, mint, ts, side, sol FROM chain_trades WHERE wallet IN ({_in(ch)})", ch)]
+    want = set(ws)   # without one: ONE streaming scan each, filtered here (not one full scan per chunk)
+    for c_, sql in ((ec, "SELECT wallet, mint, ts, side, sol, tokens FROM precall_trades"),
+                    (hc, "SELECT wallet, mint, ts, side, sol, tokens FROM live_trades"),
+                    (hc, "SELECT wallet, mint, ts, side, sol, NULL FROM chain_trades")):
+        if c_ is None:
+            continue
+        try:
+            for r in c_.execute(sql):
+                if r[0] in want:
+                    out.append(r)
+        except sqlite3.Error:
+            pass
     for x in (ec, wc, hc):
         if x is not None:
             x.close()
@@ -78,57 +87,75 @@ def wallet_trades(con, p, wallets):
 
 
 class Prices:
-    """Price series per token: ("usd", [(ts, px)]) from midcap.db candles, else ("sol", [(ts, px)]) from trades."""
+    """Price series per token, read LAZILY (only the tokens a trade is simulated on, the 512 MB server):
+    ("usd", [(ts, px)]) from midcap.db candles around the trade, else ("sol", [(ts, px)]) from the token's trades."""
 
-    def __init__(self, con, p, c, tokens):
-        self.c, self.usd, self.sol, self.mc_now, self.supply, self.mig = c, {}, defaultdict(list), {}, {}, {}
-        toks = sorted(set(tokens))
-        mc = store.ro(p.get("midcap_db"))
-        for ch in _chunks(toks):
-            for t, mcap in store.q(mc, f"SELECT mint, mcap FROM tokens WHERE mint IN ({_in(ch)})", ch):
-                self.mc_now[t] = mcap
-        for t in self.mc_now:
-            rows = store.q(mc, "SELECT ts, c FROM c15 WHERE token = ? ORDER BY ts", (t,)) or \
-                store.q(mc, "SELECT ts, c FROM c1h WHERE token = ? ORDER BY ts", (t,))
-            rows = [(int(ts), float(px)) for ts, px in rows if px]
-            if rows:
-                self.usd[t] = rows
+    def __init__(self, con, p, c, tokens=None):
+        self.con, self.p, self.c = con, p, c
+        self.mc_now, self.supply, self.mig, self._sol, self._sol_usd = {}, {}, {}, {}, None
+        self._meta = set()
+
+    def _load_meta(self, tok):
+        if tok in self._meta:
+            return
+        self._meta.add(tok)
+        mc = store.ro(self.p.get("midcap_db"))
+        r = store.q(mc, "SELECT mcap FROM tokens WHERE mint = ?", (tok,))
         if mc is not None:
             mc.close()
-        pts = defaultdict(list)
-        for ch in _chunks(toks):
-            for m, ts, sol, tk in store.q(con, f"SELECT mint, ts, sol, tokens FROM i2_trades WHERE sol > 0 AND tokens > 0 AND "
-                                               f"mint IN ({_in(ch)})", ch):
-                pts[m].append((int(ts), sol / tk))
-        ec, hc, kc = store.ro(p.get("early_db")), store.ro(p.get("hype_db")), store.ro(p.get("kol_db"))
-        for ch in _chunks(toks):
-            for t in ("precall_trades", "group_buys"):
-                for m, ts, sol, tk in store.q(ec, f"SELECT mint, ts, sol, tokens FROM {t} WHERE sol > 0 AND tokens > 0 AND "
-                                                  f"mint IN ({_in(ch)})", ch):
-                    pts[m].append((int(ts), sol / tk))
-            for m, ts, px in store.q(hc, f"SELECT mint, ts, price_sol FROM live_trades WHERE price_sol > 0 AND mint IN "
-                                         f"({_in(ch)})", ch):
-                pts[m].append((int(ts), px))
-            for m, hour, px in store.q(hc, f"SELECT mint, hour, close_px FROM live_trades_hourly WHERE close_px > 0 AND "
-                                           f"mint IN ({_in(ch)})", ch):
-                pts[m].append((int(hour) + 3599, px))
-            for m, ts in store.q(hc, f"SELECT mint, ts FROM live_launches WHERE pool = 'migration' AND mint IN ({_in(ch)})",
-                                 ch):
-                self.mig[m] = int(ts)
-            for t, sup in store.q(kc, f"SELECT token, supply FROM tokens WHERE supply > 0 AND token IN ({_in(ch)})", ch):
-                self.supply[t] = float(sup)
-        for x in (ec, hc, kc):
+        if r and r[0][0]:
+            self.mc_now[tok] = r[0][0]
+        hc, kc = store.ro(self.p.get("hype_db")), store.ro(self.p.get("kol_db"))
+        r = store.q(hc, "SELECT MIN(ts) FROM live_launches WHERE pool = 'migration' AND mint = ?", (tok,))
+        if r and r[0][0]:
+            self.mig[tok] = int(r[0][0])
+        r = store.q(kc, "SELECT supply FROM tokens WHERE supply > 0 AND token = ?", (tok,))
+        if r:
+            self.supply[tok] = float(r[0][0])
+        for x in (hc, kc):
             if x is not None:
                 x.close()
-        for m, xs in pts.items():
-            self.sol[m] = sorted(xs)
-        self._sol_usd = None
+
+    def _usd(self, tok, ts):
+        mc = store.ro(self.p.get("midcap_db"))
+        lo, hi = int(ts) - 3600, int(ts) + int(float(self.c["hold_h"]) * 3600) + 2 * 3600
+        rows = store.q(mc, "SELECT ts, c FROM c15 WHERE token = ? AND ts BETWEEN ? AND ? ORDER BY ts", (tok, lo, hi)) or \
+            store.q(mc, "SELECT ts, c FROM c1h WHERE token = ? AND ts BETWEEN ? AND ? ORDER BY ts", (tok, lo, hi))
+        last = store.q(mc, "SELECT c FROM c1h WHERE token = ? ORDER BY ts DESC LIMIT 1", (tok,)) if rows else []
+        if mc is not None:
+            mc.close()
+        return [(int(t), float(px)) for t, px in rows if px], (float(last[0][0]) if last and last[0][0] else None)
+
+    def _sol_series(self, tok):
+        if tok in self._sol:
+            return self._sol[tok]
+        pts = [(int(ts), sol / tk) for ts, sol, tk in store.q(self.con, "SELECT ts, sol, tokens FROM i2_trades WHERE mint = ? "
+                                                                       "AND sol > 0 AND tokens > 0", (tok,))]
+        ec, hc = store.ro(self.p.get("early_db")), store.ro(self.p.get("hype_db"))
+        for t in ("precall_trades", "group_buys"):
+            pts += [(int(ts), sol / tk) for ts, sol, tk in store.q(ec, f"SELECT ts, sol, tokens FROM {t} WHERE mint = ? AND "
+                                                                      f"sol > 0 AND tokens > 0", (tok,))]
+        pts += [(int(ts), px) for ts, px in store.q(hc, "SELECT ts, price_sol FROM live_trades WHERE mint = ? AND "
+                                                        "price_sol > 0", (tok,))]
+        pts += [(int(h) + 3599, px) for h, px in store.q(hc, "SELECT hour, close_px FROM live_trades_hourly WHERE mint = ? "
+                                                             "AND close_px > 0", (tok,))]
+        for x in (ec, hc):
+            if x is not None:
+                x.close()
+        self._sol[tok] = sorted(pts)
+        if len(self._sol) > 2000:   # bounded: the oldest token's series goes first
+            self._sol.pop(next(iter(self._sol)))
+        return self._sol[tok]
 
     def series(self, tok, ts):
-        u = self.usd.get(tok)
-        if u and u[0][0] <= ts <= u[-1][0] + 3600:
-            return "usd", u
-        return "sol", self.sol.get(tok) or []
+        self._load_meta(tok)
+        if tok in self.mc_now:
+            u, last = self._usd(tok, ts)
+            if u and u[0][0] <= ts <= u[-1][0] + 3600 and last:
+                self._last_usd = getattr(self, "_last_usd", {})
+                self._last_usd[tok] = last
+                return "usd", u
+        return "sol", self._sol_series(tok)
 
     @staticmethod
     def at(series, ts, gap):
@@ -161,11 +188,12 @@ class Prices:
 
     def mcap(self, tok, kind, series, px, ts):
         if kind == "usd":
-            last = series[-1][1] if series else None
+            last = getattr(self, "_last_usd", {}).get(tok)
             return self.mc_now.get(tok) * px / last if last and self.mc_now.get(tok) else None
         return px * self.supply.get(tok, float(self.c["supply"])) * self.sol_usd(ts)
 
     def bonded(self, tok, mcap, ts):
+        self._load_meta(tok)
         if tok in self.mc_now:
             return True
         if tok in self.mig and self.mig[tok] <= ts:

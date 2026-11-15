@@ -87,6 +87,34 @@ def bots(con, p, c, cand, since):
     return out & cand
 
 
+_AGG = {"obj": None, "n": None, "v": None}   # holds the list itself, so its id is never reused while cached
+
+
+def aggregate(parts):
+    """{owner: {eid: [first buy ts, min lead, bought, sold, sol_in, sol_out, {wallets}]}} in one pass over the rows
+    (cached for the same list: the walk-forward classifies the same rows once a day)."""
+    if _AGG["obj"] is parts and _AGG["n"] == len(parts):
+        return _AGG["v"]
+    out = defaultdict(dict)
+    for eid, w, owner, bts, sin, _ns, sout, _fs, bb, si, lead in parts:
+        a = out[owner or w].get(eid)
+        if a is None:
+            a = out[owner or w][eid] = [None, None, False, False, 0.0, 0.0, set()]
+        a[6].add(w)
+        if bb:
+            a[2] = True
+            if bts is not None and (a[0] is None or bts < a[0]):
+                a[0] = bts
+            if lead is not None and (a[1] is None or lead < a[1]):
+                a[1] = lead
+        if si:
+            a[3] = True
+        a[4] += sin or 0
+        a[5] += sout or 0
+    _AGG.update(obj=parts, n=len(parts), v=out)
+    return out
+
+
 def classify(parts, events, as_of, c, bad=frozenset(), first_trade=None):
     """{owner: stats} from `parts` over the events whose window ended before as_of (pure). bad: wallets that are bots
     (score.bots); first_trade: {token: ts}."""
@@ -97,23 +125,24 @@ def classify(parts, events, as_of, c, bad=frozenset(), first_trade=None):
     cut_t = ev[order[int(len(order) * 2 / 3)]]["t0"] if len(order) >= 3 else None
     u_calls = len(calls)
     n_h = Counter(h for eid in calls for h in (ev[eid].get("callers") or {}))
-    by = defaultdict(list)
-    for r in parts:
-        if r[0] in covered:
-            by[r[2] or r[1]].append(r)
+    agg = aggregate(parts)
     first_trade = first_trade or {}
     n_cov = len(covered)
+    bad = set(bad)
     out = {}
-    for owner, rows in by.items():
-        members = sorted({r[1] for r in rows})
-        early = {r[0]: r for r in rows if r[8]}
-        hit_ids = sorted({r[0] for r in rows if r[8]} & {r[0] for r in rows if r[9]}, key=lambda x: ev[x]["t0"])
+    for owner, by_eid in agg.items():
+        mine = {eid: a for eid, a in by_eid.items() if eid in covered}
+        if not mine:
+            continue
+        members = sorted({w for a in mine.values() for w in a[6]})
+        early = {eid: a for eid, a in mine.items() if a[2]}
+        hit_ids = sorted((eid for eid, a in early.items() if a[3]), key=lambda x: ev[x]["t0"])
         call_hits = [eid for eid in hit_ids if ev[eid]["kind"] == "call"]
         front = Counter()
         for eid in call_hits:
-            bts = min(r[3] for r in rows if r[0] == eid and r[8])
+            bts = early[eid][0]
             for h, ts in (ev[eid].get("callers") or {}).items():
-                if bts < ts:
+                if bts is not None and bts < ts:
                     front[h] += 1
         n_w = sum(1 for eid in early if ev[eid]["kind"] == "call")
         best_lift, best_h = None, None
@@ -123,12 +152,11 @@ def classify(parts, events, as_of, c, bad=frozenset(), first_trade=None):
             lf, _exp = lift(n, n_w, n_h.get(h, n), u_calls)
             if lf is not None and (best_lift is None or lf > best_lift):
                 best_lift, best_h = lf, h
-        leads = [min(r[10] for r in rows if r[0] == eid and r[8] and r[10] is not None) / 60
-                 for eid in hit_ids if any(r[0] == eid and r[8] and r[10] is not None for r in rows)]
+        leads = [early[eid][1] / 60 for eid in hit_ids if early[eid][1] is not None]
         med_lead = _med(leads)
-        pnl = [sum((r[6] or 0) for r in rows if r[0] == eid) - sum((r[4] or 0) for r in rows if r[0] == eid)
-               for eid in hit_ids]
-        snipe = [early[eid][3] - first_trade[ev[eid]["token"]] for eid in early if ev[eid]["token"] in first_trade]
+        pnl = [early[eid][5] - early[eid][4] for eid in hit_ids]
+        snipe = [early[eid][0] - first_trade[ev[eid]["token"]] for eid in early
+                 if ev[eid]["token"] in first_trade and early[eid][0] is not None]
         sniper = len(snipe) >= 2 and sum(1 for x in snipe if 0 <= x <= c["sniper_secs"]) / len(snipe) >= c["sniper_share"]
         busy = n_cov >= 10 and len(early) / n_cov >= c["busy_events_share"]
         st = {"owner": owner, "members": members, "n_early": len(early), "n_hits": len(hit_ids),
@@ -142,7 +170,7 @@ def classify(parts, events, as_of, c, bad=frozenset(), first_trade=None):
         conf = [eid for eid in hit_ids if cut_t is not None and ev[eid]["t0"] >= cut_t]
         if owner.startswith("relayer:"):
             st["cls"], st["why"] = "relayer", "plaća naknade za mnogo drugih vlasnika"
-        elif set(members) & set(bad):
+        elif set(members) & bad:
             st["cls"], st["why"] = "bot_snajper", "bot (brzina tradeova, oznaka ili previše tradeova dnevno)"
         elif sniper:
             st["cls"], st["why"] = "bot_snajper", f"snajper (kupuje u prvih {c['sniper_secs']} s lansiranja)"

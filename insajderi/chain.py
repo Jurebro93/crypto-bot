@@ -185,10 +185,14 @@ def fetch_event(con, p, c, e, now, budget, fetch=None, seller_events=None, log=p
         return int(pages) * 10
 
     tok, t0, end = e["token"], int(e["t0"]), int(e["win_end"])
+    short = False   # the budget ran out inside this event: it stays due (what was read is never read again)
     steps = (("sell", t0, end, int(c["sell_pages"]), True), ("pre", t0 - 6 * 3600, t0, int(c["pre_pages"]), False))
     for name, since, until, pages, asc in steps:
         key = f"mint:{name}:{e['eid']}"
-        if pages <= 0 or _fetched(con, key) or spent[0] + page_cost(pages) > budget:
+        if pages <= 0 or _fetched(con, key):
+            continue
+        if spent[0] + page_cost(pages) > budget:
+            short = True
             continue
         before = spent[0]
         try:
@@ -218,6 +222,7 @@ def fetch_event(con, p, c, e, now, budget, fetch=None, seller_events=None, log=p
         if not a or _fetched(con, key):
             continue
         if spent[0] + page_cost(c["acct_pages"]) > budget:
+            short = True
             break
         before = spent[0]
         try:
@@ -231,7 +236,8 @@ def fetch_event(con, p, c, e, now, budget, fetch=None, seller_events=None, log=p
                     (key, int(now), spent[0] - before, len(txs), int(bool(complete))))
         con.commit()
         looked += 1
-    con.execute("UPDATE i2_events SET fetched = 1 WHERE eid = ?", (e["eid"],))
+    if not short:
+        con.execute("UPDATE i2_events SET fetched = 1 WHERE eid = ?", (e["eid"],))
     con.commit()
     return spent[0]
 
