@@ -133,24 +133,60 @@ def history_rows(con):
 
 # ---------- candles --------------------------------------------------------------------------------------------------
 
+# 15.11. navečer (coordinator, production 11:45 UTC: every backtest variant n=0, the 1h candles never arrived - HTTP 429
+# and another job's reservation made the pass give up at the first refusal, and the next pass came 3 h later): a refused
+# call waits for the shared limiter (event_calendar/http: the cooldown after a 429, another job's reservation) and tries
+# again, up to GT_TRIES times, while the pass still has time (DEADLINE: monotonic, set by the caller; 0 = no deadline)
+GT_TRIES = int(os.environ.get("VEL_GT_TRIES", "4"))
+GT_WAIT_MAX_S = float(os.environ.get("VEL_GT_WAIT_MAX_S", "90"))
+DEADLINE = [0.0]
+GT_STATS = {"ok": 0, "refused": 0, "waited_s": 0.0}
+
+
+def _gt_wait(url, attempt):
+    """Seconds slept before the next try (the limiter's own cooldown, else a growing pause); 0 = give up."""
+    from event_calendar import http
+    try:
+        wait = float(http.cooling(url) or 0.0)
+    except Exception:  # noqa: BLE001
+        wait = 0.0
+    wait = min(GT_WAIT_MAX_S, max(wait, 5.0 * (2 ** attempt)))
+    if DEADLINE[0] and time.monotonic() + wait > DEADLINE[0]:
+        return 0.0
+    time.sleep(wait)
+    GT_STATS["waited_s"] += wait
+    return wait
+
+
 def gt_ohlcv(pool, tf, agg, before, limit):
-    """[(ts, o, h, l, c, v)] from GeckoTerminal (oldest first), None when another job holds GeckoTerminal right now."""
+    """[(ts, o, h, l, c, v)] from GeckoTerminal (oldest first), None when GeckoTerminal stays busy (another job's
+    reservation, a 429) after GT_TRIES patient tries."""
     if "gt" in FETCH:
         return FETCH["gt"](pool, tf, agg, before, limit)
     from event_calendar import http
-    try:
-        from kol import measure
-        measure._GT.wait()
-    except Exception:  # noqa: BLE001 - the pacing helper is an optimisation; http paces the host anyway
-        pass
-    try:
-        d = http.get_json(f"{GECKO}/pools/{pool}/ohlcv/{tf}",
-                          {"aggregate": agg, "before_timestamp": int(before), "limit": int(limit), "currency": "usd"},
-                          ttl=600, headers={"Accept": "application/json"}, retries=0)
-    except Exception as e:  # noqa: BLE001 - a 429 / timeout: this pass stops, the next one continues from the DB
-        print(f"veliki: GeckoTerminal {tf} za pool {str(pool)[:6]}: {type(e).__name__} {getattr(e, 'code', '')}",
-              flush=True)
-        return None
+    url = f"{GECKO}/pools/{pool}/ohlcv/{tf}"
+    d = None
+    for attempt in range(max(1, GT_TRIES)):
+        try:
+            from kol import measure
+            measure._GT.wait()
+        except Exception:  # noqa: BLE001 - the pacing helper is an optimisation; http paces the host anyway
+            pass
+        try:
+            d = http.get_json(url, {"aggregate": agg, "before_timestamp": int(before), "limit": int(limit),
+                                    "currency": "usd"}, ttl=600, headers={"Accept": "application/json"}, retries=0)
+        except Exception as e:  # noqa: BLE001 - a 429 / timeout: wait for the limiter, then once more
+            d = None
+            if attempt == 0 or attempt == GT_TRIES - 1:
+                print(f"veliki: GeckoTerminal {tf} za pool {str(pool)[:6]}: {type(e).__name__} {getattr(e, 'code', '')}"
+                      + (", čekam i pokušavam ponovno" if attempt < GT_TRIES - 1 else ", odustajem do sljedećeg prolaza"),
+                      flush=True)
+        if d is not None:
+            GT_STATS["ok"] += 1
+            break
+        GT_STATS["refused"] += 1
+        if attempt == GT_TRIES - 1 or not _gt_wait(url, attempt):
+            return None
     if d is None:
         return None
     rows = (d.get("data") or {}).get("attributes", {}).get("ohlcv_list") or []
@@ -211,6 +247,54 @@ def fill(con, token, pool, now, budget, tables=("c15", "c1h"), log=None):
             con.commit()
             lo, hi, n = span(con, table, token)
     return used
+
+
+def merge_own_bars(con, bars_by_token, now):
+    """15.11. navečer (coordinator: "a free fallback: 15m / 1h candles from our own DexScreener price polls ... merge
+    GT history when it arrives"): veliki/live's own 15m bars (league.db veliki_bars, built from the DexScreener quotes
+    it polls every 10 s, 30 tokens a request) into c15 and, rebuilt into hours, c1h - INSERT OR IGNORE, so an hour
+    GeckoTerminal already has keeps GeckoTerminal's candle (with its volume) and a GeckoTerminal candle that arrives
+    later replaces ours (put_candles is INSERT OR REPLACE). Only completed bars. Returns (n15, n1h) inserted."""
+    n15 = n1h = 0
+    cut15 = int(now) - int(now) % 900
+    cut1h = int(now) - int(now) % 3600
+    for tok, bars in (bars_by_token or {}).items():
+        done = [b for b in bars if b[0] < cut15 and b[1] and b[4]]
+        if not done:
+            continue
+        n15 += con.executemany("INSERT OR IGNORE INTO c15 (token, ts, o, h, l, c, v) VALUES (?,?,?,?,?,?,0)",
+                               [(tok, int(b[0]), b[1], b[2], b[3], b[4]) for b in done]).rowcount
+        hours = {}
+        for b in done:
+            h = int(b[0]) - int(b[0]) % 3600
+            x = hours.get(h)
+            hours[h] = [h, b[1], b[2], b[3], b[4]] if x is None else [h, x[1], max(x[2], b[2]), min(x[3], b[3]), b[4]]
+        rows = [(tok, h, x[1], x[2], x[3], x[4]) for h, x in sorted(hours.items()) if h + 3600 <= cut1h]
+        n1h += con.executemany("INSERT OR IGNORE INTO c1h (token, ts, o, h, l, c, v) VALUES (?,?,?,?,?,?,0)",
+                               rows).rowcount
+    con.commit()
+    return n15, n1h
+
+
+def own_bars(tokens_, since, league_db=None):
+    """{token: [(ts, o, h, l, c)]} veliki/live's own 15m bars from league.db (read-only)."""
+    p = league_db or os.path.join(ROOT, "league.db")
+    if not tokens_ or not os.path.exists(p):
+        return {}
+    out = {}
+    try:
+        lc = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=10)
+        try:
+            q = ",".join("?" * len(tokens_))
+            for tok, ts, o, h, l, c in lc.execute(
+                    f"SELECT token, ts, o, h, l, c FROM veliki_bars WHERE token IN ({q}) AND ts >= ? ORDER BY ts",
+                    (*tokens_, int(since))):
+                out.setdefault(tok, []).append((ts, o, h, l, c))
+        finally:
+            lc.close()
+    except sqlite3.Error:
+        return {}
+    return out
 
 
 def coverage(con, tokens_):
