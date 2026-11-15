@@ -14,7 +14,7 @@
    gets only keep_frac of the entries.
 4. Position size per session (session_sizes()): from the last 7 days of closed demo trades per session (asia/eu/us);
    a session with profit factor under 1 gets a smaller stake (0.75 / 0.5) and under 0.7 a pause (only keep_frac of
-   entries, at half size, so it is still measured). The same threshold and min_n for all three sessions; a worse
+   entries at half size, the rest at min_frac (25 %) since 15.11., so the demo never stops learning). The same threshold and min_n for all three sessions; a worse
    result applies at once, the way back up is one step per day, by itself when results improve.
 
 State: LEARNED_DIR/paper_rules.json (a few KB). Nothing here is set by hand.
@@ -45,7 +45,7 @@ DEFAULT = {
     "povlacenje": {"enabled": True, "fresh_min": 180, "pullback": -0.12, "min_mcap": 50000, "buyers_min": 15,
                    "max_per_token": 1, "size_usd": 25, "max_open": 15, "max_per_day": None},
     "sessions": {"enabled": True, "days": 7, "min_n": 30, "steps": [[1.0, 1.0], [0.85, 0.75], [0.7, 0.5]],
-                 "pause_below": 0.7, "keep_frac": 0.2, "refresh_h": 24},
+                 "pause_below": 0.7, "keep_frac": 0.2, "min_frac": 0.25, "refresh_h": 24},
 }
 SESS_V = 2   # 5.11.: a session under pause_below pauses at once (was one step a day); a new version re-reads now
 SESS_HR = {"asia": "Azija (00–08 UTC)", "eu": "Europa (08–14 UTC)", "us": "Amerika (14–24 UTC)"}
@@ -415,5 +415,11 @@ def size_for(st, token, size, now, cfg):
     if f <= 0:
         if keep(token, sc["keep_frac"], "sess"):
             return round(size * 0.5, 2), f"{SESS_HR[s]} na pauzi, mali ulaz za mjerenje"
+        # 15.11. (jutarnji izvještaj, 3. dan bez demo tradea): the demo is where the tool learns, so a paused
+        # session still enters with a minimal stake (min_frac of the stake, default 25 %) instead of not at all.
+        # Real money never reads this (trade/ has its own limits).
+        mf = sc.get("min_frac", 0.25)
+        if mf > 0:
+            return round(size * mf, 2), f"{SESS_HR[s]} na pauzi, minimalni ulog za učenje"
         return 0, f"{SESS_HR[s]} na pauzi (gubi zadnjih {sc['days']} dana)"
     return round(size * f, 2), f"{SESS_HR[s]}: ulog {f:.0%}"

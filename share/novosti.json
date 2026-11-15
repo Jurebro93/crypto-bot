@@ -1,5 +1,12 @@
 [
  {
+  "datum": "2026-11-15",
+  "naslov": "Demo uči i u slabim satima, a sesija se ocjenjuje sa stopom",
+  "tekst": "kad je neka sesija (Azija, Europa ili SAD) na pauzi, demo i dalje ulazi minimalnim ulogom (25 %) da učenje ne stane. Ocjena sesije za KOL pozive sad broji pogodak samo kad je +50 % došlo prije −20 %, uz trošak tradea, pa sesija čiji pozivi prvo padnu u stop više ne izgleda bolje nego što jest.",
+  "naslov_en": "The demo keeps learning in weak hours, and sessions are scored with a stop",
+  "tekst_en": "when a session (Asia, Europe or US) is paused, the demo still enters with a minimal stake (25%) so learning never stops. The session score for KOL calls now counts a hit only when +50% came before −20%, after trading costs, so a session whose calls hit the stop first no longer looks better than it is."
+ },
+ {
   "datum": "2026-11-12",
   "naslov": "Izlazi se biraju na našim tradeovima",
   "tekst": "učenje izlaza za klasu koja ima barem 150 naših demo putanja sad bira pravila samo na njima (starija polovica uči, novija provjerava), a stara povijest služi samo kao provjera da nova pravila tamo nisu jasno lošija. Prije su pravila bolja na povijesti, a lošija na našim tradeovima, stalno padala na provjeri pa se ništa nije mijenjalo.",

@@ -83,7 +83,7 @@ class Learned(unittest.TestCase):
         self.assertEqual(s1["by"]["us"]["factor"], 1.0)   # too few trades: full stake
         self.assertEqual(rules.session_sizes(self.con, st, {}, now + 3600)["by"]["eu"]["factor"], 0.0)  # cached
         size, note = rules.size_for(st, "abc", 20, eu + 86400, {})
-        self.assertIn(size, (0, 10.0))
+        self.assertIn(size, (5.0, 10.0))   # 15.11.: never 0 in the demo (min_frac 25 %)
         self.assertIn("pauzi", note)
         self.assertTrue(any("Europa" in h["text"] for h in st["history"]))
         for i in range(60):  # Europe recovers: PF well over 1 -> back up one step a day

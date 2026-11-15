@@ -47,5 +47,32 @@ class ConfStep(unittest.TestCase):
         self.assertEqual(confmodel.limit_step(None, new), new)
 
 
+
+class PathSessions(unittest.TestCase):
+    """15.11.: a call that hit -20 % before +50 % is not a session hit, and a losing session never gets factor > 1."""
+
+    def test_stop_first_lowers_factor(self):
+        import json as _j
+        from unittest import mock
+        from kol import sessions, tpsl
+        asia, us = 1_762_000_000 - (1_762_000_000 % 86400) + 3600, 1_762_000_000 - (1_762_000_000 % 86400) + 15 * 3600
+
+        def row(ts, up_min, dn_min):
+            lv = {"v": 2, "u": {"50": up_min} if up_min is not None else {}, "d": {"20": dn_min} if dn_min is not None else {}}
+            return {"tweet_id": str(ts), "token": str(ts), "handle": "a", "ts": ts, "hi60": 0, "lo60": 0, "r60": 0,
+                    "lv": _j.dumps(lv)}
+        # Asia: every call peaks +50 % but only after -20 %; US: half reach +50 % first
+        rws = [row(asia + i, 30, 5) for i in range(40)] + [row(us + i, 10 if i % 2 else None, None if i % 2 else 8)
+                                                            for i in range(40)]
+        with mock.patch.object(tpsl, "rows", return_value=rws):
+            got = {k: (n, h, net, f) for k, n, h, net, f in sessions.path_rows({"hit_x": 0.5, "sessions": {}},
+                                                                              mcon=mock.MagicMock())}
+        self.assertEqual(got["path:asia"][1], 0)
+        self.assertLess(got["path:asia"][2], 0)
+        self.assertLessEqual(got["path:asia"][3], 1.0)
+        self.assertEqual(got["path:us"][1], 20)
+        self.assertGreater(got["path:us"][3], got["path:asia"][3])
+
+
 if __name__ == "__main__":
     unittest.main()

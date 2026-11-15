@@ -7,7 +7,8 @@ asia 00-08 (China 08-16), eu 08-14 (Croatia 09-15 winter), us 14-24 (New York 09
   local), which gives a UTC offset and a region. Needs zone_min_posts posts.
 - token volume by session: GeckoTerminal 5-min candles that measure.py already fetches, summed per UTC hour
   (token_hours), so a token shows whether its volume is American, Asian or European.
-- learning: how calls and KOL group signals did per session (hit = +hit_x within 24 h). The signal factor of a
+- learning: how calls and KOL group signals did per session (hit = +hit_x within 24 h; since 15.11. capped by
+  path:<s>, +hit_x before -20 % in the first hour after cost, see path_rows). The signal factor of a
   session is its hit rate over the overall one, shrunk towards 1 with shrink_n calls and kept in [min, max], so
   thin data never swings it. kol_group signals are multiplied by the factor of the session they start in, and the
   hit rate of signals per session is the measured accuracy of those suggestions. Recomputed every score run.
@@ -156,7 +157,57 @@ def learn(con, cfg, now=None):
         con.execute("INSERT INTO sessions VALUES (?,?,?,?,?,?)",
                     (key, len(xs), hits, statistics.median(xs), _factor(hits, len(xs), base[key.split(':')[0]], cfg),
                      now))
+    for key, n, hits, net, fac in path_rows(cfg, now):
+        con.execute("INSERT INTO sessions VALUES (?,?,?,?,?,?)", (key, n, hits, net, fac, now))
     return len(rows)
+
+
+def path_rows(cfg, now=None, mcon=None):
+    """15.11. (jutarnji izvještaj): the 24 h peak counts a call as a hit even when it first fell through any stop
+    (940 of 1912 measured calls touched -20 % before anything else). From the minute paths of kol/minute.py
+    (minute.db, first hour after the call) a call is a hit here only when +hit_x came BEFORE -path_sl, and every
+    call is booked as the trade it would have been (kol/tpsl.outcome, after the round-trip cost). Rows
+    (path:<s>, n, hits, mean net result per trade as a fraction, factor): the factor is the hit rate over the
+    overall one like the others, and never above 1 when that session's trades lose money after cost.
+    [] when minute.db is missing or unreadable (the old factors stay)."""
+    import os
+    import sqlite3
+    from kol import minute, tpsl
+    z = cfg.get("sessions", {})
+    tp, sl = round(cfg["hit_x"] * 100), z.get("path_sl", 20)
+    own = mcon is None
+    if own:
+        p = minute.db_path()
+        if not os.path.exists(p) or not os.path.getsize(p):
+            return []
+        try:
+            mcon = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=5)
+        except sqlite3.Error:
+            return []
+    try:
+        rws = tpsl.rows(mcon, None, z.get("path_days", tpsl.DAYS), now)
+    except sqlite3.Error:
+        return []
+    finally:
+        if own:
+            mcon.close()
+    by = {}
+    for r in rws:
+        kind, gross = tpsl.outcome(r, tp, sl)
+        by.setdefault(session_of(r["ts"]), []).append((kind == "tp", gross - tpsl.COST))
+    alls = [x for v in by.values() for x in v]
+    if not alls:
+        return []
+    base = sum(1 for h, _ in alls if h) / len(alls)
+    out = []
+    for s, xs in sorted(by.items()):
+        hits = sum(1 for h, _ in xs if h)
+        net = sum(g for _, g in xs) / len(xs) / 100
+        f = _factor(hits, len(xs), base, cfg)
+        if net < 0:
+            f = min(f, 1.0)
+        out.append((f"path:{s}", len(xs), hits, round(net, 4), f))
+    return out
 
 
 def factors(con):
@@ -165,6 +216,10 @@ def factors(con):
     got = dict(con.execute("SELECT key, factor FROM sessions"))
     for s in f:
         f[s] = got.get(f"signal:{s}", got.get(f"call:{s}", 1.0))
+        if got.get(f"path:{s}") is not None:
+            # 15.11.: the stop-aware measure (path_rows) can only lower the factor: a session whose calls mostly
+            # hit the stop first is not worth more because their 24 h peak was high
+            f[s] = min(f[s], got[f"path:{s}"])
     live = live_pf()
     for s, pf in live.items():
         if s in f and pf is not None and pf < 1.0:
