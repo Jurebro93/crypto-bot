@@ -295,6 +295,14 @@ class HiddenList(Base):
         self.assertEqual(gd.hidden_signals(buys[:2] + [("TOKH", Cw, NOW + 400, None)], mo, {"w1": "quality"}, set(), C), [])
         self.assertEqual(gd.hidden_signals(buys, mo, {"w1": "quality"}, set(), C, owner_of={B: A}), [])   # 2 owners
 
+    def test_same_second_buys_with_a_missing_mcap_do_not_crash(self):
+        """15.11. production: one wallet bought twice in the same second, one row without mcap -> TypeError in sorted()."""
+        mo = {A: "w1", B: "w1", Cw: "w1"}
+        buys = [("TOKH", A, NOW - 500, None), ("TOKH", A, NOW - 500, 25000.0), ("TOKH", B, NOW - 400, 25500.0),
+                ("TOKH", Cw, NOW - 100, 26000.0)]
+        s = gd.hidden_signals(buys, mo, {"w1": "quality"}, set(), C)
+        self.assertEqual([(x["token"], x["wallets"], x["mcap_usd"]) for x in s], [("TOKH", [A, B, Cw], 26000.0)])
+
     def test_signal_in_the_pass_the_shadow_and_get_market_signals(self):
         self.shadow()
         ec = gd.connect(self.p["early_db"])

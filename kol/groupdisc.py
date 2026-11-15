@@ -646,7 +646,9 @@ def wallet_metrics(members, buys, sells, first_call, pub_r1h, realized, c):
     for m, w, ts, sol, mc in buys:
         if w in members:
             by_mint[m].append((ts, w, sol, mc))
-    toks = {m: sorted(rs) for m, rs in by_mint.items() if len({w for _, w, _, _ in rs}) >= 2}
+    # 15.11.: sort by (ts, wallet) only: two buys of one wallet in the same second with a missing sol/mcap made the
+    # tuple sort compare None with a float (TypeError) and the 15-min groups job died
+    toks = {m: sorted(rs, key=lambda r: (r[0], r[1])) for m, rs in by_mint.items() if len({w for _, w, _, _ in rs}) >= 2}
     pnl = {w: {"sol_in": 0.0, "sol_out": 0.0, "closed": 0} for w in members}
     rois, before, exit_sells = [], [], 0
     for m, rs in toks.items():
@@ -697,9 +699,9 @@ def hidden_signals(buys, member_of, grades, called, c, owner_of=None):
     out = []
     for (m, g), rs in by.items():
         first = {}
-        for ts, w, mc in sorted(rs):
+        for ts, w, mc in sorted(rs, key=lambda r: (r[0], r[1])):     # never compare a None mcap (15.11. crash)
             first.setdefault(owner_of.get(w, w), (ts, w, mc))
-        seq = sorted(first.values())
+        seq = sorted(first.values(), key=lambda r: (r[0], r[1]))
         for i in range(len(seq) - c["hidden_min"] + 1):
             win = seq[i:i + c["hidden_min"]]
             t0 = win[0][0]
