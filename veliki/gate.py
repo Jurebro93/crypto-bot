@@ -50,7 +50,21 @@ def real_caps(cfg=None):
     return out
 
 
-def proof_mode(cfg=None):
+def proof_mode(cfg=None, con=None):
+    """"walk" (holdout), "demo" (trade/config.json "dokaz": "demo") or "nalog_vlasnika" (15.11.: the owner's chat order
+    "Odmah kreni tradat s pravim novcem", trade settings veliki_dokaz, set once by ui/assistnotes): real money without
+    waiting for the proof; the proof is still computed and written on every real trade."""
+    try:
+        from trade import settings
+        c = con or settings.connect()
+        try:
+            if str(settings.raw(c).get("veliki_dokaz") or "") == "nalog_vlasnika":
+                return "nalog_vlasnika"
+        finally:
+            if con is None:
+                c.close()
+    except Exception:  # noqa: BLE001 - unreadable settings: the config's mode
+        pass
     return "demo" if str(_own(cfg).get("dokaz") or "").lower() == "demo" else "walk"
 
 
@@ -118,7 +132,10 @@ def real_refusal(con=None, proof=None, stats=None, cfg=None, now=None):
     try:
         if not switch_on(con):
             return f"prekidač {SWITCH} je isključen"
-        if proof_mode(cfg) == "demo":
+        mode = proof_mode(cfg, con)
+        if mode == "nalog_vlasnika":   # 15.11.: the owner's order, no proof wait; BTC free fall still holds entries
+            return btc_refusal(now)
+        if mode == "demo":
             ok, why = demo_proof(stats)
         else:
             ok, why, _x = wf_proof(proof, real_caps(cfg)["size_sol"])
