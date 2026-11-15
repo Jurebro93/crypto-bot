@@ -265,7 +265,7 @@ def card_html(sec, item, esc, owner=True):
     if not profs and not sig:
         return ""
     strong = [s for s in sig if s["kind"] == "pre_listing" and s["score"] >= c["min_score"]]
-    meta = (f"{len(strong)} listing signala (7 d) · {len(profs)} profila holdera · "
+    meta = (f"{len(profs)} profila holdera · {len(strong)} listing signala (7 d) · "
             f"{sum(1 for v in pri.values() if v.get('block'))} blokirano oprezom · Helius danas "
             f"{d.get('helius') or 0:,.0f}/{int(c['helius_credits_day']):,}")
     badges = "".join(_badge(f"LISTING? {esc(s['symbol'] or s['mint'][:6])} → {esc(s['exchange_name'])} {s['score']:.0f}")
