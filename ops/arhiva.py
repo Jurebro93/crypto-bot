@@ -122,6 +122,14 @@ EXTRA_WHERE = {("paper", "trades"): "COALESCE(status, '') != 'open'",           
 LIST_KEYS = {("tg", "posts"): "cas"}
 # the owner (or a later decision) leaves tables out without a code change: ARHIVA_SKIP="wallets.wallet_trades,kol.calls"
 SKIP_ENV = {x.strip() for x in os.environ.get("ARHIVA_SKIP", "").split(",") if x.strip()}
+# 15.11. (owner, after the archive order: "i dalje želim naći insajdere i botove koji kupuju prije poziva ... na
+# postojećim podacima"; "holderi u profitu ... što kupuju"; microcap MEASUREMENT allowed for that research): the
+# tables Insajderi 2.0 and the smart-money / jump-catalyst research read stay in the live DBs until that research has
+# run on them; the owner (or a later decision) releases them by removing them here. ARHIVA_SKIP adds more.
+RESEARCH_KEEP = {"wallets.wallet_trades", "kol.calls", "kol.snaps", "kol.insiders", "tg.posts", "early.precall_trades",
+                 "early.group_buys", "early.early_buyers", "hype.chain_trades", "hype.live_trades",
+                 "hype.chain_transfers", "events.call_outcomes", "kol.call_outcomes"}
+SKIP_ENV = SKIP_ENV | RESEARCH_KEEP
 # last known MC per mint: (db, table, key, ts, mc)
 MC_SOURCES = (("hype", "hype_signals", "token", "ts", "mcap"), ("hype", "hype_snapshots", "token", "ts", "mcap"),
               ("hype", "token_pulse", "token", "ts", "mcap"), ("hype", "token_status", "token", "checked_ts", "mcap"),

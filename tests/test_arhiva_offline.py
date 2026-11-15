@@ -176,9 +176,18 @@ class KeepRules(Base):
         self.assertEqual(v[DEAD], (arhiva.ARCHIVE, "mrtav (nema para na DexScreeneru)"))
         self.assertTrue(any("zadržao volumen od početka" in ln and ": 1 tokena" in ln for ln in self.logs), self.logs)
 
+    def test_research_tables_stay_until_released(self):
+        """15.11.: Insajderi 2.0 and the smart-money research read these, so they stay by default (RESEARCH_KEEP)."""
+        self.on()
+        self.run_night()
+        self.assertEqual(sorted(r[0] for r in self.rows("tg", "SELECT post FROM posts")), [1, 2, 3, 4])
+        self.assertTrue({MICRO} <= self.tokens("wallets", "wallet_trades", "mint"))
+        self.assertIn("wallets.wallet_trades", arhiva.RESEARCH_KEEP)
+
     def test_rows_move_and_every_kept_thing_stays(self):
         self.on()
-        out = self.run_night()
+        with mock.patch.object(arhiva, "SKIP_ENV", set()):   # released research tables: the full move
+            out = self.run_night()
         self.assertIsNone(out["stopped"], self.logs)
         left = self.tokens()
         self.assertFalse({MICRO, RUG, DEAD} & left)
