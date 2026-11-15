@@ -347,6 +347,13 @@ def reports(now=None, budget_chars=2500):
             put("zadnjih5_walk_forward", z, None)
     except Exception:  # noqa: BLE001
         pass
+    try:   # 15.11. (konsenzus/): the source consensus walk-forward and its demo
+        from konsenzus import view as kview
+        k = kview.critic_summary()
+        if k:
+            put("konsenzus_izvora", k, None)
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from proposals import store as pstore
         pcon = _ro(pstore.db_path()) if hasattr(pstore, "db_path") else None

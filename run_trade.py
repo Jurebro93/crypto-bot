@@ -314,6 +314,16 @@ def _momentum_gate():
         return f"momentum_scalp: dokaz se ne može pročitati ({type(e).__name__})"
 
 
+def _izvori_refusal():
+    """15.11. (konsenzus/): None when a konsenzus trade of the real account may become a real buy (the owner's switch
+    pravi_novac_izvori on AND the best candidate's holdout proof, konsenzus/gate.real_refusal), else why not."""
+    try:
+        from konsenzus import gate
+        return gate.real_refusal()
+    except Exception as e:  # noqa: BLE001 - no proof, no real money
+        return f"konsenzus: dokaz se ne može pročitati ({type(e).__name__})"
+
+
 # 14.11. (owner: "Ja sada ne govorim o demu ... idemo s pravim novcem"; trade/settings "pravi_novac_sve"): while his
 # switch is on, every automatic demo trade of the real account is a real buy without the demo proof (PROOF, the
 # momentum gate), within trade/executor.SWITCH_CAPS. The hard rules are asked once more right here, on the real buy
@@ -636,6 +646,12 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 why, rng_sol, rng_add = _range_lot(con, lg, t, cfg)
             if not why and (t["source"] or "").startswith("momentum") and not sw:   # 11.11. (flag momentum_scalp)
                 why = _momentum_gate()
+            if not why and executor.is_izvori(t["source"]):   # 15.11. (konsenzus/): its own switch + holdout proof,
+                why = _izvori_refusal()                          # then the hard rules on the real buy itself
+                if not why:
+                    why, wait = _switch_hard(lg, t, now)
+                    if why and wait:
+                        continue
             auto_sw = sw and not size   # 14.11.: an automatic real buy under pravi_novac_sve (the owner's own: as before)
             strat = executor.strategy_of(t["source"])
             if not why and auto_sw:

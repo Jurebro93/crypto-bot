@@ -173,6 +173,54 @@ SWITCH_CAPS = {"size_sol": 0.1, "max_sol_per_trade": 0.1, "max_open": 10, "max_b
                "max_sol_per_day": 11.0}
 
 
+# 15.11. (konsenzus/, owner switch trade/settings "pravi_novac_izvori"): the real buys of the source consensus strategy
+# (a league.db trade of LEAGUE_USER whose source starts with IZVORI_SRC) are held to these INSTEAD of LIVE_CAPS /
+# SWITCH_CAPS, and only while that switch is on (run_trade checks the holdout proof before the buy): 0.1 SOL a trade,
+# max_open counts EVERY live position (all strategies together), max_buys_day counts the konsenzus buys of the Zagreb
+# day, max_loss_day the day's realized result of every live position, max_cost_pct caps the swap's cost at 6 %.
+# trade/config.json "pravi_novac_izvori" may set lower values, never higher.
+IZVORI_SRC = "konsenzus"
+IZVORI_CAPS = {"size_sol": 0.1, "max_sol_per_trade": 0.1, "max_open": 5, "max_buys_day": 30, "max_loss_day": 0.3,
+               "max_sol_per_day": 3.1, "max_cost_pct": 6.0}
+
+
+def is_izvori(reason):
+    return str(reason or "").strip().lower().startswith(IZVORI_SRC)
+
+
+def izvori_caps(cfg=None):
+    """IZVORI_CAPS, each the smaller of the code's and trade/config.json "pravi_novac_izvori"'s."""
+    own = (cfg or {}).get("pravi_novac_izvori")
+    own = own if isinstance(own, dict) else {}
+    out = {}
+    for k, v in IZVORI_CAPS.items():
+        try:
+            out[k] = min(type(v)(own[k]), v) if own.get(k) is not None else v
+        except (TypeError, ValueError):
+            out[k] = v
+    return out
+
+
+def izvori_capped(cfg):
+    out = dict(cfg)
+    caps = izvori_caps(cfg)
+    for k in ("max_sol_per_trade", "max_open", "max_loss_day", "max_sol_per_day", "max_buys_day", "size_sol"):
+        out[k] = caps[k]
+    out["max_cost_pct"] = min(float(cfg.get("max_cost_pct") or caps["max_cost_pct"]), caps["max_cost_pct"])
+    return out
+
+
+def izvori_on(con):
+    return settings.pravi_novac_izvori(con=con)
+
+
+def izvori_buys(con, now, mode="live", tz=None):
+    """The konsenzus buys of the Zagreb day in this mode (open, closed or in flight)."""
+    return con.execute("SELECT COUNT(*) FROM positions WHERE opened_ts>=? AND mode=? AND status IN "
+                       "('open','closed','pending') AND LOWER(COALESCE(reason, '')) LIKE ?",
+                       (_day_start(now, tz), mode, IZVORI_SRC + "%")).fetchone()[0] or 0
+
+
 def switch_on(con):
     """The owner's switch pravi_novac_sve, read from this trade.db connection (unreadable = off)."""
     return settings.pravi_novac_sve(con=con)
@@ -303,7 +351,7 @@ HARD, SOFT = "hard", "soft"
 HARD_RULES = frozenset({"rug"})
 
 
-def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False):
+def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, izvori=False):
     """Every reason this buy is refused, in gate_buy's order, as (kind, key, text): kind HARD or SOFT (above), key a
     short name of the rule (stop, stake, dup, day_spend, day_loss, max_open, balance, reserve). A generator: gate_buy
     stops at the first reason, the owner's buy (ui/pravitrade) and an overridden one read on, so the wallet's RPC is
@@ -312,12 +360,16 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
         yield HARD, "stop", "kill switch (trade/STOP)"
     # 14.11.: the owner's switch pravi_novac_sve: an automatic live buy is held to SWITCH_CAPS (each refusal names its
     # cap); with the switch off, LIVE_CAPS exactly as before
-    sw = live and not manual and switch_on(con)
-    if sw:
+    # 15.11.: a konsenzus buy under its own switch pravi_novac_izvori: IZVORI_CAPS (never pravi_novac_sve's)
+    iz = live and not manual and izvori and izvori_on(con)
+    sw = live and not manual and not izvori and switch_on(con)
+    if iz:
+        cfg = izvori_capped(cfg)
+    elif sw:
         cfg = switch_capped(cfg)
     elif live and not manual:   # 11.11.: the owner's own buy keeps his settings (Jure 10.11.: "makni limit")
         cfg = live_capped(cfg)
-    cap = "strop pravi_novac_sve " if sw else ""
+    cap = "strop pravi_novac_izvori " if iz else "strop pravi_novac_sve " if sw else ""
     mode = "live" if live else "dry"
     if token is not None and not add:   # T22: an auto follow and a manual follow of the same coin = one real position
         dup = con.execute("SELECT id FROM positions WHERE token=? AND mode=? AND status IN ('open','pending')",
@@ -328,8 +380,8 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
         yield (HARD if size_sol <= 0 else SOFT), "stake", (f"{cap}max_sol_per_trade: " if sw and size_sol > 0 else "") + \
             f"{size_sol} SOL iznad limita {cfg['max_sol_per_trade']}"
     tz = cfg.get("day_tz")
-    if sw:
-        n_buys = auto_buys(con, now, mode, tz)
+    if sw or iz:
+        n_buys = izvori_buys(con, now, mode, tz) if iz else auto_buys(con, now, mode, tz)
         if n_buys >= cfg["max_buys_day"]:
             yield SOFT, "max_buys_day", (f"{cap}max_buys_day: danas već {n_buys} automatskih pravih kupnji od "
                                          f"{cfg['max_buys_day']}; nove sutra (Zagreb)")
@@ -374,7 +426,8 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
                                         f"({cfg.get('min_sol_reserve', 0):g} SOL) dovoljno je {floor:.4f}")
 
 
-def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, override=False):
+def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, override=False,
+             izvori=False):
     """Reason the buy is blocked, or None. add (10.11.): the owner's manual buy of a token already held: one more
     lot of the same position, so the duplicate check does not apply (every other limit does).
     manual (10.11., Jure: "makni limit"): the owner's own buy (quick buy, a lot added, his DCA order, a Grok request
@@ -383,14 +436,15 @@ def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False,
     live (11.11., owner's rule C): LIVE_CAPS on top for every automatic live buy (not for manual).
     override (11.11.): the owner confirmed this manual buy over his limits: only the HARD reasons hold (buy_checks);
     without manual it is ignored."""
-    return _gate(con, cfg, size_sol, now, live, balance, token, add, manual, override)[0]
+    return _gate(con, cfg, size_sol, now, live, balance, token, add, manual, override, izvori)[0]
 
 
-def _gate(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, override=False):
+def _gate(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, override=False,
+          izvori=False):
     """(reason the buy is blocked or None, the SOFT reasons an override let pass)."""
     ov = bool(override) and manual
     passed = []
-    for kind, _key, text in buy_checks(con, cfg, size_sol, now, live, balance, token, add, manual):
+    for kind, _key, text in buy_checks(con, cfg, size_sol, now, live, balance, token, add, manual, izvori):
         if kind == HARD or not ov:
             return text, passed
         passed.append(text)
@@ -658,7 +712,19 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
     cost and edge lines, the swap's cost cap), the HARD ones hold (kill switch, wallet balance, no route to sell back).
     The text is the lot's positions.override; the result's "overridden" lists the SOFT reasons that were passed."""
     now, live = now or time.time(), is_live(cfg)
-    sw = live and not manual and switch_on(con)   # 14.11.: the owner's switch pravi_novac_sve
+    iz = not manual and is_izvori(reason)   # 15.11.: a konsenzus buy: its own caps and switch (never pravi_novac_sve)
+    sw = live and not manual and not iz and switch_on(con)   # 14.11.: the owner's switch pravi_novac_sve
+    if iz:
+        caps = izvori_caps(cfg)
+        size_sol = min(size_sol or caps["size_sol"], caps["max_sol_per_trade"])
+        cfg = dict(cfg, max_cost_pct=izvori_capped(cfg)["max_cost_pct"])
+        if live and not izvori_on(con):   # the switch is checked here again: off = no real konsenzus buy at all
+            res = {"status": "blocked", "error": "pravi_novac_izvori je isključen", "amount_in": int(size_sol * LAMPORTS)}
+            cur = con.execute("INSERT INTO positions (paper_id, league_id, token, symbol, opened_ts, mode, status, "
+                              "reason, sol_in, qty_raw, qty_left, sol_back, fees_sol) VALUES (?,?,?,?,?,?,?,?,0,0,0,0,0)",
+                              (paper_id, league_id, token, symbol, int(now), "live", "blocked", res["error"]))
+            con.commit()
+            return {**res, "id": cur.lastrowid, "mode": "live", "swap_status": "blocked", "overridden": []}
     if sw:   # the stake of every automatic real buy under the switch: 0.1 SOL (a strategy's smaller lot stays smaller)
         caps = switch_caps(cfg)
         size_sol = min(size_sol or caps["size_sol"], caps["max_sol_per_trade"])
@@ -666,7 +732,7 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
     ov = bool(override) and manual
     if live and not manual and not sw:   # 11.11. (owner's rule C): an automatic stake above the live cap is cut to it;
         size_sol = min(size_sol, LIVE_CAPS["max_sol_per_trade"])   # the owner's own amount is refused by gate_buy instead
-    why, passed = _gate(con, cfg, size_sol, now, live, token=token, add=add, manual=manual, override=ov)
+    why, passed = _gate(con, cfg, size_sol, now, live, token=token, add=add, manual=manual, override=ov, izvori=iz)
     if not why and cfg.get("sell_check", True):
         why = sell_check(token, size_sol, cfg.get("max_cost_pct"), cfg.get("tp_default") if tp_pct is None else tp_pct,
                          override=passed if ov else None)

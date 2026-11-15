@@ -1446,6 +1446,16 @@ def _fast_card(owner):
     return view.card_html(_sec, _item, esc, owner)
 
 
+def _konsenzus_card(owner):
+    """15.11. (vlasnik, konsenzus/, flag konsenzus): "Konsenzus izvora", one closed row under Postavke (owner only):
+    the best candidate of the source consensus walk-forward, its holdout numbers, the demo so far and why real money
+    (owner switch pravi_novac_izvori) is on or off."""
+    if not owner:
+        return ""
+    from konsenzus import view
+    return view.card_html(_sec, _item, esc, owner)
+
+
 def _eventi_card(owner):
     """11.11. (Jure, topics/, flag event_tokens): "Eventi", one closed row under "Još" (owner only, nothing while the
     flag is off): per topic the event time, the buzz trend (arrow and sparkline text) and its tokens with market cap

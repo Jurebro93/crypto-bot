@@ -71,7 +71,9 @@ class LaterOrders(Base):
                                 "zastavica insider_copy: shadow → paper", "zastavica event_tokens: shadow → paper",
                                 "zastavica pravi_novac_sve: off → live",
                                 # 15.11. (Jure: "Ok, ugasi pravi novac za sada")
-                                "zastavica pravi_novac_sve: live → off"])
+                                "zastavica pravi_novac_sve: live → off",
+                                # 15.11. (vlasnik: konsenzus izvora odmah u demo; pravi novac samo njegovim prekidačem)
+                                "zastavica konsenzus: off → paper"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")
         keys = {x["key"] for x in assistnotes.applied(self.tc)}
         self.assertTrue({"flag:market_scan", "flag:group_discovery", "flag:range_dca", "flag:insider_copy"} <= keys)

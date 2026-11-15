@@ -278,6 +278,8 @@ CONTEXT_BLOCKS = [
     ("makro", lambda tcon, now, dbs: cdata.makro(now)),
     ("odbijeni_prijedlozi", lambda tcon, now, dbs: cnotes.rejected_titles(tcon, now=now)),
     ("naucni_izlazi_po_izvoru", learned_exits),
+    # 15.11. (konsenzus/): the source consensus walk-forward: holdout per candidate, the decision, the demo so far
+    ("konsenzus_izvora", lambda tcon, now, dbs: __import__("konsenzus.view", fromlist=["critic_summary"]).critic_summary()),
 ]
 
 

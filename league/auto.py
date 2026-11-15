@@ -512,6 +512,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"fast path ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 15.11. (flag konsenzus): the source consensus strategy's entries (konsenzus/live.py): demo always in
+                from konsenzus import live as klive   # paper; real only behind pravi_novac_izvori + the holdout proof
+                for user, what in klive.run_once(con):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"konsenzus ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:
                 for user, name, what in run_once(con, market):
                     print(f"natjecanje {user} {name}: {what}", flush=True)
