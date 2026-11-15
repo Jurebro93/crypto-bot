@@ -1606,6 +1606,23 @@ TOOLS.append(
                      "and the proof (walk-forward n >= 100, EV and CI90 low > 0, $/day > 0 at 0.1 SOL; demo >= 50 "
                      "closed with EV > 0). full: every target, the fee table and the rule's sensitivity. Read-only."),
      "inputSchema": {"type": "object", "properties": {"full": {"type": "boolean", "default": False}}}})
+# 15.11. (owner, veliki/): the big tokens' range (the list, zones, walk-forward per size, demo), read-only
+TOOLS.append(
+    {"name": "get_big_ranges", "annotations": _READ,
+     "description": ("MemeSonar's big-token range strategy (veliki/, list every 3 h, backtest after a deploy and "
+                     "nightly): list: established Solana memecoins (MC >= $20M, liquidity >= $500k, age >= 14 d, 24 h "
+                     "volume >= $500k, AMM pools, not in the rug archive; seeds USELESS / TROLL resolved to the real "
+                     "mint, how: why that mint); zones: per token the support / resistance from the last 3-7 days of 1h "
+                     "candles (quantiles; after a BTC crash only the fresh range since its end) and where the price is "
+                     "now (pos_pct); btc: crash now (4 h <= -3 % or 24 h <= -5 %, no entries then); walk: the "
+                     "walk-forward holdout per variant (bez_padova = the live rule without entries in BTC crashes; "
+                     "s_padovima = every period) and size 0.1 / 0.5 / 1 SOL: n, per_day, hit, ev_pct / ev_usd net of the "
+                     "REAL cost, ci90_ev_pct (bootstrap by token-day), usd_day, max_dd_usd, worst_trade; costs_pct: the "
+                     "round trip per size and token; live_rule: the configuration the demo trades; demo: the demo "
+                     "account's closed trades; real_money: the owner switch pravi_novac_veliki and the proof (holdout "
+                     "n >= 40, EV and CI90 low > 0 at the real size). full: also per token / per regime / per fold "
+                     "detail. Read-only."),
+     "inputSchema": {"type": "object", "properties": {"full": {"type": "boolean", "default": False}}}})
 # 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
 _P01 = {"type": "number", "minimum": 0, "maximum": 1}
 TOOLS.append(
@@ -1862,6 +1879,10 @@ def _tool(name, args, kid="local"):
     if name == "get_learned_exits":   # 15.11. izlazi/, read-only
         from izlazi import report as izreport
         d = izreport.mcp(args)
+        return d, "error" in d
+    if name == "get_big_ranges":   # 15.11. veliki/, read-only
+        from veliki import view as vview
+        d = vview.mcp(args)
         return d, "error" in d
     if name == "get_oscillators":   # 15.11. oscilator/, read-only
         from oscilator import view as oview

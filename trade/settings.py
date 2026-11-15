@@ -301,6 +301,33 @@ OWNER_SWITCH_NOTES[OSC_SWITCH] = ("Tvoj prekidač: „uživo” = ulazi oscilato
                                   "3 otvorena, 30 dnevno, dnevni gubitak 0,3 SOL. Svaki drugi mod = samo demo.")
 
 
+# 15.11. (vlasnik: "Useless, Troll i slično: kad nađu dno, vrlo vjerojatno se odbiju gore i naprave 5-10 % ... hvataj
+# range velikih tokena"; veliki/): FLAG "veliki_range": paper = the DEMO account PAPER_USER trades the list "veliki"
+# (MC 20M+, liquidity 500k+, 14+ days, volume 500k+; USELESS, TROLL) with the range rule of veliki/rule (support from
+# the last 3-7 days of 1h candles, the bounce on 15m, target / stop / time stop picked by the walk-forward, no entry
+# while BTC crashes), 0.5 SOL a trade (VEL_DEMO_SOL), 8 open, 40 a day; never live by this flag (NEVER_LIVE).
+VELIKI = "veliki_range"
+FLAGS[VELIKI] = ("P21", "Veliki tokeni — range: demo račun trguje 15-20 velikih memecoina (MC 20M+, likvidnost 500k+, "
+                        "USELESS, TROLL) na odbijanju od podrške raspona zadnjih 3-7 dana; cilj, stop i vremenski stop "
+                        "iz walk-forwarda, bez ulaza dok BTC pada; 0,5 SOL, najviše 8 otvorenih, 40 ulaza dnevno")
+NEVER_LIVE[VELIKI] = "veliki_range sam nikad ne trguje pravim novcem: pravi novac samo kroz prekidač pravi_novac_veliki"
+PROFILE_FLAGS = PROFILE_FLAGS | {VELIKI}   # its paper mode never makes the paper account follow anybody
+# The owner switch (15.11., real money NOT now): "uživo" = the big-token range entries ALSO buy on the real account, but
+# only while veliki/gate.real_refusal() is None: the walk-forward holdout at the real size (n >= 40, EV > 0, the 90 %
+# interval's low > 0; or, once the owner says so in trade/config.json, the demo's own record), BTC known and not
+# crashing; caps veliki/gate.REAL (0.1 SOL, up to 0.5 by the owner; 5 open; a day's loss 0.3 SOL). Default off; only
+# the owner's own tap (set_flag), never an order.
+VEL_SWITCH = "pravi_novac_veliki"
+FLAGS[VEL_SWITCH] = ("P22", "Pravi novac za velike tokene: ulazi range pravila velikih tokena kupuju i pravim novcem, samo "
+                            "dok holdout walk-forwarda na 0,1 SOL ima dokaz (n 40+, EV i donja granica 90 % intervala > 0) "
+                            "i BTC ne pada; 0,1 SOL po tradeu, najviše 5 otvorenih, dnevni gubitak 0,3 SOL")
+OWNER_SWITCHES = OWNER_SWITCHES | {VEL_SWITCH}
+OWNER_SWITCH_NOTES[VEL_SWITCH] = ("Tvoj prekidač: „uživo” = ulazi velikih tokena kupuju i pravim novcem, ali samo dok "
+                                  "holdout walk-forwarda na 0,1 SOL ima dokaz (n 40+, EV > 0, donja granica 90 % intervala "
+                                  "> 0 nakon pravog troška) i BTC ne pada; stropovi 0,1 SOL (do 0,5 u trade/config.json), "
+                                  "5 otvorenih, dnevni gubitak 0,3 SOL; kill switch, rezerva walleta, arhiva rugova, jedna "
+                                  "pozicija po tokenu, trošak do 6 % i stop na serveru uvijek. Svaki drugi mod = samo demo.")
+
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""
     try:
@@ -606,7 +633,7 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     cur = flag_state(con)[name]
     if mode == cur["mode"]:
         return cur
-    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH) and not is_owner(who):
+    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH, VEL_SWITCH) and not is_owner(who):
         # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
         # chat order, an applied suggestion or any other code path
         raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")

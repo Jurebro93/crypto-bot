@@ -334,6 +334,25 @@ def _osc_refusal():
         return f"oscilator: dokaz se ne može pročitati ({type(e).__name__})"
 
 
+def _veliki_refusal():
+    """15.11. (veliki/): None when a big-token range trade of the real account may become a real buy (the owner's switch
+    pravi_novac_veliki on AND the holdout proof AND BTC not crashing, veliki/gate.real_refusal), else why not."""
+    try:
+        from veliki import gate
+        return gate.real_refusal()
+    except Exception as e:  # noqa: BLE001 - no proof, no real money
+        return f"veliki: dokaz se ne može pročitati ({type(e).__name__})"
+
+
+def _veliki_size():
+    """The real stake of a big-token range buy (veliki/gate.real_caps: 0.1 SOL, up to 0.5 by the owner)."""
+    try:
+        from veliki import gate
+        return gate.real_caps()["size_sol"]
+    except Exception:  # noqa: BLE001
+        return 0.1
+
+
 # 14.11. (owner: "Ja sada ne govorim o demu ... idemo s pravim novcem"; trade/settings "pravi_novac_sve"): while his
 # switch is on, every automatic demo trade of the real account is a real buy without the demo proof (PROOF, the
 # momentum gate), within trade/executor.SWITCH_CAPS. The hard rules are asked once more right here, on the real buy
@@ -668,6 +687,13 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                     why, wait = _switch_hard(lg, t, now)
                     if why and wait:
                         continue
+            if not why and (t["source"] or "").startswith("veliki:"):   # 15.11. (veliki/): its own switch + the
+                why = _veliki_refusal()                                  # holdout proof; pravi_novac_sve never routes it
+                if not why:
+                    why, wait = _switch_hard(lg, t, now)
+                    if why and wait:
+                        continue
+                    rng_sol = rng_sol or _veliki_size()
             auto_sw = sw and not size   # 14.11.: an automatic real buy under pravi_novac_sve (the owner's own: as before)
             strat = executor.strategy_of(t["source"])
             if not why and auto_sw:

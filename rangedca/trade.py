@@ -891,8 +891,19 @@ def focus(rngs, cfg, n=None, keep=()):
         return set(rngs or {})
     ok = [(t, r) for t, r in (rngs or {}).items() if r and r.get("active")
           and (r.get("score") or 0) >= c["score_min"] - 1e-9]
-    ok.sort(key=lambda x: (-((x[1].get("metrics") or {}).get("vol_h1") or 0) * (x[1].get("score") or 0), x[0]))
+    big = bool(c.get("focus_big"))
+    ok.sort(key=lambda x: (-((x[1].get("metrics") or {}).get("vol_h1") or 0) * (x[1].get("score") or 0)
+                           * (focus_big_w((x[1].get("metrics") or {}).get("liq")) if big else 1.0), x[0]))
     return {t for t, _r in ok[:int(n)]} | set(keep or ())
+
+
+def focus_big_w(liq):
+    """15.11. (DEMO profile focus_big): the pool-depth weight of the focus ranking: (liq / $15k) ** 0.25, 1 .. 3."""
+    try:
+        v = float(liq or 0)
+    except (TypeError, ValueError):
+        return 1.0
+    return min(3.0, max(1.0, (v / 15_000) ** 0.25)) if v > 0 else 1.0
 
 
 def tx_fee_sol(path=None, now=None):

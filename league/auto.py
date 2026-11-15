@@ -406,6 +406,12 @@ def fast_loop(market, user=None, every=FAST_EVERY_S):
                     print(text, flush=True)
             except Exception as e:  # noqa: BLE001
                 print(f"oscilator: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:   # 15.11. (flag veliki_range): the big tokens' range entries and exits (veliki/live.py), at most every
+                from veliki import live as vlive   # VEL_TICK_S (10 s); off with nothing open: one cached flag read
+                for text in vlive.tick(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"veliki: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
             try:   # 11.11. (Jure, flag momentum_scalp): TP1 / trailing / stop / 45 min (momentum/trade.py)
                 from momentum import trade as mtrade
                 for text in mtrade.exits_once(con, market):

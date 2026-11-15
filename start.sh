@@ -279,6 +279,18 @@ low keep zonewatch python3 run_zonewatch.py loop
 # the demo trades (flag oscilator, league/auto.fast_loop) read today's top 10 from it.
 ( sleep "${OSCILATOR_FIRST_S:-300}"; python3 -m ops.heavy run_oscilator.py once || echo "oscilator nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_oscilator.py night || echo "oscilator (noć) nije uspio"; done ) &
 
+# 15.11. (vlasnik: "Useless, Troll i slično: kad nađu dno ... 5-10 % u kratkom vremenu ... hvataj range velikih
+# tokena"; "testiraj povijesno, NE računajući velike padove Bitcoina"; veliki/, run_veliki.py): the list "veliki"
+# (MC 20M+, liquidity 500k+, 14+ days, volume 500k+, USELESS / TROLL on their real mints) and its 15m / 1h candles
+# (GeckoTerminal, incremental, the shared budget) VELIKI_LIST_FIRST_S (90 s) after a start, then every 3 h, low
+# priority but outside the heavy lock (network bound; the demo trades as soon as zones exist). The backtest (grid,
+# walk-forward per size, with and without BTC crashes) VELIKI_FIRST_S (420 s) after a start under the heavy-job lock
+# (nice 10, a 15-min budget VEL_BUDGET_S, skipped when the last run is younger than 3 h), then nightly (01-06 Zagreb,
+# once a day). Writes veliki.db (DATA_DIR), output/veliki.md and "veliki: " lines; the demo (flag veliki_range,
+# league/auto.fast_loop) reads the list and the live rule from it.
+( sleep "${VELIKI_LIST_FIRST_S:-90}"; while true; do nice -n 10 python3 run_veliki.py list || echo "veliki lista nije uspjela"; sleep 10800; done ) &
+( sleep "${VELIKI_FIRST_S:-420}"; python3 -m ops.heavy run_veliki.py once || echo "veliki nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_veliki.py night || echo "veliki (noć) nije uspio"; done ) &
+
 # 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and
 # every call of a followed influencer -> fast.db queue -> five checks (rug, holders, flow, price vs the wallet's entry,
 # source) and a decision within seconds, 20 at once. Time-sensitive, so a supervised process polling every 0.5 s (and

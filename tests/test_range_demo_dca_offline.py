@@ -72,7 +72,11 @@ class Rules(unittest.TestCase):
         self.assertEqual(rules.DEMO_LOOSE, {"score_min": 0.5, "ch5_min": -0.08, "vol_ratio_min": 0.20,
                                             # 15.11. ~11:00 (owner: "kreni agresivnije"), still only the bottom
                                             "buy_share_min": 0.35, "max_rt_cost": 0.06, "focus_n": 20, "max_open": 15,
-                                            "rounds_token_day": 15})
+                                            "rounds_token_day": 15,
+                                            # 15.11. popodne (owner: "veći tokeni imaju sigurniji range"): the demo's
+                                            # focus list also weighs the pool's depth; SCALP has no such key
+                                            "focus_big": True})
+        self.assertNotIn("focus_big", rules.SCALP)
         self.assertEqual((d["entry_bottom"], rules.SCALP["entry_bottom"]), (0.50, 0.50))
         self.assertEqual({k: rules.SCALP[k] for k in ("buy_share_min", "max_rt_cost", "focus_n", "max_open",
                                                       "rounds_token_day")},
