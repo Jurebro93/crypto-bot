@@ -721,8 +721,10 @@ BLOCK_KEYS = (("range scalp rundi danas", "pravi račun: dnevni broj rundi"),   
               ("probijen dolje", "raspon probijen dolje"), ("kupnja nije prošla", "kupnja nije prošla"),
               # 14.11. popodne: the scalp profile's own reasons (the fee guard, the focus list, the caps)
               ("nedostižan unutar raspona", "cilj iznad vrha raspona (trošak)"),
-              ("trošak runde", "trošak runde iznad 5 %"), ("izvan fokusa", "izvan fokusa (top 10 po volumenu)"),
-              ("rundi u tokenu danas", "10 rundi u tokenu danas"),
+              # 15.11.: the profiles differ (demo 6 % / top 20 / 15 rounds, the real scalp 5 % / top 10 / 10), so the
+              # counter's key names the rule, not one profile's number (the reason itself carries the number)
+              ("trošak runde", "trošak runde iznad praga"), ("izvan fokusa", "izvan fokusa (top lista po volumenu)"),
+              ("rundi u tokenu danas", "najviše rundi u tokenu danas"),
 )
 _BLOCKS_SEEN = {}   # {(day, user): {(token, key)}} already in range_blocks (one write per token, reason and day)
 BLOCKS_KEEP_DAYS = 14

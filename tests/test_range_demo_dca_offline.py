@@ -64,12 +64,20 @@ class Rules(unittest.TestCase):
         self.assertEqual((d["stop_min_pct"], d["stop_max_pct"], d["tp_usd"], d["tp1_share"], d["time_stop_s"]),
                          (0.17, 0.25, 0.60, 0.5, 6 * 3600))
         self.assertEqual((d["cooldown_tp_s"], d["cooldown_s"], d["rounds_token_day"], d["focus_n"], d["max_open"],
-                          d["max_rt_cost"], d["give_up_volume"]), (300, 1200, 10, 10, 10, 0.05, False))
+                          d["max_rt_cost"], d["give_up_volume"]), (300, 1200, 15, 20, 15, 0.06, False))   # 15.11. ~11:00
         self.assertEqual(rules.DEMO_GOAL, 100)
         self.assertEqual((rules.SCALP["profile"], rules.SCALP["tp1_share"]), ("scalp", 1.0))   # one sale (fees)
         # 15.11. (owner: "demo ... Ulaziti u više pozicija"): the DEMO account's looser entry; the real account's SCALP
         # keeps 14.11.'s numbers exactly (DEMO_1414)
-        self.assertEqual(rules.DEMO_LOOSE, {"score_min": 0.5, "ch5_min": -0.08, "vol_ratio_min": 0.20})
+        self.assertEqual(rules.DEMO_LOOSE, {"score_min": 0.5, "ch5_min": -0.08, "vol_ratio_min": 0.20,
+                                            # 15.11. ~11:00 (owner: "kreni agresivnije"), still only the bottom
+                                            "buy_share_min": 0.35, "max_rt_cost": 0.06, "focus_n": 20, "max_open": 15,
+                                            "rounds_token_day": 15})
+        self.assertEqual((d["entry_bottom"], rules.SCALP["entry_bottom"]), (0.50, 0.50))
+        self.assertEqual({k: rules.SCALP[k] for k in ("buy_share_min", "max_rt_cost", "focus_n", "max_open",
+                                                      "rounds_token_day")},
+                         {"buy_share_min": 0.45, "max_rt_cost": 0.05, "focus_n": 10, "max_open": 10,
+                          "rounds_token_day": 10})   # the real account's scalp: 14.11.'s numbers
         self.assertEqual({k: d[k] for k in rules.DEMO_LOOSE}, rules.DEMO_LOOSE)
         self.assertEqual((rules.SCALP["score_min"], rules.SCALP["ch5_min"], rules.SCALP["vol_ratio_min"]),
                          (0.6, -0.05, 0.35))
@@ -140,8 +148,10 @@ class Rules(unittest.TestCase):
         self.assertIn("nedostižan unutar raspona", why)
         self.assertIn("+$0.60 neto", why)
         self.assertIsNone(rules.fee_guard(rules.demo_levels(self.LV, 52.0, rt, rules.DEMO, cost_usd=9.0), rules.DEMO))
-        dear = dict(rules.demo_levels(self.LV, 52.0, 0.06, rules.DEMO, cost_usd=9.0))
-        self.assertIn("trošak runde 6.0%", rules.fee_guard(dear, rules.DEMO))
+        dear = dict(rules.demo_levels(self.LV, 52.0, 0.07, rules.DEMO, cost_usd=9.0))   # 15.11.: the guard 6 % (was 5)
+        self.assertIn("trošak runde 7.0%", rules.fee_guard(dear, rules.DEMO))
+        self.assertIn("trošak runde 6.0%", rules.fee_guard(dict(rules.demo_levels(self.LV, 52.0, 0.06, rules.SCALP,
+                                                                                  cost_usd=9.0)), rules.SCALP))
         self.assertIn("lot 2 ne bi bio profitabilan", rules.fee_guard(dear, rules.DEMO, lot=2))
         self.assertIsNone(rules.fee_guard(dear, rules.DEMO_1411))              # the rule sets without a guard
         self.assertIsNone(rules.fee_guard(dear, rules.RULES))
@@ -279,17 +289,17 @@ class DemoScalp(TradeBase):
         self.assertFalse(trade._cooldown(self.lg, PU, MINT, self.now + 15 * 60, rules.DEMO))
         self.lg.execute("DELETE FROM range_rounds")
         start = trade._day_start(self.now)
-        for i in range(10):
+        for i in range(15):   # 15.11. ~11:00: 15 rounds a token a day on the demo account (was 10)
             closed("tp2", 3600, opened=max(start, self.now - 7200) + i)
         self.assertEqual(self.enter(px=52.0, rng=self.drng()), [])
         d = trade.demo_today(self.lg, self.now)
-        self.assertIn({"reason": "10 rundi u tokenu danas", "tokens": 1}, d["top_blocks"])
+        self.assertIn({"reason": "najviše rundi u tokenu danas", "tokens": 1}, d["top_blocks"])
         self.lg.execute("DELETE FROM range_rounds WHERE id IN (SELECT id FROM range_rounds LIMIT 1)")
         self.lg.commit()
-        self.assertEqual(len(self.enter(px=52.0, rng=self.drng())), 1)       # the 10th round of the day
+        self.assertEqual(len(self.enter(px=52.0, rng=self.drng())), 1)       # the 15th round of the day
 
     def test_the_focus_list_and_the_demo_accounts_own_caps(self):
-        toks = [f"T{i:02d}" + "x" * 40 for i in range(12)]
+        toks = [f"T{i:02d}" + "x" * 40 for i in range(22)]   # 15.11. ~11:00: focus 20, 15 open (was 10 / 10)
         rngs = {}
         for i, t in enumerate(toks):
             r = self.drng(vol_h1=10_000 + 1_000 * i)
@@ -297,13 +307,14 @@ class DemoScalp(TradeBase):
             rngs[t] = r
         self.assertEqual(self.lim["max_open"], 5)                           # the trade settings' 5 ...
         done = trade.run_once(self.lg, self.mk(52.0), self.now, rngs, self.lim, 100.0)
-        self.assertEqual(len(done), 10)                                      # ... the demo profile's 10
+        self.assertEqual(len(done), 15)                                      # ... the demo profile's 15
         held = {r["token"] for r in trade.rounds(self.lg, "open", PU)}
-        self.assertEqual(held, set(toks[2:]))                                # the 10 with the most volume
+        self.assertEqual(len(held), 15)
+        self.assertLessEqual(held, set(toks[2:]))                            # out of the 20 with the most volume
         d = trade.demo_today(self.lg, self.now)
-        self.assertIn({"reason": "izvan fokusa (top 10 po volumenu)", "tokens": 2}, d["top_blocks"])
+        self.assertIn({"reason": "izvan fokusa (top lista po volumenu)", "tokens": 2}, d["top_blocks"])
         lim = trade.user_limits(PU, rules.DEMO, self.lim)
-        self.assertEqual((lim["max_open"], lim["max_sol_per_day"]), (10, 15.0))
+        self.assertEqual((lim["max_open"], lim["max_sol_per_day"]), (15, 15.0))
         self.assertIs(trade.user_limits(LU, rules.SCALP, self.lim), self.lim)   # the real account: trade settings
 
     def test_the_counter_goal_100_with_the_days_net(self):
@@ -454,7 +465,7 @@ class RealAccount(TradeBase):
         done = self.enter(px=52.0, rng=self.drng())
         self.assertEqual([u for u, _ in done], [PU])
         d = trade.demo_today(self.lg, self.now, LU)
-        self.assertEqual(d["top_blocks"], [{"reason": "trošak runde iznad 5 %", "tokens": 1}])
+        self.assertEqual(d["top_blocks"], [{"reason": "trošak runde iznad praga", "tokens": 1}])
         self.assertTrue(d["text"].startswith("range scalp PRAVI račun danas: 0 tradeova"), d["text"])
 
     def test_the_executors_caps_refuse_with_croatian_reasons(self):
@@ -585,17 +596,18 @@ class Backtest(unittest.TestCase):
         # 14.11. 14:00 (owner: "Želim više tradeova"): entry in the lower half (was 30 %): more rounds, lower EV
         self.assertEqual(got["dca"], (31, 0.839, 5.51, 18.21, 4.72))
         self.assertEqual(got["demo_1414"], (41, 0.902, 4.09, 14.37, 4.57))   # the demo profile of 14.11.
-        # 15.11.: the demo account's looser entry (score 0.5, 5-min change > -8 %, volume ratio 20 %): 2 rounds more,
-        # EV a little lower, the drawdown lower
-        self.assertEqual(got["demo"], (43, 0.907, 3.8, 14.58, 4.26))
+        # 15.11.: the demo account's looser entry (score 0.5, 5-min change > -8 %, volume ratio 20 %) and, ~11:00
+        # (owner: "kreni agresivnije"), the 5-min buy share 35 % and the cost guard 6 %: 4 rounds more than 14.11., EV
+        # +4.1 % (the looser entry alone: 43 rounds, +3.8 %, $14.58), the drawdown lower
+        self.assertEqual(got["demo"], (45, 0.911, 4.12, 16.55, 4.26))
         self.assertEqual(got["demo_real"], DEMO_REAL)                        # the real account's scalp unchanged
         self.assertEqual(v["demo_1414"]["lot2"]["n"], 7)                     # the DCA filled in 7 rounds
         self.assertEqual(v["demo_1414"]["rounds_per_token_day"], 3.29)
-        self.assertEqual(v["demo"]["rounds_per_token_day"], 3.45)
+        self.assertEqual(v["demo"]["rounds_per_token_day"], 3.61)
         self.assertLess(v["demo"]["be_hit_rate"], v["demo"]["hit_rate"])
         self.assertNotIn("odustajanje", v["demo_1414"]["exit_reasons"])     # no quiet-hour give-up any more
         line = backtest.demo_line(self.rep["demo"])
-        self.assertIn("scalp $0,60 (demo): runde 43 (3.45/token-dan), pogodak 91 % (break-even 81 %)", line)
+        self.assertIn("scalp $0,60 (demo): runde 45 (3.61/token-dan), pogodak 91 % (break-even 81 %)", line)
         self.assertIn("scalp demo 14.11.: runde 41 (3.29/token-dan), pogodak 90 % (break-even 80 %)", line)
         self.assertIn(f"scalp pravi trošak 0,1 SOL: runde {DEMO_REAL[0]}", line)
         self.assertEqual(self.rep["variants"]["0.7"]["rounds"], 12)          # today's backtest untouched
