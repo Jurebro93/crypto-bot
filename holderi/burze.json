@@ -1,0 +1,26 @@
+{
+  "verzija": "2026-11-15.1",
+  "napomena": "Poznati Solana novčanici burzi (CEX). Svaka adresa ima izvor i pouzdanost 0-1. 'nepotvrđeno' = nikad sigurno: ulazi u signal samo s umanjenom težinom. Adrese iz sjećanja modela su ostavljene SAMO ako se na lancu 15.11.2026. ponašaju kao vrući novčanik burze (javni Solana RPC: >= 10k SOL i 1000 transakcija u < 24 h); one koje se tako ne ponašaju (5tzFki…, 2ojv9B…, 5VCwKt…, FWznbc…) su izostavljene. Vlasnik potvrđuje / dodaje u holderi/burze_vlasnik.json (status 'potvrđeno'), Grok predlaže alatom submit_exchange_wallet (uvijek 'nepotvrđeno').",
+  "adrese": [
+    {"address": "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS", "exchange": "coinbase", "kind": "hot", "confidence": 0.7, "status": "nepotvrđeno",
+     "source": "javna oznaka (Solscan 'Coinbase'), sjećanje modela; ponašanje 15.11.: 30.148 SOL, 1000 tx u 6,3 h"},
+    {"address": "GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE", "exchange": "coinbase", "kind": "hot", "confidence": 0.7, "status": "nepotvrđeno",
+     "source": "javna oznaka (Solscan 'Coinbase 2'), sjećanje modela; ponašanje 15.11.: 31.604 SOL, 1000 tx u 5,8 h"},
+    {"address": "2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm", "exchange": "coinbase", "kind": "hot", "confidence": 0.6, "status": "nepotvrđeno",
+     "source": "javna oznaka (Solscan 'Coinbase'), sjećanje modela; ponašanje 15.11.: 30.147 SOL, 1000 tx u 5,7 h"},
+    {"address": "is6MTRHEgyFLNTfYcuV4QBWLjrZBfmhVNYR6ccgr8KV", "exchange": "okx", "kind": "hot", "confidence": 0.7, "status": "nepotvrđeno",
+     "source": "javna oznaka (Solscan 'OKX'), sjećanje modela; ponašanje 15.11.: 110.404 SOL, 1000 tx u 4,4 h"},
+    {"address": "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2", "exchange": "bybit", "kind": "hot", "confidence": 0.7, "status": "nepotvrđeno",
+     "source": "javna oznaka (Solscan 'Bybit'), sjećanje modela; ponašanje 15.11.: 34.568 SOL, 1000 tx u 19,5 h"},
+    {"address": "BmFdpraQhkiDQE6SnfG5omcA1VwzqfXrwtNYBwWTymy6", "exchange": "kucoin", "kind": "hot", "confidence": 0.7, "status": "nepotvrđeno",
+     "source": "javna oznaka (Solscan 'KuCoin'), sjećanje modela; ponašanje 15.11.: 35.503 SOL, 1000 tx u 5,3 h"},
+    {"address": "u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w", "exchange": "gate", "kind": "hot", "confidence": 0.7, "status": "nepotvrđeno",
+     "source": "javna oznaka (Solscan 'Gate.io'), sjećanje modela; ponašanje 15.11.: 61.915 SOL, 1000 tx u 6,6 h"},
+    {"address": "ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ", "exchange": "mexc", "kind": "hot", "confidence": 0.7, "status": "nepotvrđeno",
+     "source": "javna oznaka (Solscan 'MEXC'), sjećanje modela; ponašanje 15.11.: 29.937 SOL, 1000 tx u 4,7 h"},
+    {"address": "A77HErqtfN1hLLpvZ9pCtu66FEtM8BveoaKbbMoZ4RiR", "exchange": "bitget", "kind": "hot", "confidence": 0.7, "status": "nepotvrđeno",
+     "source": "javna oznaka (Solscan 'Bitget'), sjećanje modela; ponašanje 15.11.: 17.539 SOL, 1000 tx u 4,8 h"},
+    {"address": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", "exchange": "binance", "kind": "cold", "confidence": 0.5, "status": "nepotvrđeno",
+     "source": "javna oznaka (Solscan 'Binance'), sjećanje modela; ponašanje 15.11.: 9,3 M SOL, 1000 tx u 93 dana (hladni novčanik?)"}
+  ]
+}

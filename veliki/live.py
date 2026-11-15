@@ -490,8 +490,11 @@ def tick(con, market_fn, now=None, force=False, toks=None):
         from veliki import prioritet
         pr = prioritet.cached()
         lst = prioritet.order(lst, pr)
+        real_rank = {t: k for k, t in enumerate(prioritet.order(lst, pr, real=True))}
     except Exception:  # noqa: BLE001 - no priority: the list order
         prioritet, pr = None, {}
+        real_rank = {t: k for k, t in enumerate(lst)}
+    deferred = []   # 15.11. (holderi/): the real account's entries, taken after the loop in its own order (no listing bonus)
     for tok in lst:
         if _ST["bar"].get(tok) == hour:
             continue
@@ -500,6 +503,12 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             if now - _ST["said"].get(("dip", tok), 0) > 3600:
                 _ST["said"][("dip", tok)] = now
                 out.append(f"veliki {(pr[tok].get('symbol') or tok[:6])}: preskočen, pad iz lošeg razloga ({dip.get('why')})")
+            continue
+        blk = (pr.get(tok) or {}).get("block")
+        if blk:   # 15.11. (holderi/): insiders hold too much / the team is selling: no entry (demo or real)
+            if now - _ST["said"].get(("blk", tok), 0) > 3600:
+                _ST["said"][("blk", tok)] = now
+                out.append(f"veliki {(pr[tok].get('symbol') or tok[:6])}: preskočen, oprez ({blk})")
             continue
         q = mk.get(tok)
         if not q or not q[0]:
@@ -522,23 +531,34 @@ def tick(con, market_fn, now=None, force=False, toks=None):
         for user in users:   # the demo first: the real trade of the same signal carries its id (link_id)
             if (user, tok) in held:
                 continue
-            cp = caps(user, btc["state"])
-            c = rule.cost_at(cp["size_sol"], q[1], sol, rule.fee_side_of(url=q[2] if len(q) > 2 else None), tx)
-            why = rule.signal(bars, i, zone, c["rt"], cfg, btc["crash_obj"])
-            if why is not None:
+            if user != settings.PAPER_USER:
+                deferred.append((real_rank.get(tok, len(real_rank)), tok, user, q, zone, regime, bars, i, link))
                 continue
-            text, no, vid = enter(con, user, tok, q, now, sol, zone, cfg, regime, btc, link,
-                                  meta=prioritet.meta(tok, pr) if prioritet else None)
-            link = link or vid
-            if text:
-                out.append(text)
-            elif no and now - _ST["said"].get((user, tok), 0) > 3600:
-                _ST["said"][(user, tok)] = now
-                out.append(f"veliki {(q[4] if len(q) > 4 else None) or tok[:6]}: signal bez ulaza ({no})")
+            link = _try_enter(con, out, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, rule,
+                              prioritet, pr) or link
+    for _k, tok, user, q, zone, regime, bars, i, link in sorted(deferred, key=lambda x: x[0]):
+        _try_enter(con, out, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, rule, prioritet, pr)
     if int(now) % 3600 < TICK_S:
         con.execute("DELETE FROM veliki_bars WHERE ts < ?", (int(now - 10 * 86400),))
         con.commit()
     return out
+
+
+def _try_enter(con, out, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, rule, prioritet, pr):
+    """One user's entry on one token when the rule signals (the cost at its size). The new trade id or None."""
+    cp = caps(user, btc["state"])
+    c = rule.cost_at(cp["size_sol"], q[1], sol, rule.fee_side_of(url=q[2] if len(q) > 2 else None), tx)
+    why = rule.signal(bars, i, zone, c["rt"], cfg, btc["crash_obj"])
+    if why is not None:
+        return None
+    text, no, vid = enter(con, user, tok, q, now, sol, zone, cfg, regime, btc, link,
+                          meta=prioritet.meta(tok, pr) if prioritet else None)
+    if text:
+        out.append(text)
+    elif no and now - _ST["said"].get((user, tok), 0) > 3600:
+        _ST["said"][(user, tok)] = now
+        out.append(f"veliki {(q[4] if len(q) > 4 else None) or tok[:6]}: signal bez ulaza ({no})")
+    return vid
 
 
 def _sol():

@@ -1,0 +1,4 @@
+{
+  "napomena": "Vlasnikove potvrde i dodaci (status 'potvrđeno', pouzdanost 1.0 ako nije zadana). Primjer: {\"address\": \"<adresa>\", \"exchange\": \"binance\", \"kind\": \"hot\", \"source\": \"Solscan oznaka, provjerio Jure\"}. Adresa koja je već u burze.json ovdje postaje potvrđena.",
+  "adrese": []
+}

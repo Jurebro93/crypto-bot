@@ -354,6 +354,13 @@ def reports(now=None, budget_chars=2500):
             put("veliki_tokeni_range", v, None)
     except Exception:  # noqa: BLE001
         pass
+    try:   # 15.11. (holderi/): listing signals with outcomes, insider cautions, profitable holders' buys
+        from holderi import view as hview
+        h = hview.critic_summary()
+        if h:
+            put("holderi_listing", h, None)
+    except Exception:  # noqa: BLE001
+        pass
     try:   # 15.11. (oscilator/): the oscillating tokens' scalp walk-forward per size and its demo
         from oscilator import view as oview
         o = oview.critic_summary()

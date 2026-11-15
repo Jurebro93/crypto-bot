@@ -120,7 +120,12 @@ def card_html(sec, item, esc, owner=True):
     trs = "".join(f"<li><b>{esc(str(x.get('symbol')))}</b> {esc(str(x.get('cat')))}: MC ${(x.get('mcap') or 0) / 1e6:,.1f}M, "
                   f"{esc(str(x.get('age_bucket')))}, stalnost 90 d {x.get('pers90')}, korelacija BTC {x.get('corr_d')}, "
                   f"odbijanja +15 % {x.get('hit15')}</li>" for x in tab[:30])
-    inner = (f"<p><b>Tablica</b> ({len(tab)} tokena, MC 5-150M, 15+ dana; prvih 30):</p><ul>{trs or '<li>još nema</li>'}</ul>"
+    try:   # 15.11. (holderi/): the red badges of the active PRE-LISTING signals
+        from holderi import view as hview
+        badges = hview.badges_html(esc)
+    except Exception:  # noqa: BLE001
+        badges = ""
+    inner = (badges + f"<p><b>Tablica</b> ({len(tab)} tokena, MC 5-150M, 15+ dana; prvih 30):</p><ul>{trs or '<li>još nema</li>'}</ul>"
              f"<p><b>Zone sada</b>:</p><ul>{''.join(zr[:40]) or '<li>još nema</li>'}</ul>"
              f"<p><b>BTC:</b> {esc(str((d.get('btc') or {}).get('state') or '?'))} — {esc(str((d.get('btc') or {}).get('why') or ''))}"
              f"{'' if (d.get('btc') or {}).get('known') else ', cijena po satu nepoznata'}.</p>"
