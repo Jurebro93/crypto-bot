@@ -918,7 +918,7 @@ class Priorities(unittest.TestCase):
                 name, kind, _ = g.classify(["python3", m.group(1)] + m.group(2).split())
                 self.assertIn(name, ("minute", "sched", "report", "top", "watch", "simianx", "skener", "grupe", "range", "insajderi",
                                      "momentum", "shill-mreza", "eventi", "prijedlozi", "zonewatch", "fast", "disk",
-                                     "retencija", "kriticar"), ln)   # 11.11.: momentum/, kol/preshill.py, topics/, proposals/,
+                                     "retencija", "kriticar", "veliki"), ln)   # 15.11.: veliki/ candles (run_veliki.py candles)   # 11.11.: momentum/, kol/preshill.py, topics/, proposals/,
                 # zonewatch/, fast/ (run_fast.py, flag fast_path G24), ops/retencija.py (the retention, owner switches);
                 # 15.11.: critic/ (run_critic.py loop, the OpenAI critic's watcher of real-money fills; advice only)
                 self.assertNotIn(name, ("ui", "trade", "kol", "tg", "live", "paper"), ln)
