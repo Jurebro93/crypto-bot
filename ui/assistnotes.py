@@ -831,10 +831,15 @@ OWNER_FLAG_ORDERS = (
                             "novac nikad iz ove zastavice, vlasnik odlučuje kasnije s brojkama"),
     # 15.11. (vlasnik: "Slažem se s prijedlogom koraka za plan makroinfluencera s dopunama kritičara"; makroinf/): the
     # index of the most accurate macro influencers as a DEMO input of the midcap macro regime from the deploy (it acts
-    # only once makroinf's own input state is "aktivan"). NEVER_LIVE; the public pages' switch makroinf_javno is NOT
-    # ordered here (only the owner's own tap publishes).
+    # only once makroinf's own input state is "aktivan"). NEVER_LIVE.
     ("makroinf_indeks", "paper", "vlasnik u chatu 15.11.: plan makro influencera s dopunama kritičara — indeks ide u "
                                  "midcap strategiju samo kao DEMO ulaz dok ne dokaže dodatni EV"),
+    # 15.11. (vlasnik: "Možeš ti odmah objaviti te stranice javno i staviti ih za sve korisnike aplikacije pod
+    # influencere, makroinfluencer i tab"; makroinf/public.py, makroinf/web.py): his owner switch of the PUBLIC pages
+    # on (live = published: /macro-influencers, /hr/makro-influenceri, a page per account, in the sitemap). Applied once
+    # in his name (settings.set_flag accepts this switch only from the owner); he turns it off under Prekidači any time.
+    ("makroinf_javno", "live", "vlasnik u chatu 15.11.: „Možeš ti odmah objaviti te stranice javno i staviti ih za sve "
+                               "korisnike aplikacije pod influencere, makroinfluencer i tab”"),
 )
 # 15.11. (the same order): Grok autotrade buys with real money too, so it goes off once as well (grokauto.set_on)
 OWNER_ONCE_1511 = "owner_once:real_money_off_1511"
@@ -885,7 +890,8 @@ def owner_flag_orders(con, now=None):
         if old != mode:
             # 14.11.: the real-money switch accepts only the owner himself (settings.set_flag); this entry IS his own
             # order in the chat ("imaš moje dopuštenje"), so it is set in his name
-            who = (settings.owner() if name in (settings.SWITCH_ALL, settings.VEL_SWITCH)   # 15.11.: his real money
+            who = (settings.owner() if name in (settings.SWITCH_ALL, settings.VEL_SWITCH,   # 15.11.: his real money
+                                                settings.MAKROINF_JAVNO)   # 15.11.: his "objavi javno"
                    else "Jure (chat 10.11.)")
             try:
                 settings.set_flag(con, name, mode, who, now=now)

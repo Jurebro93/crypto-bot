@@ -10,7 +10,7 @@ offline (no network: twitterapi.io, OpenAI and CoinGecko are fakes).
     the prospective availability, the embargo)
   - the caps stop cleanly (twitterapi pilot, OpenAI), the pilot end-to-end, the quality check and the expansion gate
   - the public pages: switch off = 404 and nothing in the sitemap; on = pages without forbidden content
-  - the wiring: flags (MI1 NEVER_LIVE, MI2 owner switch), the owner order LAST, fokus exception, MCP, card, the
+  - the wiring: flags (MI1 NEVER_LIVE, MI2 owner switch), the owner orders (filtered), fokus exception, MCP, card, the
     DEMO input in veliki/makro (never the real account)
 
     python3 -m unittest tests.test_makroinf_offline
@@ -651,7 +651,7 @@ class Public(Base):
 # ---------- wiring ----------------------------------------------------------------------------------------------------
 
 class Wiring(Base):
-    def test_flags_and_the_owner_order_last(self):
+    def test_flags_and_the_owner_orders(self):
         from ui import assistnotes
         self.assertEqual(settings.FLAGS[settings.MAKROINF][0], "MI1")
         self.assertEqual(settings.FLAGS[settings.MAKROINF_JAVNO][0], "MI2")
@@ -662,9 +662,13 @@ class Wiring(Base):
         self.assertIn(settings.MAKROINF_JAVNO, settings.OWNER_SWITCH_NOTES)
         codes = [v[0] for v in settings.FLAGS.values()]
         self.assertEqual((codes.count("MI1"), codes.count("MI2")), (1, 1))   # no clash of plan codes
-        self.assertEqual(assistnotes.OWNER_FLAG_ORDERS[-1][:2], (settings.MAKROINF, "paper"))
-        self.assertNotIn(settings.MAKROINF_JAVNO, [n for n, _m, _w in assistnotes.OWNER_FLAG_ORDERS])
-        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", assistnotes.OWNER_FLAG_ORDERS[-1:]):
+        # 15.11.: the index order, then the owner's order to publish (makroinf_javno live; tests/test_makrojavno_offline):
+        # filtered by name, never pinned to a position (later orders are appended after them)
+        mine = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == settings.MAKROINF)
+        self.assertEqual([o[:2] for o in mine], [(settings.MAKROINF, "paper")])
+        self.assertEqual([o[:2] for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == settings.MAKROINF_JAVNO],
+                         [(settings.MAKROINF_JAVNO, "live")])
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", mine):
             self.assertEqual(assistnotes.owner_flag_orders(self.tcon), ["zastavica makroinf_indeks: off → paper"])
         with self.assertRaises(ValueError):
             settings.set_flag(self.tcon, settings.MAKROINF, "live", "Jure")              # NEVER_LIVE
