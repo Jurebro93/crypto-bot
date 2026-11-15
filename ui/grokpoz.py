@@ -154,8 +154,9 @@ def delivered(tcon, lcon, p, now):
         ids = [int(i) for i in p.get("ids") or []]
         q = ",".join("?" * len(ids)) or "NULL"
         for r in tcon.execute(f"SELECT {cols} FROM assistant_notes WHERE ts >= ? AND ((kind='signal_opinion' AND token=?) "
-                              f"OR (kind='trade_review' AND position_id IN ({q}))) ORDER BY id DESC LIMIT 4",
-                              (int(now - DAY_S), tok, *ids)):
+                              f"OR (kind='trade_review' AND position_id IN ({q}))) AND COALESCE(key_id, '') != ? "
+                              "ORDER BY id DESC LIMIT 4",   # 15.11.: the OpenAI critic's notes are not Grok's
+                              (int(now - DAY_S), tok, *ids, assistnotes.CRITIC_KID)):
             d = assistnotes._row(r)
             conf = f" ({d['confidence'] * 100:.0f} %)" if d.get("confidence") is not None else ""
             kind = "mišljenje" if d["kind"] == "signal_opinion" else "recenzija pozicije"

@@ -277,7 +277,48 @@ def collect(now=None):
             "strategije": strategije(now), "spend": spend(now), "skener": skener(now)}
     data["insajderi"] = insajderi(now)   # 10.11. (flag insider_copy, kol/precall.py)
     data["momentum"] = momentum(now)     # 11.11. (flags momentum_scalp, grok_ev_gate; momentum/)
+    data["kriticar"] = kriticar(now)     # 15.11. (critic/: the OpenAI critic's review, verdicts, record, cost)
     return data
+
+
+def kriticar(now):
+    """15.11. (vlasnik): the OpenAI critic for the morning e-mail: its newest daily review and top findings, the newest
+    verdict per open position, its record of 7 days (hit rate 30 / 60 min and at the close, $ if followed) and its cost
+    yesterday (UTC) and this month. None before its first call (the e-mail then says so in one line)."""
+    con = ro("trade.db")
+    if con is None:
+        return None
+    con.row_factory = None
+    try:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='critic_calls'").fetchone():
+            return None
+        from critic import notes as cnotes
+        from critic import store as cstore
+        st = cstore.stats(con, 7, now)
+        d0 = cstore.day_start(now)
+        y_n, y_usd = con.execute("SELECT COUNT(*), COALESCE(SUM(cost_usd), 0) FROM critic_calls WHERE ts >= ? AND ts < ?",
+                                 (d0 - DAY, d0)).fetchone()
+        m_n, m_usd = con.execute("SELECT COUNT(*), COALESCE(SUM(cost_usd), 0) FROM critic_calls WHERE ts >= ?",
+                                 (cstore.month_start(now),)).fetchone()
+        summ = cnotes.latest_summary(con)
+        finds = cnotes.latest_findings(con, (summ or {}).get("ts", now) - 900, 3) if summ else []
+        pos = con.execute("SELECT v.symbol, v.mode, v.verdict, v.confidence, v.pnl_pct, v.ts FROM critic_verdicts v "
+                          "JOIN (SELECT pid, MAX(id) AS id FROM critic_verdicts GROUP BY pid) l ON l.id = v.id "
+                          "JOIN positions p ON p.id = v.pid WHERE p.status = 'open' ORDER BY v.ts DESC LIMIT 12").fetchall()
+        if not (summ or pos or st.get("poziva") or y_n or m_n):
+            return None
+        return {"sazetak": ({"title": summ.get("title"), "text": (summ.get("interpretation") or "")[:900],
+                             "ts": summ.get("ts")} if summ else None),
+                "nalazi": [{"title": f.get("title"), "text": (f.get("interpretation") or "")[:300],
+                            "prijedlog": (f.get("improvement") or "")[:300]} for f in finds],
+                "pozicije": [{"symbol": r[0], "mode": r[1], "verdict": r[2], "confidence": r[3], "pnl_pct": r[4],
+                              "ts": r[5]} for r in pos],
+                "presude": st.get("presude") or {}, "jucer": {"poziva": y_n, "usd": round(y_usd, 4)},
+                "mjesec": {"poziva": m_n, "usd": round(m_usd, 4)}, "budzet": st.get("budzet")}
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
+    finally:
+        con.close()
 
 
 def momentum(now):

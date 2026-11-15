@@ -321,22 +321,43 @@ def notes(con, status=None, kind=None, limit=100, offset=0):
     return rows, total
 
 
+# 15.11. (critic/): the OpenAI critic writes its trade reviews and suggestions here under this key fingerprint
+# (key_id("openai-kriticar"), critic/notes.KID); Grok's lists below leave them out, latest_critic() reads them
+CRITIC_KID = key_id("openai-kriticar")
+
+
 def latest_for(con, position_ids=(), tokens=()):
-    """{("p", id) | ("t", token): newest trade_review / signal_opinion} for position cards."""
+    """{("p", id) | ("t", token): newest trade_review / signal_opinion} for position cards (Grok's / the MCP
+    assistant's; the OpenAI critic's own notes are latest_critic's)."""
     ensure(con)
     out = {}
     ids = [int(i) for i in position_ids if i]
     toks = [t for t in tokens if t]
     if ids:
         for r in con.execute(f"SELECT {', '.join(COLS)} FROM assistant_notes WHERE kind IN ('trade_review','signal_opinion') "
-                             f"AND position_id IN ({','.join('?' * len(ids))}) ORDER BY id", ids):
+                             f"AND position_id IN ({','.join('?' * len(ids))}) AND COALESCE(key_id, '') != ? ORDER BY id",
+                             ids + [CRITIC_KID]):
             d = _row(r)
             out[("p", d["position_id"])] = d
     if toks:
         for r in con.execute(f"SELECT {', '.join(COLS)} FROM assistant_notes WHERE kind IN ('trade_review','signal_opinion') "
-                             f"AND token IN ({','.join('?' * len(toks))}) ORDER BY id", toks):
+                             f"AND token IN ({','.join('?' * len(toks))}) AND COALESCE(key_id, '') != ? ORDER BY id",
+                             toks + [CRITIC_KID]):
             d = _row(r)
             out[("t", d["token"])] = d
+    return out
+
+
+def latest_critic(con, position_ids=()):
+    """{position id: the OpenAI critic's newest trade_review} (critic/notes.py), for the Pozicije card's line."""
+    ensure(con)
+    ids = [int(i) for i in position_ids if i]
+    out = {}
+    if ids:
+        for r in con.execute(f"SELECT {', '.join(COLS)} FROM assistant_notes WHERE kind='trade_review' AND key_id=? "
+                             f"AND position_id IN ({','.join('?' * len(ids))}) ORDER BY id", [CRITIC_KID] + ids):
+            d = _row(r)
+            out[d["position_id"]] = d
     return out
 
 
@@ -361,9 +382,10 @@ def dismiss_summaries(con, upto_id, note=""):
 
 
 def reviewed_positions(con):
+    """Positions Grok (the MCP assistant) reviewed; the OpenAI critic's reviews do not count (15.11.)."""
     ensure(con)
     return {r[0] for r in con.execute("SELECT DISTINCT position_id FROM assistant_notes WHERE kind='trade_review' "
-                                      "AND position_id IS NOT NULL")}
+                                      "AND position_id IS NOT NULL AND COALESCE(key_id, '') != ?", (CRITIC_KID,))}
 
 
 # ---------- the owner's decision -----------------------------------------------------------------------------------

@@ -1355,7 +1355,9 @@ def unreviewed_trades(limit=None):
     tc = _ro("trade")
     try:
         try:
-            done = {r[0] for r in tc.execute("SELECT DISTINCT position_id FROM assistant_notes WHERE kind='trade_review'")} \
+            # 15.11.: the OpenAI critic's reviews (critic/notes.py) are not Grok's: a position only it reviewed stays here
+            done = {r[0] for r in tc.execute("SELECT DISTINCT position_id FROM assistant_notes WHERE kind='trade_review' "
+                                             "AND COALESCE(key_id, '') != ?", (assistnotes.CRITIC_KID,))} \
                 if tc is not None else set()
         except sqlite3.Error:
             done = set()

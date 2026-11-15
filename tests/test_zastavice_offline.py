@@ -70,7 +70,9 @@ class Flags(Base):
         self.assertTrue(all(v["mode"] == settings.FLAG_DEFAULTS.get(n, "off")
                             for n, v in settings.flag_state(self.con).items()))
         # 14.11.: range_demo (G32) paper by default: the owner's order of 14.11. (the demo account only, NEVER_LIVE)
-        self.assertEqual(settings.FLAG_DEFAULTS, {"x_call_scalp": "shadow", "range_demo": "paper"})
+        # 15.11.: openai_kritika (P16) on by default: an owner switch for advice only (critic/), never trades
+        self.assertEqual(settings.FLAG_DEFAULTS, {"x_call_scalp": "shadow", "range_demo": "paper",
+                                                  "openai_kritika": "live"})
         self.assertEqual(settings.flag("x_call_scalp"), "shadow")
         self.assertEqual(settings.flag("dca_guard"), "off")
         for name in ("auto_exit_data", "sl_default_v2", "dca_guard", "caller_ev_rank", "latency_entry", "runup_default",

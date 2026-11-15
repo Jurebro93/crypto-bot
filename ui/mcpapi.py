@@ -1546,6 +1546,18 @@ TOOLS.append(
      "inputSchema": {"type": "object", "properties": {
          "type": {"type": "string", "enum": ["kol", "wallet"]},
          "top": {"type": "integer", "minimum": 0, "maximum": 50, "default": 20}}}})
+# 15.11. (owner: "OpenAI kao kritičar"; critic/): the OpenAI critic's own record, read-only
+TOOLS.append(
+    {"name": "get_critic_stats", "annotations": _READ,
+     "description": ("The OpenAI critic's record (critic/, advice only: it never trades or changes a setting) over the "
+                     "last `days` (default 7): calls and cost per kind (trades = open-position verdicts, daily = the "
+                     "daily algorithm review), tokens, and per verdict (drzi, prodaj, prodaj_dio, stegni_sl, prosiri_sl) "
+                     "n, the hit rate 30 / 60 min after the verdict and at the position's close (sell-type right when "
+                     "the price then fell more than 2 %, hold-type when it did not) and the USD the advice would have "
+                     "saved (+) or lost (-) against what the bot did; what the owner did with its suggestions; the "
+                     "budget used today / this month and the caps; the newest verdict per open position."),
+     "inputSchema": {"type": "object", "properties": {
+         "days": {"type": "integer", "minimum": 1, "maximum": 90, "default": 7}}}})
 # 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
 _P01 = {"type": "number", "minimum": 0, "maximum": 1}
 TOOLS.append(
@@ -1697,6 +1709,35 @@ def _event_tool(name, a, kid):
         return {"error": str(e)}
 
 
+def critic_stats(days=None):
+    """MCP get_critic_stats: critic/store.stats over trade.db read-only, plus the newest verdict per open position."""
+    try:
+        days = max(1, min(90, int(days or 7)))
+    except (TypeError, ValueError):
+        return {"error": "days must be a whole number 1-90"}
+    import sqlite3
+    from critic import store as cstore
+    from trade import settings
+    try:
+        con = sqlite3.connect(f"file:{settings.DB}?mode=ro", uri=True, timeout=10)
+    except sqlite3.Error as e:
+        return {"error": f"trade.db: {e}"}
+    try:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='critic_calls'").fetchone():
+            return {"days": days, "calls": 0, "note": "the critic has made no call yet"}
+        d = cstore.stats(con, days)
+        rows = con.execute("SELECT v.pid, v.symbol, v.mode, v.verdict, v.confidence, v.pnl_pct, v.ts FROM critic_verdicts v "
+                           "JOIN (SELECT pid, MAX(id) AS id FROM critic_verdicts GROUP BY pid) l ON l.id = v.id "
+                           "JOIN positions p ON p.id = v.pid WHERE p.status = 'open' ORDER BY v.ts DESC LIMIT 20").fetchall()
+        d["open_positions"] = [{"position_id": r[0], "symbol": r[1], "mode": r[2], "verdict": r[3], "confidence": r[4],
+                                "pnl_pct_then": r[5], "ts": r[6]} for r in rows]
+        return d
+    except sqlite3.Error as e:
+        return {"error": f"trade.db: {e}"}
+    finally:
+        con.close()
+
+
 def _retry_hint(d, token):
     """13.11. (Jure: "Zašto je zapelo"): evidence on a token whose autotrade buy was just refused for a rug risk
     rating answers whether it now lets the buy pass (ui/grokauto.retry_hint); the stored evidence is never touched."""
@@ -1766,6 +1807,9 @@ def _tool(name, args, kid="local"):
     if name == "get_last5":   # 14.11. kol/zadnjih5.py, read-only
         from kol import zadnjih5
         d = zadnjih5.mcp(args.get("type"), args.get("top"))
+        return d, "error" in d
+    if name == "get_critic_stats":   # 15.11. critic/store.py, read-only
+        d = critic_stats(args.get("days"))
         return d, "error" in d
     if name == "get_hourly_brief":   # 11.11. events/brief.py
         from events import brief

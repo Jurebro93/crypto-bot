@@ -311,6 +311,11 @@ if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then python3 run_tg.py t
 low keep sched python3 run_sched.py
 # morning report e-mail at REPORT_HOUR (Zagreb): reads the DBs only, one Claude call a day -> output/report-*.html
 low keep report python3 run_report.py loop
+# 15.11. (vlasnik: "OpenAI kao kritičar", critic/live.py): the watcher of real-money fills; every 5 s one indexed read of
+# trade.db orders, 20 s after the newest live buy / sell one short child comments it (OpenAI, advice only, never trades).
+# Owner switch openai_kritika off or no OPENAI_API_KEY: it looks again once a minute. The re-checks, the daily review
+# and the deep session run from run_sched (above).
+low keep kriticar python3 run_critic.py loop
 
 # safer layer: older survivors (Fartcoin/Useless style) and waking-up older tokens, free sources, every 6 h,
 # guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.

@@ -41,7 +41,8 @@ DSN = f"https://{KEY}@{HOST}/4500000000000001"
 ENTRY = {"run_ui.py": "ui", "run_trade.py": "trade", "run_sched.py": "sched", "run_kol.py": "kol", "run_tg.py": "tg",
          "run_report.py": "report", "run_paper.py": "paper", "run_watch.py": "watch", "run_live.py": "live",
          "run_zonewatch.py": "zonewatch",   # 11.11.: zonewatch/ (low keep zonewatch ... loop)
-         "run_fast.py": "fast"}   # 11.11.: the fast path's worker (fast/, flag fast_path G24)
+         "run_fast.py": "fast",   # 11.11.: the fast path's worker (fast/, flag fast_path G24)
+         "run_critic.py": "kriticar"}   # 15.11.: the OpenAI critic's watcher of real-money fills (critic/live.py)
 
 B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 HEX = "0123456789abcdef"
