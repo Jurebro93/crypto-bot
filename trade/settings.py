@@ -416,15 +416,17 @@ NEVER_LIVE[MAKROINF] = ("makroinf_indeks nikad ne trguje pravim novcem (samo DEM
                         "prema kritičarevom pragu")
 PROFILE_FLAGS = PROFILE_FLAGS | {MAKROINF}   # its paper mode never makes the paper account follow anybody
 # The owner switch of the PUBLIC pages (/macro-influencers, /hr/makro-influenceri, one page per account): publishing is
-# "sending out", so default off (the routes answer 404 and nothing is in the sitemap) and only the owner's own tap
-# turns it on ("uživo" = published), never an order or any other code path.
+# "sending out", so default off (the routes answer 404 and nothing is in the sitemap) and only the owner turns it on
+# ("uživo" = published): his own tap, or his own order in the chat applied once in his name (15.11.: "Možeš ti odmah
+# objaviti te stranice javno ..."; ui/assistnotes.OWNER_FLAG_ORDERS). No other code path.
 MAKROINF_JAVNO = "makroinf_javno"
 FLAGS[MAKROINF_JAVNO] = ("MI2", "Javne stranice makro influencera (EN + HR): zbirne ocjene s intervalima, metodologija, "
                                 "stav s odgodom 7 dana; isključeno = stranice ne postoje (404) i nisu u sitemapu")
 OWNER_SWITCHES = OWNER_SWITCHES | {MAKROINF_JAVNO}
 OWNER_SWITCH_NOTES[MAKROINF_JAVNO] = ("Tvoj prekidač: „uživo” = javne stranice /macro-influencers i /hr/makro-influenceri "
                                       "(i po jedna za svaki račun) postoje i ulaze u sitemap; svaki drugi mod = 404 i "
-                                      "ništa u sitemapu. Uključuje samo vlasnik (objava je slanje van).")
+                                      "ništa u sitemapu. Uključuje samo vlasnik (objava je slanje van); uključen "
+                                      "tvojim nalogom u chatu 15.11.")
 PROFILE_FLAGS = PROFILE_FLAGS | {MAKROINF_JAVNO}
 
 

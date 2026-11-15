@@ -793,6 +793,24 @@ def _hero(ranked14, follows):
     return R.hero(kname(hnd), verdict_counts(v), label=label, facts=facts, href=f"/kol/{quote(hnd)}", foot=foot)
 
 
+# 15.11. (vlasnik: "... staviti ih za sve korisnike aplikacije pod influencere, makroinfluencer i tab"): the fourth
+# tab "Makro" (makroinf/web.py) for every logged-in user. Its list is fetched when the tab opens (/kol-makro/lista,
+# rebuilt after every macro scoring), so /kol itself (a heavy child build kept as a snapshot) never waits for it.
+# Four tabs fit a 390-px phone with the short labels (the long ones from 430 px of page width up, KL_CSS).
+TABS = [("#ljestvica", "Ljestvica", None), ("#kopiranje", "Za kopiranje", "Kopiranje"), ("#pozivi", "Upravo zvali", "Pozivi"),
+        ("#makro", "Makro", None)]
+
+
+def _tabs():
+    from ui import redak as R
+    return R.seg([(href, R.raw(f"<span class=tl>{esc(long)}</span><span class=ts>{esc(short)}</span>") if short
+                   else long) for href, long, short in TABS], "#ljestvica")
+
+
+MAKRO_PANE = ('<div class=kl-pane data-pane=makro id=makro hidden data-src="/kol-makro/lista">'
+              '<p class=ms-hint>Učitavam makro influencere…</p></div>')
+
+
 def page(qs):
     """/kol: Influenceri. Hero, segment Ljestvica | Upravo zvali, ljestvica po 1 h (7/14/30 dana, manje poznati ili
     veliki računi; sve se bira na stranici bez novog upita), Analize. Gradi se u djetetu i čuva kao snimka (run_ui
@@ -857,10 +875,11 @@ def page(qs):
     body = (f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}'
             f'<p class=ms-sub>{esc(R.num(n_all))} računa · svaki poziv mjeren nakon 1 h i 24 h</p>'
             + _hero(ranked14, follows)
-            + R.seg([("#ljestvica", "Ljestvica"), ("#kopiranje", "Za kopiranje"), ("#pozivi", "Upravo zvali")], "#ljestvica")
+            + _tabs()
             + f'<div class=kl-pane data-pane=ljestvica id=ljestvica>{ctl}{th}{"".join(sets)}{hint}</div>'
             + f'<div class=kl-pane data-pane=kopiranje id=kopiranje hidden>{rang_pane(now)}</div>'
             + f'<div class=kl-pane data-pane=pozivi id=pozivi hidden>{recent}</div>'
+            + MAKRO_PANE
             + R.section("Analize", sid="analize") + analize + "</div>" + KL_JS.replace("__OLD__", json.dumps(list(OLD_IDS))))
     return "Influenceri", _calm(body)
 
@@ -888,7 +907,10 @@ def rang_pane(now=None):
 
 KL_JS = """<script>(()=>{const qa=s=>[...document.querySelectorAll(s)],q=s=>document.querySelector(s);
 const hs=decodeURIComponent(location.hash.slice(1));if(__OLD__.includes(hs)){location.replace('/kol/analize#'+hs);return}
-const pane=p=>{qa('.kl-pane').forEach(e=>e.hidden=e.dataset.pane!==p);qa('.kl .ms-seg a').forEach(a=>a.classList.toggle('on',a.getAttribute('href')==='#'+p))};
+const load=p=>{const e=q('.kl-pane[data-pane="'+p+'"][data-src]');if(!e||e.dataset.ok)return;e.dataset.ok=1;
+fetch(e.dataset.src,{credentials:'same-origin'}).then(r=>r.ok?r.text():Promise.reject(r.status)).then(t=>{e.innerHTML=t})
+.catch(()=>{e.dataset.ok='';e.innerHTML='<p class=ms-hint>Makro influenceri se trenutno ne mogu učitati. Pokušaj ponovno za minutu.</p>'})};
+const pane=p=>{qa('.kl-pane').forEach(e=>e.hidden=e.dataset.pane!==p);qa('.kl .ms-seg a').forEach(a=>a.classList.toggle('on',a.getAttribute('href')==='#'+p));load(p)};
 qa('.kl .ms-seg a').forEach(a=>a.onclick=e=>{e.preventDefault();const p=a.getAttribute('href').slice(1);pane(p);history.replaceState(null,'','#'+p)});
 const g=q('#kl-g'),d=q('#kl-d'),so=q('#kl-so');if(!g)return;
 const show=()=>qa('.kl-set').forEach(e=>e.hidden=!(e.dataset.g===g.value&&e.dataset.d===d.value));
@@ -897,13 +919,15 @@ g.addEventListener('change',show);d.addEventListener('change',show);qa('[data-d3
 so.addEventListener('change',()=>{const k=so.value;qa('.kl-top').forEach(l=>{const rs=[...l.children];rs.sort((a,b)=>(+b.dataset[k])-(+a.dataset[k]));
 rs.forEach((r,i)=>{l.appendChild(r);const n=r.querySelector('.rk');if(n)n.textContent=i+1})})});
 qa('.kl-more').forEach(b=>b.onclick=()=>{b.previousElementSibling.classList.add('open');b.remove()});
-if(hs==='pozivi'||hs==='kopiranje')pane(hs);if(hs==='zvijezde'){g.value='stars';g.dispatchEvent(new Event('change'))}})()</script>"""
+if(hs==='pozivi'||hs==='kopiranje'||hs==='makro')pane(hs);if(hs==='zvijezde'){g.value='stars';g.dispatchEvent(new Event('change'))}})()</script>"""
 
 # Vrijednosti iz maketa influenceri-ljestvica.html i influencer.html (prefiks kl-, uz ui/html.MS_CSS i ui/kolchart.CSS).
 # Stupci za računalo idu po širini stranice (container query), ne prozora: s bočnim izbornikom (1001 px+) sadržaj je
 # uži od 900 px, pa bi prozor od 1050 px stisnuo ime na 20 px.
 KL_CSS = """
 .kl{container-type:inline-size}
+.kl .ms-seg .ts{display:none}
+@container (max-width:430px){.kl .ms-seg .tl{display:none}.kl .ms-seg .ts{display:inline}}
 .kl-tg{font-size:13px;font-weight:400;color:var(--mut);margin-left:4px}
 .kl-ctl{display:flex;justify-content:space-between;gap:12px;font-size:15px;margin:16px 0 0}
 .kl-sel{position:relative;display:inline-flex;align-items:center;color:var(--acc);font-weight:500;font-size:15px}
