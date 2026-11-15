@@ -497,6 +497,49 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
             else:
                 yield SOFT, "reserve", (f"{text}; bez tvoje rezerve „Uvijek ostavi u walletu” "
                                         f"({cfg.get('min_sol_reserve', 0):g} SOL) dovoljno je {floor:.4f}")
+        # 15.11. (vlasnik: "neka trguje s pravim novcem, dok ako padne ispod jedne solane, onda ćemo ugasiti"): the
+        # wallet's VALUE (SOL + open real positions + USDC) under EQUITY_FLOOR_SOL (trade/config.json min_equity_sol)
+        # stops every AUTOMATIC real buy until it is back above (or the owner lowers the floor); exits keep running and
+        # his own manual buys are not held
+        if not manual:
+            val, src = equity_value(con, now, balance)
+            fl = equity_floor(cfg)
+            if val is not None and val < fl:
+                yield HARD, "equity_floor", (f"vrijednost novčanika {val:.3f} SOL ispod poda {fl:g} SOL ({src}): "
+                                             "automatske prave kupnje stoje, izlazi rade; vlasnik odlučuje")
+
+
+EQUITY_FLOOR_SOL = 1.0
+EQUITY_FRESH_S = 1800
+
+
+def equity_floor(cfg=None):
+    """The owner's floor of the wallet's value for automatic real buys (trade/config.json min_equity_sol, 1 SOL)."""
+    try:
+        v = (cfg or {}).get("min_equity_sol")
+        return float(v) if v is not None else EQUITY_FLOOR_SOL
+    except (TypeError, ValueError):
+        return EQUITY_FLOOR_SOL
+
+
+def equity_value(con, now, balance=None):
+    """(value in SOL or None, where from): the newest trade/equity snapshot (SOL + open real positions + USDC) when it
+    is at most EQUITY_FRESH_S old, else the wallet's SOL balance + the SOL put into the open real positions."""
+    try:
+        r = con.execute("SELECT ts, sol, usdc, tokens_sol, sol_usd FROM equity ORDER BY ts DESC LIMIT 1").fetchone()
+    except Exception:  # noqa: BLE001 - no equity table yet
+        r = None
+    if r and r[0] and now - r[0] <= EQUITY_FRESH_S and r[1] is not None:
+        usdc = (r[2] or 0.0) / r[4] if r[4] else 0.0
+        return round((r[1] or 0.0) + (r[3] or 0.0) + usdc, 6), "zadnja snimka vrijednosti"
+    if balance is None or balance == float("inf"):
+        return None, "nepoznato"
+    try:
+        held = con.execute("SELECT COALESCE(SUM(sol_in), 0) FROM positions WHERE mode='live' AND status IN "
+                           "('open','pending')").fetchone()[0] or 0.0
+    except Exception:  # noqa: BLE001
+        held = 0.0
+    return round(balance + held, 6), "stanje SOL-a + uloženo u otvorene pozicije"
 
 
 def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, override=False,

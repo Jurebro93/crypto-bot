@@ -1,7 +1,7 @@
 {
-  "helius_credits_day": 15000,
+  "helius_credits_day": 60000,
   "every_s": 600,
-  "watch_top": 50,
+  "watch_top": 150,
   "watch_every_h": 6,
   "snap_every_h": 24,
   "rc_pass": 15,
@@ -27,15 +27,16 @@
   "listing_real": false,
   "notify": true,
   "lists_every_h": 24,
-  "profit_tokens": 15,
+  "profit_tokens": 150,
   "profit_holders": 20,
   "profit_every_h": 168,
-  "buys_every_h": 24,
+  "buys_every_h": 6,
   "buys_days": 7,
   "diamond_min_usd": 25000,
   "diamond_min_days": 30,
   "diamond_min_mult": 2.0,
   "cobuy_min": 10,
   "follow_min_clusters": 2,
-  "follow_size_sol": 0.1
+  "follow_size_sol": 0.1,
+  "_note_1511": "15.11. vlasnik: 'Možeš trošiti više Helius kredita ... i za ove nove tokene i volete koji ih drže, isto njih prati; uzet ću novi subscription 10 miliona' -> strop 60k/dan, profitabilni holderi svih midcapova (150), njihove kupnje svakih 6 h, praćenje prijenosa top 150"
 }

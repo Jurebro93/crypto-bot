@@ -296,8 +296,10 @@ class Safety(LiveRoutes):
         self.assertEqual(r["status"], "blocked")
         self.assertIn("rezerva za prodaju", r["error"])
         self.w.sol_balance = lambda addr: 0.07
-        r = executor.buy(self.con, {**self.cfg, "size_sol": 0.05, "min_sol_reserve": 0.0, "max_sol_per_trade": 1}, "M",
-                         now=NOW)
+        # 15.11. navečer: the owner's 1 SOL floor of the wallet's value (executor.equity_floor) is set to 0 here: this
+        # test is about the reserve for selling
+        r = executor.buy(self.con, {**self.cfg, "size_sol": 0.05, "min_sol_reserve": 0.0, "max_sol_per_trade": 1,
+                                    "min_equity_sol": 0}, "M", now=NOW)
         self.assertEqual(r["status"], "open")   # 0.05 + 0.003 + 0.01 floor = 0.063 <= 0.07
 
     def test_sell_button_request(self):

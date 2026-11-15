@@ -403,6 +403,12 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     if real:
         ok, pw, _x = gate.wf_proof(size_sol=cp["size_sol"])
         proof = "dokaz prošao" if ok else f"bez dokaza ({pw})"
+        # 15.11. navečer (vlasnik: "neka trguje s pravim novcem ... želim da pokušaš biti profitabilan s pravim novcem
+        # što je više moguće"): the 7-day rule's holdout at the real size is EV -3.9 % with the whole 95 % interval under
+        # 0 (n=181), so real money goes only to the intraday rule (no history against it yet) while the 7-day rule
+        # trades the demo; the 7-day rule comes back to real money by itself once its holdout is positive
+        if kind != "intra" and not ok:
+            return None, f"pravilo 7 d samo u demu dok holdout nije pozitivan ({pw})", None
     half = rule.half_of(cfg)
     if kind == "intra":
         zt = f"dnevna zona {zone['lo']:.6g}-{zone['hi']:.6g} ({zone['width']:.0%})"
@@ -956,6 +962,32 @@ def day_line(con, day_start):
     return "veliki: dan: " + "; ".join(parts)
 
 
+# 15.11. navečer (vlasnik o swarms, kupljenom pravim novcem u 15:30 dnevnim pravilom: "čini mi se ok. Samo treba duže
+# držati poziciju. Jer mislim da na prvi znak da Bitcoin ide gore, da će i svi meme coinovi krenuli prema gore"): once,
+# the open swarms trades (real and demo) get a 72 h time stop instead of 24 h; the stop and the half target stay
+OWNER_ONCE = (("swarms_72h_1511", "74SBV4", 72.0),)
+
+
+def owner_once(con, now=None):
+    """Apply each OWNER_ONCE step once (league.db kv veliki_once:<key>): the open trades of that token prefix get the
+    new time stop. [text]."""
+    out = []
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS veliki_once (k TEXT PRIMARY KEY, ts INTEGER, n INTEGER)")
+        for key, prefix, hours in OWNER_ONCE:
+            if con.execute("SELECT 1 FROM veliki_once WHERE k=?", (key,)).fetchone():
+                continue
+            n = con.execute("UPDATE veliki_trades SET time_h=? WHERE status='open' AND token LIKE ?",
+                            (float(hours), prefix + "%")).rowcount
+            con.execute("INSERT INTO veliki_once VALUES (?,?,?)", (key, int(now or time.time()), n))
+            con.commit()
+            out.append(f"veliki: nalog vlasnika {key}: vremenski stop {hours:g} h za {n} otvorenih tradeova {prefix}…")
+            print(out[-1], flush=True)
+    except Exception as e:  # noqa: BLE001 - never stops the tick
+        print(f"veliki: nalog vlasnika nije primijenjen ({type(e).__name__})", flush=True)
+    return out
+
+
 def tick(con, market_fn, now=None, force=False, toks=None):
     """One pass: exits of the open trades, then the entries: the 7-day rule after an hour completed (the veliki
     list), the intraday rule after a 15m bar completed (the demo universe). [text]."""
@@ -965,6 +997,7 @@ def tick(con, market_fn, now=None, force=False, toks=None):
     _ST["tick"] = now
     m = mode()
     ensure(con)
+    owner_once(con, now)
     opened = open_rows(con)
     if m not in ("paper", "live") and not opened:
         return []
