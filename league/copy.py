@@ -1330,6 +1330,14 @@ def _enter(con, auto, mk, todo, now, paths=None):
                 continue
             if f["exit"].get("mode") not in ("mirror", "mirror_smart", "tpsl"):
                 continue
+            try:   # 15.11. (izlazi/): the position runs a learned exit that does not sell when the source sells
+                from . import exitplan as _ep
+                if _ep.mirror_off(con, tok, f["user"]):
+                    _log(con, f, tok, side, ts, now, "info", f"{name} je prodao; naučeni izlaz ne prodaje s njim "
+                         "(izlazi po svom planu)")
+                    continue
+            except Exception:  # noqa: BLE001 - unreadable plan: the mirror sale as before
+                pass
             if not m or not m[0]:
                 if now - ts > CFG["sell_lookback_min"] * 60:
                     _log(con, f, tok, side, ts, now, "preskočeno", "nema cijene za prodaju; prodaj ručno")
