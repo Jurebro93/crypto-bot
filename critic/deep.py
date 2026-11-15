@@ -239,9 +239,16 @@ def player_names(lpath=None):
 
 
 def learned_exits(tcon, now, dbs):
-    """The learned per-source exits (another agent's nightly learned_exits table) when that table exists in one of
-    the databases: its row count and up to 40 rows (aliased and scrubbed like every result). None otherwise. A
-    module's own summary function can replace this later (CONTEXT_BLOCKS)."""
+    """The learned per-source exits (izlazi/, nightly): izlazi.report.critic_summary (priors, the sources with the
+    biggest out-of-sample gain and every proven one: params, n, n_out, EV out vs default, intervals, the source's
+    behaviour), else the raw learned_exits rows of whichever database has that table. None before the first night."""
+    try:
+        from izlazi import report as izreport
+        d = izreport.critic_summary(top=30)
+        if d and d.get("available", True) is not False:   # before the first night: the table scan below (None)
+            return d
+    except Exception:  # noqa: BLE001 - fall back to the table itself
+        pass
     for name, path in dbs.items():
         try:
             con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
@@ -435,6 +442,10 @@ def run(now=None, log=print, tcon=None, auto=False, send=None, root=None, night_
             log(f"kritičar: dubinski sažetak nije zapisan ({e})", flush=True)
         store.kv_put(tcon, "deep_last", {"ts": now, "nalaza": len(ids), "upita": queries, "usd": round(spent, 4),
                                          "koliko_cesto": kc.get("preporuka")})
+        from critic.daily import log_findings
+        log_findings(log, "dubinski", sazetak, nalazi, (), [
+            "koliko često: " + f"{kc.get('preporuka')} ({kc.get('razlog')})" if kc.get("preporuka") else "",
+            *[f"eksperiment {e.get('naziv')}: {e.get('hipoteza')}" for e in (eks or [])]])
         log(f"kritičar: dubinski pregled spremljen, {len(ids)} nalaza, upita {queries}, trošak {spent:.3f} $ "
             f"({turns} poziva, {res['model']})", flush=True)
         return {"nalaza": len(ids), "upita": queries, "cost_usd": round(spent, 4), "poziva": turns}

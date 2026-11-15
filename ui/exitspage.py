@@ -201,6 +201,11 @@ def page(qs):
              + table(["Klasa", "Verzija", "Pravila", ("Putanja", "n"), ("Prosjek", "n"), ("Medijan", "n"), ("U plusu", "n"),
                       ("Na 10x+ tokenima", "n")], rows))
 
+    try:   # 15.11. (izlazi/): the exits learned per source (wallet, influencer, crew, strategy)
+        from ui import izlaziizvori
+        b.append(izlaziizvori.section_html())
+    except Exception as e:  # noqa: BLE001
+        print(f"izlazi: naučeni izlazi po izvoru: {type(e).__name__}: {e}")
     try:
         b.append(target_html(state))
         b.append(sl_html(state))

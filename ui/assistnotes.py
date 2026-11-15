@@ -304,8 +304,9 @@ def _row(r):
     return d
 
 
-def notes(con, status=None, kind=None, limit=100, offset=0):
-    """(rows newest first, total)."""
+def notes(con, status=None, kind=None, limit=100, offset=0, key=None, not_key=None):
+    """(rows newest first, total). key / not_key: only / never the notes of that key fingerprint (15.11.: the OpenAI
+    critic's suggestions, CRITIC_KID, have their own card "OpenAI preporuke"; Grok's list leaves them out)."""
     ensure(con)
     where, args = [], []
     if status:
@@ -314,6 +315,12 @@ def notes(con, status=None, kind=None, limit=100, offset=0):
     if kind:
         where.append("kind=?")
         args.append(kind)
+    if key:
+        where.append("key_id=?")
+        args.append(key)
+    if not_key:
+        where.append("(key_id IS NULL OR key_id<>?)")
+        args.append(not_key)
     w = (" WHERE " + " AND ".join(where)) if where else ""
     total = con.execute(f"SELECT COUNT(*) FROM assistant_notes{w}", args).fetchone()[0]
     rows = [_row(r) for r in con.execute(f"SELECT {', '.join(COLS)} FROM assistant_notes{w} ORDER BY id DESC "

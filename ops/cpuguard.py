@@ -197,6 +197,9 @@ PROCESSES = (
     # 15.11. (critic/, owner switch openai_kritika): waits on the OpenAI API, a few hundred ms of CPU a pass; advice only
     ("kriticar", "run_critic.py", (), JOBS,
      "kritičar (OpenAI): svakih 5 min provjera otvorenih pozicija, poziv samo na promjenu; dnevna revizija algoritma"),
+    # 15.11. (owner, izlazi/): read-only on every database, nightly under the heavy-job lock; writes only izlazi.db
+    ("izlazi", "run_izlazi.py", (), JOBS,
+     "naučeni izlazi po izvoru (stop, grace, TP1, trailing): noću, samo čita baze, walk-forward 70/30, piše izlazi.db"),
     # 11.11. (flag zonewatch): zone alarms to Grok Bot; a few ms of CPU every 30 s (mostly waiting on the network), so
     # the guard (it pauses only processes above MIN_CPU) practically never touches it, and a pause is a fraction of a s
     ("zonewatch", "run_zonewatch.py", (), JOBS,

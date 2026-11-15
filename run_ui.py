@@ -278,6 +278,9 @@ def route(path, qs):
     if path == "/izlazi":
         from ui import exitspage
         return exitspage.page(qs)
+    if path == "/izlazi/izvori":   # 15.11. (izlazi/): the exits learned per source
+        from ui import izlaziizvori
+        return izlaziizvori.page(qs)
     if path == "/dugorocno":
         from ui import dugo
         return dugo.page(qs)

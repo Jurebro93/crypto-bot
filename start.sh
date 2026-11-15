@@ -254,6 +254,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 # per type, when its walk-forward EV after costs is > 0 on 30+ trades. Trading never waits for it.
 ( sleep "${ZADNJIH5_FIRST_S:-300}"; python3 -m ops.heavy -m kol.zadnjih5 once || echo "zadnjih 5 nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night -m kol.zadnjih5 night || echo "zadnjih 5 (noć) nije uspio"; done ) &
 
+# 15.11. (owner: "nauči iz podataka najbolji stop loss i najbolji take profit, po izvoru ... OpenAI neka to pregleda",
+# izlazi/, run_izlazi.py): every followed / copyable wallet, influencer, crew and automatic strategy gets its own exit
+# (stop, grace, TP1, trailing, time stop, mirror) from our own price paths (minute.db, range/momentum gt_candles,
+# hype.db prints and snapshots, events.db ticks; read-only, no API call), walk-forward 70/30 with shrinkage toward its
+# kind; izlazi.db on DATA_DIR. Nightly (01-06 Zagreb, once a Zagreb day) under the heavy-job lock (nice 10); the demo
+# uses it for new positions at once, real money only when proven out of sample (league/exitplan.quick_cover).
+( sleep "${IZLAZI_FIRST_S:-1290}"; while true; do python3 -m ops.heavy --night run_izlazi.py night || echo "naučeni izlazi (noć) nisu uspjeli"; sleep 3600; done ) &
+
 # 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and
 # every call of a followed influencer -> fast.db queue -> five checks (rug, holders, flow, price vs the wallet's entry,
 # source) and a decision within seconds, 20 at once. Time-sensitive, so a supervised process polling every 0.5 s (and

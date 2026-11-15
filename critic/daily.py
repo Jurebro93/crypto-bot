@@ -152,6 +152,7 @@ def run(now=None, log=print, tcon=None, call=None, payload_fn=None, force=False)
                                         "strategije": strat, "nedostaje_mjerenje": nedostaje, "nalazi_id": ids})
         except ValueError as e:
             log(f"kritičar: dnevni sažetak nije zapisan ({e})", flush=True)
+        log_findings(log, "dnevni", sazetak, nalazi, strat)
         log(f"kritičar: dnevni pregled spremljen, {len(ids)} nalaza, {len(strat)} strategija, trošak "
             f"{res['cost_usd']:.4f} $ ({res['usage'].get('in')} ulaz / {res['usage'].get('out')} izlaz tokena, "
             f"{res['model']})", flush=True)
@@ -160,3 +161,22 @@ def run(now=None, log=print, tcon=None, call=None, payload_fn=None, force=False)
     finally:
         if own:
             tcon.close()
+
+
+def log_findings(log, what, sazetak, nalazi, strat=(), extra=()):
+    """15.11. (owner: "izvijesti me odmah nakon prvog pregleda"): the review's summary, each finding (severity, title,
+    proposal) and each strategy verdict in the log, one line each and capped, so the result can be read and relayed
+    without opening the page. Nothing new leaves the server: these lines are the stored notes' own words."""
+    try:
+        log(f"kritičar: {what} sažetak: {str(sazetak or '')[:600]}", flush=True)
+        for f in nalazi or ():
+            log(f"kritičar: {what} nalaz [{f.get('ozbiljnost')}] {str(f.get('naslov') or '')[:140]} → "
+                f"{str(f.get('prijedlog') or '')[:300]}", flush=True)
+        if strat:
+            log(f"kritičar: {what} strategije: " + "; ".join(
+                f"{s.get('ime')}={s.get('presuda')}" for s in strat if isinstance(s, dict))[:900], flush=True)
+        for line in extra or ():
+            if line:
+                log(f"kritičar: {what} {str(line)[:600]}", flush=True)
+    except Exception:  # noqa: BLE001 - a log line never breaks the review
+        pass

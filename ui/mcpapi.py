@@ -1558,6 +1558,24 @@ TOOLS.append(
                      "budget used today / this month and the caps; the newest verdict per open position."),
      "inputSchema": {"type": "object", "properties": {
          "days": {"type": "integer", "minimum": 1, "maximum": 90, "default": 7}}}})
+# 15.11. (owner, izlazi/): the exit learned per source (stop, grace, TP1, trailing, time stop, mirror), read-only
+TOOLS.append(
+    {"name": "get_learned_exits", "annotations": _READ,
+     "description": ("The exit rule learned nightly per source from MemeSonar's own price paths (izlazi/, read-only): "
+                     "for every followed / copyable wallet, influencer, crew and automatic strategy, the stop (sl %), "
+                     "grace minutes in which only the -50 % catastrophic stop and rug flags apply, TP1 % net of costs "
+                     "and its share, break-even + trailing % for the rest, time stop (tmax min) and mirror (sell when "
+                     "the source sells), chosen on the older 70 % of its entries (shrunk toward its kind's prior when n "
+                     "is small) and judged on the newer 30 %: n, n_out, ev_out_pct vs default_ev_out_pct (today's "
+                     "'brzi profit' on the same entries), 90 % interval, hit rate, worst trade, real_money (proven out "
+                     "of sample: n_out >= 8, EV >= default + 1 point) and the source's behaviour (how deep its winners "
+                     "dip first, recovery minutes, its own stop for wallets). source_kind wallet | kol | ekipa | "
+                     "strategy | *; source_id one source; top 1-200 (default 30); proven_only. Read-only."),
+     "inputSchema": {"type": "object", "properties": {
+         "source_kind": {"type": "string", "enum": ["wallet", "kol", "ekipa", "strategy", "*"]},
+         "source_id": {"type": "string"},
+         "top": {"type": "integer", "minimum": 1, "maximum": 200, "default": 30},
+         "proven_only": {"type": "boolean", "default": False}}}})
 # 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
 _P01 = {"type": "number", "minimum": 0, "maximum": 1}
 TOOLS.append(
@@ -1810,6 +1828,10 @@ def _tool(name, args, kid="local"):
         return d, "error" in d
     if name == "get_critic_stats":   # 15.11. critic/store.py, read-only
         d = critic_stats(args.get("days"))
+        return d, "error" in d
+    if name == "get_learned_exits":   # 15.11. izlazi/, read-only
+        from izlazi import report as izreport
+        d = izreport.mcp(args)
         return d, "error" in d
     if name == "get_hourly_brief":   # 11.11. events/brief.py
         from events import brief
