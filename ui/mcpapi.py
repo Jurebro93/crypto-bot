@@ -1706,6 +1706,24 @@ TOOLS.append(
      "inputSchema": {"type": "object", "properties": {
          "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
          "class": {"type": "string", "enum": ["insajder", "bot_snajper", "relayer", "kandidat", "promatra"]}}}})
+# 15.11. (vlasnik: plan makro influencera s dopunama kritičara; makroinf/): the macro influencers, read-only
+TOOLS.append(
+    {"name": "get_macro_influencers", "annotations": _READ,
+     "description": ("Makro influenceri (makroinf/): ~50 crypto accounts (100k+ followers; TA, macro / on-chain, "
+                     "YouTube, memecoin KOLs, news) whose calls on where BTC / ETH / SOL / alts / memes / the whole market "
+                     "go are measured by LOCKED rules (pre-registered 7 d and 30 d horizons, volatility-scaled "
+                     "thresholds known at the call time, conditional calls only once triggered, repeated calls = one "
+                     "episode). Per account THREE separate scores: predictive (hit rate, Wilson 95 % interval, vs "
+                     "always-bull / random / 7-day trend on the same dates), economic (follow return vs always-bull), "
+                     "integrity (posts later unavailable = 'naknadno nedostupno', no penalty; promos); n < 10 episodes = "
+                     "'nedovoljno dokaza'. Also the current BTC stance, the consensus index of the most accurate "
+                     "(cluster-capped, walk-forward train / validation / locked test), its state as a DEMO input of "
+                     "the midcap macro regime, the quality check of the classification, the incremental EV and the "
+                     "costs. handle: one account's episodes and thesis register. limit 1-300. Read-only; never real "
+                     "money."),
+     "inputSchema": {"type": "object", "properties": {
+         "limit": {"type": "integer", "minimum": 1, "maximum": 300, "default": 30},
+         "handle": {"type": "string", "description": "X handle without @ for one account's detail"}}}})
 # 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
 _P01 = {"type": "number", "minimum": 0, "maximum": 1}
 TOOLS.append(
@@ -1962,6 +1980,10 @@ def _tool(name, args, kid="local"):
     if name == "get_learned_exits":   # 15.11. izlazi/, read-only
         from izlazi import report as izreport
         d = izreport.mcp(args)
+        return d, "error" in d
+    if name == "get_macro_influencers":   # 15.11. makroinf/, read-only
+        from makroinf import report as mireport
+        d = mireport.mcp(args)
         return d, "error" in d
     if name == "get_insiders2":   # 15.11. insajderi/, read-only
         from insajderi import report as i2report

@@ -73,13 +73,19 @@ RETARGET = (
 KEPT = ("ui", "trade (pravi novac / probni swapovi)", "cpuguard", "uptime", "health", "diskreport", "retencija",
         "rug arhiva", "kalendar", "dugo", "simianx", "veliki (lista, backtest, demo)", "zonewatch", "kol krug (X pozivi)",
         "tg", "novčanici dokazani / rang / copy (samo baze)", "tržište / BTC", "potrošnja", "web", "events tick",
-        "EV izvještaj", "dnevni trošak", "kritičar", "jutarnji izvještaj", "povrat pravila izlaza")
+        "EV izvještaj", "dnevni trošak", "kritičar", "jutarnji izvještaj", "povrat pravila izlaza",
+        "stranice tokena (midcap svemir + top 100)")
 # 15.11. (vlasnik: "dio resursa zadrži za ovo, veći dio ide na midcapove"): jobs that run on microcap data WHILE the
 # switch is on, as an explicit exception with their own budget (they are never in OFF, so nothing above stops them)
 EXCEPTIONS = (
     (("run_insajderi", None), "insajderi2",
      "Insajderi 2.0: kupci prije poziva / skokova koji prodaju u skok, pametni novac (insajderi/); strop Helius "
      "kredita dnevno (16 % starih poslova insajderi/grupe/shill/novčanici, zadano 3.500), nice, veliki prolaz noću"),
+    # 15.11. (vlasnik: plan makro influencera s dopunama kritičara; makroinf/): not a microcap job, listed so the start
+    # line says it runs under the switch with its own caps
+    (("run_makroinf", None), "makroinf",
+     "Makro influenceri: pilot 50 računa (twitterapi 5 $ i OpenAI 4 $ jednokratno, zatim 0,50 $ / 0,25 $ dnevno), "
+     "makro izjave BTC/ETH/SOL/altovi/memeovi, indeks najtočnijih samo kao DEMO ulaz midcapova; nice, noću ocjene"),
 )
 _OFF_KEYS = {key for _m, key, _w in OFF}
 # what each OFF / RETARGET job cost, from its own caps in the code and start.sh (Pretpostavka: the caps, not a measured

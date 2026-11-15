@@ -1,0 +1,6 @@
+{
+  "_upute": "Vlasnikova lista (makroinf/racuni.py čita je na svakom krugu). dodaj: računi koje želiš (handle bez @, kategorija: ta / makro / edukacija / memecoin / vijesti; bez handlea {\"name\": \"Ime\", \"handle\": null} = kandidati iz pretrage, ništa se ne pogađa). makni: handleovi koje ne želiš (ostaju u bazi, status uklonjen, ne mjere se dalje). potvrdi: ime -> handle za račune čiji handle nije bio poznat (izaberi jednog od kandidata iz kartice / python3 run_makroinf.py kandidati). Hani = @honey_xbt (potvrdio vlasnik 15.11., u sjemenu).",
+  "dodaj": [],
+  "makni": [],
+  "potvrdi": {}
+}

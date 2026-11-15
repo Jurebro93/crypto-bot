@@ -48,6 +48,27 @@ def _f(x):
         return None
 
 
+def static_risk(d):
+    """15.11. popodne: the facts of classify() that do not depend on the dip (holder concentration, dev share,
+    mint / freeze authority, RugCheck danger, the holders' block): "; "-joined text or None. veliki/live refuses an
+    entry on them (demo and real): two real trades (ukHH6c, 61V8vB) were closed 40-70 min after the buy as "razlog pada
+    postao loš (top 10 holdera 55-60 %)", a fact known before the buy, paying a round trip for nothing."""
+    s = d.get("safety") or {}
+    bad = []
+    if s.get("danger"):
+        bad.append("RugCheck: " + ", ".join(s["danger"][:2]))
+    if s.get("mint_auth") or s.get("freeze_auth"):
+        bad.append("mint / freeze ovlast")
+    if (s.get("top10") or 0) > 50:
+        bad.append(f"top 10 holdera {s['top10']:.0f} %")
+    if (s.get("dev_pct") or 0) >= 5:
+        bad.append(f"dev drži {s['dev_pct']:.0f} %")
+    h = d.get("holders") or {}
+    if h.get("block"):
+        bad.append("holderi: " + h["block"])
+    return "; ".join(bad) or None
+
+
 def classify(d):
     """(kind, why) for one dipped token's facts d: c24, c7d, liq_ratio, vol_ratio, sells_buys, safety, btc24,
     market_med, grok_dip."""
@@ -227,6 +248,9 @@ def refresh(con, now=None):
         row = {"mint": m, "symbol": d.get("symbol"), "score": sc, "parts": parts, "dip": d.get("dip"),
                "facts": {k: d.get(k) for k in ("c24", "c7d", "liq_ratio", "vol_ratio", "sells_buys", "trend",
                                                "vol24", "btc24", "market_med")}}
+        risk = static_risk(d)
+        if risk:
+            row["risk"] = risk
         h = d.get("holders") or {}
         if h.get("block"):
             row["block"] = "holderi: " + h["block"]

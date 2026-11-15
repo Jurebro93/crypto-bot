@@ -805,6 +805,17 @@ def _seo_extra(fn):
         return ""
 
 
+def _tp(fn, default=""):
+    """15.11.: the token pages (ui/tokenstranica.py: midcap pages, extra sections of the coin page); `default` if that
+    module fails, so the coin pages never break."""
+    try:
+        from ui import tokenstranica
+        return fn(tokenstranica)
+    except Exception as e:  # noqa: BLE001
+        print(f"tokenstranica: {type(e).__name__}: {e}"[:200], flush=True)
+        return default
+
+
 def _seo_robots():
     out = ()
     for mod in ("coinseo", "marketpub"):
@@ -822,8 +833,29 @@ def robots():
             "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /best-crypto-tools\nAllow: /hr/najbolji-kripto-alati\n"
             "Allow: /telegram-channels\nAllow: /telegram/\nAllow: /hr/telegram-kanali\nAllow: /hr/telegram/\n"
             "Allow: /autopilot$\nAllow: /en/autopilot$\n"   # 10.11. (Jure): the public Autopilot page in search
-            + "".join(f"Allow: {p}\n" for p in _seo_robots()) + "Allow: /static/landing/\nDisallow: /\n\n"
+            + "".join(f"Allow: {p}\n" for p in _seo_robots()) + _makroinf_robots()
+            + "Allow: /static/landing/\nDisallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
+
+
+def _makroinf_robots():
+    """15.11. (makroinf/): the macro influencer pages' Allow lines, only while the owner switch makroinf_javno is on."""
+    try:
+        from makroinf import public as mpub
+        return mpub.robots_lines()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _makroinf_page(path):
+    """15.11. (makroinf/): fn() for /macro-influencers, /macro-influencer/<h> and the Croatian twins, else None. While
+    the owner switch makroinf_javno is off the fn answers None, so the page is a 404."""
+    try:
+        from makroinf import public as mpub
+        return mpub.match(path)
+    except Exception as e:  # noqa: BLE001
+        print(f"makroinf javno: {type(e).__name__}: {e}", flush=True)
+        return None
 
 
 def sitemap():
@@ -837,6 +869,7 @@ def sitemap():
         urls += [(f"/coin/{c['slug']}", f"/hr/coin/{c['slug']}", "0.8") for c in K.top()]
     except Exception:  # noqa: BLE001
         pass
+    urls += _tp(lambda T: T.urls(), [])   # 15.11.: token pages of the midcap universe with enough data
     from ui import glossary_public as GP
     urls.append(("/glossary", "/hr/rjecnik", "0.8"))
     urls += [(f"/glossary/{e['en']}", f"/hr/rjecnik/{e['hr']}", "0.6") for e in GP.ENTRIES]
@@ -873,6 +906,11 @@ def sitemap():
         urls += telegrampub.urls()
     except Exception as e:  # noqa: BLE001
         print(f"sitemap: telegram nedostupan: {e}", flush=True)
+    try:   # 15.11. (makroinf/): only while the owner switch makroinf_javno is on
+        from makroinf import public as mpub
+        urls += mpub.urls()
+    except Exception as e:  # noqa: BLE001
+        print(f"sitemap: makro influenceri nedostupni: {e}", flush=True)
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">']
     for en, hr, pr in urls:
@@ -918,10 +956,12 @@ def route(path):
         fn, ctype = _seo_page(path), "text/html"
     elif re.fullmatch(r"(/hr)?/coin/[^/]+", path):
         lang, slug = ("hr" if path.startswith("/hr") else "en"), path.rsplit("/", 1)[1]
-        fn, ctype = (lambda: coin_page(slug, lang)), "text/html"
+        fn, ctype = (lambda: coin_page(slug, lang) or _tp(lambda T: T.page(slug, lang), None)), "text/html"
     elif path in ("/influencers", "/hr/influenceri"):
         lang = "en" if path == "/influencers" else "hr"
         fn, ctype = (lambda: leaderboard(lang)), "text/html"
+    elif _makroinf_page(path):   # 15.11. (makroinf/): 404 while the owner switch makroinf_javno is off
+        fn, ctype = _makroinf_page(path), "text/html"
     elif path in ("/telegram-channels", "/hr/telegram-kanali"):
         from ui import telegrampub
         lang = "en" if path == "/telegram-channels" else "hr"
@@ -1228,6 +1268,7 @@ def coin_page(slug, lang):
     ch = "".join(f"<th{' class=n' if j > 1 else ''}>{x}</th>" for j, x in enumerate(t["ccols"]))
     calls = (f"<div class=tw><table><thead><tr>{ch}</tr></thead><tbody>{''.join(crow)}</tbody></table></div>"
              if crow else f"<p class=mut>{t['no_calls']}</p>")
+    calls = _tp(lambda T: T.coin_calls(r["mint"], lang)) or calls   # 15.11.: clean calls, X + Telegram
     lock = ("<div class=lock style='display:block'><b style='font-size:18px'>" + t["lock_h"] + "</b><ul class=lk>"
             + "".join(f"<li>🔒 {x.format(n=o['fresh'])}</li>" for j, x in enumerate(t["lock"])
                       if j != (3 if o["fresh"] else 2))
@@ -1258,6 +1299,7 @@ def coin_page(slug, lang):
             f"<span class=mut style='font-weight:500;font-size:.5em'>{t['p_sub']}</span></h1>"
             f"<p class=lead>{summary}</p></section><div class=cards>{cards}</div>{charts}{lock}"
             f"<h2 class=s>{t['safe_h']}</h2>{safe}<h2 class=s>{t['calls_h']}</h2><p class=mut>{t['calls_note']}</p>{calls}"
+            f"{_tp(lambda T: T.coin_extra(r, lang))}"
             f"{addr}<h2 class=s>{t['faq_h'].format(sym=sym)}</h2><div class=faq style='margin:0'>{faq_html}</div>"
             f"{_seo_extra(lambda S: S.more(r, lang, 'coin'))}"
             + (f"<h2 class=s>{t['similar']}</h2><div class=chips>{sim}</div>" if sim else ""))

@@ -157,6 +157,9 @@ PROCESSES = (
     ("simianx", "run_simianx.py", (), JOBS, "drugo mišljenje za dugoročnu listu"),
     ("watch", "run_watch.py", (), JOBS, "praćenje tokena prije događaja, jednom na sat"),
     ("web", "run_web.py", (), JOBS, "dnevno osvježavanje javnih stranica u 02:00, čita samo naše baze"),
+    # 15.11. (tokenstranice/): hourly, reads our databases only, waits on the API for the opinions; nobody waits for it
+    ("tokenstranice", "run_tokenstranice.py", (), JOBS,
+     "stranice tokena svaki sat iz naših baza (samo čita) i mala serija AI mišljenja (strop 0,30 $ dnevno)"),
     ("wallets", "run_wallets.py", (), JOBS, "registar walleta: skupljanje, ocjenjivanje, popisi"),
     # 10.11. (Grok MCP audit 9): night only, at most 200 getTransaction calls a night; waits on the network, not the CPU
     ("solfill", "-m wallets.solfill", (), JOBS, "noću upisuje iznose prodaja praćenih walleta iz transakcija (Helius)"),
@@ -219,6 +222,11 @@ PROCESSES = (
     ("insajderi2", "run_insajderi.py", (), JOBS,
      "Insajderi 2.0: kupci prije poziva / skokova koji prodaju u skok, pametni novac; nakon deploya, svaka 3 h i noću, "
      "strop Helius kredita dnevno"),
+    # 15.11. (owner, makroinf/): macro influencers: a short round every ~10 min (network bound: twitterapi, OpenAI,
+    # CoinGecko; nice) and the nightly re-scoring under the heavy lock; writes only makroinf.db; may be paused
+    ("makroinf", "run_makroinf.py", (), JOBS,
+     "makro influenceri: krug svakih ~10 min (dohvat objava, klasifikacija, provjere brisanja, ocjene) i noćni izračun "
+     "indeksa; stropovi troška u kodu"),
     # 15.11. (owner, konsenzus/): read-only research after a deploy and nightly; writes only konsenzus.db
     ("konsenzus", "run_konsenzus.py", (), JOBS,
      "konsenzus izvora: walk-forward influencera, Telegram kanala i novčanika (samo čita baze), nakon deploya i noću"),

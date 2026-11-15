@@ -1424,6 +1424,11 @@ def token(mint, qs):
     b.append('<div class="ms-list">' + "".join(full) + "</div>")
     b.append(R.hint("Pouzdanost: koliko se neovisni izvori slažu. Šansa za skok: koliko je sličnih tokena nastavilo rasti.")
              .replace("</p>", ' <a class="ms-acc" href="/pojmovnik#confidence" style="text-decoration:none">Pojmovnik</a></p>'))
+    try:   # 15.11.: the token page's sections, fresh (tokenstranice/, ui/tokenstranica.py) + link to the public page
+        from ui import tokenstranica
+        b.append(tokenstranica.private_html(mint, qs))
+    except Exception as e:  # noqa: BLE001 - the token page stays up without them
+        print(f"tokenstranica: {type(e).__name__}: {e}"[:200])
     b.append(quickbuy.buy_sheet(mint, sym, locked) + "</div>" + TOKEN_JS)
     # a detail page of about three screens: no row of section chips on top (ui/secnav builds one from 3+ <h2>)
     return sym or short(mint), "".join(b).replace("<h2", '<h2 data-sec=""')

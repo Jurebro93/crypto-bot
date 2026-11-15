@@ -380,11 +380,17 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     if not real and kind == "intra" and (liq or 0) < DEMO_MIN_LIQ:
         return None, f"likvidnost ${(liq or 0) / 1e3:,.0f}k ispod ${DEMO_MIN_LIQ / 1e3:,.0f}k", None
     sym = (mq[4] if len(mq) > 4 else None) or tok[:6]
+    if real and (meta is None or meta[0] is None):   # 15.11. popodne: no priority row = holder / safety facts unknown
+        return None, "prioritet (holderi, sigurnost) još nije izračunat", None
     size_usd = cp["size_sol"] * sol
     c = rule.cost_at(cp["size_sol"], liq, sol, rule.fee_side_of(url=url), rule.tx_sol()[0])
+    drt = rule.demo_rt(size_usd, liq)
+    # 15.11. popodne: the model (pool + route fee, impact, network) said 0.72 % a round trip while the measured fee
+    # (trade/cost calibration of the real swaps) gave 61V8vB -4.9 % against -2.2 %: every target, break-even and
+    # result now uses the HIGHER of the two, so the demo and the real numbers are honest
+    c = dict(c, rt=max(c["rt"], drt))
     if real and c["rt"] > 0.06:
         return None, f"trošak runde {c['rt']:.1%} iznad 6 %", None
-    drt = rule.demo_rt(size_usd, liq)
     tp = rule.tp_price(price, cfg["tp"], c["rt"], zone, cfg)
     if tp <= price:
         return None, "cilj nije iznad ulaza", None
@@ -891,8 +897,36 @@ def report_line(con, now):
         dca = con.execute("SELECT COUNT(*) FROM veliki_trades WHERE user=? AND dca_ts>=?", (user, d0)).fetchone()[0]
         parts.append(f"{name}: otvoreno {n_o} danas ({n_open} sada otvorenih), zatvoreno {len(rows)} (dobit "
                      f"{win:+.2f} $, gubitak {loss:+.2f} $, neto {win + loss:+.2f} $; ≥ +10 %: {ten}; dnevni raspon "
-                     f"{kinds.get('intra', 0)}, raspon 7 d {kinds.get('range', 0)}), pola na cilju {half}, DCA {dca}")
+                     f"{kinds.get('intra', 0)}, raspon 7 d {kinds.get('range', 0)}), pola na cilju {half}, DCA {dca}"
+                     + (chain_line(con, user, d0) if user == settings.LEAGUE_USER else ""))
     return "; ".join(parts)
+
+
+def chain_line(con, user, d0, path=None):
+    """15.11. popodne: what the real account's midcap buys did ON CHAIN today (trade.db positions joined by league_id
+    to today's veliki trades of the real account): a veliki "pravi" trade whose buy the executor refused (ukHH6c at
+    12:48: the day's spend cap) stays a league row, so the report says how many were really bought and how many were
+    refused. "" when trade.db is unreadable or there was no real midcap trade today."""
+    import sqlite3
+    ids = [r[0] for r in con.execute("SELECT trade_id FROM veliki_trades WHERE user=? AND opened_ts>=? AND trade_id "
+                                     "IS NOT NULL", (user, d0)).fetchall()]
+    if not ids:
+        return ""
+    try:
+        from trade import settings as tsettings
+        db = path or tsettings.DB
+        tc = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+        try:
+            q = ",".join("?" * len(ids))
+            st = {lid: s_ for lid, s_ in tc.execute(f"SELECT league_id, status FROM positions WHERE mode='live' AND "
+                                                    f"league_id IN ({q}) ORDER BY id", ids).fetchall()}
+        finally:
+            tc.close()
+    except Exception:  # noqa: BLE001 - trade.db unreadable: no chain part
+        return ""
+    bought = sum(1 for v in st.values() if v in ("open", "closed", "pending"))
+    refused = sum(1 for v in st.values() if v in ("blocked", "failed"))
+    return f"; na lancu danas: kupljeno {bought}, odbijeno {refused}"
 
 
 def _refused(why):
@@ -1033,8 +1067,8 @@ def tick(con, market_fn, now=None, force=False, toks=None):
                 _ST["said"][("dip", tok)] = now
                 out.append(f"veliki {(pr[tok].get('symbol') or tok[:6])}: preskočen, pad iz lošeg razloga ({dip.get('why')})")
             continue
-        blk = (pr.get(tok) or {}).get("block")
-        if blk:   # 15.11. (holderi/): insiders hold too much / the team is selling: no entry (demo or real)
+        blk = (pr.get(tok) or {}).get("block") or (pr.get(tok) or {}).get("risk")
+        if blk:   # 15.11. (holderi/ + prioritet.static_risk): concentration / dev / authority / team selling: no entry
             if now - _ST["said"].get(("blk", tok), 0) > 3600:
                 _ST["said"][("blk", tok)] = now
                 out.append(f"veliki {(pr[tok].get('symbol') or tok[:6])}: preskočen, oprez ({blk})")
@@ -1064,6 +1098,8 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             if user != settings.PAPER_USER:   # 15.11. (holderi/): real entries after the loop, own order (no listing bonus)
                 deferred.append((real_rank.get(tok, len(real_rank)), tok, user, q, zone, regime, bars, i, link))
                 continue
+            if _makroinf_blocks(now, out):   # 15.11. (makroinf/, flag makroinf_indeks): a DEMO input only
+                continue
             link = _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx,
                               prioritet, pr) or link
     for _k, tok, user, q, zone, regime, bars, i, link in sorted(deferred, key=lambda x: x[0]):
@@ -1073,6 +1109,27 @@ def tick(con, market_fn, now=None, force=False, toks=None):
         con.execute("DELETE FROM veliki_bars WHERE ts < ?", (int(now - 10 * 86400),))
         con.commit()
     return out
+
+
+def _makroinf_blocks(now, out):
+    """True when the DEMO account must skip a new 7-day-rule entry because of makroinf's index (flag makroinf_indeks
+    paper, the input active, the index of the most accurate accounts bearish beyond its threshold: veliki/makro.
+    demo_regime). Shadow only logs "bi preskočio". Once an hour a line; never raises; never asked for the real account."""
+    try:
+        from veliki import makro
+        blocks, why, mode = makro.demo_index(now)
+    except Exception:  # noqa: BLE001 - unreadable: no effect
+        return False
+    if not blocks:
+        return False
+    hour = int(now) // 3600
+    if _ST.get("mi_said") != hour:
+        _ST["mi_said"] = hour
+        out.append(f"veliki demo: {'bez novih ulaza' if mode == 'paper' else 'sjena, demo bi preskočio ulaze'} — {why}")
+    if mode != "paper":
+        return False
+    _refused("makro influenceri: indeks najtočnijih medvjeđi")
+    return True
 
 
 def _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, prioritet, pr):
@@ -1120,6 +1177,9 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
             continue
         if (pr.get(tok) or {}).get("block"):   # 15.11. (holderi/): insiders / the team selling: no entry
             _refused("dnevni: oprez (holderi)")
+            continue
+        if (pr.get(tok) or {}).get("risk"):   # 15.11. popodne (prioritet.static_risk): known before the buy
+            _refused("dnevni: oprez (koncentracija / dev / ovlasti)")
             continue
         b15, h1 = bars_intra(tok, now)
         z = intra.zone(h1, m15, icfg)

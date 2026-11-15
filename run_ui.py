@@ -32,6 +32,7 @@ PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(
                          r"glossary(/.*)?|blog(/.*)?|best-crypto-tools(/.*)?|how-to-buy(/.*)?|rug-check(/.*)?|"
                          r"solana-market|meme-coin-season-index|solana-launchpads|solana-dex-volume|best-time-to-trade-crypto|"
                          r"telegram-channels|telegram/.*|"   # 10.11. (pregled): linked from the landing log and blogs
+                         r"macro-influencers?(/.*)?|"   # 15.11. (makroinf/): 404 while the owner switch is off
                          r"embed/.*|static/landing/.*|share/novosti\.png)$")
 
 
@@ -100,7 +101,7 @@ def on_site_host(host):
 
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qsl, unquote, urlsplit
+from urllib.parse import parse_qsl, quote, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -641,6 +642,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/tokenstranica/povratne":   # 15.11.: comments and votes of a token page, for this player
+            from ui import tokenstranica
+            frag = tokenstranica.fb_fragment(self.user, qs.get("m", ""), qs.get("e", ""))
+            return self._send(200, i18n.translate(frag).encode("utf-8"), translated=True)
         if path == "/pravi-trade/log":   # live order log on the Autopilot page, re-fetched every few seconds
             from ui import pravitrade
             frag = pravitrade.log_fragment(self.user)
@@ -1008,6 +1013,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._forbidden(path, need)
         if path.startswith("/autopilot/"):   # 10.11.: chat of the public Autopilot page (no cached page changes)
             return self._autopilot_post(path)
+        if path.startswith("/tokenstranica/"):   # 15.11.: comments and votes of a token page (same rules as the chat)
+            return self._tokenstranica_post(path)
         pagecache.clear()   # a run or a trade changes what the pages show
         origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
         same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
@@ -1340,6 +1347,28 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect(apjavno.post(path, form, self.user))
         ok, code = apjavno.act(path, form, self.user)
         frag = apjavno.chat_fragment(self.user, {}, err="" if ok else code)
+        return self._send(200, i18n.translate(frag).encode("utf-8"), translated=True)
+
+    def _tokenstranica_post(self, path):
+        """Comments and votes of a token page (ui/tokenstranica.fb_post): logged-in players only, a same-site Origin and
+        the form token, like the Autopilot chat. ajax=1: the refreshed box; else back to the token page."""
+        from ui import tokenstranica
+        form = dict(parse_qsl(self._read_body(20_000).decode("utf-8", "replace")))
+        origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        same_site = urlsplit(origin).netloc == self.headers.get("Host") if origin else not AUTH
+        want = csrf_token(self._session_value())
+        token_ok = not AUTH or bool(want) and hmac.compare_digest(form.get("_csrf", "").encode(), want.encode())
+        if not same_site or not token_ok:
+            print(f"csrf: odbijeno {self.who or '-'} POST {path} (origin={'da' if origin else 'prazan'})", flush=True)
+            self.send_response(403)
+            self.end_headers()
+            return
+        ok, code, mint = tokenstranica.fb_post(path, form, self.user)
+        mint = mint if re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", mint or "") else ""
+        if form.get("ajax") != "1":
+            return self._redirect((f"/token/{mint}" if mint else "/tokens") + ("" if ok else f"?e={quote(code)}")
+                                  + "#povratne")
+        frag = tokenstranica.fb_fragment(self.user, mint, "" if ok else code)
         return self._send(200, i18n.translate(frag).encode("utf-8"), translated=True)
 
     def _static(self, name):

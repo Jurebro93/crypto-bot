@@ -88,6 +88,8 @@ class LaterOrders(Base):
                                 "zastavica arhiva_mikrokapova: off → live",
                                 # 15.11. (vlasnik: Insajderi 2.0 u demo; NEVER_LIVE)
                                 "zastavica insajderi2: off → paper",
+                                # 15.11. (vlasnik: plan makro influencera; indeks samo DEMO ulaz, NEVER_LIVE)
+                                "zastavica makroinf_indeks: off → paper",
                                 # the one-time step of the real-money order runs after the flag orders
                                 "veliki dokaz: walk-forward → nalog vlasnika (pravi novac odmah)"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")

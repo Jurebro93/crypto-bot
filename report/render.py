@@ -306,6 +306,12 @@ def render(data, ai, source):
     if ar:
         out.append(section("Arhiva mikrokapova", para(arhiva_text(ar))))
 
+    # 15.11. (makroinf/): one line: the 3 most accurate macro accounts and what they say now, the index change
+    mi = data.get("makroinf")
+    if mi:
+        from makroinf import report as mireport
+        out.append(section("Makro influenceri", para(mireport.morning_text(mi))))
+
     # 15.11. (vlasnik): the OpenAI critic (critic/): review, verdicts on open positions, its record and cost
     out.append(section("Kritičar (OpenAI)", kriticar_body(data.get("kriticar"))))
 
