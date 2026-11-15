@@ -1182,11 +1182,17 @@ def _chg(x, lang="en"):
     return f"<span class={'pos' if x > 0 else 'neg' if x < 0 else 'mut'}>{_loc(f'{x:+.1f}', lang)}%</span>"
 
 
-def _icon(u, sym):
+def _icon(u, sym, mint="", size=24):
+    """A coin's icon. 15.11. (vlasnik: "slike se ne učitavaju"): with the mint, from our own address (ui/tokenicons:
+    fetched once on the server, small, cached, the initials when there is none); the outside link only without one."""
+    style = "border-radius:50%;display:inline-block;vertical-align:middle;margin-right:8px;background:#eef"
+    from ui import tokenicons
+    own = tokenicons.img(mint, size, style)
+    if own:
+        return own
     if u and str(u).startswith("https://"):
-        return (f"<img src=\"{esc(u)}\" alt=\"\" width=24 height=24 loading=lazy referrerpolicy=no-referrer "
-                "onerror=\"this.style.visibility='hidden'\" "
-                "style='border-radius:50%;display:inline-block;vertical-align:middle;margin-right:8px;background:#eef'>")
+        return (f"<img src=\"{esc(u)}\" alt=\"\" width={size} height={size} loading=lazy referrerpolicy=no-referrer "
+                f"onerror=\"this.style.visibility='hidden'\" style='{style}'>")
     return ""
 
 
@@ -1196,7 +1202,7 @@ def coin_list(lang):
     rows = K.top()
     trs = []
     for r in rows:
-        trs.append(f"<tr><td class=mut>{r['rank']}</td><td><a href=\"{t['prof']}{r['slug']}\">{_icon(r['icon'], r['symbol'])}"
+        trs.append(f"<tr><td class=mut>{r['rank']}</td><td><a href=\"{t['prof']}{r['slug']}\">{_icon(r['icon'], r['symbol'], r.get('mint'))}"
                    f"{esc(r['name'] or r['symbol'])}</a> <span class=mut>{esc(r['symbol'])}</span>"
                    f"<div class='m mut'>{t['cols'][4]} {_usd(r['mcap'], lang)}</div></td>"
                    f"<td class=n>{_price(r['price'], lang)}</td><td class=n>{_chg(r['chg24h'], lang)}</td>"
@@ -1309,7 +1315,7 @@ def coin_page(slug, lang):
         "mainEntity": [{"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": x}}
                        for q, x in faq]}) + "</script>")
     body = (f"<section class=ph1><div class=crumb><a href={t['lb_path']}>{t['back']}</a></div>"
-            f"<h1>{_icon(r['icon'], sym).replace('24', '44', 2)}{t['p_h1'].format(name=name, sym=sym)} "
+            f"<h1>{_icon(r['icon'], sym, r.get('mint'), 44)}{t['p_h1'].format(name=name, sym=sym)} "
             f"<span class=mut style='font-weight:500;font-size:.5em'>{t['p_sub']}</span></h1>"
             f"<p class=lead>{summary}</p></section><div class=cards>{cards}</div>{charts}{lock}"
             f"<h2 class=s>{t['safe_h']}</h2>{safe}<h2 class=s>{t['calls_h']}</h2><p class=mut>{t['calls_note']}</p>{calls}"
