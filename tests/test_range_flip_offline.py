@@ -342,12 +342,14 @@ class LiveGate(TradeBase):
         # then the owner switch prati_zadnjih5 (P15, kol/zadnjih5.py); 15.11.: the owner switch openai_kritika (P16, critic/),
         # the source consensus flag konsenzus (P17) and its owner switch pravi_novac_izvori (P18, konsenzus/), the
         # oscillator flag oscilator (P19) and its owner switch pravi_novac_oscilator (P20, oscilator/); the microcap
-        # gate's owner switch mikrokap_blokada (MK1) and its moonshot exception mikrokap_moonshot (MK2, trade/capgate)
+        # gate's owner switch mikrokap_blokada (MK1) and its moonshot exception mikrokap_moonshot (MK2, trade/capgate);
+        # the big tokens' range flag veliki_range (P21) and its owner switch pravi_novac_veliki (P22, veliki/)
         self.assertEqual(names[names.index("range_flip") + 1:], ["range_missed", "x_call_scalp", "range_demo",
                                                                  "pravi_novac_sve", "prati_zadnjih5", "openai_kritika",
                                                                  "konsenzus", "pravi_novac_izvori", "oscilator",
                                                                  "pravi_novac_oscilator", "mikrokap_blokada",
-                                                                 "mikrokap_moonshot"])
+                                                                 "mikrokap_moonshot", "veliki_range",
+                                                                 "pravi_novac_veliki"])
         self.assertEqual(settings.flag("range_flip", con=self.con), "off")
         self.assertNotIn("range_flip", settings.DATA_FLAGS)
         self.assertNotIn("range_flip", settings.NEVER_LIVE)

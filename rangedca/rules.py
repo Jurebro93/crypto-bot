@@ -151,6 +151,10 @@ SCALP = {**DEMO_1414, "profile": "scalp", "tp1_share": 1.0}
 # 43, +3.8 % (+$14.6) before; a 30 % share with a 3-min cooldown fell to EV +3.4 %, so not that.
 DEMO_LOOSE = {"score_min": 0.5, "ch5_min": -0.08, "vol_ratio_min": 0.20, "buy_share_min": 0.35, "max_rt_cost": 0.06,
               "focus_n": 20, "max_open": 15, "rounds_token_day": 15}
+# 15.11. popodne (owner: "veći tokeni imaju sigurniji range, mali često rugaju i lakše ispadnu iz rangea"): the DEMO
+# profile's focus list also weighs the pool's depth (rangedca/trade.focus: 1 h volume x score x focus_big_w(liq), the
+# weight 1 at $15k liquidity rising to 3 at ~$1.2M); the real scalp profile (SCALP) keeps its ranking unchanged
+DEMO_LOOSE["focus_big"] = True
 DEMO = {**DEMO_1414, **DEMO_LOOSE}
 DEMO_GOAL = 100   # 14.11. popodne (owner: "100 tradeova dnevno"): the daily counter's goal (was 5)
 TP_EXITS = ("tp1", "tp2", "top", "trailing", "breakeven", "time")   # a profitable / flat exit: the short cooldown

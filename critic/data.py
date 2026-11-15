@@ -347,6 +347,13 @@ def reports(now=None, budget_chars=2500):
             put("zadnjih5_walk_forward", z, None)
     except Exception:  # noqa: BLE001
         pass
+    try:   # 15.11. (veliki/): the big tokens' range walk-forward per size (without / with BTC crashes) and its demo
+        from veliki import view as vview
+        v = vview.critic_summary()
+        if v:
+            put("veliki_tokeni_range", v, None)
+    except Exception:  # noqa: BLE001
+        pass
     try:   # 15.11. (oscilator/): the oscillating tokens' scalp walk-forward per size and its demo
         from oscilator import view as oview
         o = oview.critic_summary()

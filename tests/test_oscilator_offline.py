@@ -271,9 +271,10 @@ class Settings(SwitchBase):
 
     def test_owner_order_paper_last_and_never_the_switch(self):
         from ui import assistnotes
-        mine = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == "oscilator")   # 15.11.: later orders follow
-        self.assertEqual([o[:2] for o in mine], [("oscilator", "paper")])
+        # 15.11.: the big tokens' order (veliki_range -> paper) came after it
+        self.assertIn(("oscilator", "paper"), [o[:2] for o in assistnotes.OWNER_FLAG_ORDERS])
         self.assertNotIn(gate.SWITCH, [n for n, _m, _w in assistnotes.OWNER_FLAG_ORDERS])
+        mine = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == "oscilator")
         with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", mine):
             assistnotes.owner_flag_orders(self.con)
         self.assertEqual(settings.flag_state(self.con)["oscilator"]["mode"], "paper")
