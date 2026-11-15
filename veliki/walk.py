@@ -403,7 +403,7 @@ def markdown(data):
         return "# Veliki tokeni — range\n\nJoš nema izračuna (run_veliki.py once).\n"
     L = ["# Veliki tokeni — range", "",
          f"Izračun {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(data.get('ts') or 0))}: {data.get('tokens')} tokena, "
-         f"{data.get('days')} dana 15m svijeća, SOL ${data.get('sol_usd')}, mreža {data.get('tx_sol')} SOL po swapu, "
+         f"{data.get('days')} dana 1h svijeća (uz {data.get('dead_included', 0)} ispalih tokena), SOL ${data.get('sol_usd')}, mreža {data.get('tx_sol')} SOL po swapu, "
          f"mreža konfiguracija {data.get('grid_n')}.", ""]
     if data.get("note"):
         L += [f"**{data['note']}**", ""]
@@ -432,14 +432,14 @@ def markdown(data):
         L += ["**Izvan raspona MC (5-150M) ili bez pravog poola:** " + "; ".join(oor), ""]
     lst = data.get("list") or []
     if lst:
-        L += ["## Lista", "", "| token | MC | likvidnost (sve / najdublji) | volumen 24 h | starost | 15m / 1h dana | kako |",
+        L += ["## Lista", "", "| token | MC | likvidnost (sve / najdublji) | volumen 24 h | starost | 1d / 1h dana | kako |",
               "|---|---|---|---|---|---|---|"]
         cov = data.get("coverage") or {}
         for r in lst:
             c = cov.get(r["mint"]) or {}
             L.append(f"| {r['symbol']} | ${(r.get('mcap') or 0) / 1e6:,.0f}M | ${(r.get('liq_total') or 0) / 1e6:,.1f}M / "
                      f"${(r.get('liq') or 0) / 1e6:,.2f}M | ${(r.get('vol24') or 0) / 1e6:,.1f}M | {r.get('age_d')} d | "
-                     f"{c.get('d15', 0)} / {c.get('d1h', 0)} | {r.get('how') or ''} |")
+                     f"{c.get('d1d', 0)} / {c.get('d1h', 0)} | {r.get('how') or ''} |")
         L.append("")
     cp = data.get("crash_periods") or []
     L += ["## Padovi BTC-a (4 h ≤ −3 % ili 24 h ≤ −5 %)", "",
