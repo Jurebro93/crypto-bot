@@ -89,3 +89,17 @@ def followings(con, handle, ph, c, now=None, get=None, page=200):
     out = [u for u in (d.get("followings") or []) if isinstance(u, dict)]
     store.book(con, "twitterapi", max(0.0006, len(out) * 0.00001), ph, "praćeni", now)
     return out
+
+
+def followings_page(con, handle, ph, c, now=None, get=None, cursor="", page=200, what="praćeni"):
+    """One page of the accounts `handle` follows: ([user], next_cursor or None). 200 a page = $0.01 per 1,000
+    (kol/twapi.followings), at least $0.0006 a call."""
+    now = now or time.time()
+    _need(con, max(0.0006, page * 0.00001), ph, c, now)
+    d = _get(get)(twapi.FOLLOWINGS_URL, {"userName": handle, "cursor": cursor or "", "pageSize": page}) or {}
+    if d.get("status") == "error":
+        raise RuntimeError(f"twitterapi: {str(d.get('msg') or d.get('message'))[:120]}")
+    out = [u for u in (d.get("followings") or []) if isinstance(u, dict)]
+    store.book(con, "twitterapi", max(0.0006, len(out) * 0.00001), ph, what, now)
+    nxt = d.get("next_cursor") if d.get("has_next_page") else None
+    return out, (nxt or None)

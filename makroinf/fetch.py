@@ -1,11 +1,20 @@
 """Posts of the measured accounts (twitterapi.io advanced search, Latest).
 
-Backfill (the pilot), per account, units in fetch_log so a deploy resumes where it stopped:
-  zadnjih          the last 100 posts of any kind (5 pages, no retweets): context and tone, the activity check
-  mj:YYYY-MM:a/b   MONTHLY QUOTAS over 12 months: "from:<h> (<macro keywords>) -filter:retweets" in each half of each
-                   month, one page (~20 posts) each, so the year is covered evenly (~40 macro posts a month) instead of
-                   the newest 300 hits only (the critic: "mjesečne kvote objava")
-Daily (after the pilot): the macro query since the newest stored post of the account (<= incr_pages pages).
+Backfill, per account, units in fetch_log so a deploy resumes where it stopped:
+  zadnjih          the last 200 posts of any kind (last_pages = 10 pages, no retweets): context and tone, the activity
+                   and regularity check; an account found by discovery already has its newest page (src proba), so its
+                   zadnjih goes on from before it (that page is not bought twice)
+  zadnjih+         accounts of the pilot (5 pages then): the posts 101-200, from before the oldest one stored
+  mj:YYYY-MM:a/b   MONTHLY QUOTAS over 18 months: "from:<h> (<macro keywords>) -filter:retweets" in each half of each
+                   month, one page (~20 posts) each (the critic: "mjesečne kvote objava"). Order: the first half of
+                   every month (newest first, so every month gets a window), then the second halves; at depth_posts
+                   (500) market posts an account the rest is not bought (fetch_log phase "dubina_puna"). A window the
+                   zadnjih posts already cover is not bought either ("pokriveno"); a partly covered one ends where they
+                   start.
+Daily (15.11. navečer, the owner: "svaki dan skrepat njihove nove postove"): every active account once in incr_every_s,
+the macro query since its newest stored post (<= incr_pages pages), the most regular accounts first, per account in
+daily_fetch so a round that runs out of time leaves the rest for the next round (not for the next day). Inactive
+accounts (no post in 30 days) are asked once a week; a new post makes them active again.
 No retweets (the query and the parser); replies are kept (the classifier decides whether they state a view); quoted
 posts are stored with their text. Dedup by post id (INSERT OR IGNORE: the first unit that saw a post keeps it).
 fetched_ts is when WE had the post: the prospective index uses it as the availability time (no look-ahead).
@@ -103,82 +112,189 @@ def _pages(con, c, query, pages, ph, handle, src, now, get, stop_before=None):
     return new, seen
 
 
+LAST_SRC = ("zadnjih", "zadnjih+", "proba")   # complete samples of the newest posts (any kind)
+REG_CAP = 8.0                                # market posts a day: more than this is not "more regular"
+
+
+def market_units(now, months):
+    """month_units in the fetch order: the first half of every month newest first, then the second halves."""
+    us = month_units(now, months)
+    return [u for u in us if u[0].endswith(":a")] + [u for u in us if u[0].endswith(":b")]
+
+
 def units_left(con, c, handle, now):
     """The backfill units not done yet. A month that starts after the account's backfill began is not a unit: the
     daily macro query covers it (no second, paid read of the same posts)."""
-    rows = store.q(con, "SELECT unit, done_ts FROM fetch_log WHERE handle = ?", (handle,))
-    done = {u for u, _t in rows}
-    first = min((t for _u, t in rows if t), default=None)
-    todo = [("zadnjih", None, None)] if "zadnjih" not in done else []
-    todo += [u for u in month_units(now, c["months"]) if u[0] not in done and (first is None or u[1] < first)]
+    rows = store.q(con, "SELECT unit, done_ts, n FROM fetch_log WHERE handle = ?", (handle,))
+    done = {u for u, _t, _n in rows}
+    first = min((t for _u, t, _n in rows if t), default=None)
+    want = int(c["last_pages"]) * int(c["page_posts"])
+    todo = []
+    if "zadnjih" not in done:
+        todo.append(("zadnjih", None, None))
+    elif "zadnjih+" not in done:
+        n_last = next((n for u, _t, n in rows if u == "zadnjih"), 0) or 0
+        if 5 * int(c["page_posts"]) - 10 <= n_last <= want - 10:   # the pilot's 100 and there were more
+            todo.append(("zadnjih+", None, None))
+    todo += [u for u in market_units(now, c["months"]) if u[0] not in done and (first is None or u[1] < first)]
     return todo
 
 
-def backfill(con, c, now=None, get=None, log=print, deadline=None, ph=None, handles=None):
+def depth(con, handle):
+    """Market (keyword) posts of the account stored by the backfill (the daily ones not counted)."""
+    r = store.q(con, "SELECT COUNT(*) FROM tweets WHERE handle = ? AND kw = 1 AND src <> 'dnevno'", (handle,))
+    return int(r[0][0]) if r else 0
+
+
+def _oldest_last(con, handle):
+    r = store.q(con, f"SELECT MIN(ts), COUNT(*) FROM tweets WHERE handle = ? AND src IN "
+                     f"({','.join('?' * len(LAST_SRC))})", (handle, *LAST_SRC))
+    return (r[0][0], r[0][1]) if r and r[0][1] else (None, 0)
+
+
+def _mark(con, h, unit, p, n=0):
+    con.execute("INSERT OR REPLACE INTO fetch_log VALUES (?,?,?,?,?,?)", (h, unit, int(time.time()), n, None, p))
+
+
+def backfill(con, c, now=None, get=None, log=print, deadline=None, ph=None, handles=None, tier=None):
     """Work through the backfill units, round-robin over the accounts (one unit each per turn, so a cap or a deadline
-    leaves every account partly covered instead of a few fully). Returns {"requests", "new", "left", "cap"}."""
+    leaves every account partly covered instead of a few fully). handles in priority order (the most regular first);
+    tier: round-robin inside groups of that many (the first group done before the next). Returns {"units", "new",
+    "left", "cap"}."""
     now = int(now or time.time())
     out = {"units": 0, "new": 0, "left": 0, "cap": None}
     if not xapi.has_key(get):
         out["cap"] = "nema ključa"
         return out
-    accs = handles if handles is not None else [h for h, _c, _s in racuni.active(con)]
-    queues = {h: units_left(con, c, h, now) for h in accs}
-    while any(queues.values()):
-        for h in list(queues):
-            if not queues[h]:
-                continue
-            if deadline and time.time() > deadline:
-                out["left"] = sum(len(v) for v in queues.values())
-                return out
-            unit, a, b = queues[h].pop(0)
-            p = ph or store.phase(con, "twapi")
-            try:
-                if unit == "zadnjih":
-                    new, seen = _pages(con, c, f"from:{h} -filter:retweets", c["last_pages"], p, h, "zadnjih", now, get)
-                else:
-                    q = f"from:{h} {KW_QUERY} -filter:retweets since_time:{int(a)} until_time:{int(b)}"
-                    new, seen = _pages(con, c, q, c["half_pages"], p, h, unit, now, get)
-            except xapi.CapReached as e:
-                out["cap"] = str(e)
-                out["left"] = sum(len(v) for v in queues.values()) + 1
+    accs = list(handles if handles is not None else [h for h, _c, _s in racuni.active(con)])
+    groups = [accs[k:k + int(tier)] for k in range(0, len(accs), int(tier))] if tier else [accs]
+    cap_posts = int(c.get("depth_posts") or 0)
+    for gi, grp in enumerate(groups):
+        queues = {h: units_left(con, c, h, now) for h in grp}
+        while any(queues.values()):
+            for h in list(queues):
+                if not queues[h]:
+                    continue
+                if deadline and time.time() > deadline:
+                    out["left"] = sum(len(v) for v in queues.values()) + sum(
+                        len(units_left(con, c, x, now)) for g in groups[gi + 1:] for x in g)
+                    return out
+                unit, a, b = queues[h].pop(0)
+                p = ph or store.phase(con, "twapi")
+                if unit.startswith("mj:"):
+                    if cap_posts and depth(con, h) >= cap_posts:   # deep enough: the rest is not bought
+                        for u, _a, _b in [(unit, a, b)] + queues[h]:
+                            _mark(con, h, u, "dubina_puna")
+                        queues[h] = []
+                        con.commit()
+                        continue
+                    z0, _zn = _oldest_last(con, h)
+                    if z0 is not None and a >= z0:                 # the newest posts already hold this window
+                        _mark(con, h, unit, "pokriveno")
+                        con.commit()
+                        continue
+                    if z0 is not None and b > z0:
+                        b = z0
+                try:
+                    if unit == "zadnjih":
+                        z0, zn = _oldest_last(con, h)   # discovery's probe page: go on from before it
+                        pages = max(0, int(c["last_pages"]) - -(-zn // int(c["page_posts"]))) if zn else int(c["last_pages"])
+                        q = f"from:{h} -filter:retweets" + (f" until_time:{int(z0)}" if zn else "")
+                        new, seen = _pages(con, c, q, pages, p, h, "zadnjih", now, get) if pages else (0, 0)
+                        seen += zn
+                    elif unit == "zadnjih+":
+                        z0, zn = _oldest_last(con, h)
+                        pages = max(1, -(-(int(c["last_pages"]) * int(c["page_posts"]) - zn) // int(c["page_posts"])))
+                        q = f"from:{h} -filter:retweets" + (f" until_time:{int(z0)}" if z0 else "")
+                        new, seen = _pages(con, c, q, pages, p, h, "zadnjih+", now, get)
+                        seen += zn
+                    else:
+                        q = f"from:{h} {KW_QUERY} -filter:retweets since_time:{int(a)} until_time:{int(b)}"
+                        new, seen = _pages(con, c, q, c["half_pages"], p, h, unit, now, get)
+                except xapi.CapReached as e:
+                    out["cap"] = str(e)
+                    out["left"] = sum(len(v) for v in queues.values()) + 1
+                    con.commit()
+                    return out
+                except Exception as e:  # noqa: BLE001 - a failed unit stays in the queue for the next round
+                    log(store.PREFIX + f"dohvat @{h} {unit}: {type(e).__name__}: {str(e)[:100]}")
+                    continue
+                _mark(con, h, unit, p, seen)
                 con.commit()
-                return out
-            except Exception as e:  # noqa: BLE001 - a failed unit stays in the queue for the next round
-                log(store.PREFIX + f"dohvat @{h} {unit}: {type(e).__name__}: {str(e)[:100]}")
-                continue
-            con.execute("INSERT OR REPLACE INTO fetch_log VALUES (?,?,?,?,?,?)", (h, unit, int(time.time()), seen,
-                                                                                  None, p))
-            con.commit()
-            out["units"] += 1
-            out["new"] += new
+                out["units"] += 1
+                out["new"] += new
     out["left"] = 0
     return out
 
 
-def incremental(con, c, now=None, get=None, log=print, deadline=None):
-    """The day's macro posts of every active account since its newest stored post (<= incr_pages pages)."""
+def incremental(con, c, now=None, get=None, log=print, deadline=None, ph=None, handles=None):
+    """The day's macro posts of every active account since its newest stored post (<= incr_pages pages): accounts
+    not fetched in incr_every_s (daily_fetch), the most regular first, an inactive one once a week; an account whose
+    backfill has not started yet waits for it (its zadnjih unit reads the same posts). Deadline-safe: what is left
+    goes in the next round. Returns {"accounts", "new", "left", "cap", "reaktivirano"}."""
     now = int(now or time.time())
-    out = {"accounts": 0, "new": 0, "cap": None}
+    out = {"accounts": 0, "new": 0, "left": 0, "cap": None, "reaktivirano": 0}
     if not xapi.has_key(get):
         out["cap"] = "nema ključa"
         return out
-    for h, _cat, _src in racuni.active(con):
+    every = int(c.get("incr_every_s") or 20 * 3600)
+    last = dict(store.q(con, "SELECT handle, ts FROM daily_fetch"))
+    started = {h for (h,) in store.q(con, "SELECT handle FROM fetch_log WHERE unit = 'zadnjih'")}
+    rows = handles if handles is not None else racuni.by_regularity(con, ("aktivan", "neaktivan"))
+    todo = []
+    for h, st in rows:
+        gap = 7 * 86400 if st == "neaktivan" else every
+        if h in started and now - int(last.get(h) or 0) >= gap:
+            todo.append((h, st))
+    for k, (h, st) in enumerate(todo):
         if deadline and time.time() > deadline:
+            out["left"] = len(todo) - k
             break
-        last = store.q(con, "SELECT MAX(ts) FROM tweets WHERE handle = ?", (h,))
-        since = int((last[0][0] if last and last[0][0] else now - 7 * 86400))
+        r = store.q(con, "SELECT MAX(ts) FROM tweets WHERE handle = ?", (h,))
+        since = int((r[0][0] if r and r[0][0] else now - 7 * 86400))
         q = f"from:{h} {KW_QUERY} -filter:retweets since_time:{since + 1}"
         try:
-            new, _seen = _pages(con, c, q, c["incr_pages"], store.phase(con, "twapi"), h, "dnevno", now, get,
+            new, _seen = _pages(con, c, q, c["incr_pages"], ph or store.phase(con, "twapi"), h, "dnevno", now, get,
                                 stop_before=since)
         except xapi.CapReached as e:
             out["cap"] = str(e)
+            out["left"] = len(todo) - k
             break
         except Exception as e:  # noqa: BLE001
             log(store.PREFIX + f"dnevni dohvat @{h}: {type(e).__name__}: {str(e)[:100]}")
             continue
+        con.execute("INSERT OR REPLACE INTO daily_fetch VALUES (?,?,?)", (h, now, new))
+        if st == "neaktivan" and new:
+            con.execute("UPDATE accounts SET status = 'aktivan', why = 'opet objavljuje' WHERE handle = ? AND "
+                        "status = 'neaktivan'", (h,))
+            out["reaktivirano"] += 1
         out["accounts"] += 1
         out["new"] += new
         con.commit()
     return out
+
+
+def regularity(con, h, now=None, n=100):
+    """(posts a day, market share, regularity) of the account's newest complete posts (zadnjih / probe): regularity =
+    market posts a day, capped at REG_CAP. None without 3 such posts."""
+    rows = store.q(con, f"SELECT ts, kw, fetched_ts FROM tweets WHERE handle = ? AND src IN "
+                        f"({','.join('?' * len(LAST_SRC))}) ORDER BY ts DESC LIMIT ?", (h, *LAST_SRC, int(n)))
+    if len(rows) < 3:
+        return None
+    end = max(int(r[2] or r[0]) for r in rows)
+    span_d = max(1.0, (end - rows[-1][0]) / 86400)
+    posts_day = len(rows) / span_d
+    share = sum(1 for r in rows if r[1]) / len(rows)
+    return round(posts_day, 3), round(share, 3), round(min(posts_day * share, REG_CAP), 3)
+
+
+def update_regularity(con, now=None):
+    """accounts.posts_day / market_share / regularity of every measured account (local, no request)."""
+    n = 0
+    for (h,) in store.q(con, "SELECT handle FROM accounts WHERE status IN ('novo', 'aktivan', 'neaktivan')"):
+        r = regularity(con, h, now)
+        if r:
+            con.execute("UPDATE accounts SET posts_day = ?, market_share = ?, regularity = ? WHERE handle = ?", (*r, h))
+            n += 1
+    con.commit()
+    return n

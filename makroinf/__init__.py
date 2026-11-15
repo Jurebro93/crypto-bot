@@ -3,7 +3,9 @@ kritičara"): kripto računi 100k+ čije izjave o smjeru tržišta (BTC / ETH / 
 zaključanim pravilima prema stvarnom kretanju; tri odvojene ocjene (prediktivna kvaliteta, ekonomska vrijednost,
 integritet), brisanja kao "naknadno nedostupno", indeks konsenzusa najtočnijih kao DEMO ulaz u veliki/makro.
 
-Pilot 50 računa prvo; proširenje na 300 tek kad provjera klasifikacije prođe (makroinf/quality.py). Moduli:
+Pilot 50 računa prvo; proširenje na 300 tek kad provjera klasifikacije prođe (makroinf/quality.py) — 15.11. navečer
+vlasnik je izričitim nalogom naložio proširenje na 300-500 najredovitijih računa (discover.py: vrata nadjačana nalogom,
+zapisano), dnevno praćenje svih, biblioteku svih objava i tumačenje (raspoloženje, teme). Moduli:
   store     makroinf.db, konfiguracija, stropovi troška (twitterapi, OpenAI) po fazi
   racuni    sjeme računa, vlasnikova datoteka racuni_vlasnik.json, razrješenje handleova, kandidati za imena bez poznatog handlea
   fetch     mjesečne kvote napredne pretrage + zadnjih 100 objava, dnevno inkrementalno
@@ -15,6 +17,11 @@ Pilot 50 računa prvo; proširenje na 300 tek kad provjera klasifikacije prođe 
   index     klasteri, indeks konsenzusa, walk-forward bez curenja, dodatni EV, automatsko isključivanje
   quality   300 stratificiranih uzoraka, kritičar na ~100, preciznost / odziv po kategoriji, vrata proširenja
   report    log linije, kartica, MCP, kritičar, jutarnji izvještaj
-  public    javne stranice (iza vlasnikova prekidača makroinf_javno)
+  public    javne stranice (iza vlasnikova prekidača makroinf_javno), sve indeksirane, raspoloženje i teme
+  discover  proširenje po nalogu vlasnika: otkrivanje, proba, odabir po redovitosti, procjena i trošak po fazi
+  mood      raspoloženje (udio bikovskih / medvjeđih / neutralnih, ponderirano točnošću, pravilo presude, izvori)
+  teme      teme dana (jeftini model, strop unutar dnevnog; rječnik kad nema modela)
+  library   biblioteka svih spremljenih objava s filtrima
+  appviews  tumačenje i biblioteka u aplikaciji (tab Makro: Pregled | Biblioteka)
   run       orkestracija (krug svakih 10 min, noćno ocjenjivanje)
 """

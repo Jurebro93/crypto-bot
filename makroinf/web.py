@@ -6,8 +6,11 @@ kako budeš punio podatke o makroinfluencerima na dnevnoj bazi, osvježavati i s
                     and "nedovoljno dokaza", the stance on BTC and the consensus index of the most accurate accounts.
                     fresh=True (members, the app) = as of the last scoring; fresh=False (the public pages) = 7 days
                     ago (PUBLIC_DELAY_S), like the public influencer pages keep fresh calls for members.
-  tab_html()        the "Makro" tab of /kol (Influenceri) for every logged-in user, fetched from /kol-makro/lista
+  tab_html()        the "Makro" tab of /kol (Influenceri) for every logged-in user, fetched from /kol-makro/lista:
+                    since 15.11. navečer first the interpretation (makroinf/appviews.py: the market mood with its
+                    sources, the topics of the day, the stance changes, per asset), then the ranking
   profile_page(h)   /kol-makro/<handle>: one account in the app (fresh stance, every call incl. the last 7 days)
+  library(qs)       /kol-makro/biblioteka: every stored post with its classification, filtered (makroinf/library.py)
   stamp() / sync()  freshness in the UI process: the newest score time and the owner switch; when either moves, every
                     cached copy of the macro pages is dropped (public pages, sitemap, robots, the app tab, profiles),
                     so users and Google see the numbers of the last scoring (the light one every 30 min, the night's)
@@ -134,11 +137,12 @@ def episodes(h, fresh=True, now=None, limit=60):
 
 
 def sitemap_count(v=None):
-    """Account pages offered to search engines: those with enough evidence (0 while the switch is off)."""
+    """Account pages offered to search engines: every account (15.11. navečer, the owner: "Neka Google sve indeksira";
+    0 while the switch is off)."""
     if not on():
         return 0
     v = v or view(fresh=False)
-    return len(v["ranked"]) if v else 0
+    return v["n"] if v else 0
 
 
 # ---------- freshness: after every scoring ------------------------------------------------------------------------------
@@ -237,7 +241,7 @@ def refreshed(con, now=None):
     d = report.data(con=con)
     v = view(fresh=False, d=d, now=now) if d else None
     n = v["n"] if v else 0
-    m = len(v["ranked"]) if v and on() else 0
+    m = n if v and on() else 0   # every profile is in the sitemap (15.11. navečer: "Neka Google sve indeksira")
     store.kv(con, "javno", {"ts": now, "racuna": n, "sitemap": m, "uzivo": on()})
     return n, m
 
@@ -407,14 +411,16 @@ def tab_html(now=None):
 
 
 def _tab_html(now=None):
+    from makroinf import appviews
     from ui import redak as R
     v = view(fresh=True, now=now)
     pub = "/hr/makro-influenceri#kako-mjerimo" if on() else None
     if not v:
-        return (f"<style>{CSS}</style>" + str(R.hero("Još nema ocjena", "Makro influencere tek mjerimo: objave se "
-                                                     "razvrstavaju, a prve ocjene stižu nakon prvog izračuna.",
-                                                     label="Makro influenceri")) + _how(pub))
-    out = [f"<style>{CSS}</style>", str(_index_hero(v, now)), _how(pub)]
+        return (f"<style>{CSS}{appviews.CSS}</style>" + appviews.subnav("/kol#makro")
+                + str(R.hero("Još nema ocjena", "Makro influencere tek mjerimo: objave se razvrstavaju, a prve ocjene "
+                             "stižu nakon prvog izračuna.", label="Makro influenceri")) + _how(pub))
+    out = [f"<style>{CSS}</style>", appviews.overview_html(), str(R.section("Konsenzus i rang", sid="makro-konsenzus")),
+           str(_index_hero(v, now)), _how(pub)]
     out.append(str(R.section(f"Najtočniji · {len(v['ranked'])}", sid="makro-rang")))
     if v["ranked"]:
         out.append("<div class=mi-list>" + "".join(_row(r, i) for i, r in enumerate(v["ranked"], 1)) + "</div>")
@@ -522,12 +528,20 @@ def _profile(handle, now=None):
                   f"<div class=s>{_date(ts)} · horizont {esc(HZ.get(hzb, hzb or ''))}</div></div>"
                   f"<div class=r>{res_html}<span class=p>{link}</span></div></div>")
     out.append("".join(ep) if ep else str(R.hint("Još nema izmjerenih izjava.")))
-    foot = "Ocjene se osvježavaju nakon svakog izračuna (svakih 30 min i noću)."
+    foot = (f"Ocjene se osvježavaju nakon svakog izračuna (svakih 30 min i noću). <a href='/kol-makro/biblioteka?racun="
+            f"{quote(h)}&amp;vrsta=sve'>Sve objave @{esc(h)} u biblioteci →</a>")
     if on():
         foot += (f" <a href='/hr/makro-influencer/{quote(h)}'>Javna stranica (s odgodom 7 dana) →</a> · "
                  "<a href='/hr/makro-influenceri#kako-mjerimo'>Kako mjerimo →</a>")
     out.append(f"<p class=mi-foot>{foot}</p>")
     return f"@{h} · makro", kol._calm(f'<div class="ms-page kl">{"".join(out)}</div>')
+
+
+def library(qs, now=None):
+    """(title, body) of /kol-makro/biblioteka (cached until the next scoring, per query)."""
+    from makroinf import appviews
+    key = ("lib",) + tuple(sorted((k, str(v)) for k, v in (qs or {}).items()))
+    return _cached(key, lambda: appviews.library_page(qs, now))
 
 
 def list_page(now=None):

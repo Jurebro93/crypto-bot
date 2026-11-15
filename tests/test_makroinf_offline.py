@@ -312,9 +312,9 @@ class Deletions(Base):
         super().setUp()
         for h in ("a", "susp"):
             self.con.execute("INSERT INTO accounts (handle, status) VALUES (?, 'aktivan')", (h,))
-        for i in ("1", "2", "3", "4", "5"):
+        for i in ("1", "2", "3", "4", "5"):   # fetched two days after they were written: +1 / +7 / +30 d checks
             self.con.execute("INSERT INTO tweets (id, handle, ts, fetched_ts, kw, macro) VALUES (?,?,?,?,1,1)",
-                             (i, "susp" if i == "5" else "a", NOW - 40 * D, NOW - 3 * D))
+                             (i, "susp" if i == "5" else "a", NOW - 5 * D, NOW - 3 * D))
         self.con.commit()
         self.c = {**store.config(), "pilot_twapi_usd": 1.0}
 
@@ -491,7 +491,8 @@ class Pilot(Base):
     def test_pilot_end_to_end(self):
         fx = FakeX(small={"PeterSchiff"}, suspended={"glassnode"})
         lines = []
-        c = {**store.config(), "months": 2, "last_pages": 1}
+        # the pilot alone (the owner's expansion order of 15.11. navečer: tests/test_makro2_offline.py)
+        c = {**store.config(), "months": 2, "last_pages": 1, "expand_by_order": False}
         with mock.patch.object(racuni, "OWNER_FILE", self.own), mock.patch.object(store, "config", lambda cfg=None: c):
             for _ in range(6):
                 run.krug(NOW, lines.append, get=fx, call=fake_llm(), budget_s=600, refresh_prices=True)
@@ -637,15 +638,17 @@ class Public(Base):
         self.assertEqual(self.public.route("/macro-influencer/nobody")[0], 404)
         self.assertIsNone(self.public.route("/hr/macro-influencer/MacroMan"))          # no mixed-language paths
 
-    def test_small_n_is_noindex(self):
+    def test_small_n_is_indexable_with_the_honest_label(self):
+        # 15.11. navečer (the owner: "Neka Google sve indeksira"): no noindex any more, the label stays
         self.flag(settings.MAKROINF_JAVNO, "live")
         self.con.execute("DELETE FROM calls WHERE CAST(id AS INTEGER) > 104")
         self.con.commit()
         run.score_all(self.con, NOW)
         page = self.public.route("/macro-influencer/MacroMan")[1].decode()
-        self.assertIn('noindex', page)
+        self.assertNotIn('noindex', page)
+        self.assertIn("still collecting evidence", page)
         self.assertIn("insufficient evidence", page)
-        self.assertNotIn("/macro-influencer/MacroMan", self.public.sitemap())
+        self.assertIn("/macro-influencer/MacroMan", self.public.sitemap())
 
 
 # ---------- wiring ----------------------------------------------------------------------------------------------------

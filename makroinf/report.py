@@ -133,6 +133,17 @@ def hour_line(con, now=None, c=None):
                      "ORDER BY day DESC LIMIT 1")
     ul = store.kv_json(con, "ulaz", {}) or {}
     pilot = "gotov" if store.kv(con, "pilot_twapi_done") else "u tijeku"
+    exp = ""
+    if store.kv(con, "prosirenje"):
+        cap = store.kv_json(con, "prosirenje", {}) or {}
+        exp = (f"; proširenje twitterapi {_usd(store.spent(con, 'twitterapi', 'prosirenje'))} / "
+               f"{_usd(cap.get('twapi_usd') or c['expand_twapi_usd'])}, OpenAI "
+               f"{_usd(store.spent(con, 'openai', 'prosirenje'))} / {_usd(cap.get('openai_usd') or c['expand_openai_usd'])}")
+    m = store.kv_json(con, "raspolozenje", {}) or {}
+    b = (m.get("okviri") or {}).get("24h") or {}
+    from makroinf import mood
+    md = (f"; raspoloženje 24 h: {mood.VERDICT['hr'].get(b.get('presuda'), '—').lower()} ({b.get('n', 0)} računa)"
+          if b else "")
     return (
         f"{store.PREFIX}sat: računi {st.get('aktivan', 0)} aktivnih, {st.get('odbijen', 0)} odbijenih, "
         f"{st.get('needs_owner_confirm', 0)} čeka potvrdu vlasnika; objave {n_tw} (+{n_new} u satu), klasificirano "
@@ -142,7 +153,7 @@ def hour_line(con, now=None, c=None):
         f"{_usd(tp)} / {_usd(c['pilot_twapi_usd'])} ({pilot}), danas {_usd(td)} / {_usd(c['day_twapi_usd'])}; OpenAI "
         f"pilot {_usd(op)} / {_usd(c['pilot_openai_usd'])}, danas {_usd(od)} / {_usd(c['day_openai_usd'])}; indeks "
         f"najtočnijih BTC {_idx(r[0][0] if r else None)} ({r[0][1] if r else 0} računa); ulaz u demo: "
-        f"{STATE_HR.get(ul.get('state'), ul.get('state') or 'na čekanju')}")
+        f"{STATE_HR.get(ul.get('state'), ul.get('state') or 'na čekanju')}{exp}{md}")
 
 
 def lines(con, now=None):
@@ -160,7 +171,9 @@ def lines(con, now=None):
     q = d.get("provjera") or {}
     if q:
         out.append(store.PREFIX + f"provjera klasifikacije: {'prošla' if q.get('passed') else 'nije prošla'} "
-                                  f"({q.get('why')})" + ("; vlasnik forsirao proširenje" if q.get("forced") else ""))
+                                  f"({q.get('why')})" + ("; vlasnik forsirao proširenje" if q.get("forced") else "")
+                                  + ("; proširenje po izričitom nalogu vlasnika (vrata nadjačana)" if q.get("nalog")
+                                     else ""))
     return out
 
 
@@ -294,11 +307,39 @@ def card_html(sec, item, esc, owner=True, path=None):
              f" — {esc(ul.get('why') or '')}. Dodatni EV: {esc(ev_txt)}.</p>"
              f"<p class=mut>Provjera klasifikacije: {esc(q.get('why') or 'čeka kraj pilota')}"
              f"{' (vlasnik forsirao)' if q.get('forced') else ''}. Trošak dosad: {esc(cost_txt)}.</p>"
+             + _order_html(path, esc)
              + (f"<p class=mut>Čeka tvoju potvrdu (racuni_vlasnik.json → potvrdi):</p><ul>{cand}</ul>" if cand else "")
              + (f"<p class=mut>Nerazriješeni / odbijeni: {esc(rej_txt)}</p>" if rej_txt else "")
              + "<p class=mut>Brisanja: „naknadno nedostupno” = objavu više ne vidimo (obrisana, nedostupna ili račun "
                "zaključan); bez kazne i bez optužbi.</p>")
     return sec("Makro influenceri", meta, inner, sid="makroinf")
+
+
+def _order_html(path, esc):
+    """The owner's card: his order of 15.11. navečer (the gate overridden), discovery, the estimate, the spend per
+    phase (owner only, so costs are fine here)."""
+    con = store.ro(path)
+    if con is None:
+        return ""
+    try:
+        from makroinf import discover
+        sm = discover.summary(con)
+    except Exception:  # noqa: BLE001
+        return ""
+    finally:
+        con.close()
+    n = sm.get("nalog")
+    if not n:
+        return ""
+    est = sm.get("procjena") or {}
+    sp = sm.get("trosak_po_fazi") or {}
+    return ("<p class=mut>Proširenje po tvom nalogu (" + esc(n.get("kada") or "") + "): "
+            + ("vrata provjere kvalitete nadjačana nalogom; " if n.get("provjera_nadjacana") else "")
+            + f"otkrivanje: {esc(sm.get('korak') or '—')}, kandidata {sm.get('kandidata', 0)}, dodano "
+            f"{sm.get('dodano', 0)}; procjena twitterapi {_usd((est.get('twapi') or {}).get('ukupno'))} / "
+            f"{_usd((est.get('stropovi') or {}).get('twapi'))}, OpenAI {_usd((est.get('openai') or {}).get('ukupno'))} / "
+            f"{_usd((est.get('stropovi') or {}).get('openai'))}. Stvarno po fazi: "
+            + esc(", ".join(f"{k} {_usd(v)}" for k, v in sp.items()) or "još ništa") + ".</p>")
 
 
 # ---------- MCP, critic, morning report ---------------------------------------------------------------------------------
@@ -326,6 +367,20 @@ def mcp(args=None):
            "owner_to_confirm": [x for x in d.get("candidates") or [] if x.get("status") == "needs_owner_confirm"],
            "note": "deletions = 'naknadno nedostupno' (no penalty, no accusation); historic index is biased (only posts "
                    "that survived until fetched); real money never from this tool"}
+    con = store.ro()
+    try:   # 15.11. navečer: the owner's expansion order and the market mood (fresh)
+        from makroinf import discover, mood
+        if con is not None:
+            out["expansion"] = discover.summary(con)
+            m = mood.load(con) or {}
+            out["mood"] = {"t": m.get("t"), "rules": mood.MOOD_RULES, "windows": {
+                k: {x: b.get(x) for x in ("n", "broj", "strane", "strane_pond", "presuda", "presuda_pond")}
+                for k, b in (m.get("okviri") or {}).items()}, "changes": (m.get("promjene") or [])[:20]}
+    except Exception as e:  # noqa: BLE001
+        out["expansion_error"] = f"{type(e).__name__}"
+    finally:
+        if con is not None:
+            con.close()
     h = (a.get("handle") or "").lstrip("@")
     if h:
         con = store.ro()
@@ -375,10 +430,13 @@ def morning(now=None):
     top = [r for r in rank_rows(d) if r["presuda"] != "nedovoljno dokaza"][:3]
     ix = (d.get("index") or {}).get("BTC:prospektivno:top") or {}
     prev = (d.get("index_prev") or {}).get("BTC:prospektivno:top")
+    from makroinf import mood
+    m = mood.load() or {}
     return {"top3": [{"handle": r["handle"], "pogodak": r["pogodak"], "n": r["n_epizoda"],
                       "stav": DIR_HR.get((r["stav_btc"] or {}).get("smjer"))} for r in top],
             "index": {"sada": ix.get("v"), "prije": prev, "n": ix.get("n")},
-            "ulaz": (d.get("ulaz") or {}).get("state"), "enough": d["summary"].get("enough", 0)}
+            "ulaz": (d.get("ulaz") or {}).get("state"), "enough": d["summary"].get("enough", 0),
+            "raspolozenje": (m.get("okviri") or {}).get("24h")}
 
 
 def morning_text(m):
@@ -389,5 +447,7 @@ def morning_text(m):
     ix = m.get("index") or {}
     chg = ("" if ix.get("sada") is None or ix.get("prije") is None else
            f", promjena {(ix['sada'] - ix['prije']):+.2f}".replace(".", ","))
+    from makroinf import mood
+    md = (" Raspoloženje 24 h: " + mood.line(m["raspolozenje"])) if (m.get("raspolozenje") or {}).get("n") else ""
     return (f"Makro influenceri: najtočniji {tops}. Indeks najtočnijih BTC {_idx(ix.get('sada'))} ({ix.get('n') or 0} "
-            f"računa{chg}); ulaz u demo: {STATE_HR.get(m.get('ulaz'), m.get('ulaz') or 'na čekanju')}.")
+            f"računa{chg}); ulaz u demo: {STATE_HR.get(m.get('ulaz'), m.get('ulaz') or 'na čekanju')}.{md}")
