@@ -808,6 +808,8 @@ def cmd_follow(a):
                       f"config mode={cfg.get('mode', '?')!r} samo kao napomena)", flush=True)
                 try:   # 11.11. (Jure: "pokaži iz loga da su Grokovi limiti nepromijenjeni"): the limits in force
                     print(f"pravi trade: {limits_line(con, cfg)}", flush=True)
+                    from trade import cost as _cost   # 15.11.: what the measured swap cost is made of
+                    print(f"pravi trade: {_cost.breakdown_line()}", flush=True)
                 except Exception as e:  # noqa: BLE001 - a log line never stops the loop
                     print(f"pravi trade: limiti nisu ispisani: {type(e).__name__}: {e}", flush=True)
                 beat["live"] = live_now
