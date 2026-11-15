@@ -373,6 +373,19 @@ OWNER_SWITCH_NOTES[FOKUS] = ("Tvoj prekidač: „uživo” (uključeno tvojim na
                              "veliki/, kritičar i sigurnosne provjere ostaju. Svaki drugi mod = sve kao prije.")
 
 
+# 15.11. (vlasnik: "i dalje želim naći insajdere i botove koji kupuju prije poziva ... kako ih pratiti da budemo sigurno
+# u plusu"; insajderi/): FLAG "insajderi2": paper = the DEMO account PAPER_USER enters when a CONFIRMED insider group
+# (insajderi/score: bought before AND sold into the pump on 3+ tokens, out of sample) buys a token in real time (the
+# Helius webhook), behind every hard rule and the 5M capgate; exit when the group sells, stop -25 %, 24 h. Never live
+# by this flag (NEVER_LIVE) and no owner switch: real money is the owner's decision later, with the numbers.
+INSAJDERI2 = "insajderi2"
+FLAGS[INSAJDERI2] = ("P23", "Insajderi 2.0: demo račun ulazi kad potvrđena grupa insajdera (kupili prije poziva i prodali "
+                            "u skok na 3+ tokena, potvrđeno na novijim danima) kupi token; samo bondani i MC ≥ 5M, izlaz "
+                            "kad grupa proda, stop −25 %, 24 h; 0,1 SOL, najviše 5 otvorenih, 10 dnevno")
+NEVER_LIVE[INSAJDERI2] = "insajderi2 nikad ne trguje pravim novcem (samo demo račun); vlasnik odlučuje kasnije s brojkama"
+PROFILE_FLAGS = PROFILE_FLAGS | {INSAJDERI2}   # its paper mode never makes the paper account follow anybody
+
+
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""
     try:

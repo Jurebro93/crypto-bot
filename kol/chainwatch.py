@@ -162,6 +162,12 @@ def wanted(con, cfg, wallet_db=None, now=None):
         ins = pre + [w for w in ins if w not in pre]
     except Exception:  # noqa: BLE001
         pass
+    try:   # 15.11. (flag insajderi2, insajderi/live.py): the confirmed insider groups (Insajderi 2.0) first, ONLY in
+        from insajderi import live as _i2   # paper / live, at most its max_webhook (each event costs a credit)
+        pre2 = _i2.webhook_wallets()
+        ins = pre2 + [w for w in ins if w not in pre2]
+    except Exception:  # noqa: BLE001
+        pass
     # 4.11.: wallets a player follows in the competition (league.db follows) MUST be in the webhook, or the follow
     # never sees a buy ("pratim nekoliko walleta, nemam otvorenih pozicija"); they go first, outside the shares
     followed = []

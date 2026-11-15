@@ -100,6 +100,24 @@ def top_events(limit=10, since=None, path=None):
     return out
 
 
+def catalyst_tasks(limit=5, now=None, path=None, trade_db=None):
+    """[event] of the biggest jumps of the last 48 h whose catalyst Grok has not checked yet (catalyst_check answers:
+    submit_signal_opinion with evidence source catalyst_check, archived in trade.db assistant_notes)."""
+    now = int(now or time.time())
+    tops = top_events(20, now - 48 * 3600, path)
+    if not tops:
+        return []
+    from insajderi import events as iev
+    if trade_db is None:
+        try:
+            from trade import settings
+            trade_db = settings.DB
+        except Exception:  # noqa: BLE001
+            trade_db = None
+    done = iev._grok_answers(trade_db, [e["token"] for e in tops])
+    return [e for e in tops if not any(ts >= e["t0"] for ts, _t in done.get(e["token"], []))][:int(limit)]
+
+
 def mcp(args=None):
     """MCP get_insiders2 (read-only): the last pass's summary, the copy verdict, the groups (confirmed insiders first),
     the top jumps with their catalyst and early buyers, smart money; limit 1-100."""

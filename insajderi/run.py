@@ -3,8 +3,8 @@
   once    ~10 min after a deploy (start.sh, under ops.heavy, nice): the existing data first (no Helius for what our
           databases already hold), Helius for at most deploy_share (40 %) of the day's cap
   night   01-06 Zagreb (ops.heavy --night), at most once in night_gap_h: the rest of the day's cap
-  incr    every few hours, light: new events of the last 2 days from our databases, the trending log; no Helius
-          unless --credits is given
+  incr    every 3 h, light: new events of the last 2 days, Helius at most incr_share (10 %) of the cap, the groups
+          (the demo's watched set), catalysts and the trending log; the walk-forwards keep the last full pass's numbers
   report  the reports and the log line only
 
 Each pass ends with the log line (report.line) and output/insajderi.md + output/pametni_novac.md. Everything runs
@@ -32,6 +32,11 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
             if now - last < float(c["night_gap_h"]) * 3600:
                 _log(log, f"noćni prolaz već odrađen prije {(now - last) / 3600:.1f} h, preskačem")
                 return json.loads(store.kv(con, "summary") or "{}")
+        if kind == "once" and credits is None:   # a deploy a few times a day must not redo it (nor eat the cap)
+            last = max(int(float(store.kv(con, "once_last") or 0)), int(float(store.kv(con, "night_last") or 0)))
+            if now - last < float(c["once_gap_h"]) * 3600:
+                _log(log, f"prolaz nakon deploya već odrađen prije {(now - last) / 3600:.1f} h, preskačem")
+                return json.loads(store.kv(con, "summary") or "{}")
         since = now - (2 * 86400 if kind == "incr" else int(c["days"]) * 86400)
         if kind != "report":
             calls = ev.call_events(p, c, now, since)
@@ -48,8 +53,8 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
                 budget = min(left, int(cap * float(c["deploy_share"])))
             elif kind == "night":
                 budget = left
-            else:
-                budget = 0
+            else:   # incr: a small share of the cap for the new calls
+                budget = min(left, int(cap * float(c["incr_share"])))
             n_f, spent = (0, 0)
             if budget > 0:
                 evs = ev.load(con, now - int(c["days"]) * 86400)
@@ -62,9 +67,9 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
             con.commit()
             _log(log, f"Helius {spent:,} kr. ({n_f} događaja), danas {store.helius_spent(con, now):,} od {cap:,} "
                       f"({how})")
-        summary = analyze(con, p, c, now, log=log)
-        if kind == "night":
-            store.kv(con, "night_last", now)
+        summary = analyze(con, p, c, now, log=log, light=(kind == "incr"))
+        if kind in ("night", "once"):
+            store.kv(con, f"{kind}_last", now)
             con.commit()
         try:
             from insajderi import report
@@ -82,8 +87,9 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
         con.close()
 
 
-def analyze(con, p, c, now, log=print):
-    """Owners, classification, catalysts, the copy walk-forward, trending and smart money -> the summary."""
+def analyze(con, p, c, now, log=print, light=False):
+    """Owners, classification, catalysts, the copy walk-forward, trending and smart money -> the summary. light: the
+    walk-forwards (copy, smart money, trending score) keep the last full pass's numbers."""
     evs = ev.load(con, now - int(c["days"]) * 86400)
     own, relay = chain.assign_owners(con, p, c)
     parts = score.load_parts(con)
@@ -94,10 +100,14 @@ def analyze(con, p, c, now, log=print):
     stats = score.classify(parts, evs, now + 1, c, bad, ft)
     n_groups = score.save(con, stats, now)
     cats = ev.catalyze(con, p, evs, chain.waves(con, c))
-    rows, _conf = copy.walk(con, p, c, evs, parts, now, bad, ft)
-    copy.save(con, rows)
-    cs = copy.summarize(rows)
-    ok, why = copy.verdict(cs)
+    prev = json.loads(store.kv(con, "summary") or "{}") if light else {}
+    if light and prev.get("copy"):
+        cs, ok, why = prev["copy"], prev.get("copyable"), prev.get("verdict")
+    else:
+        rows, _conf = copy.walk(con, p, c, evs, parts, now, bad, ft)
+        copy.save(con, rows)
+        cs = copy.summarize(rows)
+        ok, why = copy.verdict(cs)
     sellers = {r[1] for r in parts if r[9]}
     before = {r[1] for r in parts if r[9] and r[8]}
     conf = score.confirmed(stats)
@@ -114,12 +124,15 @@ def analyze(con, p, c, now, log=print):
                "helius_cap": store.helius_cap(c, now, p.get("usage_db"))[0]}
     try:
         from insajderi import trending
-        summary["trending"] = trending.run(con, p, c, now)
+        if light and prev.get("trending"):
+            summary["trending"] = {**prev["trending"], "new": trending.log_entries(con, p, now)}
+        else:
+            summary["trending"] = trending.run(con, p, c, now)
     except Exception as e:  # noqa: BLE001 - one part costs only itself
         _log(log, f"trending ({type(e).__name__}: {e})")
     try:
         from insajderi import smart
-        summary["smart"] = smart.run(con, p, c, now, stats, evs, parts)
+        summary["smart"] = prev["smart"] if light and prev.get("smart") else smart.run(con, p, c, now, stats, evs, parts)
     except Exception as e:  # noqa: BLE001
         _log(log, f"pametni novac ({type(e).__name__}: {e})")
     store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))

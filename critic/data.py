@@ -361,6 +361,13 @@ def reports(now=None, budget_chars=2500):
             put("oscilator", o, None)
     except Exception:  # noqa: BLE001
         pass
+    try:   # 15.11. (insajderi/): Insajderi 2.0: who bought before calls / jumps and sold into them, copyability
+        from insajderi import report as i2report
+        i2 = i2report.critic_summary()
+        if i2:
+            put("insajderi2", i2, i2.get("ts"))
+    except Exception:  # noqa: BLE001
+        pass
     try:   # 15.11. (konsenzus/): the source consensus walk-forward and its demo
         from konsenzus import view as kview
         k = kview.critic_summary()

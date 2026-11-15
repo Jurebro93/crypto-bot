@@ -59,9 +59,11 @@ class Switch(Base):
         self.assertIn(fokus.SWITCH, settings.OWNER_SWITCHES)
         self.assertIn(fokus.SWITCH, settings.FLAGS)
         self.assertIn(fokus.SWITCH, settings.OWNER_SWITCH_NOTES)
-        self.assertEqual(assistnotes.OWNER_FLAG_ORDERS[-1][:2], (fokus.SWITCH, "live"))
+        # 15.11.: later owner orders (insajderi2 ...) are appended after it, so it is the last fokus order, not the last
+        mine = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == fokus.SWITCH)
+        self.assertEqual(mine[-1][:2], (fokus.SWITCH, "live"))
         self.assertFalse(fokus.on())   # never set: off (the old behaviour)
-        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", assistnotes.OWNER_FLAG_ORDERS[-1:]):
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", mine[-1:]):
             self.assertEqual(assistnotes.owner_flag_orders(self.con), [f"zastavica {fokus.SWITCH}: off → live"])
             settings._FLAG_CACHE.clear()
             self.assertTrue(fokus.on())
@@ -114,6 +116,8 @@ class Switch(Base):
         self.assertTrue(s.startswith("fokus midcap: isključeno "))
         self.assertIn("preusmjereno", s)
         self.assertIn("2M–200M", s)
+        self.assertIn("iznimka s budžetom: insajderi2", s)   # 15.11.: Insajderi 2.0 runs under the switch, budgeted
+        self.assertIsNone(fokus.skip_cmd(["python3", "run_insajderi.py", "night"]))
         self.switch(False)
         self.assertIn("ISKLJUČEN", fokus.start_line())
 

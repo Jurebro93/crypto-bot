@@ -252,3 +252,172 @@ class Insiders2(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------- the extension and the wiring ------------------------------------------------------------------------------
+from insajderi import live as ilive, report, smart, trending  # noqa: E402
+from tests.test_pravi_novac_sve_offline import LU, PU, SwitchBase, tok  # noqa: E402
+from trade import settings  # noqa: E402
+from unittest import mock  # noqa: E402
+
+
+class SmartMoney(unittest.TestCase):
+    C = store.config({"cluster_gap_s": 300, "cluster_min_tokens": 2, "signal_min_clusters": 2, "signal_window_s": 3600})
+
+    def test_clusters_cobuy_and_signal_needs_two_independent(self):
+        a, b, x = addr("Aa"), addr("Bb"), addr("Xx")
+        m1, m2, m3 = addr("M1"), addr("M2"), addr("M3")
+        tr = [(a, m1, 100, "buy", 1, 1), (b, m1, 160, "buy", 1, 1), (a, m2, 1000, "buy", 1, 1), (b, m2, 1100, "buy", 1, 1),
+              (a, m3, 5000, "buy", 1, 1), (b, m3, 5050, "buy", 1, 1), (x, m3, 6000, "buy", 1, 1)]
+        owners = {"oa": [a], "ob": [b], "ox": [x]}
+        cl = smart.clusters(owners, tr, self.C)
+        self.assertEqual(cl["oa"], cl["ob"])                     # co-buy within 5 min on 2+ tokens: one cluster
+        self.assertNotEqual(cl["oa"], cl["ox"])
+        sig = smart.signals(owners, cl, tr, self.C, 0, 10_000)
+        self.assertEqual([(t, ts) for t, ts, _k in sig], [(m3, 6000)])   # a and b are one: only x makes it two
+
+    def test_roles_skip_bots_and_need_two_jumps(self):
+        evs = [{"eid": f"e{i}", "win_end": 10, "kind": "jump", "t0": 1} for i in range(3)]
+        parts = [(f"e{i}", "w1", "o1", 0, 1, 1, 2, 5, 1, 1, 60) for i in range(3)] + \
+                [("e0", "w2", "o2", 0, 1, 0, None, None, 1, 0, 60)] + \
+                [(f"e{i}", "w3", "o3", 0, 1, 1, 2, 5, 1, 1, 60) for i in range(3)]
+        st = {"o3": {"cls": "bot_snajper"}}
+        r = smart.roles(st, evs, parts, 100, store.config({}))
+        self.assertIn("o1", r)
+        self.assertNotIn("o2", r)                                # one jump only
+        self.assertNotIn("o3", r)                                # a bot never
+
+
+class Trending(unittest.TestCase):
+    def test_fit_ranks_the_precursor(self):
+        tr = [(i * 3600, {"vacc": 5.0 if i % 10 == 0 else 1.0, "b1h": 10, "bacc": 1, "bshare": 0.5, "c1h": 0, "liq_mc": 0.1},
+               int(i % 10 == 0)) for i in range(200)]
+        w = trending.fit(tr)
+        self.assertGreater(w["vacc"][2], 0)
+        hi = {"vacc": 6.0, "b1h": 10, "bacc": 1, "bshare": 0.5, "c1h": 0, "liq_mc": 0.1}
+        lo = dict(hi, vacc=0.5)
+        self.assertGreater(trending.score(hi, w), trending.score(lo, w))
+
+    def test_samples_stop_at_the_entry(self):
+        series = {"m": [(h * 3600, {}) for h in range(10)]}
+        sm = trending.samples(series, {"m": 5 * 3600}, 2)
+        self.assertEqual([(ts // 3600, y) for ts, _f, y in sm], [(0, 0), (1, 0), (2, 0), (3, 1), (4, 1)])
+
+
+class Demo(SwitchBase):
+    def setUp(self):
+        super().setUp()
+        d = self.tmp.name
+        self.idb = os.path.join(d, "insajderi.db")
+        self.hdb = os.path.join(d, "hype.db")
+        con = store.connect(self.idb)
+        self.wa, self.wb = addr("Wa"), addr("Wb")
+        con.execute("INSERT INTO i2_groups (owner, members, cls, confirmed_ts, score) VALUES (?,?,?,?,?)",
+                    ("O1", json.dumps([self.wa, self.wb]), "insajder", 1, 9))
+        con.commit()
+        con.close()
+        hc = sqlite3.connect(self.hdb)
+        hc.execute("CREATE TABLE chain_trades (sig TEXT, wallet TEXT, mint TEXT, side TEXT, ts INTEGER, sol REAL, "
+                   "PRIMARY KEY (sig, mint))")
+        hc.commit()
+        hc.close()
+        p = mock.patch.dict(os.environ, {"INSAJDERI_DB": self.idb, "HYPE_DB": self.hdb})
+        p.start()
+        self.addCleanup(p.stop)
+        ilive._WATCH.update(ts=0.0, v=[])
+        ilive._TRIED.clear()
+        ilive._LAST["ts"] = 0.0
+        self.flag("insajderi2", "paper")
+
+    def chain(self, sig, w, t, side, ts):
+        hc = sqlite3.connect(self.hdb)
+        hc.execute("INSERT INTO chain_trades VALUES (?,?,?,?,?,?)", (sig, w, t, side, int(ts), 1.0))
+        hc.commit()
+        hc.close()
+
+    def go(self, now=None):
+        mk = lambda toks: {x: self.quote["row"] for x in toks}   # noqa: E731
+        ilive._WATCH.update(ts=0.0, v=[])
+        return ilive.run_once(self.lg, market_fn=mk, now=now or self.now, sol=150.0, force=True)
+
+    def test_entry_on_their_buy_and_exit_when_the_group_sells(self):
+        self.chain("s1", self.wa, tok(1), "buy", self.now - 20)
+        got = self.go()
+        self.assertEqual([u for u, _t in got], [PU])             # the demo account only, never the real one
+        row = self.lg.execute("SELECT user, owner, status FROM insajderi2_trades WHERE token=?", (tok(1),)).fetchone()
+        self.assertEqual(tuple(row), (PU, "O1", "open"))
+        self.assertTrue(self.lg.execute("SELECT source FROM trades WHERE token=?", (tok(1),)).fetchone()[0]
+                        .startswith("insajderi2"))
+        self.chain("s2", self.wb, tok(1), "sell", self.now + 60)  # the OTHER wallet of the group sells (rotation)
+        self.go(self.now + 90)
+        st = self.lg.execute("SELECT status, exit_reason FROM insajderi2_trades WHERE token=?", (tok(1),)).fetchone()
+        self.assertEqual(tuple(st), ("closed", "wallet_sold"))
+        self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades WHERE user=?", (LU,)).fetchone()[0], 0)
+
+    def test_capgate_and_flag_off(self):
+        settings.put(self.con, f"flag:{settings.MIKROKAP}", {"mode": "live", "since": 1, "who": "Jure"})
+        settings._FLAG_CACHE.clear()
+        self.chain("s3", self.wa, tok(2), "buy", self.now - 20)
+        self.assertEqual(self.go(), [])                          # MC $100k < 5M: refused
+        self.flag("insajderi2", "off")
+        self.chain("s4", self.wa, tok(3), "buy", self.now - 10)
+        self.assertEqual(self.go(), [])
+        self.assertEqual(ilive.webhook_wallets(), [])             # webhook only in paper / live
+        self.flag("insajderi2", "paper")
+        ilive._WATCH.update(ts=0.0, v=[])
+        self.assertEqual(sorted(ilive.webhook_wallets()), sorted([self.wa, self.wb]))
+
+
+class Wiring(unittest.TestCase):
+    def test_flag_never_live_order_and_fokus_exception(self):
+        from ops import fokus
+        from ui import assistnotes
+        self.assertIn("insajderi2", settings.FLAGS)
+        self.assertIn("insajderi2", settings.NEVER_LIVE)
+        self.assertIn("insajderi2", settings.PROFILE_FLAGS)
+        self.assertNotIn("insajderi2", settings.OWNER_SWITCHES)
+        self.assertIn(("insajderi2", "paper"), [(n, m) for n, m, _w in assistnotes.OWNER_FLAG_ORDERS])
+        self.assertNotIn(("insajderi2", "live"), [(n, m) for n, m, _w in assistnotes.OWNER_FLAG_ORDERS])
+        with mock.patch.dict(os.environ, {"FOKUS_MIDCAP_FORCE": "1"}):
+            self.assertIsNone(fokus.skip_cmd(["python3", "run_insajderi.py", "once"]))
+            self.assertEqual(fokus.skip_cmd(["python3", "-m", "kol.precall", "night"]), "insajderi")
+
+    def test_mcp_card_critic_and_catalyst_task(self):
+        from critic import deep
+        from ui import mcpapi
+        self.assertIn("get_insiders2", [t["name"] for t in mcpapi.TOOLS])
+        self.assertIn("insajderi2", [k for k, _f in deep.CONTEXT_BLOCKS])
+        with tempfile.TemporaryDirectory() as d:
+            p, ch = build_world(d, 4)
+            now = t0_of(4) + 86400
+            with mock.patch.dict(os.environ, {"INSAJDERI_DB": p["insajderi_db"]}):
+                self.assertFalse(report.mcp({})["available"])
+                self.assertIsNone(report.critic_summary())
+                run.run("once", now=now, cfg=cfg(), credits=10_000, fetch=ch.fetch, log=lambda m: None, **p)
+                m = report.mcp({"limit": 5})
+                self.assertTrue(m["available"])
+                self.assertIn("nasa_pravila", m["copyability"])
+                self.assertTrue(m["groups"])
+                d2, err = mcpapi._tool("get_insiders2", {"limit": 3})
+                self.assertFalse(err)
+                self.assertTrue(d2["available"])
+                html = report.card_html(lambda t, meta, inner, sid=None: f"<{sid}>{t}|{meta}|{inner}", None,
+                                        lambda x: str(x), True)
+                self.assertIn("Insajderi 2.0", html)
+                self.assertEqual(report.card_html(None, None, None, False), "")
+                self.assertIn("kopiranje_walk_forward", report.critic_summary())
+                from ui import assistnotes
+                tc = sqlite3.connect(p["trade_db"])
+                tc.executescript(assistnotes.SCHEMA)
+                tc.commit()
+                tasks = report.catalyst_tasks(5, now + 3600, trade_db=p["trade_db"])
+                self.assertTrue(tasks)
+                tok0 = tasks[0]["token"]
+                tc.execute("INSERT INTO assistant_notes (ts, kind, token, verdict, interpretation, evidence) VALUES "
+                           "(?,?,?,?,?,?)", (now, "signal_opinion", tok0, "neutralan", "listing na burzi",
+                                             json.dumps({"source": "catalyst_check"})))
+                tc.commit()
+                tc.close()
+                left = report.catalyst_tasks(5, now + 3600, trade_db=p["trade_db"])
+                self.assertNotIn(tok0, [e["token"] for e in left])
+                self.assertIn("insajderi2: događaja", report.lines(run.summary())[0])

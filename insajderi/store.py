@@ -24,7 +24,7 @@ DEFAULT = {
     # Helius (the budget; pages of 100 transactions = 10 credits)
     "helius_day": None, "helius_share": 0.16, "helius_min": 1000, "helius_max": 6000, "helius_fallback": 3500,
     "deploy_share": 0.4, "sell_pages": 3, "pre_pages": 2, "lookups_per_event": 10, "acct_pages": 1,
-    "max_events_pass": 300, "night_gap_h": 20,
+    "max_events_pass": 300, "night_gap_h": 20, "once_gap_h": 3, "incr_share": 0.1,
     # who traded / scoring
     "min_sol": 0.05, "min_tokens": 3, "min_confirm": 1, "min_callers": 2, "min_lift": 2.0, "min_lead_min": 2,
     "sniper_secs": 60, "sniper_share": 0.5, "relayer_min": 5, "hub_min": 20, "bot_tx_min": 50,
@@ -68,9 +68,6 @@ CREATE TABLE IF NOT EXISTS i2_smart (wallet TEXT PRIMARY KEY, owner TEXT, cluste
     n_jumps INTEGER, n_calls INTEGER, holder_profit REAL, last_buy_ts INTEGER, last_token TEXT, updated INTEGER);
 CREATE TABLE IF NOT EXISTS i2_signals (token TEXT, ts INTEGER, n_clusters INTEGER, clusters TEXT, mcap REAL,
     ret REAL, exit TEXT, PRIMARY KEY (token, ts));
-CREATE TABLE IF NOT EXISTS i2_demo (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, token TEXT, symbol TEXT,
-    owner TEXT, buy_ts INTEGER, opened_ts INTEGER, trade_id INTEGER, size_usd REAL, entry_mcap REAL, status TEXT,
-    closed_ts INTEGER, pnl_usd REAL, ret REAL, exit_reason TEXT, UNIQUE (user, token));
 CREATE TABLE IF NOT EXISTS i2_runs (ts INTEGER, kind TEXT, credits INTEGER, detail TEXT);
 CREATE TABLE IF NOT EXISTS i2_kv (key TEXT PRIMARY KEY, value TEXT);
 """
@@ -94,6 +91,9 @@ def config(cfg=None):
 def db_path():
     if os.environ.get("INSAJDERI_DB"):
         return os.environ["INSAJDERI_DB"]
+    data = os.environ.get("DATA_DIR")   # the persistent disk (Render /var/data), as midcap.db / konsenzus.db
+    if data and os.path.isdir(data):
+        return os.path.join(data, "insajderi.db")
     return os.path.join(ROOT, "insajderi.db")
 
 
