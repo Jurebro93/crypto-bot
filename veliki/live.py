@@ -414,7 +414,8 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
         zt = f"dnevna zona {zone['lo']:.6g}-{zone['hi']:.6g} ({zone['width']:.0%})"
     else:
         zt = (f"podrška {zone['s_lo']:.6g}-{zone['s_hi']:.6g}" if zone and zone.get("ok") else "bez raspona")
-    tail = (f" (pola, ostatak BE + trailing {cfg['trail']:.0%})" if half else (" + trailing" if cfg.get("trail") else ""))
+    tail = (f" (cijeli profit; kad tržište raste pola, ostatak BE + trailing {cfg['trail']:.0%})" if half
+            else (" + trailing" if cfg.get("trail") else ""))
     why = (f"{SRC}: {zt}, cilj {tp / price - 1:+.1%}{tail}, stop {stop / price - 1:+.0%}, BTC {st or '?'}"
            + (", novi raspon nakon pada BTC-a" if (zone or {}).get("fresh") else ""))
     try:
@@ -440,7 +441,7 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     rname = "dnevni raspon" if kind == "intra" else "raspon 7 d"
     return (f"{head} {sym} ({rname}) {cp['size_sol']:g} SOL na MC ${(mcap or 0) / 1e6:,.1f}M, zona {zt}, stop "
             f"{stop:.6g} ({stop / price - 1:+.0%}), TP {tp:.6g} ({tp / price - 1:+.1%}"
-            f"{', pola pa BE + trailing ' + format(cfg['trail'], '.0%') if half else ''}"
+            f"{', cijeli profit; pola pa BE + trailing ' + format(cfg['trail'], '.0%') + ' samo kad tržište raste' if half else ''}"
             f"{', trailing ' + format(cfg['trail'], '.0%') if cfg.get('trail') and not half else ''}), "
             f"{cfg['time_h'] / 24:g} d; BTC {st or '?'}; pravi trošak runde {c['rt']:.2%}"
             + (f"; {proof}" if proof else "")), None, cur.lastrowid
@@ -457,6 +458,17 @@ def pos_of(r):
     if pos["stop_px"] >= be * 0.999:
         pos["be_armed"] = True
     return pos
+
+
+def full_tp(now):
+    """(take the whole profit at the target?, why): True unless veliki/makro.bull says the whole market rises (BTC up
+    3 %+ in 24 h, the meme sector green, regime risk_on): then half at the target and the rest trails (15.11.)."""
+    try:
+        from veliki import makro
+        b, why = makro.bull(now)
+    except Exception:  # noqa: BLE001 - unknown: the whole profit
+        return True, "makro nepoznat"
+    return (not b), ("tržište raste (" + why + "): pola na cilju, ostatak trailing" if b else "BTC u rangeu (" + why + ")")
 
 
 def row_cfg(r):
@@ -500,6 +512,7 @@ def manage(con, r, q, age, now, cfg):
     out = []
     pos = pos_of(r)
     rc = row_cfg(r)
+    rc["full_tp"], bull_why = full_tp(now)
     peak0 = pos.get("peak")
     if price <= pos["stop_px"]:
         reason = "be" if pos["stop_px"] >= pos["be_px"] * 0.999 else "stop"
@@ -514,7 +527,8 @@ def manage(con, r, q, age, now, cfg):
         con.execute("UPDATE veliki_trades SET peak=? WHERE id=?", (pos.get("peak"), r["id"]))
         r["peak"] = pos.get("peak")
     if hit:
-        return out + [close(con, r, price, q[1], q[3] if len(q) > 3 else None, hit[0], now)]
+        why = (("cijeli profit: " if rc["full_tp"] else "") + bull_why) if hit[0] == "tp" else None
+        return out + [close(con, r, price, q[1], q[3] if len(q) > 3 else None, hit[0], now, why=why)]
     if rule.OWNER_EXIT.get("time_h") and now - r["opened_ts"] >= (r.get("time_h") or cfg["time_h"]) * 3600:
         return out + [close(con, r, price, q[1], q[3] if len(q) > 3 else None,
                             "trail" if pos.get("peak") else "time", now)]   # 15.11. navečer: no time stop (vlasnik)

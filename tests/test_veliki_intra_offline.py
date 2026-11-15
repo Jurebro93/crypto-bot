@@ -177,6 +177,10 @@ class Live(SwitchBase):
         self.assertTrue(any(x.startswith("veliki demo lista: 111 tokena") for x in out), out)
 
     def test_intra_demo_entry_half_trailing_and_rounds(self):
+        # 15.11. navečer: the half at the target only when the whole market rises (live.full_tp False)
+        _p = mock.patch.object(live, "full_tp", lambda now: (False, "test: tržište raste"))
+        _p.start()
+        self.addCleanup(_p.stop)
         self.flag("veliki_range", "paper")
         out = live.tick(self.lg, lambda ts: self.mk([t for t in ts if t in (tok(31), tok(100))]), now=self.now,
                         force=True)
@@ -297,6 +301,23 @@ class Live(SwitchBase):
                                                  "risk": "top 10 holdera 59 %"}))
         self.assertIn("likvidnost", prioritet.dynamic_bad({"facts": {"liq_ratio": 0.5}}))
         self.assertIn("holderi", prioritet.dynamic_bad({"facts": {}, "block": "holderi: tim prodaje"}))
+
+    def test_full_profit_unless_the_whole_market_rises(self):
+        # 15.11. navečer (vlasnik): the whole profit at the target; half + trailing only when BTC jumped, the meme
+        # sector is green and the regime risk_on
+        from veliki import makro
+        base = {"entry": 1.0, "first": 1.0, "ts": 0, "tp_px": 1.15, "stop_px": 0.95, "be_px": 1.03, "peak": None}
+        cfg = {"trail": 0.05, "half": 0.5, "exit_slip": 0.0, "stop_slip": 0.0, "stop_fill": "level"}
+        self.assertEqual(rule.on_price(dict(base), 1.16, "t", 1.16, {**cfg, "full_tp": True})[0], "tp")
+        pos = dict(base)
+        self.assertIsNone(rule.on_price(pos, 1.16, "t", 1.16, {**cfg, "full_tp": False}))
+        self.assertTrue(pos.get("half_px"))
+        up = {"ts": self.now, "btc24": 0.04, "sector": {"mcap_chg24": 2.0}, "regime": "risk_on"}
+        self.assertTrue(makro.bull(self.now, up)[0])
+        self.assertFalse(makro.bull(self.now, {**up, "btc24": 0.01})[0])
+        self.assertFalse(makro.bull(self.now, {**up, "sector": {"mcap_chg24": -1.0}})[0])
+        self.assertFalse(makro.bull(self.now, {**up, "regime": "neutral"})[0])
+        self.assertFalse(makro.bull(self.now, {})[0])
 
     def test_chain_line_counts_bought_and_refused(self):
         import sqlite3

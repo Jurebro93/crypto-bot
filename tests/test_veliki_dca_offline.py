@@ -202,6 +202,10 @@ class Live(SwitchBase):
         return r
 
     def test_dca_lot_average_and_caps(self):
+        # 15.11. navečer: the half at the target only when the whole market rises (live.full_tp False)
+        _p = mock.patch.object(live, "full_tp", lambda now: (False, "test: tržište raste"))
+        _p.start()
+        self.addCleanup(_p.stop)
         rid, stop, size, entry = self.open_one()
         out = live.tick(self.lg, self.mk(0.89e-4), now=self.now + 60, force=True)
         line = next(x for x in out if x.startswith("veliki DCA USELESS"))
