@@ -190,28 +190,42 @@ def ai(now, paths):
 
 
 def openai(now, paths):
-    """15.11.: the OpenAI critic's UTC day (trade.db critic_calls / critic_verdicts / its assistant notes); None
-    without trade.db or before its first call."""
-    con = _ro(paths.get("trade"))
-    if con is None:
-        return None
+    """15.11.: the OpenAI critic's UTC day (trade.db critic_calls / critic_verdicts / its assistant notes) plus the other
+    OpenAI jobs the usage meter counts under service "openai" (the token pages' opinions, tokenstranice/misljenje.py:
+    per method in po_vrsti); None before the first call of either."""
     day0 = int(now) // 86400 * 86400
+    ucon = _ro(paths.get("usage"))
     try:
-        rows = _all(con, "SELECT kind, COUNT(*), COALESCE(SUM(cost_usd), 0), COALESCE(SUM(tokens_in), 0), "
-                         "COALESCE(SUM(tokens_out), 0) FROM critic_calls WHERE ts >= ? GROUP BY kind", (day0,))
-        if not rows:
-            return None
-        out = {"usd": round(sum(_f(r[2]) for r in rows), 4), "poziva": sum(int(r[1]) for r in rows),
-               "po_vrsti": {k: round(_f(u), 4) for k, _n, u, _i, _o in rows},
-               "tokena": sum(int(r[3]) + int(r[4]) for r in rows),
-               "presuda": int(_f(_one(con, "SELECT COUNT(*) FROM critic_verdicts WHERE ts >= ?", (day0,), 0)))}
-        from ui import assistnotes
-        dec = _all(con, "SELECT status, COUNT(*) FROM assistant_notes WHERE kind='suggestion' AND key_id=? AND "
-                        "decided_ts >= ? GROUP BY status", (assistnotes.CRITIC_KID, day0))
-        out["odluke_vlasnika"] = {st: int(n) for st, n in dec}
-        return out
+        other = _all(ucon, "SELECT method, COALESCE(SUM(calls), 0), COALESCE(SUM(amount), 0) FROM usage WHERE "
+                           "service = 'openai' AND hour >= ? GROUP BY method", (day0,))
     finally:
-        con.close()
+        if ucon is not None:
+            ucon.close()
+    con = _ro(paths.get("trade"))
+    rows = []
+    out = {"usd": 0.0, "poziva": 0, "po_vrsti": {}, "tokena": 0, "presuda": 0}
+    if con is not None:
+        try:
+            rows = _all(con, "SELECT kind, COUNT(*), COALESCE(SUM(cost_usd), 0), COALESCE(SUM(tokens_in), 0), "
+                             "COALESCE(SUM(tokens_out), 0) FROM critic_calls WHERE ts >= ? GROUP BY kind", (day0,))
+            if rows:
+                out = {"usd": round(sum(_f(r[2]) for r in rows), 4), "poziva": sum(int(r[1]) for r in rows),
+                       "po_vrsti": {k: round(_f(u), 4) for k, _n, u, _i, _o in rows},
+                       "tokena": sum(int(r[3]) + int(r[4]) for r in rows),
+                       "presuda": int(_f(_one(con, "SELECT COUNT(*) FROM critic_verdicts WHERE ts >= ?", (day0,), 0)))}
+                from ui import assistnotes
+                dec = _all(con, "SELECT status, COUNT(*) FROM assistant_notes WHERE kind='suggestion' AND key_id=? AND "
+                                "decided_ts >= ? GROUP BY status", (assistnotes.CRITIC_KID, day0))
+                out["odluke_vlasnika"] = {st: int(n) for st, n in dec}
+        finally:
+            con.close()
+    if not rows and not other:
+        return None
+    for m, n, a in other:
+        out["po_vrsti"][m or "ostalo"] = round(out["po_vrsti"].get(m or "ostalo", 0) + _f(a), 4)
+        out["poziva"] += int(n or 0)
+        out["usd"] = round(out["usd"] + _f(a), 4)
+    return out
 
 
 def collect(now=None, paths=None):

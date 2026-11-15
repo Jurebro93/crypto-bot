@@ -805,6 +805,17 @@ def _seo_extra(fn):
         return ""
 
 
+def _tp(fn, default=""):
+    """15.11.: the token pages (ui/tokenstranica.py: midcap pages, extra sections of the coin page); `default` if that
+    module fails, so the coin pages never break."""
+    try:
+        from ui import tokenstranica
+        return fn(tokenstranica)
+    except Exception as e:  # noqa: BLE001
+        print(f"tokenstranica: {type(e).__name__}: {e}"[:200], flush=True)
+        return default
+
+
 def _seo_robots():
     out = ()
     for mod in ("coinseo", "marketpub"):
@@ -837,6 +848,7 @@ def sitemap():
         urls += [(f"/coin/{c['slug']}", f"/hr/coin/{c['slug']}", "0.8") for c in K.top()]
     except Exception:  # noqa: BLE001
         pass
+    urls += _tp(lambda T: T.urls(), [])   # 15.11.: token pages of the midcap universe with enough data
     from ui import glossary_public as GP
     urls.append(("/glossary", "/hr/rjecnik", "0.8"))
     urls += [(f"/glossary/{e['en']}", f"/hr/rjecnik/{e['hr']}", "0.6") for e in GP.ENTRIES]
@@ -918,7 +930,7 @@ def route(path):
         fn, ctype = _seo_page(path), "text/html"
     elif re.fullmatch(r"(/hr)?/coin/[^/]+", path):
         lang, slug = ("hr" if path.startswith("/hr") else "en"), path.rsplit("/", 1)[1]
-        fn, ctype = (lambda: coin_page(slug, lang)), "text/html"
+        fn, ctype = (lambda: coin_page(slug, lang) or _tp(lambda T: T.page(slug, lang), None)), "text/html"
     elif path in ("/influencers", "/hr/influenceri"):
         lang = "en" if path == "/influencers" else "hr"
         fn, ctype = (lambda: leaderboard(lang)), "text/html"
@@ -1228,6 +1240,7 @@ def coin_page(slug, lang):
     ch = "".join(f"<th{' class=n' if j > 1 else ''}>{x}</th>" for j, x in enumerate(t["ccols"]))
     calls = (f"<div class=tw><table><thead><tr>{ch}</tr></thead><tbody>{''.join(crow)}</tbody></table></div>"
              if crow else f"<p class=mut>{t['no_calls']}</p>")
+    calls = _tp(lambda T: T.coin_calls(r["mint"], lang)) or calls   # 15.11.: clean calls, X + Telegram
     lock = ("<div class=lock style='display:block'><b style='font-size:18px'>" + t["lock_h"] + "</b><ul class=lk>"
             + "".join(f"<li>🔒 {x.format(n=o['fresh'])}</li>" for j, x in enumerate(t["lock"])
                       if j != (3 if o["fresh"] else 2))
@@ -1258,6 +1271,7 @@ def coin_page(slug, lang):
             f"<span class=mut style='font-weight:500;font-size:.5em'>{t['p_sub']}</span></h1>"
             f"<p class=lead>{summary}</p></section><div class=cards>{cards}</div>{charts}{lock}"
             f"<h2 class=s>{t['safe_h']}</h2>{safe}<h2 class=s>{t['calls_h']}</h2><p class=mut>{t['calls_note']}</p>{calls}"
+            f"{_tp(lambda T: T.coin_extra(r, lang))}"
             f"{addr}<h2 class=s>{t['faq_h'].format(sym=sym)}</h2><div class=faq style='margin:0'>{faq_html}</div>"
             f"{_seo_extra(lambda S: S.more(r, lang, 'coin'))}"
             + (f"<h2 class=s>{t['similar']}</h2><div class=chips>{sim}</div>" if sim else ""))

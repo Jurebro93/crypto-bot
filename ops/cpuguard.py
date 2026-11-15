@@ -157,6 +157,9 @@ PROCESSES = (
     ("simianx", "run_simianx.py", (), JOBS, "drugo mišljenje za dugoročnu listu"),
     ("watch", "run_watch.py", (), JOBS, "praćenje tokena prije događaja, jednom na sat"),
     ("web", "run_web.py", (), JOBS, "dnevno osvježavanje javnih stranica u 02:00, čita samo naše baze"),
+    # 15.11. (tokenstranice/): hourly, reads our databases only, waits on the API for the opinions; nobody waits for it
+    ("tokenstranice", "run_tokenstranice.py", (), JOBS,
+     "stranice tokena svaki sat iz naših baza (samo čita) i mala serija AI mišljenja (strop 0,30 $ dnevno)"),
     ("wallets", "run_wallets.py", (), JOBS, "registar walleta: skupljanje, ocjenjivanje, popisi"),
     # 10.11. (Grok MCP audit 9): night only, at most 200 getTransaction calls a night; waits on the network, not the CPU
     ("solfill", "-m wallets.solfill", (), JOBS, "noću upisuje iznose prodaja praćenih walleta iz transakcija (Helius)"),

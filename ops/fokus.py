@@ -73,7 +73,8 @@ RETARGET = (
 KEPT = ("ui", "trade (pravi novac / probni swapovi)", "cpuguard", "uptime", "health", "diskreport", "retencija",
         "rug arhiva", "kalendar", "dugo", "simianx", "veliki (lista, backtest, demo)", "zonewatch", "kol krug (X pozivi)",
         "tg", "novčanici dokazani / rang / copy (samo baze)", "tržište / BTC", "potrošnja", "web", "events tick",
-        "EV izvještaj", "dnevni trošak", "kritičar", "jutarnji izvještaj", "povrat pravila izlaza")
+        "EV izvještaj", "dnevni trošak", "kritičar", "jutarnji izvještaj", "povrat pravila izlaza",
+        "stranice tokena (midcap svemir + top 100)")
 # 15.11. (vlasnik: "dio resursa zadrži za ovo, veći dio ide na midcapove"): jobs that run on microcap data WHILE the
 # switch is on, as an explicit exception with their own budget (they are never in OFF, so nothing above stops them)
 EXCEPTIONS = (

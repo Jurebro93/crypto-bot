@@ -107,6 +107,16 @@ def pick(tokens):
     return out[:TOP]
 
 
+def _token_slugs():
+    """({mint: slug}, every slug given) of the token pages (tokenstranice/store.py), so a slug never points to two
+    mints; ({}, set()) without them."""
+    try:
+        from tokenstranice import store as ts
+        return ts.slugs_by_mint(), set(ts.all_slugs())
+    except Exception:  # noqa: BLE001
+        return {}, set()
+
+
 def store(tokens, con=None, now=None):
     """Write the picked tokens; slugs stay stable once given."""
     now = int(now or time.time())
@@ -114,11 +124,12 @@ def store(tokens, con=None, now=None):
     con = con or connect()
     try:
         old = {r["mint"]: r["slug"] for r in con.execute("SELECT mint, slug FROM coins")}
-        taken = set(old.values())
+        pages = _token_slugs()   # 15.11.: a coin that already has a token page keeps that page's slug
+        taken = set(old.values()) | pages[1]
         con.execute("UPDATE coins SET rank = NULL")
         for i, t in enumerate(tokens, 1):
             mint = t["id"]
-            slug = old.get(mint) or _slug(t.get("symbol"), mint, taken)
+            slug = old.get(mint) or pages[0].get(mint) or _slug(t.get("symbol"), mint, taken)
             taken.add(slug)
             s24 = t.get("stats24h") or {}
             s1 = t.get("stats1h") or {}
