@@ -248,6 +248,40 @@ OWNER_SWITCH_NOTES[KRITICAR] = ("Tvoj prekidač: „uživo” (zadano) = kritič
                                 "OpenAI. Samo savjeti: ništa ne kupuje, ne prodaje i ne mijenja.")
 
 
+# 15.11. (vlasnik: "Isključi pravi novac zasad, ali hitno pronađi profitabilnu strategiju kombiniranjem profitabilnih
+# novčanika i influencera ... analizu tokena isključi za pravi novac, pozadinu ostavi za demo"; konsenzus/): the source
+# consensus strategy. FLAG "konsenzus": paper = the DEMO account PAPER_USER enters whenever the currently best candidate
+# of konsenzus/research fires (league/auto.loop -> konsenzus/live); shadow = only the research runs; never live by this
+# flag (NEVER_LIVE): real money goes only through the owner switch below.
+KONSENZUS = "konsenzus"
+FLAGS[KONSENZUS] = ("P17", "Konsenzus izvora: najbolji kandidat iz walk-forwarda influencera, Telegram kanala i novčanika "
+                           "(top izvori, 2+ neovisna izvora, novčanik + KOL) ulazi na demo računu čim se pojavi signal")
+NEVER_LIVE[KONSENZUS] = "konsenzus sam nikad ne trguje pravim novcem: pravi novac samo kroz prekidač pravi_novac_izvori"
+# its paper mode does not make the paper account follow anybody (it enters by itself)
+PROFILE_FLAGS = PROFILE_FLAGS | {KONSENZUS}
+# The owner switch: "uživo" = the konsenzus signals ALSO buy on the real account, but only while the best candidate's
+# holdout passes konsenzus/gate.PROOF (n >= 30, EV >= +3 %, the 90 % interval's low > 0); caps trade/executor.
+# IZVORI_CAPS. Default off; only the owner's own tap (set_flag refuses anybody else and every code order).
+IZVORI = "pravi_novac_izvori"
+FLAGS[IZVORI] = ("P18", "Pravi novac za konsenzus izvora: signal najboljeg kandidata kupuje i pravim novcem, samo dok "
+                        "njegov holdout prolazi dokaz (n 30+, EV +3 %+, donja granica 90 % intervala > 0); 0,1 SOL po "
+                        "tradeu, najviše 5 otvorenih, 30 kupnji dnevno, dnevni gubitak 0,3 SOL")
+OWNER_SWITCHES = OWNER_SWITCHES | {IZVORI}
+OWNER_SWITCH_NOTES[IZVORI] = ("Tvoj prekidač: „uživo” = signali konsenzusa izvora kupuju i pravim novcem, ali samo dok "
+                              "najbolji kandidat ima dokaz na holdoutu (n 30+, EV +3 %+, donja granica 90 % intervala "
+                              "> 0); stropovi 0,1 SOL po tradeu, 5 otvorenih, 30 kupnji dnevno, dnevni gubitak 0,3 SOL; "
+                              "tvrda pravila (kill switch, rug arhiva, MC 30k+, bondani, likvidnost 15k+, trošak do 6 %, "
+                              "jedna pozicija po tokenu, stop na serveru) uvijek. Svaki drugi mod = samo demo.")
+
+
+def pravi_novac_izvori(con=None, path=None):
+    """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""
+    try:
+        return flag(IZVORI, con, path) == "live"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def pravi_novac_sve(con=None, path=None):
     """True while the owner's switch pravi_novac_sve is on (mode "live"); never raises (unreadable = off)."""
     try:
@@ -545,7 +579,7 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     cur = flag_state(con)[name]
     if mode == cur["mode"]:
         return cur
-    if mode == "live" and name == SWITCH_ALL and not is_owner(who):
+    if mode == "live" and name in (SWITCH_ALL, IZVORI) and not is_owner(who):
         # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
         # chat order, an applied suggestion or any other code path
         raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")

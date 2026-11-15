@@ -197,6 +197,9 @@ PROCESSES = (
     # 15.11. (critic/, owner switch openai_kritika): waits on the OpenAI API, a few hundred ms of CPU a pass; advice only
     ("kriticar", "run_critic.py", (), JOBS,
      "kritičar (OpenAI): svakih 5 min provjera otvorenih pozicija, poziv samo na promjenu; dnevna revizija algoritma"),
+    # 15.11. (owner, konsenzus/): read-only research after a deploy and nightly; writes only konsenzus.db
+    ("konsenzus", "run_konsenzus.py", (), JOBS,
+     "konsenzus izvora: walk-forward influencera, Telegram kanala i novčanika (samo čita baze), nakon deploya i noću"),
     # 15.11. (owner, izlazi/): read-only on every database, nightly under the heavy-job lock; writes only izlazi.db
     ("izlazi", "run_izlazi.py", (), JOBS,
      "naučeni izlazi po izvoru (stop, grace, TP1, trailing): noću, samo čita baze, walk-forward 70/30, piše izlazi.db"),

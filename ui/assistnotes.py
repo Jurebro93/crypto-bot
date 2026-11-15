@@ -787,6 +787,11 @@ OWNER_FLAG_ORDERS = (
     # tradanje". The strategies stay in paper = the demo account; open real positions keep their exits.
     ("pravi_novac_sve", "off", "vlasnik u chatu 15.11.: „Ok, ugasi pravi novac za sada” (demo nastavlja; otvorene prave "
                                "pozicije zadržavaju izlaze)"),
+    # 15.11. (vlasnik: "nova strategija ... praćenjem profitabilnih influencera i novčanika ... pozadinu ostavi za demo
+    # trading ... kreni odmah"): the source consensus strategy on the DEMO account from the deploy. Its real money is
+    # the owner switch pravi_novac_izvori, which no order here ever turns on.
+    ("konsenzus", "paper", "vlasnik u chatu 15.11.: konsenzus izvora (influenceri, Telegram kanali, novčanici) odmah u "
+                           "demo; pravi novac samo njegovim prekidačem pravi_novac_izvori uz dokaz na holdoutu"),
 )
 # 15.11. (the same order): Grok autotrade buys with real money too, so it goes off once as well (grokauto.set_on)
 OWNER_ONCE_1511 = "owner_once:real_money_off_1511"

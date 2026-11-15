@@ -478,10 +478,12 @@ def _mcap(rd, tok, t, sol):
     return v * sol if v else None
 
 
-def build(p=None, now=None, log=print, budget_s=BUDGET_S, max_entries=MAX_ENTRIES, days=DAYS):
+def build(p=None, now=None, log=print, budget_s=BUDGET_S, max_entries=MAX_ENTRIES, days=DAYS, kinds=None, share=None):
     """(entries, coverage, meta). An entry: {kind, src, tok, ts (path start), arrs (izlazi/sim.pack), cover, cost,
-    sell_s, rug_s, how, stats (izlazi/sim.path_stats)}; coverage per kind: sources, entries tried / with a path /
-    ruled out (why) / without a path, the stores used, the hours covered."""
+    sell_s, rug_s, how, stats (izlazi/sim.path_stats), sig_ts (the source's own call / buy time), lag (s), mcap, liq
+    (at the signal, None unknown)}; coverage per kind: sources, entries tried / with a path / ruled out (why) / without
+    a path, the stores used, the hours covered. 15.11. (konsenzus/): kinds = only these kinds (default all four),
+    share = {kind: share of max_entries} instead of KIND_SHARE."""
     p = paths(p)
     now = int(now or time.time())
     t_start = time.monotonic()
@@ -497,17 +499,18 @@ def build(p=None, now=None, log=print, budget_s=BUDGET_S, max_entries=MAX_ENTRIE
     cov = {k: {"izvori": 0, "ulazi": 0, "s_putom": 0, "pravila": {}, "bez_puta": 0, "samo_grubo": 0, "izvori_puta": {},
                "sati": {"1h": 0, "4h": 0, "24h": 0}} for k in ("kol", "ekipa", "wallet", "strategy")}
     wanted = []   # (kind, src, tok, t_src, lag, sell_ts, mcap, liq_hint)
+    want_kinds = set(kinds or ("kol", "ekipa", "wallet", "strategy"))
     # KOL calls (and the crews made of them)
-    calls = kol_calls(p, now, days)
+    calls = kol_calls(p, now, days) if want_kinds & {"kol", "ekipa"} else []
     per = {}
     for h, tok, ts, mc, _tid in calls:
         per.setdefault(h, []).append((tok, ts, mc))
-    for h, xs in per.items():
+    for h, xs in (per.items() if "kol" in want_kinds else ()):
         lag = lags.get(("kol", h), kind_lag["kol"][0])
         for tok, ts, mc in xs[-MAX_PER_SOURCE:]:
             wanted.append(("kol", h, tok, ts, lag, None, mc, None))
-    cov["kol"]["izvori"] = len(per)
-    crews = [f for f in fl if f["kind"] == "ekipa" and f["target"]]
+    cov["kol"]["izvori"] = len(per) if "kol" in want_kinds else 0
+    crews = [f for f in fl if f["kind"] == "ekipa" and f["target"]] if "ekipa" in want_kinds else []
     for f in {f["target"]: f for f in crews}.values():
         mem = {m.lower().lstrip("@") for m in f["target"].split(",") if m.strip()}
         first = {}
@@ -519,8 +522,8 @@ def build(p=None, now=None, log=print, budget_s=BUDGET_S, max_entries=MAX_ENTRIE
             wanted.append(("ekipa", f["target"], tok, ts, lag, None, mc, None))
         cov["ekipa"]["izvori"] += 1
     # wallets
-    cands = candidate_wallets(p, now, fl)
-    wt, own = wallet_trades(p, sorted(cands), now, days)
+    cands = candidate_wallets(p, now, fl) if "wallet" in want_kinds else {}
+    wt, own = wallet_trades(p, sorted(cands), now, days) if cands else ({}, {})
     perw = {}
     for (w, mint), (b, s) in wt.items():
         perw.setdefault(w, []).append((b, mint, s))
@@ -531,17 +534,17 @@ def build(p=None, now=None, log=print, budget_s=BUDGET_S, max_entries=MAX_ENTRIE
     cov["wallet"]["izvori"] = len(perw)
     cov["wallet"]["kandidati"] = {k: sum(1 for v in cands.values() if v == k) for k in ("praćen", "dokazan", "rang")}
     # our own strategies
-    for s in strategy_trades(p, now, days):
+    for s in (strategy_trades(p, now, days) if "strategy" in want_kinds else ()):
         sell = s["sell_ev"] + kind_lag["wallet"][0] if s["sell_ev"] and s["kind"] == "wallet" else None
         wanted.append(("strategy", s["strategy"], s["tok"], s["ts"], 0.0, sell, None, s["liq"]))
     cov["strategy"]["izvori"] = len({w[1] for w in wanted if w[0] == "strategy"})
     if len(wanted) > max_entries:   # the newest first, every kind within its share
         keep = []
-        for kind, share in KIND_SHARE.items():
+        for kind, sh in (share or KIND_SHARE).items():
             ws = sorted((w for w in wanted if w[0] == kind), key=lambda w: -w[3])
-            keep += ws[:int(max_entries * share)]
-            if len(ws) > int(max_entries * share):
-                cov[kind]["skraćeno_na"] = int(max_entries * share)
+            keep += ws[:int(max_entries * sh)]
+            if len(ws) > int(max_entries * sh):
+                cov[kind]["skraćeno_na"] = int(max_entries * sh)
         wanted = keep
     by_tok = {}
     for w in wanted:
@@ -591,7 +594,8 @@ def build(p=None, now=None, log=print, budget_s=BUDGET_S, max_entries=MAX_ENTRIE
                 entries.append({"kind": kind, "src": src, "tok": tok, "ts": t0, "arrs": sim.pack(fitted),
                                 "cover": int(cover), "cost": costs.round_trip(liq, tok, sol),
                                 "sell_s": sell_s if sell_s is not None and sell_s >= 0 else None, "rug_s": rug_s,
-                                "how": how, "stats": sim.path_stats(fitted)})
+                                "how": how, "stats": sim.path_stats(fitted), "sig_ts": int(t_src),
+                                "lag": round(float(lag), 1), "mcap": mcap, "liq": liq})
     finally:
         rd.close()
     entries.sort(key=lambda e: e["ts"])
