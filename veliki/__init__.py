@@ -14,7 +14,13 @@ računajući velike padove Bitcoina ... sada se stvara novi range, iskoristi ga 
     rule.py      pure: BTC crash periods, quantile zones on 1h candles (fresh range after a crash), the bounce entry on
                  15m bars, the exits, the real cost at a size (trade/cost.round_trip with the token's liquidity)
     walk.py      the backtest grid, walk-forward (pick on older days, test on newer), bootstrap by token-day, report
-    live.py      the demo account's trades (flag veliki_range, paper; league/auto.fast_loop every VEL_TICK_S)
+    live.py      the demo account's trades (flag veliki_range, paper; league/auto.fast_loop every VEL_TICK_S): the
+                 7-day rule on the list, the intraday rule (intra.py) on the demo universe (the list + the midcap
+                 collector's 2M-200M members), half at the target + break-even + trailing, the smart DCA lot, the
+                 reasoned exits (BTC free fall, macro risk_off, volume collapse, a bad dip reason)
+    intra.py     the intraday range rule (48 h zone, bottom 25 %, half at +10 % net, 24 h)
+    makro.py     the macro regime from the platforms' volumes (DefiLlama via market.db, CoinGecko's Solana meme
+                 sector, the collector's midcap volume, BTC): risk_on / neutral / risk_off, hourly in midcap.db
     gate.py      the real-money gate (owner switch pravi_novac_veliki, off; holdout proof at the real size)
     view.py      the card (Ostalo), MCP get_big_ranges, the OpenAI critic's block
 run_veliki.py: list (after a deploy, every 3 h: the list + candles), once (the backtest after a deploy, heavy lock),

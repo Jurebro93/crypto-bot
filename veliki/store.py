@@ -443,6 +443,26 @@ def save_run(data, now=None, path=None):
     _CACHE.clear()
 
 
+CAT_KEYS = ("cat", "score", "btc_up_n", "btc_up_hit", "btc_up_24h", "btc_up_72h", "hit15", "bounce_n", "pers30",
+            "pers90", "corr_d", "vol_day_avg30", "symbol")
+
+
+def save_cats(cats, path=None):
+    """kv "cats": {mint: the metrics row's category and bounce numbers} for veliki/live's DCA (rule.dca_refusal)."""
+    con = connect(path)
+    try:
+        kv_put(con, "cats", {m: {k: x.get(k) for k in CAT_KEYS} for m, x in (cats or {}).items()})
+        con.commit()
+    finally:
+        con.close()
+    _CACHE.clear()
+
+
+def cats(path=None):
+    """{mint: {cat, btc_up_n, btc_up_hit, ...}} of the newest backtest run, {} before one."""
+    return _cached("cats", path) or {}
+
+
 def _cached(k, path=None):
     hit = _CACHE.get((k, path))
     if hit and time.time() - hit[0] < CACHE_S:

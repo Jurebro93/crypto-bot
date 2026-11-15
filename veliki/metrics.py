@@ -5,7 +5,8 @@ rastu kad BTC raste"; pure: the daily / 1h candles and BTC closes in, numbers ou
     volume     pers30 / pers90: share of the last 30 / 90 days (of the days the token existed) with a day's volume >=
                VOL_DAY_FLOOR ($50k); cv30: the coefficient of variation of the daily volume, last 30 days
     BTC        beta_d / corr_d on daily returns (last 90 days), beta_4h / corr_4h on 4 h returns (the 1h candles we
-               hold, ~40 days); btc_up_24h / btc_up_72h: the token's mean return 24 h / 72 h after a BTC day of +3 %
+               hold, ~40 days); btc_up_24h / btc_up_72h: the token's mean return 24 h / 72 h after a BTC day of +3 %;
+               btc_up_hit: the share of those days with the token higher 72 h later (the DCA's bounce history)
     drawdown   dd_ath: the last close against the highest high of the daily history
     bounces    from the daily history, entries NOT on a BTC crash day: every day closing in the bottom 20 % of its
                trailing 30-day range -> the next 7 days' best high (up7) and worst low (dn7); hit15: share with up7 >=
@@ -104,6 +105,9 @@ def compute(daily, hourly, btc_d, btc_h, created_ts=None, now=None, crash=None):
             if t1 + 3 * D in closes and c0:
                 up72.append(closes[t1 + 3 * D] / c0 - 1)
     out["btc_up_n"] = len(up24)
+    # 15.11. (vlasnik: "tokeni poput Uselessa su se puno puta oporavili na prvi znak oporavka Bitcoina"): the share of
+    # those days after which the token was higher 72 h later (the smart DCA's bounce history, rule.bounce_ok)
+    out["btc_up_hit"] = round(sum(1 for x in up72 if x > 0) / len(up72), 3) if up72 else None
     out["btc_up_24h"] = round(sum(up24) / len(up24) * 100, 2) if up24 else None
     out["btc_up_72h"] = round(sum(up72) / len(up72) * 100, 2) if up72 else None
     # drawdown from the all-time high of the daily history
