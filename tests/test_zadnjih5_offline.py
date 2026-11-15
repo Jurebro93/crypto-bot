@@ -497,8 +497,11 @@ class LiveExit(DbBase):
             from league import exitplan
             p = exitplan.active(con, tok)
             self.assertIsNotNone(p)
-            self.assertAlmostEqual(p["plan"]["stop"]["v"], -60.0)                   # not the -30 % default
-            self.assertAlmostEqual(p["state"]["stop_px"][settings.LEAGUE_USER], t["entry_px"] * 0.4)
+            # 15.11. (owner: "brže uzimati profit"): a copy's server-side stop is at most -20 % (the follow's own -60 %
+            # was looser) and the quick-profit plan rides on top; the lot's own +10 % TP stays the lower TP
+            self.assertAlmostEqual(p["plan"]["stop"]["v"], -20.0)
+            self.assertAlmostEqual(p["state"]["stop_px"][settings.LEAGUE_USER], t["entry_px"] * 0.8)
+            self.assertTrue(exitplan.is_quick(p))
             self.assertEqual(json.loads(t["auto"])["until"], t["opened_ts"] + 3600)  # the lot's TP / time keep running
         finally:
             con.close()

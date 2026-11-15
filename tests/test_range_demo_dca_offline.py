@@ -67,8 +67,16 @@ class Rules(unittest.TestCase):
                           d["max_rt_cost"], d["give_up_volume"]), (300, 1200, 10, 10, 10, 0.05, False))
         self.assertEqual(rules.DEMO_GOAL, 100)
         self.assertEqual((rules.SCALP["profile"], rules.SCALP["tp1_share"]), ("scalp", 1.0))   # one sale (fees)
-        same = [k for k in d if k not in ("profile", "tp1_share")]
-        self.assertEqual({k: rules.SCALP[k] for k in same}, {k: d[k] for k in same})
+        # 15.11. (owner: "demo ... Ulaziti u više pozicija"): the DEMO account's looser entry; the real account's SCALP
+        # keeps 14.11.'s numbers exactly (DEMO_1414)
+        self.assertEqual(rules.DEMO_LOOSE, {"score_min": 0.5, "ch5_min": -0.08, "vol_ratio_min": 0.20})
+        self.assertEqual({k: d[k] for k in rules.DEMO_LOOSE}, rules.DEMO_LOOSE)
+        self.assertEqual((rules.SCALP["score_min"], rules.SCALP["ch5_min"], rules.SCALP["vol_ratio_min"]),
+                         (0.6, -0.05, 0.35))
+        self.assertEqual({k: d[k] for k in d if k not in rules.DEMO_LOOSE},
+                         {k: rules.DEMO_1414[k] for k in d if k not in rules.DEMO_LOOSE})
+        same = [k for k in rules.DEMO_1414 if k not in ("profile", "tp1_share")]
+        self.assertEqual({k: rules.SCALP[k] for k in same}, {k: rules.DEMO_1414[k] for k in same})
         # the real account's RULES exactly as before
         r = rules.RULES
         self.assertEqual((r["score_min"], r["entry_bottom"], r["lot2_lo"], r["lot2_hi"], r["cooldown_s"], r["stop_x"]),
@@ -576,14 +584,19 @@ class Backtest(unittest.TestCase):
         self.assertEqual(got["demo_1411"], (21, 0.714, 5.31, 16.71, 4.07))
         # 14.11. 14:00 (owner: "Želim više tradeova"): entry in the lower half (was 30 %): more rounds, lower EV
         self.assertEqual(got["dca"], (31, 0.839, 5.51, 18.21, 4.72))
-        self.assertEqual(got["demo"], (41, 0.902, 4.09, 14.37, 4.57))
-        self.assertEqual(got["demo_real"], DEMO_REAL)
-        self.assertEqual(v["demo"]["lot2"]["n"], 7)                          # the DCA filled in 7 rounds
-        self.assertEqual(v["demo"]["rounds_per_token_day"], 3.29)
+        self.assertEqual(got["demo_1414"], (41, 0.902, 4.09, 14.37, 4.57))   # the demo profile of 14.11.
+        # 15.11.: the demo account's looser entry (score 0.5, 5-min change > -8 %, volume ratio 20 %): 2 rounds more,
+        # EV a little lower, the drawdown lower
+        self.assertEqual(got["demo"], (43, 0.907, 3.8, 14.58, 4.26))
+        self.assertEqual(got["demo_real"], DEMO_REAL)                        # the real account's scalp unchanged
+        self.assertEqual(v["demo_1414"]["lot2"]["n"], 7)                     # the DCA filled in 7 rounds
+        self.assertEqual(v["demo_1414"]["rounds_per_token_day"], 3.29)
+        self.assertEqual(v["demo"]["rounds_per_token_day"], 3.45)
         self.assertLess(v["demo"]["be_hit_rate"], v["demo"]["hit_rate"])
-        self.assertNotIn("odustajanje", v["demo"]["exit_reasons"])          # no quiet-hour give-up any more
+        self.assertNotIn("odustajanje", v["demo_1414"]["exit_reasons"])     # no quiet-hour give-up any more
         line = backtest.demo_line(self.rep["demo"])
-        self.assertIn("scalp $0,60 (demo): runde 41 (3.29/token-dan), pogodak 90 % (break-even 80 %)", line)
+        self.assertIn("scalp $0,60 (demo): runde 43 (3.45/token-dan), pogodak 91 % (break-even 81 %)", line)
+        self.assertIn("scalp demo 14.11.: runde 41 (3.29/token-dan), pogodak 90 % (break-even 80 %)", line)
         self.assertIn(f"scalp pravi trošak 0,1 SOL: runde {DEMO_REAL[0]}", line)
         self.assertEqual(self.rep["variants"]["0.7"]["rounds"], 12)          # today's backtest untouched
 

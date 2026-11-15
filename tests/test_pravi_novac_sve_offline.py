@@ -373,7 +373,9 @@ class Hard(SwitchBase):
         self.assertEqual(exitplan.ensure_switch_stops(self.lg, every=0), [t])   # the sweep (dashboard process)
         p = exitplan.active(self.lg, t)
         self.assertTrue(p["client"].startswith(exitplan.SWITCH_SRC))
-        self.assertEqual(p["plan"]["stop"], {"kind": "pct", "v": -30.0})   # -min(30, sl_default 60)
+        # 15.11. (owner: "brže uzimati profit"): a copy's plan is the quick-profit one, its stop -20 % (was -30 %)
+        self.assertEqual(p["plan"]["stop"], {"kind": "pct", "v": -20.0})
+        self.assertEqual(p["plan"]["take_profits"][0]["sell_share"], 0.5)
         self.mirror()
         self.assertEqual(self.pos(t)[:2], ("open", "live"))
         self.assertTrue(any(x.startswith("PRAVI NOVAC: insider_copy kupuje SYM 0.100 SOL (procjena troška 1.2 %)")
@@ -458,7 +460,7 @@ class Paths(SwitchBase):
         self.assertEqual(t[0], "fast path buy_paper: X")
         self.assertEqual(executor.strategy_of(t[0]), "fast_path")
         p = exitplan.active(self.lg, tok(40))
-        self.assertEqual(p["client"], f"{exitplan.SWITCH_SRC} fast #41")
+        self.assertEqual(p["client"], f"{exitplan.SWITCH_SRC} {exitplan.QUICK_TAG} fast #41")   # 15.11.: brzi profit
         self.assertTrue(exitplan.execution(LU, exitplan._lots(self.lg, LU, tok(40)), plan=p)["executes"])
         self.switch(True)
         self.mirror()
@@ -528,17 +530,19 @@ class Paths(SwitchBase):
         seed(tok(51))
         seed(tok(52), strat="grok")                                       # Grok's own numbers: never by themselves
         done = ppaper.run_once(self.lg, mk, now + 30, sol=200.0)
-        self.assertEqual([u for u, _ in done], [LU, LU])                  # the demo's earlier one too: no demo now
-        self.assertIn("pravi račun, pravi_novac_sve", done[0][1])
+        # 15.11. (owner: "demo trguje cijelo vrijeme"): the demo account takes them too, next to the real one
+        self.assertEqual(sorted((u, d.split(" ")[1]) for u, d in done),
+                         sorted([(LU, "#1"), (LU, "#2"), (PU, "#2"), (PU, "#3")]))
+        self.assertIn("pravi račun, pravi_novac_sve", [d for u, d in done if u == LU][0])
         self.assertEqual(sorted(t for (t,) in self.lg.execute("SELECT token FROM trades WHERE user=?", (LU,))),
                          [tok(50), tok(51)])
         t = self.lg.execute("SELECT source FROM trades WHERE user=? AND token=?", (LU, tok(51))).fetchone()
         self.assertEqual(t[0], "prijedlog: momentum")
         self.assertEqual(executor.strategy_of(t[0]), "proposals")
-        self.assertIsNone(self.lg.execute("SELECT 1 FROM trades WHERE token=?", (tok(52),)).fetchone())
+        self.assertIsNone(self.lg.execute("SELECT 1 FROM trades WHERE token=? AND user=?", (tok(52), LU)).fetchone())
         p = exitplan.active(self.lg, tok(51))
         self.assertEqual(p["client"].split(" ")[0], exitplan.SWITCH_SRC)
-        self.assertEqual(p["plan"]["accounts"], [LU])
+        self.assertEqual(p["plan"]["accounts"], sorted([LU, PU]))             # one plan, both accounts (joined)
 
     def test_range_lot_mirror_with_its_rounds_stop(self):
         from rangedca import trade as rtrade
@@ -590,7 +594,11 @@ class Stops(SwitchBase):
         self.assertEqual(sorted(got), sorted([tok(80), tok(81), tok(83)]))
         stops = {t: exitplan.active(self.lg, t)["plan"]["stop"]["v"] for t in got}
         self.assertAlmostEqual(stops[tok(80)], -20.0, places=1)
-        self.assertEqual((stops[tok(81)], stops[tok(83)]), (-60.0, -30.0))
+        # 15.11. (owner: "brže uzimati profit"): a copy's stop at most -20 % (was held at -sl_default 60), the copies
+        # take half at +12 % net; a momentum trade keeps its own exits with the protective stop -20 % (was -30 %)
+        self.assertEqual((stops[tok(81)], stops[tok(83)]), (-20.0, -20.0))
+        self.assertTrue(exitplan.is_quick(exitplan.active(self.lg, tok(81))))
+        self.assertFalse(exitplan.active(self.lg, tok(83))["plan"]["take_profits"])
         self.assertIsNone(exitplan.active(self.lg, tok(82)))
         self.assertEqual(exitplan.ensure_switch_stops(self.lg, every=0), [])   # once: one plan per token
 

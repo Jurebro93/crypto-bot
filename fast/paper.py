@@ -31,6 +31,7 @@ import sqlite3
 import time
 
 from . import sources, store
+from .decide import PAPER_SOL
 
 FLAG = "fast_path"
 SRC = "fast path"
@@ -42,6 +43,32 @@ PLAN = {"take_profits": [{"at_pct": EXIT_TP, "sell_share": 0.5}],
         "trailing": {"activate_pct": EXIT_TP, "trail_pct": EXIT_TRAIL},
         "stop": {"at_pct": -EXIT_SL}, "time_stop": {"after_min": EXIT_MIN, "if_pnl_below_pct": 1000},
         "reason": "fast path: pola van na +15 %, ostatak trailing 8 %, stop -10 %, van nakon 45 min"}
+# 15.11. (owner: "brže uzimati profit"): the fast path's own numbers inside the quick-profit plan (league/exitplan.
+# quick_plan): TP1 half at +12 % net or its own +15 % when that is lower, break-even after TP1, its own tighter 8 %
+# trailing and -10 % stop; everything out after 45 min by the lot's own hold (its TP/SL "until": a quick plan never
+# takes the lot's own exits over, and a plan's time stop would hold for every account a shared plan covers). On the
+# demo account always; on the real account under pravi_novac_sve (without it the real account keeps PLAN, as before).
+OWN = {"stop_pct": -EXIT_SL, "trail_pct": EXIT_TRAIL, "tp_max_pct": EXIT_TP}
+
+# 15.11. (owner: "Želim da demo trguje cijelo vrijeme bez obzira je li autopilot uključen ... Ulaziti u više pozicija";
+# the night of 14./15.11.: 3,973 decisions, 8 BUY_PAPER, and under pravi_novac_sve every one of them went to the REAL
+# account, so the demo account got no fast-path entry at all): the DEMO account PAPER_USER also learns from
+#   - every BUY decision while pravi_novac_sve sends it to the real account (a parallel demo entry, the paper stake);
+#   - a SOFT skip (soft_skip): a decision whose only "no" is the EV on thin evidence (every check passed, EV <= 0 but
+#     >= SOFT_EV_MIN, the source under n 10: "procjena, n izvora < 10") or the flow check alone (too few transactions
+#     / buys in 5 min, every other check passed). Never a hard rule: a failed rug, holders or price check (the rug
+#     archive, MC under 30k or out of the band, the pump.fun curve, liquidity under $15k, the source selling, the
+#     chase), an API error, an x_call; the entry's own guards (_guards, the rug archive) hold again on the live quote.
+#   Its stake is decide.PAPER_SOL (0.05 SOL paper); fast_trades decision SOFT_DECISION (kept out of proof(): the live
+#   gate reads the BUY decisions only); the reason is in the trade's source, fast.db traded and the log line.
+#   The demo account's own caps: DEMO_MAX_OPEN open fast trades, DEMO_SOL_DAY SOL a Zagreb day (paper money).
+# The real account LEAGUE_USER: exactly as before (BUY decisions only, its trade settings' caps).
+SOFT_DECISION = "DEMO_SOFT"
+SOFT_EV_MIN = -6.0          # percent: a soft EV skip under this is no lesson worth its paper stake
+SOFT_KEYS = ("ev", "flow")
+DEMO_MAX_OPEN = 15
+DEMO_SOL_DAY = 5.0
+_TRIED_DEMO = {}   # signal id -> ts of a demo entry that could not be taken (logged once)
 SCHEMA = """CREATE TABLE IF NOT EXISTS fast_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, signal_id INTEGER, token TEXT, symbol TEXT, source_id TEXT,
     kind TEXT, decision TEXT, trade_id INTEGER, plan_id INTEGER, sig_ts INTEGER, opened_ts INTEGER, size_usd REAL,
@@ -75,8 +102,8 @@ def proof(lcon=None, with_rets=False):
     try:
         if own:
             lcon = sqlite3.connect(f"file:{lstore.DB}?mode=ro", uri=True, timeout=5)
-        rows = lcon.execute("SELECT pnl_usd, ret FROM fast_trades WHERE user=? AND status='closed'",
-                            (settings.PAPER_USER,)).fetchall()
+        rows = lcon.execute("SELECT pnl_usd, ret FROM fast_trades WHERE user=? AND status='closed' AND "
+                            "COALESCE(decision, '') != ?", (settings.PAPER_USER, SOFT_DECISION)).fetchall()
     except sqlite3.Error:
         rows = []
     finally:
@@ -119,6 +146,59 @@ def fresh(now, path=None):
                                "COALESCE(kind, '') != 'x_call'", (now - FRESH_S,), order="decided_ts", limit=100)
     finally:
         con.close()
+
+
+def soft_skip(s):
+    """15.11.: the demo account's reason to learn from this SKIP (see SOFT_DECISION), or None (a hard rule, an error,
+    an x_call, an EV too low or on a measured source)."""
+    if s.get("decision") != "SKIP" or (s.get("kind") or "") == "x_call":
+        return None
+    ch = s.get("checks") or {}
+    if not isinstance(ch, dict) or ch.get("errors"):
+        return None
+    key, fails = ch.get("key"), list(ch.get("fails") or [])
+    if key not in SOFT_KEYS:
+        return None
+    ev = s.get("ev_pct")
+    if ev is None or ev < SOFT_EV_MIN:
+        return None
+    ev_txt = f"EV {ev:+.1f} %".replace(".", ",")
+    if key == "ev":
+        est = ch.get("est") or {}
+        if fails or not est.get("label"):   # a measured source (n >= 10) with EV <= 0 is a real no
+            return None
+        return f"mekani preskok: {ev_txt} na tankom dokazu (n izvora {est.get('n') or 0})"
+    if fails != ["flow"]:
+        return None
+    fl = ((ch.get("res") or {}).get("flow") or {})
+    if (fl.get("values") or {}).get("tx_5m") is None:   # no DexScreener pair: nothing measured, not a soft no
+        return None
+    return f"mekani preskok: {(fl.get('text') or 'tok').strip()} ({ev_txt})"
+
+
+def fresh_soft(now, path=None):
+    """SKIP decisions of the last FRESH_S that soft_skip lets the demo account learn from: [(signal, why)]."""
+    con = store.ro(path)
+    if con is None:
+        return []
+    try:
+        rows = store.read(con, "status='done' AND decision='SKIP' AND decided_ts >= ? AND COALESCE(kind, '') != "
+                               "'x_call'", (now - FRESH_S,), order="decided_ts", limit=300)
+    finally:
+        con.close()
+    out = []
+    for s in rows:
+        why = soft_skip(s)
+        if why:
+            out.append((s, why))
+    return out
+
+
+def demo_limits(lim):
+    """The demo account's caps for its fast entries (paper money): DEMO_MAX_OPEN / DEMO_SOL_DAY, never under the
+    trade settings'."""
+    return {**lim, "max_open": max(int(lim.get("max_open") or 5), DEMO_MAX_OPEN),
+            "max_sol_per_day": max(float(lim.get("max_sol_per_day") or 1.0), DEMO_SOL_DAY)}
 
 
 def note_traded(sid, what, path=None):
@@ -194,12 +274,17 @@ def _sl_default():
         return 60.0
 
 
-def enter(con, s, user, live, mq, lim, sol, now, path=None, switch=False):
+def enter(con, s, user, live, mq, lim, sol, now, path=None, switch=False, demo_why=None, note=True):
     """One entry; (text or None, why not or None). switch (14.11., pravi_novac_sve): the entry is on the real account
     by the owner's switch: its plan executes there (league/exitplan.SWITCH_SRC) and, when the token already has
-    another plan, the lot's own TP/SL is its stop (a protective stop is added when no plan is active)."""
+    another plan, the lot's own TP/SL is its stop (a protective stop is added when no plan is active).
+    15.11.: demo_why = the demo account's learning entry (a soft skip, or the parallel demo entry of a decision the
+    switch sent to the real account): its reason goes into the source / log; note=False leaves fast.db traded to the
+    real entry. The demo account and the real one under the switch get the quick-profit plan (league/exitplan.
+    quick_cover with the fast path's own tighter numbers OWN); the real account without the switch keeps PLAN."""
     from league import auto, copy as lcopy, exitplan
     from league import store as lstore
+    from trade import settings as tsettings
     tok = s["token"]
     if con.execute("SELECT 1 FROM fast_trades WHERE user=? AND signal_id=?", (user, s["id"])).fetchone():
         return None, None
@@ -208,6 +293,12 @@ def enter(con, s, user, live, mq, lim, sol, now, path=None, switch=False):
     if not mq or not mq[0]:
         return None, "nema žive cijene"
     why = _guards(tok, mq, s.get("price0"))
+    if why is None and demo_why:   # 15.11.: the rug archive on the demo's learning entries too (a hard rule)
+        try:
+            from rangedca import trade as rtrade
+            why = rtrade.archived_why(tok)
+        except Exception:  # noqa: BLE001 - the archive unreadable: the other rug guards decided
+            why = None
     if why:
         return None, why
     n_open = con.execute("SELECT COUNT(*) FROM fast_trades WHERE user=? AND status='open'", (user,)).fetchone()[0]
@@ -223,6 +314,8 @@ def enter(con, s, user, live, mq, lim, sol, now, path=None, switch=False):
     label = s.get("source_label") or (s.get("source_id") or "")[:8]
     if live:
         src = f"copy {'wallet' if s.get('kind') == 'wallet_follow' else 'KOL'} {label} (fast)"
+    elif demo_why:   # 15.11.: the demo account's learning entry, its reason in the source
+        src = f"{SRC} demo {s['decision'].lower()}: {label} ({demo_why})"[:200]
     else:   # 14.11.: on the real account by pravi_novac_sve too (run_trade reads "fast path" as the strategy)
         src = f"{SRC} {s['decision'].lower()}: {label}"
     try:
@@ -243,17 +336,17 @@ def enter(con, s, user, live, mq, lim, sol, now, path=None, switch=False):
             auto.set_auto(con, user, tid, "smart")
         print(f"fast {tok[:6]}: TP lota nije postavljen ({e})", flush=True)
     plan_id = None
-    if exitplan.active(con, tok) is None:
+    client = f"fast #{s['id']}"
+    if switch or user == tsettings.PAPER_USER:   # 15.11.: the quick-profit plan with the fast path's own numbers
+        plan_id = exitplan.quick_cover(con, tok, user, now=int(now), liq=liq, own=OWN, client=client)
+    elif exitplan.active(con, tok) is None:   # the real account without the switch: as before
         try:
-            client = f"fast #{s['id']}"
-            got = exitplan.set_plan(con, tok, dict(PLAN, accounts=[user]), _sl_default(),
-                                    client=exitplan.switch_client(client, user, switch) if switch else client,
-                                    now=int(now))
+            got = exitplan.set_plan(con, tok, dict(PLAN, accounts=[user]), _sl_default(), client=client, now=int(now))
             plan_id = got["plan_id"]
         except ValueError as e:
             print(f"fast {tok[:6]}: plan izlaza nije postavljen ({e})", flush=True)
     if switch and plan_id is None:   # 14.11.: no plan of its own: the protective stop (only when none is active)
-        plan_id = exitplan.switch_stop(con, tok, user, now=int(now))
+        plan_id = exitplan.switch_stop(con, tok, user, now=int(now), quick=False)
     row = con.execute("SELECT opened_ts, size_usd, entry_px FROM trades WHERE id=?", (tid,)).fetchone()
     con.execute("INSERT OR IGNORE INTO fast_trades (user, signal_id, token, symbol, source_id, kind, decision, trade_id, "
                 "plan_id, sig_ts, opened_ts, size_usd, entry_px, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -261,11 +354,15 @@ def enter(con, s, user, live, mq, lim, sol, now, path=None, switch=False):
                  row[0], row[1], row[2], "open"))
     con.commit()
     lcopy.wake()
-    note_traded(s["id"], {"user": user, "trade_id": tid, "plan_id": plan_id, "size_sol": size, "mcap": mcap,
-                          "live": bool(live), "ts": int(now)}, path)
-    return (f"fast {s['decision']} {sym or tok[:6]} ({label}): {size:g} SOL na MC ${mcap or 0:,.0f}, izlaz pola +15 % / "
-            f"trailing 8 % / stop -10 % / 45 min" + (" (pravi račun, pravi_novac_sve)" if switch else
-                                                     " (pravi put kopije, run_trade dokaz)" if live else " (demo)")), None
+    if note:
+        note_traded(s["id"], {"user": user, "trade_id": tid, "plan_id": plan_id, "size_sol": size, "mcap": mcap,
+                              "live": bool(live), "ts": int(now), **({"demo_why": demo_why} if demo_why else {})}, path)
+    quick = switch or user == tsettings.PAPER_USER
+    ex = ("izlaz pola na +12 % neto (najviše +15 %), BE, trailing 8 %, stop -10 %, 45 min" if quick else
+          "izlaz pola +15 % / trailing 8 % / stop -10 % / 45 min")
+    return (f"fast {s['decision']} {sym or tok[:6]} ({label}): {size:g} SOL na MC ${mcap or 0:,.0f}, {ex}"
+            + (" (pravi račun, pravi_novac_sve)" if switch else " (pravi put kopije, run_trade dokaz)" if live else
+               f" (demo: {demo_why})" if demo_why else " (demo)")), None
 
 
 def run_once(con, market_fn=None, now=None, path=None, sol=None, lim=None):
@@ -280,8 +377,6 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None, lim=None):
     if m not in ("paper", "live"):
         return done
     sigs = [s for s in fresh(now, path) if s["id"] not in _TRIED]
-    if not sigs:
-        return done
     from league import copy as lcopy
     if lim is None:
         from rangedca import trade as rtrade
@@ -293,7 +388,11 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None, lim=None):
         return done
     from trade import settings
     sw = settings.pravi_novac_sve()   # 14.11.: the owner's switch: every decision on the real account, no proof
-    mk = (market_fn or lcopy.market)(sorted({s["token"] for s in sigs})) or {}
+    soft = [(s, w) for s, w in fresh_soft(now, path) if s["id"] not in _TRIED_DEMO]   # 15.11.: the demo's lessons
+    if not sigs and not soft:
+        return done
+    mk = (market_fn or lcopy.market)(sorted({s["token"] for s in sigs} | {s["token"] for s, _w in soft})) or {}
+    dlim = demo_limits(lim)
     for s in sigs:
         r = _route(s, m, sw)
         if r is None:
@@ -312,16 +411,37 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None, lim=None):
                 proven = False
             if not proven:
                 user, live = settings.PAPER_USER, False
-        text, why = enter(con, s, user, live, mk.get(s["token"]), lim, sol, now, path,
-                          switch=sw and user == settings.LEAGUE_USER)
+        text, why = enter(con, s, user, live, mk.get(s["token"]), lim if user == settings.LEAGUE_USER else dlim, sol,
+                          now, path, switch=sw and user == settings.LEAGUE_USER)
         if text:
             done.append((user, text))
         elif why:
             _TRIED[s["id"]] = now
             note_traded(s["id"], {"user": user, "skip": why}, path)
             print(f"fast {s['token'][:6]}: {s['decision']} nije kupljen ({why})", flush=True)
-    for k in [k for k, ts in _TRIED.items() if now - ts > 3600]:
-        _TRIED.pop(k, None)
+        if user != settings.PAPER_USER and s["id"] not in _TRIED_DEMO:
+            # 15.11. (owner: "demo trguje cijelo vrijeme"): the switch sent this decision to the real account; the demo
+            # account takes it too, with the paper stake, so it keeps learning whatever the real-money switches say
+            dtext, dwhy = enter(con, dict(s, size_sol=min(float(s.get("size_sol") or PAPER_SOL), PAPER_SOL)),
+                                settings.PAPER_USER, False, mk.get(s["token"]), dlim, sol, now, path,
+                                demo_why="usporedno s pravim računom", note=False)
+            if dtext:
+                done.append((settings.PAPER_USER, dtext))
+            elif dwhy:
+                _TRIED_DEMO[s["id"]] = now
+    for s, w in soft:   # 15.11.: soft skips: the demo account only, never the real one
+        text, why = enter(con, dict(s, size_sol=PAPER_SOL, decision=SOFT_DECISION), settings.PAPER_USER, False,
+                          mk.get(s["token"]), dlim, sol, now, path, demo_why=w)
+        if text:
+            done.append((settings.PAPER_USER, text))
+            print(f"fast demo učenje {s.get('symbol') or s['token'][:6]}: {w}", flush=True)
+        else:
+            _TRIED_DEMO[s["id"]] = now
+            if why:
+                print(f"fast demo {s['token'][:6]}: mekani preskok nije kupljen ({why})", flush=True)
+    for d in (_TRIED, _TRIED_DEMO):
+        for k in [k for k, ts in d.items() if now - ts > 3600]:
+            d.pop(k, None)
     return done
 
 

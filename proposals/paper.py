@@ -206,6 +206,9 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
     # on, the entries go to the REAL account (run_trade mirrors them within SWITCH_CAPS); off: the demo account as before
     real = trading and settings.pravi_novac_sve()
     user = settings.LEAGUE_USER if real else settings.PAPER_USER
+    # 15.11. (owner: "Želim da demo trguje cijelo vrijeme bez obzira je li autopilot uključen"): under the switch the
+    # demo account takes every proposal too (paper money, the same zone / EV / guards), next to the real account
+    users = [settings.LEAGUE_USER, settings.PAPER_USER] if real else [settings.PAPER_USER]
     if trading:
         ensure(con)
         sync_closed(con, user)
@@ -221,9 +224,11 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
         return []
     _LAST[key] = now
     try:
-        taken = {p for (p,) in con.execute("SELECT proposal_id FROM proposal_trades WHERE user=?", (user,))}
+        taken_by = {u: {p for (p,) in con.execute("SELECT proposal_id FROM proposal_trades WHERE user=?", (u,))}
+                    for u in users}
     except sqlite3.Error:   # shadow: the table may not exist yet
-        taken = set()
+        taken_by = {u: set() for u in users}
+    taken = set.intersection(*taken_by.values()) if taken_by else set()   # 15.11.: taken by every account
     ps = waiting(now, path, taken)
     if not ps:
         return []
@@ -251,8 +256,11 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
         _write_back(path, seen, dead, [], now, pubs)
         return []
     rngs = _range_rows({p["token"] for p, _mq, _c in inz})
-    for p, mq, chk in inz:
+    for user, p, mq, chk in [(u, p, mq, chk) for p, mq, chk in inz for u in users]:
+        real = user == settings.LEAGUE_USER   # 15.11.: per account (the demo's entry next to the real one)
         tok, r = p["token"], p.get("row") or {}
+        if p["id"] in taken_by.get(user, ()):
+            continue
         if real and (p.get("strategy") == "grok" or r.get("pin_only")):
             continue   # 14.11.: Grok's own numbers and a pin without a ready range never buy with real money by themselves
         if con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (user, tok)).fetchone():
@@ -283,23 +291,18 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
             except ValueError:
                 auto.set_auto(con, user, tid, "smart")
             print(f"prijedlozi paper {tok[:6]}: TP iz prijedloga nije postavljen ({e})", flush=True)
-        plan = dict(r.get("exit_plan") or {})
-        plan_id = None
-        if plan and exitplan.active(con, tok) is None:
-            plan["accounts"] = [user]
-            sl_default = _sl_default()
-            try:
-                client = f"prijedlog #{p['id']}"
-                plan_id = exitplan.set_plan(con, tok, plan, sl_default, now=now,
-                                            client=exitplan.switch_client(client, user, True) if real else client)["plan_id"]
-            except ValueError as e:
-                print(f"prijedlozi paper {tok[:6]}: plan izlaza nije postavljen ({e})", flush=True)
+        # 15.11. (owner: "brže uzimati profit"): the quick-profit plan (league/exitplan.quick_cover: half at +12 % net,
+        # break-even, trailing 10 %, stop -20 % or the lot's own tighter SL) instead of the proposal's own plan; the
+        # lot's own TP / SL / hold time above stay (a lower TP sells first). Both accounts (the real one only ever
+        # enters a proposal under pravi_novac_sve)
+        plan_id = exitplan.quick_cover(con, tok, user, now=now, liq=liq, client=f"prijedlog #{p['id']}")
         if real and plan_id is None:   # 14.11.: no plan of its own: the protective stop (only when none is active)
-            exitplan.switch_stop(con, tok, user, now=now)
+            exitplan.switch_stop(con, tok, user, now=now, quick=False)
         con.execute("INSERT OR IGNORE INTO proposal_trades (user, proposal_id, token, strategy, sources, trade_id, "
                     "opened_ts, status) VALUES (?,?,?,?,?,?,?,?)",
                     (user, p["id"], tok, p.get("strategy"), json.dumps(p.get("sources") or []), tid, now, "open"))
         con.commit()
+        taken_by.setdefault(user, set()).add(p["id"])
         entered.append((p["id"], mcap))
         done.append((user, f"prijedlog #{p['id']} ({p.get('strategy')}) {p.get('symbol') or tok[:6]}: ušao "
                            f"({'pravi račun, pravi_novac_sve' if real else 'paper'}) na MC "

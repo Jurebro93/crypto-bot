@@ -1442,15 +1442,31 @@ def _enter(con, auto, mk, todo, now, paths=None):
                 exit_note = f"; BEZ automatskog izlaza ({e2})"
         if not f["exit"].get("no_grace") and _grace_at_entry(con, f, tid, liq) == "on":   # 10.11.: flag stop_grace
             exit_note += f"; stop miruje prvih {GRACE_S // 60} min (osim kod ruga)"
-        if _switch_all() and f["user"] == _autopilot_user()[0]:
+        au, _ts = _autopilot_user()
+        if _switch_all() and f["user"] == au:
             # 14.11. (pravi_novac_sve): a real-account copy goes to real money without the demo proof, so it gets its
-            # server-side stop now, before the "ulaz" row run_trade waits for (a "mirror" copy has no SL of its own)
+            # server-side stop now, before the "ulaz" row run_trade waits for (a "mirror" copy has no SL of its own).
+            # 15.11. (owner: "brže uzimati profit"): the quick-profit plan (league/exitplan.quick_plan: half at +12 %
+            # net, break-even, trailing 10 %, stop -20 %); the mirror sale below stays an exit on top
             try:
                 from . import exitplan
-                if exitplan.switch_stop(con, tok, f["user"], now=now):
-                    exit_note += "; zaštitni stop (pravi_novac_sve)"
+                pid = exitplan.switch_stop(con, tok, f["user"], now=now, liq=liq, client=f"copy {name}")
+                if pid:
+                    p_ = exitplan.active(con, tok)
+                    exit_note += "; zaštitni stop (pravi_novac_sve)" + (
+                        f", {exitplan.quick_words(p_['plan'])}" if p_ and exitplan.is_quick(p_) else "")
             except Exception as e:  # noqa: BLE001 - the sweep (exitplan.ensure_switch_stops) tries again
                 print(f"copy {tok[:6]}: zaštitni stop nije postavljen ({type(e).__name__}: {e})", flush=True)
+        elif au is not None and f["user"] == getattr(_ts, "PAPER_USER", None):
+            # 15.11.: the demo account's copy gets the same quick-profit plan, 24/7 (paper money; the sweep
+            # exitplan.ensure_quick_plans tries again when this fails)
+            try:
+                from . import exitplan
+                if exitplan.quick_cover(con, tok, f["user"], now=now, liq=liq, client=f"copy {name}"):
+                    p_ = exitplan.active(con, tok)
+                    exit_note += f"; {exitplan.quick_words(p_['plan'])}" if p_ else ""
+            except Exception as e:  # noqa: BLE001
+                print(f"copy {tok[:6]}: brzi profit demo nije postavljen ({type(e).__name__}: {e})", flush=True)
         # 10.11. (Grok MCP audit 1): score, run-up and the call's MC go on the trade at the entry (data only). Written
         # before the "ulaz" row, so run_trade (which waits for that row) sees them when it mirrors the copy.
         ed = entry_data(f, tok, ts, price, paths, _first(firsts, tok, paths))

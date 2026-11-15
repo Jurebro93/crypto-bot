@@ -605,8 +605,11 @@ def trigger_entries(con, cfg, rst, now):
                 c["decision"], c["reason"] = "skip_rug", "; ".join(c["rug_flags"][:3]) or c["rug_verdict"]
         if not c.get("decision"):
             size = rules.high_risk_size(c.get("rug_verdict"), size, r["size_usd"])
+            size, mk_note, mk_snap = rules.makro_size(size, cfg, now)   # 15.11.: BTC falling = a smaller stake, never 0
+            note = "; ".join(x for x in (note, mk_note) if x) or None
             cfg_t = exits_profiles.for_trade(cfg, klase.get(tok) or "default", state=ex_state, now=now)
             cfg_t["entry_mode"], cfg_t["arm"] = mode, f"{mode}|{sess}"
+            cfg_t["makro"] = mk_snap   # 15.11.: the macro state at the entry (measured apart)
             if mode == "kol3":
                 cfg_t["grupa10"] = tok in tight
             liga.flag(con, cfg_t, cfg, now)  # counts in the league round only if this kind of trade proved itself
@@ -801,6 +804,10 @@ def intake(cfg, now=None, quiet=False):
                     cfg_t.update(tp=kc["tp"], stale_min=kc["stale_min"], stale_ret=kc["stale_ret"],
                                  max_hold_h=kc["max_hold_h"])
                 size = rules.high_risk_size(c.get("rug_verdict"), size, ex_size)
+                size, mk_note, mk_snap = rules.makro_size(size, cfg, now)   # 15.11.: BTC falling = smaller, never 0
+                cfg_t["makro"] = mk_snap   # 15.11.: the macro state at the entry (measured apart)
+                if mk_note:
+                    size_note = ((size_note + "; ") if size_note else "") + mk_note
                 c["size_usd"] = size
                 pos = sim.open_position(price, liq, now, size, cfg_t)
                 c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg_t, mcap)

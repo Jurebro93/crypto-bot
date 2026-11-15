@@ -585,9 +585,12 @@ class FlipCompare:
 #   demo_real   the same rules at the real account's costs for a 0.1 SOL stake (rules.SCALP, real_cost: PumpSwap
 #               0.3 % + route 0.1 % a side, each buy's impact, rules.TX_FEE_SOL a swap at BT_SOL_USD): what
 #               pravi_novac_sve would trade
-DEMO_VARIANTS = {"old": None, "demo_1411": "1411", "dca": {"tp_usd": None, "tp1_share": 0.5, "cooldown_tp_s": None,
-                                                           "rounds_token_day": None},
-                 "demo": {}, "demo_real": "real"}
+#   demo_1414   15.11.: rules.DEMO_1414, the demo profile as it was on 14.11. (score 0.6, 5-min change > -5 %, volume
+#               ratio 35 %), next to "demo" = rules.DEMO with the demo account's looser entry (rules.DEMO_LOOSE); dca is
+#               built on DEMO_1414 (the comparison of 14.11. stays as it was)
+DEMO_VARIANTS = {"old": None, "demo_1411": "1411", "dca": {"_base": "1414", "tp_usd": None, "tp1_share": 0.5,
+                                                           "cooldown_tp_s": None, "rounds_token_day": None},
+                 "demo": {}, "demo_1414": {"_base": "1414"}, "demo_real": "real"}
 
 
 def real_cfg(base=None, sol_usd=None, tx_sol=None):
@@ -606,7 +609,8 @@ def demo_cfg(key):
         return dict(rules.DEMO_1411)
     if v == "real":
         return real_cfg()
-    return {**rules.DEMO, **v}
+    base = rules.DEMO_1414 if v.get("_base") == "1414" else rules.DEMO
+    return {**base, **{k: x for k, x in v.items() if k != "_base"}}
 
 
 def demo_summary(rounds, days=None):
@@ -667,8 +671,10 @@ class DemoCompare:
                           "demo_1411": "DEMO_1411 (0.6, donjih 25 %, TP +10/+15 % neto, stop -12..-25 %, bez lota 2)",
                           "dca": "donjih 30 % / donja zona +10 %, lot 1 60 % + DCA 40 % na -10 %, stop -20..-25 % od "
                                  "lota 1, pola na +10 % neto od prosjeka, ostatak +15 % / gornja zona",
-                          "demo": "scalp: isti ulaz / DCA / stop, cijela pozicija na +$0,60 neto, cooldown 3 min nakon "
-                                  "dobiti, 10 rundi po tokenu dnevno",
+                          "demo": "scalp demo računa (15.11.: ocjena 0,5+, pad 5 min do -8 %, volumen 15 min 20 %+): "
+                                  "DCA / stop / izlaz kao 14.11., pola na +$0,60 neto, cooldown 5 min nakon dobiti, "
+                                  "10 rundi po tokenu dnevno",
+                          "demo_1414": "scalp demo računa 14.11. (ocjena 0,6+, pad 5 min do -5 %, volumen 15 min 35 %+)",
                           "demo_real": "scalp s troškom pravog računa (0,1 SOL: PumpSwap 0,3 % + ruta 0,1 % po strani, "
                                        f"mreža {rules.TX_FEE_SOL:g} SOL po swapu)"},
                 "lot_usd": LOT_USD, "sol_usd": BT_SOL_USD,
@@ -690,7 +696,8 @@ def demo_line(dr):
                 f"{x['max_dd_usd']:.2f} $, DCA {x.get('lot2', {}).get('n', 0)}")
     return (f"range demo backtest: {d['tokens']} tokena, {d['days_total']} dana; staro: {s(v.get('old'))}; demo jutro "
             f"14.11.: {s(v.get('demo_1411'))}; DCA +10/+15 %: {s(v.get('dca'))}; scalp $0,60 (demo): "
-            f"{s(v.get('demo'))}; scalp pravi trošak 0,1 SOL: {s(v.get('demo_real'))}")
+            f"{s(v.get('demo'))}; scalp demo 14.11.: {s(v.get('demo_1414'))}; scalp pravi trošak 0,1 SOL: "
+            f"{s(v.get('demo_real'))}")
 
 
 def flip_line(fr):
