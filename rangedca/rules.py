@@ -141,7 +141,16 @@ SCALP = {**DEMO_1414, "profile": "scalp", "tp1_share": 1.0}
 # range on top of it fell to EV +1.9 % with DD $6.2, so the lower half (entry_bottom 0.50) stays.
 #   score_min 0.6 -> 0.5, ch5_min -5 % -> -8 % (a 5-minute dip of a memecoin in its range is noise more than a break),
 #   vol_ratio_min 35 % -> 20 % (the night's quiet hours); everything else (exits, stop, DCA, fee guard, caps) as 14.11.
-DEMO_LOOSE = {"score_min": 0.5, "ch5_min": -0.08, "vol_ratio_min": 0.20}
+# 15.11. ~11:00 (owner: "Bitcoin se odbio prema gore, sada će volumen meme coinova rasti ... ulaziti na dnu i čekati da
+# meme tokeni narastu i da uhvate range i tradati u tom range. Ajde kreni agresivnije s tim"; the demo account had 0
+# range rounds that day, the counter's blocks: "nije u donjem dijelu raspona" 17, "premalo kupnji u 5 min" 11, "trošak
+# runde iznad 5 %" 11 of 25 tokens): still ONLY the bottom of the range (his "na dnu"; the backtest halves the EV above
+# it), but a bottom is where sellers dominate, so the 5-min buy share 45 % -> 35 %; the round-cost guard 5 % -> 6 % (the
+# real account's own max_cost_pct); twice the focus list (10 -> 20 ranges), 15 open rounds, 15 rounds a token a day.
+# Backtest DemoCompare (6 range fixtures, the owner's round-trip cost): this profile 45 rounds, EV +4.1 % (+$16.5) vs
+# 43, +3.8 % (+$14.6) before; a 30 % share with a 3-min cooldown fell to EV +3.4 %, so not that.
+DEMO_LOOSE = {"score_min": 0.5, "ch5_min": -0.08, "vol_ratio_min": 0.20, "buy_share_min": 0.35, "max_rt_cost": 0.06,
+              "focus_n": 20, "max_open": 15, "rounds_token_day": 15}
 DEMO = {**DEMO_1414, **DEMO_LOOSE}
 DEMO_GOAL = 100   # 14.11. popodne (owner: "100 tradeova dnevno"): the daily counter's goal (was 5)
 TP_EXITS = ("tp1", "tp2", "top", "trailing", "breakeven", "time")   # a profitable / flat exit: the short cooldown
