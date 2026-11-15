@@ -612,7 +612,7 @@ def daily(kind, lang):
         else:
             m = None
         cells = [(str(i), "mut"),
-                 (f"<a href={t['coin'].format(s=x['slug'])}>{P._icon(x.get('icon'), x['symbol'])}"
+                 (f"<a href={t['coin'].format(s=x['slug'])}>{P._icon(x.get('icon'), x['symbol'], x.get('mint'))}"
                   f"{esc(x['symbol'] or x['slug'])}</a><div class=mut style='font-size:12px'>"
                   f"{esc((x['name'] or '')[:24])}</div>", ""),
                  (_price(x["price"], lang), "n x"),

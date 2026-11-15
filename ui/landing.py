@@ -286,7 +286,7 @@ transition:transform .15s,box-shadow .15s,border-color .15s;backdrop-filter:blur
 .show .bar span{margin-left:10px;color:#94a3b8;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .show .vp{position:relative;aspect-ratio:16/9;border-radius:9px;overflow:hidden;background:#eef2f7}
 .show .vp img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 0;opacity:0;transition:opacity .7s}
-.show .vp img.on{opacity:1;animation:pan var(--dur,6s) ease-in-out forwards}
+.show .vp img.on{opacity:1;z-index:1;animation:pan var(--dur,6s) ease-in-out forwards}.show .vp img.was{opacity:1}
 @keyframes pan{0%,12%{object-position:50% 0}88%,100%{object-position:50% 100%}}
 .show .pg{height:3px;background:#1e293b;border-radius:2px;margin:10px 4px 0;overflow:hidden}
 .show .pg i{display:block;height:100%;width:0;background:linear-gradient(90deg,#818cf8,#2dd4bf)}
@@ -395,13 +395,23 @@ const tick=()=>{nav.classList.toggle('s',scrollY>8);const r=form.getBoundingClie
  cta.classList.toggle('h',scrollY<300||(r.top<innerHeight&&r.bottom>0))};addEventListener('scroll',tick,{passive:true});tick();
 (()=>{const s=document.querySelector('.show');if(!s)return;const im=[...s.querySelectorAll('.vp img')],tb=[...s.querySelectorAll('.tabs button')],
  pg=s.querySelector('.pg i'),cap=s.querySelector('.cap'),url=s.querySelector('.bar span'),D=6000;let i=0,t=0,left=D,st=0;s.style.setProperty('--dur',D+'ms');
- const go=n=>{i=(n+im.length)%im.length;im.forEach((e,k)=>{e.classList.toggle('on',k===i);if(k===i&&e.dataset.src){e.src=e.dataset.src;delete e.dataset.src}});
-  const nx=im[(i+1)%im.length];if(nx.dataset.src){nx.src=nx.dataset.src;delete nx.dataset.src}
+ // 15.11. (vlasnik: "slike se ne učitavaju"): every screen is loaded once the page has loaded (idle time, not with
+ // Save-Data), the first one with high priority; a tapped tab loads its screen at once and the old one stays under it
+ // until the new is ready (never an empty frame); a screen that failed (a deploy, a dropped connection) is asked again
+ const ld=(e,hi)=>{if(hi)e.fetchPriority='high';if(e.dataset.src){e.src=e.dataset.src;delete e.dataset.src}},
+  ok=e=>e.complete&&e.naturalWidth>0,idle=f=>'requestIdleCallback'in window?requestIdleCallback(f,{timeout:2500}):setTimeout(f,1200);
+ im.forEach(e=>{let n=0;e.addEventListener('error',()=>{if(n++<3)setTimeout(()=>{e.src=e.getAttribute('src').split('?')[0]+'?r='+n},1500*n)})});
+ const go=n=>{const p=i;i=(n+im.length)%im.length;const e=im[i];ld(e,1);const w=p!==i&&!ok(e);
+  im.forEach((x,k)=>{x.classList.toggle('on',k===i);x.classList.toggle('was',w&&k===p)});
+  if(w)e.addEventListener('load',()=>im.forEach(x=>x.classList.remove('was')),{once:true});
+  ld(im[(i+1)%im.length]);
   tb.forEach((e,k)=>{e.classList.toggle('on',k===i);e.setAttribute('aria-selected',k===i)});cap.textContent=tb[i].dataset.cap;url.textContent=tb[i].dataset.url;
   pg.classList.remove('run');void pg.offsetWidth;pg.classList.add('run');left=D;arm()};
  const arm=()=>{clearTimeout(t);st=Date.now();if(!s.classList.contains('paused'))t=setTimeout(()=>go(i+1),left)};
  const pause=p=>{if(p===s.classList.contains('paused'))return;if(p){left=Math.max(400,left-(Date.now()-st));clearTimeout(t)}s.classList.toggle('paused',p);if(!p)arm()};
- tb.forEach((e,k)=>e.onclick=()=>go(k));s.querySelector('.vp').onclick=()=>go(i+1);
+ tb.forEach((e,k)=>{e.onclick=()=>go(k);e.addEventListener('pointerdown',()=>ld(im[k],1),{passive:true})});s.querySelector('.vp').onclick=()=>go(i+1);
+ const pre=()=>{if(!(navigator.connection||{}).saveData)im.forEach(e=>ld(e))};
+ if(document.readyState==='complete')idle(pre);else addEventListener('load',()=>idle(pre),{once:true});
  s.addEventListener('mouseenter',()=>pause(true));s.addEventListener('mouseleave',()=>pause(false));
  document.addEventListener('visibilitychange',()=>pause(document.hidden));
  if(matchMedia('(prefers-reduced-motion:reduce)').matches){s.classList.add('paused');go(0);clearTimeout(t)}else go(0)})();
@@ -698,13 +708,14 @@ SHOW_EN = [
 
 def showcase(lang):
     """The hero's interactive "mini video": the app's real screenshots in a browser frame, each panned top to bottom,
-    changing every 6 s; tabs jump to a screen, hover pauses, a click on the picture goes on. Only the first picture is
-    loaded with the page, the rest when their turn comes. Without JavaScript the first screenshot simply stands."""
+    changing every 6 s; tabs jump to a screen, hover pauses, a click on the picture goes on. The first picture comes
+    with the page (high priority); 15.11.: the rest are loaded right after the page has loaded (idle time, low priority),
+    no longer only when their turn came, so a tab shows its screen at once. Without JavaScript the first screenshot stands."""
     en = lang == "en"
     shots = SHOW_EN if en else SHOW
     imgs = "".join(
         f'<img {"src" if k == 0 else "data-src"}="/static/landing/{f}" alt="{esc(SHOTS.get(f, tab))}" decoding=async'
-        f'{" class=on fetchpriority=high" if k == 0 else ""}>' for k, (f, tab, _c, _u) in enumerate(shots))
+        f'{" class=on fetchpriority=high" if k == 0 else " fetchpriority=low"}>' for k, (f, tab, _c, _u) in enumerate(shots))
     tabs = "".join(f'<button type=button role=tab aria-selected={"true" if k == 0 else "false"}{" class=on" if k == 0 else ""} '
                    f'data-cap="{esc(c)}" data-url="{esc(u)}">{esc(tab)}</button>' for k, (_f, tab, c, u) in enumerate(shots))
     label = "MemeSonar screens" if en else "Ekrani MemeSonara"

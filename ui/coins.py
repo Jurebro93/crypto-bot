@@ -194,6 +194,13 @@ def start():
                 refresh()
             except Exception as e:  # noqa: BLE001
                 print(f"javni tokeni: osvježavanje nije uspjelo: {e}", flush=True)
+            try:   # 15.11.: icons of new coins fetched now (ui/tokenicons), so the first visitor does not wait for them
+                from ui import tokenicons
+                n = tokenicons.warm([r["mint"] for r in top()])
+                if n:
+                    print(f"javni tokeni: {n} novih ikona spremljeno", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"javni tokeni: ikone nisu spremljene: {type(e).__name__}: {e}", flush=True)
             time.sleep(REFRESH_S)
     threading.Thread(target=loop, daemon=True, name="coins-refresh").start()
 

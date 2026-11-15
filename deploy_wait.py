@@ -6,6 +6,9 @@ Render routes traffic as soon as something listens on the port, so visitors see 
 ~0.1 s and exits (run_ui retries the bind for a few seconds). It also exits by itself after DEPLOY_WAIT_MAX_S
 (default 240 s), so a run_ui that never starts shows Render's own error instead of a promise that never comes true.
 10.11. (Grok MCP audit 11): the MCP endpoint (/mcp, /api/mcp/*) gets a JSON 503 with Retry-After 30 instead of the page.
+15.11. (vlasnik: "slike se ne učitavaju"): images (/static/landing/*, favicons, token icons /img/t/*) are served from the
+disk as usual (deploypage.static_answer); only pages get the deploy page, in English unless the request is clearly
+Croatian (/hr address or cb_lang=hr cookie, deploypage.lang_for).
 
     python3 deploy_wait.py --port 10000
 """
@@ -20,7 +23,8 @@ FLAG = os.environ.get("DEPLOY_WAIT_FLAG", "/tmp/memesonar-ui-starting")
 
 
 class Wait(BaseHTTPRequestHandler):
-    body = b""
+    body = b""      # the deploy page in English (the default for everybody)
+    body_hr = b""   # the same page in Croatian, for a /hr address or the cb_lang=hr cookie
     sw = b""
     timeout = 10   # a client that announces a body and never sends it does not hold a thread for ever
 
@@ -37,6 +41,29 @@ class Wait(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    def _page(self):
+        """The deploy page in the request's language (deploypage.lang_for: English unless clearly Croatian)."""
+        from ui import deploypage
+        if self.body_hr and deploypage.lang_for(self.path, self.headers.get("Cookie") or "") == "hr":
+            return self.body_hr
+        return self.body
+
+    def _static(self, path):
+        """15.11.: an image (landing screenshots, favicons, token icons) straight from the disk; False otherwise."""
+        from ui import deploypage
+        got = deploypage.static_answer(path)
+        if got is None:
+            return False
+        code, headers, body = got
+        self.send_response(code)
+        for k, v in headers.items():
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+        return True
 
     def _read_body(self, cap):
         """Up to `cap` bytes of the request body. Read even when unused: closing a socket with unread data resets the
@@ -66,7 +93,9 @@ class Wait(BaseHTTPRequestHandler):
             return self._out(503, b"starting", "text/plain")
         if self._api():
             return None
-        return self._out(503, self.body, "text/html")
+        if self._static(path):
+            return None
+        return self._out(503, self._page(), "text/html")
 
     do_HEAD = do_GET
 
@@ -75,7 +104,7 @@ class Wait(BaseHTTPRequestHandler):
         body = self._read_body(deploypage.API_BODY_MAX)
         if self._api(body):   # 10.11. (Grok MCP audit 11): JSON-RPC error with the request's id
             return None
-        return self._out(503, self.body, "text/html")
+        return self._out(503, self._page(), "text/html")
 
     def log_message(self, *a):
         pass
@@ -92,7 +121,8 @@ def main(argv=None):
         pass
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from ui import deploypage
-    Wait.body = deploypage.html().encode("utf-8")
+    Wait.body = deploypage.html("en").encode("utf-8")
+    Wait.body_hr = deploypage.html("hr").encode("utf-8")
     Wait.sw = deploypage.sw_js().encode("utf-8")
     ThreadingHTTPServer.allow_reuse_address = True
     try:

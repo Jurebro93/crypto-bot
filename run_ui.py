@@ -43,6 +43,7 @@ if APP_URL:
 # player reads it (and writes in its chat) on the app host, where the login cookie is; a PUBLIC path would send the
 # player from the app host to the site, where nobody is logged in.
 SHARED_PATH = re.compile(r"^/(static/landing/.*|hook/.*|nas-token/\d+/meta\.json|jezik|sw\.js|cekamo-deploy|healthz|"
+                         r"img/t/[1-9A-HJ-NP-Za-km-z]{32,44}\.webp|"   # 15.11.: token icons (ui/tokenicons)
                          r"favicon\.ico|favicon\.svg|apple-touch-icon\.png|icon-(192|512)\.png|site\.webmanifest|"
                          r"(en/)?autopilot|autopilot/chat)$")   # served on every host
 
@@ -548,6 +549,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=604800")
             self.end_headers()
             return self.wfile.write(body)
+        if path.startswith("/img/t/"):   # 15.11.: token icons through our own address (ui/tokenicons), every host, no login
+            return self._token_icon(path)
         if path.startswith("/admin/export/"):   # 7.11.: read-only database copy for offline analysis (EXPORT_KEY)
             return self._export(path[len("/admin/export/"):], qs)
         if path.startswith("/api/mcp/"):   # 10.11.: the MemeSonar MCP server's data (Bearer MCP_API_KEY), no login
@@ -568,8 +571,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, deploypage.sw_js().encode("utf-8"), "text/javascript")
             if path == "/healthz":
                 return self._send(200, b"ok", "text/plain")
-            self._public = True
-            return self._send(200, deploypage.html().encode("utf-8"))
+            self._public = True   # 15.11.: English unless clearly Croatian (/hr address or cb_lang=hr cookie)
+            return self._send(200, deploypage.html(deploypage.lang_for(path, self.headers.get("Cookie") or "")).encode("utf-8"))
         if path == "/prijava":
             return self._login(qs)
         if path == "/registracija":
@@ -1393,6 +1396,30 @@ class Handler(BaseHTTPRequestHandler):
                                   + "#povratne")
         frag = tokenstranica.fb_fragment(self.user, mint, "" if ok else code)
         return self._send(200, i18n.translate(frag).encode("utf-8"), translated=True)
+
+    def _token_icon(self, path):
+        """GET /img/t/<mint>.webp: the token's icon, small and from our own address (fetched once, kept on disk), or
+        the initials placeholder; never an empty hole (ui/tokenicons.get)."""
+        from ui import tokenicons
+        m = tokenicons.ROUTE.match(path)
+        if not m:
+            return self._send(404, b"", "text/plain")
+        try:
+            code, headers, body = tokenicons.get(m.group(1))
+        except Exception:  # noqa: BLE001 - the initials, briefly, instead of a broken image
+            _error_html()
+            code, headers, body = 200, {"Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=60"}, \
+                tokenicons.placeholder(m.group(1))
+        self.send_response(code)
+        for k, v in headers.items():
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            return None
+        return None
 
     def _static(self, name):
         """Screenshots of the public page: only plain file names from ui/static/landing."""
