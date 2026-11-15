@@ -347,6 +347,13 @@ def reports(now=None, budget_chars=2500):
             put("zadnjih5_walk_forward", z, None)
     except Exception:  # noqa: BLE001
         pass
+    try:   # 15.11. (oscilator/): the oscillating tokens' scalp walk-forward per size and its demo
+        from oscilator import view as oview
+        o = oview.critic_summary()
+        if o:
+            put("oscilator", o, None)
+    except Exception:  # noqa: BLE001
+        pass
     try:   # 15.11. (konsenzus/): the source consensus walk-forward and its demo
         from konsenzus import view as kview
         k = kview.critic_summary()

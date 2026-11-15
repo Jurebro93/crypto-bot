@@ -324,6 +324,16 @@ def _izvori_refusal():
         return f"konsenzus: dokaz se ne može pročitati ({type(e).__name__})"
 
 
+def _osc_refusal():
+    """15.11. (oscilator/): None when an oscillator trade of the real account may become a real buy (the owner's switch
+    pravi_novac_oscilator on AND the walk-forward + demo proof, oscilator/gate.real_refusal), else why not."""
+    try:
+        from oscilator import gate
+        return gate.real_refusal()
+    except Exception as e:  # noqa: BLE001 - no proof, no real money
+        return f"oscilator: dokaz se ne može pročitati ({type(e).__name__})"
+
+
 # 14.11. (owner: "Ja sada ne govorim o demu ... idemo s pravim novcem"; trade/settings "pravi_novac_sve"): while his
 # switch is on, every automatic demo trade of the real account is a real buy without the demo proof (PROOF, the
 # momentum gate), within trade/executor.SWITCH_CAPS. The hard rules are asked once more right here, on the real buy
@@ -648,6 +658,12 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 why = _momentum_gate()
             if not why and executor.is_izvori(t["source"]):   # 15.11. (konsenzus/): its own switch + holdout proof,
                 why = _izvori_refusal()                          # then the hard rules on the real buy itself
+                if not why:
+                    why, wait = _switch_hard(lg, t, now)
+                    if why and wait:
+                        continue
+            if not why and (t["source"] or "").startswith("oscilator"):   # 15.11. (oscilator/): its own switch + the
+                why = _osc_refusal()                                       # proof; pravi_novac_sve never routes it
                 if not why:
                     why, wait = _switch_hard(lg, t, now)
                     if why and wait:

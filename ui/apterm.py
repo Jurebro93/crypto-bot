@@ -2833,6 +2833,7 @@ def ostalo_html(tcon, cfg, owner, now, prefill=""):
             pt._safe("ev", pt._ev_card, owner),
             pt._safe("fast-path", pt._fast_card, owner),
             pt._safe("konsenzus", pt._konsenzus_card, owner),   # 15.11. (konsenzus/): the source consensus strategy
+            pt._safe("oscilator", pt._oscilator_card, owner),   # 15.11. (oscilator/): the oscillating tokens' scalp
             pt._recs_section(),
             # 15.11. (owner): the OpenAI critic's suggestions under "Preporuke alata", accepted / applied once or rejected
             pt._safe("openai-prijedlozi", pt._suggest_section, tcon, owner, "openai"),

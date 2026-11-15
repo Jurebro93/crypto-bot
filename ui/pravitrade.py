@@ -1446,6 +1446,16 @@ def _fast_card(owner):
     return view.card_html(_sec, _item, esc, owner)
 
 
+def _oscilator_card(owner):
+    """15.11. (vlasnik, oscilator/, flag oscilator): "Oscilator", one closed row under Ostalo (owner only): today's top
+    10 oscillating tokens, the walk-forward per size (0.1 / 0.3 / 0.5 / 1 SOL), the range scalp on the same days, the
+    demo so far and why real money (owner switch pravi_novac_oscilator) is on or off."""
+    if not owner:
+        return ""
+    from oscilator import view
+    return view.card_html(_sec, _item, esc, owner)
+
+
 def _konsenzus_card(owner):
     """15.11. (vlasnik, konsenzus/, flag konsenzus): "Konsenzus izvora", one closed row under Postavke (owner only):
     the best candidate of the source consensus walk-forward, its holdout numbers, the demo so far and why real money

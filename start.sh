@@ -270,6 +270,15 @@ low keep zonewatch python3 run_zonewatch.py loop
 # Writes konsenzus.db (DATA_DIR), output/konsenzus.md and "konsenzus: " lines; the demo entries (flag konsenzus) read it.
 ( sleep "${KONSENZUS_FIRST_S:-420}"; python3 -m ops.heavy run_konsenzus.py once || echo "konsenzus nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_konsenzus.py night || echo "konsenzus (noć) nije uspio"; done ) &
 
+# 15.11. (vlasnik: "token koji ide gore-dolje tijekom dana ... 50 puta dnevno, 1-2 $ na svakom", oscilator/,
+# run_oscilator.py): per token-day the zigzag swings larger than the round-trip cost at 0.1-1 SOL + 1 $ net, then the
+# walk-forward (top 10 of day D traded on D+1 with the scalp rule) per size and the range scalp on the same token-days;
+# read-only on the minute data we hold, no API call. OSCILATOR_FIRST_S (300 s) after a start under the heavy-job lock
+# (nice 10, the CPU guard's job class, a 15-min budget OSC_BUDGET_S; skipped when the last run is younger than 3 h),
+# then nightly (01-06 Zagreb, once a day). Writes oscilator.db (DATA_DIR), output/oscilator.md and "oscilator: " lines;
+# the demo trades (flag oscilator, league/auto.fast_loop) read today's top 10 from it.
+( sleep "${OSCILATOR_FIRST_S:-300}"; python3 -m ops.heavy run_oscilator.py once || echo "oscilator nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_oscilator.py night || echo "oscilator (noć) nije uspio"; done ) &
+
 # 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and
 # every call of a followed influencer -> fast.db queue -> five checks (rug, holders, flow, price vs the wallet's entry,
 # source) and a decision within seconds, 20 at once. Time-sensitive, so a supervised process polling every 0.5 s (and

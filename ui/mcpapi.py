@@ -1590,6 +1590,22 @@ TOOLS.append(
                      "pravi_novac_izvori is on and the holdout proof (n >= 30, EV >= +3 %, CI low > 0) passed. full: also "
                      "every configuration's train numbers. Read-only."),
      "inputSchema": {"type": "object", "properties": {"full": {"type": "boolean", "default": False}}}})
+# 15.11. (owner, oscilator/): the oscillating tokens' scalp (today's top 10, walk-forward per size, demo), read-only
+TOOLS.append(
+    {"name": "get_oscillators", "annotations": _READ,
+     "description": ("MemeSonar's oscillator scalp (oscilator/, after a deploy and nightly, read-only on the minute data "
+                     "it already holds): per token and Zagreb day the zigzag swings larger than the round-trip cost at "
+                     "0.1 / 0.3 / 0.5 / 1 SOL + 1 $ net, the trend (efficiency ratio), liquidity, volume; top: today's "
+                     "10 tokens ranked on the newest complete day; walk_top: the walk-forward (rank on day D, trade the "
+                     "top 10 on day D+1 with the rule: lower quarter of the last hour's range + momentum turn, +1 $ / "
+                     "+2 $ net of the REAL cost, stop -8 % filled at the bar low, 60 min) per size@target: n, "
+                     "per_token_day, hit, ev_pct / ev_usd, ci90_ev_pct (bootstrap by token-day), usd_day, max_dd_usd, "
+                     "worst_day_usd, broke_share, ev_demo_pct (the same trades at the demo account's flat fee); "
+                     "walk_all: every eligible token on D+1; range_scalp: rangedca's scalp on the same token-days; demo: "
+                     "the demo account's closed oscillator trades; real_money: the owner switch pravi_novac_oscilator "
+                     "and the proof (walk-forward n >= 100, EV and CI90 low > 0, $/day > 0 at 0.1 SOL; demo >= 50 "
+                     "closed with EV > 0). full: every target, the fee table and the rule's sensitivity. Read-only."),
+     "inputSchema": {"type": "object", "properties": {"full": {"type": "boolean", "default": False}}}})
 # 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
 _P01 = {"type": "number", "minimum": 0, "maximum": 1}
 TOOLS.append(
@@ -1846,6 +1862,10 @@ def _tool(name, args, kid="local"):
     if name == "get_learned_exits":   # 15.11. izlazi/, read-only
         from izlazi import report as izreport
         d = izreport.mcp(args)
+        return d, "error" in d
+    if name == "get_oscillators":   # 15.11. oscilator/, read-only
+        from oscilator import view as oview
+        d = oview.mcp(args)
         return d, "error" in d
     if name == "get_source_strategy":   # 15.11. konsenzus/, read-only
         from konsenzus import view as kview
