@@ -199,7 +199,13 @@ def run(con, p, c, now, stats, events, parts):
             "min_clusters": int(c["signal_min_clusters"]), "holder_table": bool(hp),
             "signal": {"n": s["n"], "ev_pct": pct(s["ev"]), "ci90_lo_pct": pct(s["lo90"]),
                        "hit_pct": round(100 * sum(1 for r in rets if r > 0) / len(rets), 1) if rets else None,
-                       "signals": len(sig_rows)},
+                       "signals": len(sig_rows),
+                       # 15.11. popodne: the mean of all signals was +12855 % (a few microcaps went 100x+): the line
+                       # now shows the median and our rules' bucket (MC >= 5M), the mean stays for the record
+                       "median_pct": pct(sorted(rets)[len(rets) // 2]) if rets else None,
+                       "mc5m": (lambda r5: {"n": len(r5), "ev_pct": pct(sum(r5) / len(r5)) if r5 else None,
+                                            "median_pct": pct(sorted(r5)[len(r5) // 2]) if r5 else None})(
+                           [r[5] for r in sig_rows if r[5] is not None and (r[4] or 0) >= 5e6])},
             "top": [{"wallet": r[0], "owner": r[1], "cluster": r[2], "roles": json.loads(r[3]), "score": r[4],
                      "last_buy_ts": r[8], "last_token": r[9]} for r in top],
             "now": now_sig[:20]}

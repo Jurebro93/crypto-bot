@@ -40,7 +40,10 @@ def lines(s):
     if sm:
         sg = sm.get("signal") or {}
         out.append(f"{store.PREFIX}pametni novac: {sm.get('n_wallets', 0)} novčanika u {sm.get('n_clusters', 0)} klastera; "
-                   f"signal {sm.get('min_clusters', 2)}+ klastera: n={sg.get('n', 0)}, EV {_ev(sg.get('ev_pct'))}")
+                   f"signal {sm.get('min_clusters', 2)}+ klastera: n={sg.get('n', 0)}, medijan {_ev(sg.get('median_pct'))} "
+                   f"(prosjek {_ev(sg.get('ev_pct'))} vuku rijetki mikrokapovi); MC ≥ 5M: "
+                   f"n={(sg.get('mc5m') or {}).get('n', 0)}, EV {_ev((sg.get('mc5m') or {}).get('ev_pct'))}, "
+                   f"medijan {_ev((sg.get('mc5m') or {}).get('median_pct'))}")
     tr = s.get("trending") or {}
     if tr:
         out.append(f"{store.PREFIX}uskoro trending: ulazaka {tr.get('entries', 0)}, holdout n={tr.get('n_test', 0)}, "

@@ -216,10 +216,18 @@ class Live(SwitchBase):
         n = self.lg.execute("SELECT COUNT(*) FROM veliki_trades WHERE token=? AND user=?", (tok(100), PU)).fetchone()[0]
         self.assertEqual(n, intra.MAX_ROUNDS)
 
+    def _prio(self, risk=None):
+        rows = {t: {"mint": t, "symbol": t[-3:], "score": 1.0, "parts": {}, "facts": {}} for t in (tok(31), tok(100))}
+        if risk:
+            for r in rows.values():
+                r["risk"] = risk
+        from veliki import prioritet
+        return mock.patch.object(prioritet, "cached", lambda *a, **k: rows)
+
     def test_real_only_on_the_veliki_list(self):
         self.flag("veliki_range", "paper")
         from veliki import gate
-        with mock.patch.object(gate, "real_refusal", lambda *a, **k: None):
+        with mock.patch.object(gate, "real_refusal", lambda *a, **k: None), self._prio():
             live.tick(self.lg, lambda ts: self.mk([t for t in ts if t in (tok(31), tok(100))]), now=self.now,
                       force=True)
         rows = {(r[0], r[1]) for r in self.lg.execute("SELECT user, token FROM veliki_trades")}
@@ -228,6 +236,54 @@ class Live(SwitchBase):
         self.assertNotIn((LU, tok(100)), rows)      # a midcap without the age / list check: demo only
         size = self.lg.execute("SELECT size_sol FROM veliki_trades WHERE user=?", (LU,)).fetchone()[0]
         self.assertEqual(size, 0.1)
+
+    def test_real_needs_the_priority_row(self):
+        # 15.11. popodne: without the priority row (holder / safety facts) no real buy; the demo still enters
+        self.flag("veliki_range", "paper")
+        from veliki import gate
+        with mock.patch.object(gate, "real_refusal", lambda *a, **k: None):
+            live.tick(self.lg, lambda ts: self.mk([t for t in ts if t in (tok(31), tok(100))]), now=self.now,
+                      force=True)
+        rows = {(r[0], r[1]) for r in self.lg.execute("SELECT user, token FROM veliki_trades")}
+        self.assertNotIn((LU, tok(31)), rows)
+        self.assertIn((PU, tok(100)), rows)
+
+    def test_static_risk_known_before_the_buy_refuses_demo_and_real(self):
+        self.flag("veliki_range", "paper")
+        from veliki import gate
+        with mock.patch.object(gate, "real_refusal", lambda *a, **k: None), self._prio("top 10 holdera 60 %"):
+            live.tick(self.lg, lambda ts: self.mk([t for t in ts if t in (tok(31), tok(100))]), now=self.now,
+                      force=True)
+        self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM veliki_trades").fetchone()[0], 0)
+
+    def test_round_trip_is_the_higher_of_model_and_measured(self):
+        self.flag("veliki_range", "paper")
+        from veliki import rule
+        with mock.patch.object(rule, "demo_rt", lambda *a, **k: 0.045):
+            live.tick(self.lg, lambda ts: self.mk([t for t in ts if t == tok(100)]), now=self.now, force=True)
+        rt, drt = self.lg.execute("SELECT rt, drt FROM veliki_trades WHERE user=?", (PU,)).fetchone()
+        self.assertAlmostEqual(rt, 0.045)
+        self.assertAlmostEqual(drt, 0.045)
+
+    def test_chain_line_counts_bought_and_refused(self):
+        import sqlite3
+        import tempfile
+        from veliki import live as vlive
+        vlive.ensure(self.lg)
+        d0 = int(self.now - 3600)
+        for i, tid in enumerate((101, 102)):
+            self.lg.execute("INSERT INTO veliki_trades (user, token, opened_ts, trade_id, status) VALUES (?,?,?,?,?)",
+                            (LU, tok(200 + i), int(self.now - 60), tid, "open"))
+        self.lg.commit()
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "t.db")
+            c = sqlite3.connect(p)
+            c.execute("CREATE TABLE positions (id INTEGER PRIMARY KEY, league_id INTEGER, mode TEXT, status TEXT)")
+            c.executemany("INSERT INTO positions (league_id, mode, status) VALUES (?,?,?)",
+                          [(101, "live", "open"), (102, "live", "blocked")])
+            c.commit()
+            c.close()
+            self.assertEqual(vlive.chain_line(self.lg, LU, d0, path=p), "; na lancu danas: kupljeno 1, odbijeno 1")
 
     def test_hour_report_line(self):
         self.flag("veliki_range", "paper")
