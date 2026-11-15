@@ -18,6 +18,10 @@ process that ends and gives its memory back; this process only keeps the clock. 
   events  run_events.py tick    every EVENTS_EVERY_MIN minutes (default 5): events.db sync, feed health, stale requests; light
   evreport run_events.py ev     once a day at 23:30 Zagreb: the EV report per feature phase (events/evreport.py); light
   trosak  run_usage.py dnevno   once a day at 23:59 UTC: one cost line per source + usage.db daily_cost; light
+  kriticar run_critic.py trades every KRITICAR_EVERY_MIN minutes (default 5): open-trade critic, a call only on a change
+  kriticar_dan run_critic.py daily  at the first check after a start when today (Zagreb) has none, then daily at
+                                KRITICAR_DAILY_HOUR:40 (default 06:40, before the 07:00 morning e-mail); light
+  kriticar_dubinski run_critic.py deep --auto  every 10 min a look: the deep session when due (critic/deep.py); light
 """
 import datetime as dt
 import json
@@ -174,6 +178,21 @@ def daily_local(name, args, hour, light=True, minute=0):
         time.sleep(wait)
 
 
+def daily_local_first(name, args, hour, light=True, minute=0):
+    """15.11. (vlasnik: the critic's first review right after the deploy): daily_local, but the first check after a
+    start runs the job at once when it has not run for today's Zagreb date (the day kept on the disk like daily());
+    then the usual daily_local at hour:minute."""
+    if light:
+        time.sleep(LIGHT_START_DELAY_S)
+    try:
+        day = local_due(0, _last_day(name))
+        if day and run(name, args, light=light) == 0:
+            _set_last_day(name, day)
+    except Exception as e:  # noqa: BLE001 - the scheduler must not die
+        print(f"{name}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+    daily_local(name, args, hour, light, minute)
+
+
 def utc_due(hh, mm, last_day, now=None):
     """The UTC date a once-a-day job at hh:mm UTC is due for right now, or None (11.11.: the daily cost line)."""
     now = now or dt.datetime.now(dt.timezone.utc)
@@ -290,6 +309,14 @@ JOBS = [
     # 11.11. (Jure, preporuka 8 iz analize troška): the day's cost line per source at 23:59 UTC (00:59 CET), the minute
     # before every daily counter resets at UTC midnight; same numbers in usage.db daily_cost (usage/daily.py); light
     ("trosak", daily_utc, (["run_usage.py", "dnevno"], 23, 59)),
+    # 15.11. (vlasnik: "OpenAI kao kritičar"; critic/, owner switch openai_kritika): the open-trade critic's check every
+    # KRITICAR_EVERY_MIN (a call only on a change, at least every 15 min while real money is open) and the daily review
+    # (first right after a start when today has none, then 06:40 Zagreb); both wait on the API: light
+    ("kriticar", every, (["run_critic.py", "trades"], float(os.environ.get("KRITICAR_EVERY_MIN", "5")), True)),
+    ("kriticar_dan", daily_local_first, (["run_critic.py", "daily"], _env_hour("KRITICAR_DAILY_HOUR", 6), True, 40)),
+    # 15.11. navečer: the deep session (critic/deep.py decides: the first right after this deploy, then every 48 h in
+    # the night window); the SQL is read-only, paced and capped per query
+    ("kriticar_dubinski", every, (["run_critic.py", "deep", "--auto"], 10.0, True)),
 ]
 
 

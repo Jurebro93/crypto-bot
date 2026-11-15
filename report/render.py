@@ -301,6 +301,9 @@ def render(data, ai, source):
         from momentum import view as mview
         out.append(section("Momentum scalp i Grokova EV vrata", bullets(mview.lines(mo))))
 
+    # 15.11. (vlasnik): the OpenAI critic (critic/): review, verdicts on open positions, its record and cost
+    out.append(section("Kritičar (OpenAI)", kriticar_body(data.get("kriticar"))))
+
     # the 1.11. entry rules and their effect
     ru = data.get("rules")
     if ru:
@@ -372,6 +375,48 @@ def render(data, ai, source):
 SOURCE_HR = {"caller": "Calleri (X, Telegram)", "wallet": "Praćeni novčanici", "scan": "Skener (bez callera)",
              "beta": "Beta mete", "kandidati": "Kandidati (spoj izvora)",
              "grok_override": "Grok nadjačao rug ocjenu"}
+
+
+CRITIC_WORDS = {"drzi": "drži", "prodaj": "prodaj", "prodaj_dio": "prodaj dio", "stegni_sl": "stegni SL",
+                "prosiri_sl": "proširi SL"}
+
+
+def kriticar_body(k):
+    """The morning e-mail's "Kritičar (OpenAI)" section; one line while the critic has nothing yet."""
+    if not k:
+        return para("Kritičar još nema pregleda.")
+    body = ""
+    sm = k.get("sazetak")
+    if sm:
+        body += f'<div style="font-size:13px;font-weight:600;margin:4px 0 2px">{e(sm.get("title"))}</div>'
+        body += "".join(para(x) for x in (sm.get("text") or "").split("\n\n")[:3])
+    else:
+        body += para("Dnevni pregled još nije napravljen.")
+    if k.get("nalazi"):
+        body += '<div style="font-size:13px;font-weight:600;margin:10px 0 2px">Glavni nalazi</div>'
+        body += bullets([f"{x['title']}: {x['text']}" + (f" Prijedlog: {x['prijedlog']}" if x.get("prijedlog") else "")
+                         for x in k["nalazi"]])
+    if k.get("pozicije"):
+        body += '<div style="font-size:13px;font-weight:600;margin:10px 0 2px">Presude za otvorene pozicije</div>'
+        body += table(["Pozicija", "Presuda", "Sigurnost", "PnL tada"],
+                      [[e(p.get("symbol") or "?") + ("" if p.get("mode") == "live" else ' <span style="color:#6b7280">(demo)</span>'),
+                        e(CRITIC_WORDS.get(p.get("verdict"), p.get("verdict") or "")),
+                        pct(p.get("confidence")), pct((p.get("pnl_pct") or 0) / 100, True) if p.get("pnl_pct") is not None else "–"]
+                       for p in k["pozicije"]])
+    pv = k.get("presude") or {}
+    if pv:
+        rows = []
+        for v, d in sorted(pv.items(), key=lambda kv: -kv[1]["n"]):
+            rows.append([e(CRITIC_WORDS.get(v, v)), str(d["n"]), pct(d.get("pogodak_30")), pct(d.get("pogodak_60")),
+                         pct(d.get("pogodak_zatvaranje")), f"{d.get('usd_60min') or 0:+.2f} $",
+                         f"{d.get('usd_zatvaranje') or 0:+.2f} $"])
+        body += '<div style="font-size:13px;font-weight:600;margin:10px 0 2px">Koliko je kritičar bio u pravu (7 dana)</div>'
+        body += table(["Presuda", "n", "Pogodak 30 min", "60 min", "Na zatvaranju", "$ da je praćen (60 min)",
+                       "$ (zatvaranje)"], rows)
+    j, m, b = k.get("jucer") or {}, k.get("mjesec") or {}, k.get("budzet") or {}
+    body += para(f"Trošak: jučer {j.get('poziva', 0)} poziva, ${j.get('usd', 0):.3f}; ovaj mjesec {m.get('poziva', 0)} "
+                 f"poziva, ${m.get('usd', 0):.2f} od ${b.get('mjesec_strop', 0):.0f}.")
+    return body
 
 
 def skener_body(sk):

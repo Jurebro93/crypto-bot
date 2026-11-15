@@ -16,6 +16,8 @@ Sources (all counted by the bot itself; nothing here is a provider's invoice):
   Helius       usage.db usage per script (the bot's own count) and the account reading (Helius Admin API, taken every
                15 min by run_usage tick); without a reading: "stanje računa: /usage ručno"
   AI oznake    usage.db anthropic per method ($) and ai.db batches (posts sent)
+  OpenAI       15.11. (critic/): trade.db critic_calls per kind ($, calls, tokens), the verdicts written and what the
+               owner did with the critic's suggestions (accepted / rejected): what of the cost led to a decision
 """
 import json
 import os
@@ -33,8 +35,9 @@ def _paths():
     from live import store as lstore
     from scan import store as sstore
     from usage import meter
+    from trade import settings
     return {"kol": kstore.DB, "scan": sstore.db_path(), "hype": lstore.HYPE_DB, "usage": meter.DB,
-            "ai": os.path.join(ROOT, "ai.db")}
+            "ai": os.path.join(ROOT, "ai.db"), "trade": settings.DB}
 
 
 def _ro(path):
@@ -186,6 +189,31 @@ def ai(now, paths):
                 c.close()
 
 
+def openai(now, paths):
+    """15.11.: the OpenAI critic's UTC day (trade.db critic_calls / critic_verdicts / its assistant notes); None
+    without trade.db or before its first call."""
+    con = _ro(paths.get("trade"))
+    if con is None:
+        return None
+    day0 = int(now) // 86400 * 86400
+    try:
+        rows = _all(con, "SELECT kind, COUNT(*), COALESCE(SUM(cost_usd), 0), COALESCE(SUM(tokens_in), 0), "
+                         "COALESCE(SUM(tokens_out), 0) FROM critic_calls WHERE ts >= ? GROUP BY kind", (day0,))
+        if not rows:
+            return None
+        out = {"usd": round(sum(_f(r[2]) for r in rows), 4), "poziva": sum(int(r[1]) for r in rows),
+               "po_vrsti": {k: round(_f(u), 4) for k, _n, u, _i, _o in rows},
+               "tokena": sum(int(r[3]) + int(r[4]) for r in rows),
+               "presuda": int(_f(_one(con, "SELECT COUNT(*) FROM critic_verdicts WHERE ts >= ?", (day0,), 0)))}
+        from ui import assistnotes
+        dec = _all(con, "SELECT status, COUNT(*) FROM assistant_notes WHERE kind='suggestion' AND key_id=? AND "
+                        "decided_ts >= ? GROUP BY status", (assistnotes.CRITIC_KID, day0))
+        out["odluke_vlasnika"] = {st: int(n) for st, n in dec}
+        return out
+    finally:
+        con.close()
+
+
 def collect(now=None, paths=None):
     """Today's (UTC) numbers per source as a dict (JSON-safe)."""
     now = int(now or time.time())
@@ -194,7 +222,8 @@ def collect(now=None, paths=None):
     for name, fn in (("coingecko", lambda: coingecko(now)), ("graf", lambda: graf(now)),
                      ("twitterapi", lambda: twitterapi(now, paths)),
                      ("apify", lambda: apify(now, paths)), ("pumpportal", lambda: pumpportal(now, paths)),
-                     ("helius", lambda: helius(now, paths)), ("ai", lambda: ai(now, paths))):
+                     ("helius", lambda: helius(now, paths)), ("ai", lambda: ai(now, paths)),
+                     ("openai", lambda: openai(now, paths))):
         try:
             out[name] = fn()
         except Exception as e:  # noqa: BLE001 - one source costs only its part of the line
@@ -244,6 +273,11 @@ def line(d):
         parts.append(f"Helius bot {_n(he.get('krediti_bot'))} kr. ({_top(he.get('po_poslu'))}), {state}")
     if ai_:
         parts.append(f"AI oznake {_n(ai_.get('objava'))} objava, ${_usd(ai_.get('usd'))} ({_top(ai_.get('po_poslu'), fmt=_usd)})")
+    oa = d.get("openai") or {}
+    if oa.get("poziva"):   # 15.11. (critic/): calls, $ per kind, verdicts, the owner's decisions on its suggestions
+        dec = oa.get("odluke_vlasnika") or {}
+        parts.append(f"OpenAI kritičar {_n(oa['poziva'])} poziva, ${_usd(oa.get('usd'))} ({_top(oa.get('po_vrsti'), fmt=_usd)}), "
+                     f"{_n(oa.get('presuda'))} presuda" + (f", odluke vlasnika: {_top(dec)}" if dec else ""))
     errs = [f"{k}: {v['greska']}" for k, v in d.items() if isinstance(v, dict) and v.get("greska")]
     return f"trošak po izvoru {d.get('day')} (UTC dan): " + " | ".join(parts) + (f" | greške: {'; '.join(errs)}" if errs else "")
 
@@ -291,7 +325,7 @@ def week(now=None, path=None, n=7):
     s = {"dana": len(rows), "od": rows[-1]["day"] if rows else None, "do": rows[0]["day"] if rows else None,
          "coingecko_kljuc": 0, "coingecko_besplatno": 0, "e429": 0, "graf": 0, "x_usd": 0.0, "x_dijelovi": {}, "apify_usd_bot": 0.0,
          "apify_racun_usd": 0.0, "pumpportal_tradeova": 0, "pumpportal_sol": 0.0, "helius_bot": 0, "helius_racun": 0.0,
-         "ai_usd": 0.0, "ai_objava": 0}
+         "ai_usd": 0.0, "ai_objava": 0, "openai_usd": 0.0, "openai_poziva": 0, "openai_presuda": 0, "openai_odluke": {}}
     for d in rows:
         cg, tw, ap, pp, he, ai_ = (d.get(k) or {} for k in ("coingecko", "twitterapi", "apify", "pumpportal", "helius", "ai"))
         s["coingecko_kljuc"] += int(cg.get("kljuc") or 0)
@@ -309,7 +343,13 @@ def week(now=None, path=None, n=7):
         s["helius_racun"] += _f(((he.get("racun") or {}).get("dan")))
         s["ai_usd"] += _f(ai_.get("usd"))
         s["ai_objava"] += int(ai_.get("objava") or 0)
-    for k in ("x_usd", "apify_usd_bot", "apify_racun_usd", "pumpportal_sol", "ai_usd"):
+        oa = d.get("openai") or {}
+        s["openai_usd"] += _f(oa.get("usd"))
+        s["openai_poziva"] += int(oa.get("poziva") or 0)
+        s["openai_presuda"] += int(oa.get("presuda") or 0)
+        for k, v in (oa.get("odluke_vlasnika") or {}).items():
+            s["openai_odluke"][k] = s["openai_odluke"].get(k, 0) + int(v or 0)
+    for k in ("x_usd", "apify_usd_bot", "apify_racun_usd", "pumpportal_sol", "ai_usd", "openai_usd"):
         s[k] = round(s[k], 4)
     return s
 
@@ -326,7 +366,10 @@ def week_md(s):
             f"- Apify: ${_usd(s['apify_usd_bot'])} po botu, račun ${_usd(s['apify_racun_usd'])}",
             f"- PumpPortal: {_n(s['pumpportal_tradeova'])} tradeova ≈ {s['pumpportal_sol']:.3f} SOL",
             f"- Helius: {_n(s['helius_bot'])} kredita po botu, račun +{s['helius_racun'] / 1e6:.2f}M",
-            f"- AI oznake: {_n(s['ai_objava'])} objava, ${_usd(s['ai_usd'])}"]
+            f"- AI oznake: {_n(s['ai_objava'])} objava, ${_usd(s['ai_usd'])}"] + (
+        [f"- OpenAI kritičar: {_n(s['openai_poziva'])} poziva, ${_usd(s['openai_usd'])}, {_n(s['openai_presuda'])} "
+         "presuda otvorenih pozicija; odluke vlasnika o prijedlozima: "
+         + (_top(s.get("openai_odluke")) if s.get("openai_odluke") else "nijedna")] if s.get("openai_poziva") else [])
 
 
 def run(now=None, log=print, paths=None, path=None):

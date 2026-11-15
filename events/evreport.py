@@ -425,7 +425,7 @@ def build(now=None, econ=None, log=print):
         out = []
         for name in settings.FLAGS:
             st = state.get(name) or {"mode": "off"}
-            if st["mode"] == "off":
+            if st["mode"] == "off" or name == getattr(settings, "KRITICAR", None):   # 15.11.: advice only, no EV
                 continue
             try:
                 if name == "market_scan":

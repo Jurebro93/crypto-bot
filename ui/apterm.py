@@ -511,6 +511,46 @@ def _note_html(nt):
             + (f' · {esc(nt.get("interpretation") or "")}' if nt.get("interpretation") else "") + '</div>')
 
 
+def _critic(tcon, ids):
+    """15.11.: the OpenAI critic's newest review per position (critic/, advice only); {} on trouble."""
+    try:
+        from ui import assistnotes
+        return assistnotes.latest_critic(tcon, ids)
+    except Exception:  # noqa: BLE001 - the rows render without it
+        return {}
+
+
+CRITIC_WORDS = {"drzi": "drži", "prodaj": "prodaj", "prodaj_dio": "prodaj dio", "stegni_sl": "stegni SL",
+                "prosiri_sl": "proširi SL", "zatvoreno": "zatvoreno"}
+
+
+def _critic_slim(nt):
+    if not nt:
+        return None
+    ev = nt.get("evidence") if isinstance(nt.get("evidence"), dict) else {}
+    txt = str(nt.get("interpretation") or "")
+    head, sep, rest = txt.partition(" · ")
+    text = rest if sep and head.isupper() else txt
+    if ev.get("vrsta") == "live":   # its comment on a real-money fill: "kupnja dobar: ..."
+        text = f'{ev.get("strana") or ""} {ev.get("ocjena") or ""}: {text}'.strip()
+    return {"verdict": ev.get("verdict") or nt.get("verdict"), "confidence": nt.get("confidence"),
+            "text": text, "ts": nt.get("ts")}
+
+
+def _critic_html(ck, now=None):
+    """One line under a position: "Kritičar (OpenAI): prodaj dio · sigurnost 70 % · razlog · prije 4 min"."""
+    if not ck:
+        return ""
+    conf = f' · sigurnost {ck["confidence"] * 100:.0f} %' if ck.get("confidence") is not None else ""
+    age = ""
+    if ck.get("ts"):
+        m = max(0, int(((now or time.time()) - ck["ts"]) // 60))
+        age = f" · prije {m} min" if m < 120 else f" · prije {m // 60} h"
+    v = CRITIC_WORDS.get(ck.get("verdict"), ck.get("verdict") or "bilješka")
+    return (f'<div class="apx-gnote apx-knote">Kritičar (OpenAI): {esc(v)}{conf}'
+            + (f' · {esc(ck["text"])}' if ck.get("text") else "") + f'{esc(age)}</div>')
+
+
 def positions_data(tcon, cfg, now=None, live=None):
     """Open positions, one row per token and mode (live and paper apart), live first: lots, stake, how much is
     held, the average entry MC (SOL-weighted, as ui/pravitrade._lot_group), MC now, PnL % and an estimate in SOL,
@@ -532,6 +572,7 @@ def positions_data(tcon, cfg, now=None, live=None):
         modes.setdefault(tok, []).append(mode)
     plans = _plans(sorted(modes), cfg, modes)
     notes = _notes(tcon, [r[0] for r in rows], {r[1] for r in rows})
+    crit = _critic(tcon, [r[0] for r in rows])
     srcs = pt._safe("izvori", _lot_sources, [r[10] for r in rows], fallback={})
     out = []
     for (tok, mode), lots in groups.items():
@@ -580,6 +621,8 @@ def positions_data(tcon, cfg, now=None, live=None):
                     "plan": (plans.get(tok) or {}).get(mode), "fields": (plans.get(tok) or {}).get("fields"),
                     "opened_ts": max(r[3] or 0 for r in lots), "pending": pend, "has_demo": bool(first[10]),
                     "note": _slim(next((notes[("p", i)] for i in ids if ("p", i) in notes), None) or notes.get(("t", tok))),
+                    # 15.11.: the OpenAI critic's newest verdict on this position (critic/, advice only)
+                    "critic": _critic_slim(max((crit[i] for i in ids if i in crit), key=lambda d: d["id"], default=None)),
                     # 13.11. (Jure: "pozicije groka jasnije"): a Grok position ("auto": autotrade, "approved": a
                     # request the owner approved), None for anything else; 14.11.: its details open in its row
                     "grok": _grok_kind([r[5] for r in lots] + lot_src),
@@ -1741,7 +1784,7 @@ def _pos_row(p, owner, cfg, rule, gx=None, now=None):
                    for k, v, c, dup in cells)
     grok = (f'<div class="apx-gpd apx-pgrok">{gx["html"]}</div>' if gx and gx.get("html") else "")
     body = (f'<div class=apx-prd><div class=apx-prg data-key="{esc(p["key"])}">{grid}</div>'
-            f'{plan_html(p.get("plan"))}{_note_html(p.get("note"))}'
+            f'{plan_html(p.get("plan"))}{_note_html(p.get("note"))}{_critic_html(p.get("critic"), now)}'
             + (f'<span class=apx-act>{act}</span>' if act else "") + f'{edit}{grok}</div>')
     return (f'<details class="apx-pos apx-pr{" is-paper" if p["paper"] else ""}{" is-grok" if p.get("grok") else ""}" '
             f'id=poz-{p["pid"]} data-key="{esc(p["key"])}" data-tok="{esc(tok)}" data-by="{esc(b["kind"])}">'
@@ -2689,6 +2732,7 @@ def povijest_html(tcon, cfg, owner, now, page_no=1):
                              "AND side='sell' AND signature IS NOT NULL ORDER BY id", ids)) if ids else {}
     rows.sort(key=lambda r: (r[5] != "live", -(r[4] or r[3] or 0)))
     notes = _notes(tcon, ids, ())
+    crit = _critic(tcon, ids)   # 15.11.: the OpenAI critic's comment (e.g. its live comment on the close)
     out = []
     for pid, tok, sym, ots, cts, mode, why, sin, sback, fees, ovr in rows:
         pnl = (sback or 0) - (sin or 0) - (fees or 0)
@@ -2705,7 +2749,8 @@ def povijest_html(tcon, cfg, owner, now, page_no=1):
                    f'<span class=n data-l="Uloženo">{redak.sol(sin, 3)}</span><span class=n data-l="Vraćeno">{redak.sol(sback, 4)}</span>'
                    f'<span class="n {_tone(pnl)}" data-l="PnL">{redak.sol(pnl, 4, sign=True)}<small>{_pct(pp)}</small></span>'
                    f'<span data-l="Izvor">{esc(src_kind(why))}<small>{esc(pt._who(why) or "")}</small>{ov}</span>'
-                   f'<span class=apx-act>{link}</span>{_note_html(_slim(notes.get(("p", pid))))}</div>')
+                   f'<span class=apx-act>{link}</span>{_note_html(_slim(notes.get(("p", pid))))}'
+                   f'{_critic_html(_critic_slim(crit.get(pid)))}</div>')
     head = ('<div class="apx-tr apx-th apx-hist">' + _th("Token") + _th("Zatvoreno", cls="n") + _th("Uloženo", cls="n")
             + _th("Vraćeno", cls="n") + _th("PnL", "PnL · povijest", cls="n") + _th("Izvor") + '<span></span></div>')
     body = head + "".join(out) if out else '<p class=apx-empty>Još nema zatvorenih pozicija.</p>'

@@ -234,6 +234,20 @@ OWNER_SWITCH_NOTES[ZADNJIH5] = ("Tvoj prekidač: „uživo” = Autopilot prati 
                                 "na 30+ tradeova (log „zadnjih 5: odluka”).")
 
 
+# 15.11. (vlasnik: "OpenAI kao kritičar algoritma ... otvorenih tradeova, analiza"; critic/): an owner switch, "uživo" =
+# on and its DEFAULT (FLAG_DEFAULTS), any other mode = off. ADVICE ONLY: the critic never places, changes or closes a
+# trade and never changes a setting; it writes notes. Without OPENAI_API_KEY it does nothing (one log line an hour).
+KRITICAR = "openai_kritika"
+FLAGS[KRITICAR] = ("P16", "Kritičar (OpenAI): savjeti za otvorene pozicije (drži, prodaj, prodaj dio, stegni / proširi SL) "
+                          "i dnevna revizija algoritma kao skeptični data scientist; samo bilješke, nikad ne trguje ni "
+                          "ne mijenja postavke; dnevni i mjesečni strop troška")
+FLAG_DEFAULTS[KRITICAR] = "live"
+OWNER_SWITCHES = OWNER_SWITCHES | {KRITICAR}
+OWNER_SWITCH_NOTES[KRITICAR] = ("Tvoj prekidač: „uživo” (zadano) = kritičar radi (treba OPENAI_API_KEY; strop troška "
+                                "OPENAI_DAY_USD dnevno, OPENAI_MONTH_USD mjesečno); svaki drugi mod = kritičar ne zove "
+                                "OpenAI. Samo savjeti: ništa ne kupuje, ne prodaje i ne mijenja.")
+
+
 def pravi_novac_sve(con=None, path=None):
     """True while the owner's switch pravi_novac_sve is on (mode "live"); never raises (unreadable = off)."""
     try:
