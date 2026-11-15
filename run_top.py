@@ -215,7 +215,15 @@ def full_check(con, mint, now):
 def pass_once(n=None):
     from ui import overview
     now = time.time()
-    mints = overview.watch_tokens(n=n or overview.TOP_N)
+    try:   # 15.11. navečer (owner switch fokus_midcap, ops/fokus.py): the rug / holder check of what we hold + the
+        from ops import fokus   # midcap list (by 24 h volume) instead of the microcap suggestions
+        fk = fokus.on()
+    except Exception:  # noqa: BLE001
+        fk = False
+    if fk:
+        mints = list(dict.fromkeys(fokus.held_tokens() + [r["mint"] for r in fokus.midcap_rows()][:n or overview.TOP_N]))
+    else:
+        mints = overview.watch_tokens(n=n or overview.TOP_N)
     if not mints:
         log("nema preporučenih tokena")
         return 0

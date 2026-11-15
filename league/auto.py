@@ -505,6 +505,15 @@ def run_once(con, market, now=None):
     return done
 
 
+def _fokus():
+    """15.11. (owner switch fokus_midcap, ops/fokus.py): True while the microcaps get no resources; never raises."""
+    try:
+        from ops import fokus
+        return fokus.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def loop(market, every=EVERY_S):
     """Background thread body for run_ui.py."""
     try:   # 15.11. (trade/capgate): the microcap gate's rule once at the start; the day's counter at each new day
@@ -529,6 +538,7 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"copy trading: {type(e).__name__}: {e}", file=sys.stderr)
+            fk = _fokus()   # 15.11. (owner switch fokus_midcap): no entries of the microcap strategies below
             try:   # 11.11. (Jure, flag fast_path G24): the fast path's BUY decisions and copy exits (fast/paper.py),
                 from fast import paper as fpaper   # right after the copy loop: the same wake-up brings both; prices
                 for user, what in fpaper.run_once(con):   # through league/copy.market (it marks the bonding curve)
@@ -537,7 +547,7 @@ def loop(market, every=EVERY_S):
                 print(f"fast path ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # 15.11. (flag konsenzus): the source consensus strategy's entries (konsenzus/live.py): demo always in
                 from konsenzus import live as klive   # paper; real only behind pravi_novac_izvori + the holdout proof
-                for user, what in klive.run_once(con):
+                for user, what in ([] if fk else klive.run_once(con)):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"konsenzus ulazi: {type(e).__name__}: {e}", file=sys.stderr)
@@ -566,19 +576,19 @@ def loop(market, every=EVERY_S):
                 print(f"dca: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # 10.11. (Jure, flag range_dca): range entries, lot 1 and lot 2 (rangedca/trade.py); off: one flag read
                 from rangedca import trade as rtrade
-                for user, what in rtrade.run_once(con):
+                for user, what in ([] if fk else rtrade.run_once(con)):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"range ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # 11.11. (Jure, flag momentum_scalp): entries on fresh signals (momentum/trade.py); off: one flag read
                 from momentum import trade as mtrade
-                for user, what in mtrade.run_once(con):
+                for user, what in ([] if fk else mtrade.run_once(con)):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"momentum ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # 11.11. (Jure, flag proposals G21): paper: a proposal in its entry zone (proposals/)
                 from proposals import paper as ppaper
-                for user, what in ppaper.run_once(con, market):
+                for user, what in ([] if fk else ppaper.run_once(con, market)):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"prijedlozi ulazi: {type(e).__name__}: {e}", file=sys.stderr)

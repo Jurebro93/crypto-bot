@@ -1120,6 +1120,15 @@ def _aktivni_loop(every=600):
         time.sleep(every)
 
 
+def _fokus():
+    """15.11. (owner switch fokus_midcap, ops/fokus.py): True while the microcaps get no resources; never raises."""
+    try:
+        from ops import fokus
+        return fokus.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def cmd_run(a):
     last_scan = last_review = 0
     import threading
@@ -1133,7 +1142,8 @@ def cmd_run(a):
         cfg = sim.load_config(a.config)  # re-read each loop, so `apply` takes effect without a restart
         now = time.time()
         try:
-            if a.scan and now - last_scan >= a.scan_every:
+            fk = _fokus()   # 15.11. (owner switch fokus_midcap): no hype scan of new tokens, no new demo entries
+            if a.scan and now - last_scan >= a.scan_every and not fk:
                 # in its own short process (1.11.: the scan in this loop kept ~65 MB on the 512 MB server)
                 # skipped (tried again next loop) while another heavy job runs, so exits/ticks never wait (2.11.)
                 # (after 10 min without a scan it runs anyway, so new tokens are never held back for long)
@@ -1146,8 +1156,8 @@ def cmd_run(a):
                     done = subprocess.run(cmd, timeout=1800)
                 if done is not None:
                     last_scan = now
-            opened = intake(cfg)
-            if not opened and LAST_INTAKE:
+            opened = 0 if fk else intake(cfg)
+            if not opened and LAST_INTAKE and not fk:
                 print(f"  ulazi 0: {LAST_INTAKE}", flush=True)
             t_tick = time.time()
             closed = tick(cfg)

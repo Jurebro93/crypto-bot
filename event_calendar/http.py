@@ -85,9 +85,11 @@ def _cg_key_raw():
 # key only in the night window (01-06 Zagreb) and at most CG_MASOVNO_NIGHT (1000) calls a night; the rest of its
 # calls and all of its day calls go to the free GeckoTerminal. The day file also counts, per job, the calls that went
 # free, and the HTTP 429 per UTC hour (the daily cost line, usage/daily.py; the hourly line, kol/minute.loop).
-# 15.11. navečer (coordinator: veliki's 1h candles never arrived, GeckoTerminal 429 all day): the midcap jobs (veliki:
-# run_veliki.py list / candles; midcap: the midcap collector) are live jobs too, so the key's whole hourly slice is theirs
-CG_PRIORITY = ("veliki", "midcap", "minute", "range", "momentum", "scan")
+# 15.11. navečer (coordinator: veliki's 1h candles never arrived, GeckoTerminal 429 all day): veliki (run_veliki.py list
+# / candles: the demo's and the real money's zones) is a live job too, so the key's whole hourly slice is its. The midcap
+# collector (job "midcap", up to its own gt_day) is not: it stops CG_RESERVE of each hour's share earlier, so that part
+# of every slice always stays for veliki
+CG_PRIORITY = ("veliki", "minute", "range", "momentum", "scan")
 _CG_JOB = [None]
 _CG_LOCAL = threading.local()   # 14.11.: one thread's job inside a process that serves others (cg_job_as)
 
