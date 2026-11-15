@@ -92,6 +92,12 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # ("što BI obrisao i koliko MB") at the first pass after a deploy and daily from 06:30; it deletes only behind the
 # owner switches live_trades_retention / tg_text_retention, inside 01-06 Zagreb, under the heavy-job lock.
 ( sleep "${HOURLY_FIRST_S:-600}"; while true; do python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; low python3 -m ops.diskreport --auto || echo "disk izvještaj nije uspio"; low python3 -m ops.retencija --auto || echo "retencija nije uspjela"; sleep 3600; done ) &
+# 15.11. (Jure: "Arhiviraj onda dok ima prostora na disku"; ops/arhiva.py, owner switch arhiva_mikrokapova): rows of
+# microcap and rugged tokens move from the live databases into .gz archives on the data disk (copy, verify, gzip,
+# verify, then delete), only 01-06 Zagreb, once a night, the heavy-job lock per table, low priority (the CPU guard may
+# pause it). Switch off: the night's plan only (output/arhiva_plan.md). Its own loop: a night's move must not hold the
+# hourly upkeep above. Outside the window a pass ends at once.
+( sleep "${ARHIVA_FIRST_S:-900}"; while true; do low python3 run_arhiva.py --auto || echo "arhiva nije uspjela"; sleep 1800; done ) &
 # (every minute for the first 10 minutes: the start, when everything loads at once, is where memory peaks)
 # 9.11.: every minute the memory watchdog (ops/health.watchdog: one process over MEM_KILL_MB is stopped and restarted
 # by keep, instead of Render killing the whole service at 2 GiB); the log line every 10 min (every minute at the start)

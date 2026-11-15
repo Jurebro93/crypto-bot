@@ -58,15 +58,35 @@ ZONE = {"q_slo": 0.05, "q_shi": 0.20, "q_rlo": 0.80, "q_rhi": 0.95, "width_min":
 RULE = {"bar_s": 3600, "look_d": 7, "tp": 15.0, "trail": 0.0, "stop": "pct20", "stop_pct": 0.20, "time_h": 168,
         "near": 0.02, "touch_bars": 3, "cooldown_s": 6 * 3600, "entry_slip": 0.002, "exit_slip": 0.002,
         "stop_slip": 0.005, "stop_fill": "level", "min_net_mid": 0.03, "crash_filter": True, "dca": 0.0,
-        "btc_up": False, "atr_k": 2.0, "atr_n": 14, "stop_cap": 0.20, "btc_mode": "dno", "inflow_x": 1.0}
+        "btc_up": False, "atr_k": 2.0, "atr_n": 14, "stop_cap": 0.20, "btc_mode": "dno", "inflow_x": 1.0,
+        "half": 0.5, "tx_frac": 0.0, "dca_mode": "pct", "dca_atr_k": 3.0, "dca_min": 0.05, "dca_cats": ("A", "B"),
+        "reasoned": False, "macro_filter": False, "vol_collapse": 0.30, "cut_pct": 0.10, "protect_min": 0.01}
+# 16.11. (vlasnik: "više tradeova, zatvaraju se gdje postoji dobar razlog ... uključi DCA"; the critic: "TP +8 % pa
+# trailing 5 %" could leave the WHOLE position at ~+2.6 % = 1.08 x 0.95):
+#   half       with a trailing (trail > 0) the target sells `half` (50 %) of the position (locked), the rest's stop moves
+#              to break-even (be_px: the entry + the round trip's cost, so the rest never closes below 0 % net) and the
+#              rest trails `trail` under its highest price since; the time stop closes the rest. half 0 = the old
+#              whole-position trailing (walk.py reports it as "cijeli_trailing"). tx_frac: one swap's network fee as a
+#              share of one lot (the extra sale costs it once).
+#   DCA        one lot more per position at most (dca > 0 or dca_mode "zona" / "atr"), see dca_level / dca_refusal;
+#              the average entry moves the target and the break-even, the stop stays the FIRST entry's (never wider).
+#   reasoned   the reasoned exits (reasoned_exit): BTC free fall (protect a profit / cut below -cut_pct), the macro
+#              regime risk_off, the token's volume collapsing (24 h < vol_collapse x its 7-day average), a bad dip
+#              reason (live: veliki/prioritet "los", holderi deposit-to-sell); off in the plain grid, a walk variant.
+#   macro_filter  no new entry while veliki/makro says risk_off (walk variant; live always).
 # btc_mode (the owner's correction 15.11. popodne): "dno" = the live rule: no entry in a BTC free fall, the range rule
 # when normal, and while the bottom forms ALSO a bounce candle with token inflow (the hour's volume above its 6 h average)
 # anywhere under the range's middle; "zabrana" = no entry at all while a crash (crash_hours) lasts; "bez" = no BTC rule
 BTC_MODES = ("bez", "zabrana", "dno")
-GRID = {"tp": (8.0, 15.0, 25.0), "trail": (0.0, 0.05), "time_h": (72, 168), "look_d": (7, 14)}
+GRID = {"tp": (8.0, 15.0, 25.0), "trail": (0.0, 0.05, 0.10), "time_h": (72, 168), "look_d": (7, 14)}
 STOPS = {"pct10": 0.10, "pct15": 0.15, "pct20": 0.20, "atr": None}
 REASON_HR = {"tp": "cilj", "trail": "trailing nakon cilja", "stop": "stop", "time": "vremenski stop",
-             "kraj": "kraj podataka", "rug": "rug / slom"}
+             "kraj": "kraj podataka", "rug": "rug / slom", "be": "break-even nakon prodane polovice",
+             "btc_zastita": "BTC slobodan pad: zaštita profita", "btc_rez": "BTC slobodan pad: rez ispod -10 %",
+             "makro_zastita": "makro risk-off: zaštita profita", "makro_rez": "makro risk-off: rez ispod -10 %",
+             "volumen": "volumen se urušio (24 h < 30 % prosjeka 7 d)", "los": "razlog pada postao loš",
+             "nestalo": "nestalo"}
+DCA_HR = {"pct": "cijena {d:.0%} ispod prvog ulaza", "zona": "dno zone (podrška)", "atr": "{k:g} x ATR ispod ulaza"}
 
 
 def _f(x, d=None):
@@ -487,29 +507,214 @@ def _path(b):
     return ((o, "o"), (l, "l"), (h, "h"), (c, "c")) if c >= o else ((o, "o"), (h, "h"), (l, "l"), (c, "c"))
 
 
-def exit_on_bar(pos, b, cfg=None):
-    """(reason, fill) when the open position exits inside bar b, else None. pos {entry, ts, tp_px, stop_px, peak?}.
-    With trail > 0 the target arms a trailing stop trail under the highest high since (exit at it, never under the
-    target's own net level x (1 - trail))."""
+def be_price(entry, rt, cfg=None):
+    """The break-even price of a position bought at `entry` (average): the rest sold there nets 0 % after the round
+    trip's cost and the exit slippage."""
+    c = {**RULE, **(cfg or {})}
+    return entry / ((1 - min(max(rt, 0.0), 0.5)) * (1 - c["exit_slip"]))
+
+
+def half_of(cfg=None):
+    """The share sold at the target: cfg half when a trailing follows the target, else 0 (sell all at the target)."""
+    c = {**RULE, **(cfg or {})}
+    return float(c.get("half") or 0.0) if c.get("trail") else 0.0
+
+
+def on_price(pos, px, kind, b_open, cfg=None):
+    """One price point of the position's path (kind "o" open, "l" low, "h" high, "c" close, "t" a live tick):
+    None, or (reason, fill) when the (rest of the) position exits here. The first touch of the target with a
+    trailing sells `half` (pos["half_px"], the stop moves to break-even pos["be_px"]); the same function decides on the
+    backtest's bar path and on the live ticks (veliki/live.exit_why)."""
     c = {**RULE, **(cfg or {})}
     tr = c.get("trail") or 0.0
+    h = half_of(c)
+    down = kind in ("o", "l", "t", "c")
+    up = kind in ("o", "h", "t", "c")
+    lvl = None
+    if tr and pos.get("peak"):
+        lvl = max(pos["peak"] * (1 - tr), pos["be_px"] if pos.get("half_px") and pos.get("be_px") else
+                  pos["tp_px"] * (1 - tr))
+    if kind == "l" and lvl is not None and lvl > pos["stop_px"] and px <= lvl:
+        # a bar's continuous fall reaches the (higher) trailing level before the stop / break-even
+        return "trail", min(lvl, b_open) * (1 - c["exit_slip"])
+    if down and px <= pos["stop_px"]:
+        base = px if kind == "t" else (b_open if kind == "o" else min(pos["stop_px"], b_open))
+        if c["stop_fill"] == "low" and kind == "l":
+            base = px
+        return ("be" if pos.get("half_px") and pos["stop_px"] >= pos.get("be_px", 0) * 0.999 else "stop"), \
+            base * (1 - c["stop_slip"])
+    if lvl is not None and down and px <= lvl:
+        return "trail", (px if kind in ("t", "c") else min(lvl, b_open)) * (1 - c["exit_slip"])
+    if up and px >= pos["tp_px"]:
+        if not tr:
+            return "tp", (px if kind in ("o", "t") else pos["tp_px"]) * (1 - c["exit_slip"])
+        if h and not pos.get("half_px"):
+            pos["half_px"] = (px if kind in ("o", "t") else pos["tp_px"]) * (1 - c["exit_slip"])
+            pos["half"] = h
+            be = pos.get("be_px") or pos["entry"]
+            pos["be_px"] = be
+            pos["stop_px"] = max(pos["stop_px"], be)
+        pos["peak"] = max(pos.get("peak") or 0.0, px)
+    if tr and pos.get("peak") and kind in ("h", "t", "c"):
+        pos["peak"] = max(pos["peak"], px)
+    return None
+
+
+def exit_on_bar(pos, b, cfg=None):
+    """(reason, fill) when the open position (or its rest after the half) exits inside bar b, else None. pos {entry,
+    ts, tp_px, stop_px, be_px?, peak?, half_px?}. With trail > 0 the target sells half (cfg half, 50 %), moves the
+    rest's stop to break-even and arms a trailing stop trail under the highest high since (half 0: the old whole
+    position trailing, never under the target's own level x (1 - trail))."""
+    c = {**RULE, **(cfg or {})}
     for px, kind in _path(b):
-        if kind in ("o", "l") and px <= pos["stop_px"]:
-            base = b[3] if c["stop_fill"] == "low" else min(pos["stop_px"], b[1])
-            return "stop", base * (1 - c["stop_slip"])
-        if tr and pos.get("peak"):
-            lvl = max(pos["peak"] * (1 - tr), pos["tp_px"] * (1 - tr))
-            if kind in ("o", "l") and px <= lvl:
-                return "trail", min(lvl, b[1]) * (1 - c["exit_slip"])
-        if kind in ("o", "h") and px >= pos["tp_px"]:
-            if not tr:
-                return "tp", (max(pos["tp_px"], b[1]) if kind == "o" else pos["tp_px"]) * (1 - c["exit_slip"])
-            pos["peak"] = max(pos.get("peak") or 0.0, px)
-        if tr and pos.get("peak") and kind == "h":
-            pos["peak"] = max(pos["peak"], px)
+        hit = on_price(pos, px, kind, b[1], c)
+        if hit:
+            return hit
     if b[0] + c["bar_s"] - pos["ts"] >= c["time_h"] * H:
         return ("trail" if pos.get("peak") else "time"), b[4] * (1 - c["exit_slip"])
     return None
+
+
+def blend_ret(pos, fill, rt, cfg=None, lots=1):
+    """The position's net return: the half sold at the target (pos half_px, share pos half) and the rest at fill, both
+    at the round trip rt; the extra sale costs one more network fee (tx_frac of a lot / lots)."""
+    c = {**RULE, **(cfg or {})}
+    h = pos.get("half") or 0.0 if pos.get("half_px") else 0.0
+    r = (1 - h) * net_ret(pos["entry"], fill, rt)
+    if h:
+        r += h * net_ret(pos["entry"], pos["half_px"], rt) - (c.get("tx_frac") or 0.0) / max(1, lots)
+    return r
+
+
+# ---------- DCA (16.11., vlasnik: "uključi DCA: tokeni poput Uselessa su se puno puta oporavili na prvi znak oporavka
+# Bitcoina") -------------------------------------------------------------------------------------------------------
+
+def dca_level(entry, zone=None, cfg=None):
+    """The price of the one DCA lot under the FIRST entry: "pct" entry x (1 - dca) (-10 %); "zona" just under the
+    zone's support low (s_lo x 0.98); "atr" entry - dca_atr_k x the zone's 1h ATR; the last two at least dca_min (5 %)
+    under the entry. None: no DCA."""
+    c = {**RULE, **(cfg or {})}
+    m = c.get("dca_mode") or "pct"
+    deep = entry * (1 - (c.get("dca_min") or 0.05))
+    if m == "zona" and zone and zone.get("s_lo"):
+        return min(deep, zone["s_lo"] * 0.98)
+    if m == "atr" and zone and zone.get("atr"):
+        return min(deep, entry - c["dca_atr_k"] * zone["atr"])
+    if not c.get("dca"):
+        return None
+    return entry * (1 - c["dca"])
+
+
+def bounce_ok(m):
+    """(ok, why) of a token's history after BTC bounces (veliki/metrics: btc_up_n days of BTC +3 %, btc_up_hit the
+    share with the token higher 72 h later, btc_up_72h the mean): at least 3 such days and a hit rate >= 50 % or a
+    positive mean."""
+    m = m or {}
+    n = m.get("btc_up_n") or 0
+    if n < 3:
+        return False, f"premalo dana BTC +3 % u povijesti ({n})"
+    hit, mean = m.get("btc_up_hit"), m.get("btc_up_72h")
+    if (hit is not None and hit >= 0.5) or (mean is not None and mean > 0):
+        return True, f"nakon BTC +3 % dana gore {hit if hit is not None else '?'} ({n} dana, prosjek 72 h {mean} %)"
+    return False, f"nakon BTC +3 % dana se ne oporavlja (pogodak {hit}, prosjek 72 h {mean} %)"
+
+
+def dca_refusal(ctx, cfg=None):
+    """None when the one DCA lot may be bought now, else why (Croatian). ctx: btc_state (rule.Crash.regime), macro
+    (veliki/makro: risk_on / neutral / risk_off / None unknown), cat (A / B / C), metrics (the token's metrics row:
+    bounce_ok), dip_kind (veliki/prioritet: los / trzisni / benigni / nejasno / None), bad (a known bad reason: LP
+    pulled, dev selling, rug flag, deposit to sell), vol_ratio (24 h / 7-day average volume), lots (already bought),
+    room (the caps' refusal or None). The same function in the backtest (what the candles can show) and live."""
+    c = {**RULE, **(cfg or {})}
+    if (ctx.get("lots") or 1) >= 2:
+        return "DCA već iskorišten (jedan po poziciji)"
+    if ctx.get("half_done"):
+        return "polovica već prodana na cilju"
+    if ctx.get("btc_state") == "slobodan_pad":
+        return "BTC u slobodnom padu"
+    if ctx.get("macro") == "risk_off":
+        return "makro režim risk-off"
+    if ctx.get("bad"):
+        return f"loš razlog pada ({ctx['bad']})"
+    if ctx.get("dip_kind") == "los":
+        return "razlog pada loš (prioritet)"
+    if ctx.get("cat") not in tuple(c.get("dca_cats") or ("A", "B")):
+        return f"kategorija {ctx.get('cat') or '?'} (DCA samo A / B)"
+    ok, why = bounce_ok(ctx.get("metrics"))
+    if not ok:
+        return why
+    vr = ctx.get("vol_ratio")
+    if vr is not None and vr < c["vol_collapse"]:
+        return f"volumen se urušio ({vr:.0%} prosjeka 7 d)"
+    if ctx.get("room"):
+        return ctx["room"]
+    return None
+
+
+def dca_why(ctx, cfg=None):
+    """The DCA's reason for the log (Croatian)."""
+    c = {**RULE, **(cfg or {})}
+    m = c.get("dca_mode") or "pct"
+    parts = [DCA_HR.get(m, m).format(d=c.get("dca") or 0.10, k=c.get("dca_atr_k") or 3)]
+    parts.append(f"BTC {ctx.get('btc_state') or '?'}")
+    parts.append(f"makro {ctx.get('macro') or 'nepoznat'}")
+    parts.append(f"kategorija {ctx.get('cat')}")
+    if ctx.get("dip_kind"):
+        parts.append(f"pad {ctx['dip_kind']}")
+    parts.append(bounce_ok(ctx.get("metrics"))[1])
+    return ", ".join(parts)
+
+
+def reasoned_exit(pos, px, rt, ctx, cfg=None):
+    """(reason, new stop or None) of a reasoned exit at price px (16.11., vlasnik: "zatvaraju se tradeovi gdje postoji
+    dobar razlog"), else (None, None). ctx: bad / dip_kind "los" -> los; btc_state slobodan_pad -> btc_zastita when
+    the rest is >= protect_min (+1 %) net, btc_rez when <= -cut_pct (-10 %) from the FIRST entry; macro risk_off ->
+    makro_zastita / makro_rez the same, between them the stop tightens to the first entry x (1 - cut_pct); vol_ratio <
+    vol_collapse -> volumen. The backtest sees BTC, the macro regime and the volume; live also the dip reason."""
+    c = {**RULE, **(cfg or {})}
+    net = net_ret(pos["entry"], px * (1 - c["exit_slip"]), rt)
+    first = pos.get("first") or pos["entry"]
+    from_first = px / first - 1
+    if ctx.get("bad") or ctx.get("dip_kind") == "los":
+        return "los", None
+    if ctx.get("btc_state") == "slobodan_pad":
+        if net >= c["protect_min"]:
+            return "btc_zastita", None
+        if from_first <= -c["cut_pct"]:
+            return "btc_rez", None
+    if ctx.get("macro") == "risk_off":
+        if net >= c["protect_min"]:
+            return "makro_zastita", None
+        if from_first <= -c["cut_pct"]:
+            return "makro_rez", None
+        tight = first * (1 - c["cut_pct"])
+        if tight > pos["stop_px"]:
+            return None, tight
+    vr = ctx.get("vol_ratio")
+    if vr is not None and vr < c["vol_collapse"]:
+        return "volumen", None
+    return None, None
+
+
+def vol_ratios(bars):
+    """[24 h volume / the 7-day daily average or None] per 1h bar (prefix sums; None without 168 bars or when more
+    than a quarter of the window has no volume: own DexScreener bars carry none)."""
+    n = len(bars)
+    v = [float(b[5] or 0.0) if len(b) > 5 else 0.0 for b in bars]
+    zero = [1 if x <= 0 else 0 for x in v]
+    ps, pz = [0.0], [0]
+    for x, z in zip(v, zero):
+        ps.append(ps[-1] + x)
+        pz.append(pz[-1] + z)
+    out = [None] * n
+    for j in range(167, n):
+        if pz[j + 1] - pz[j - 167] > 42:
+            continue
+        s7 = ps[j + 1] - ps[j - 167]
+        if s7 <= 0:
+            continue
+        out[j] = (ps[j + 1] - ps[j - 23]) / (s7 / 7)
+    return out
 
 
 def candidates(bars, zones, look_d, crash=None, cfg=None, pit=None):
@@ -529,11 +734,23 @@ def candidates(bars, zones, look_d, crash=None, cfg=None, pit=None):
     return out
 
 
-def simulate(bars, cands, size_usd, rt, cfg=None, drt=None, t0=None, t1=None, crash=None):
+def _bt_ctx(ctx, t, crash, j, lots):
+    """The backtest's view of the DCA / reasoned-exit context at time t (bar j): BTC's state, the macro regime
+    (ctx["macro"](t)), the token's category and metrics (static), the volume ratio of bar j; the candles cannot show a
+    dip's reason (live only)."""
+    vr = ctx.get("vol")
+    return {"btc_state": crash.regime(t)[0] if crash is not None else None,
+            "macro": ctx["macro"](t) if ctx.get("macro") else None, "cat": ctx.get("cat"),
+            "metrics": ctx.get("metrics"), "vol_ratio": vr[j] if vr and j < len(vr) else None, "lots": len(lots)}
+
+
+def simulate(bars, cands, size_usd, rt, cfg=None, drt=None, t0=None, t1=None, crash=None, rt2=None, ctx=None):
     """The trades of one token: entries from cands (candidates()) that pass this config, one position at a time, the
     cooldown after an exit, filled at the next bar's open (no look-ahead); open positions keep their losses through a
-    crash (only NEW entries are banned). [{ts, out_ts, entry, exit, reason, ret, pnl, ret_demo, lots, hours, mae, mfe,
-    zone_fresh, crash_overlap}]."""
+    crash (only NEW entries are banned). With a trailing, half is sold at the target, the rest trails from break-even
+    (blend_ret). rt2: the round trip with the DCA lot (cost_at lots=2); ctx (None: no smart DCA conditions, no
+    reasoned exits): {"macro": fn(t) -> regime, "cat", "metrics", "vol": vol_ratios(bars)}. [{ts, out_ts, entry,
+    exit, reason, ret, pnl, ret_demo, lots, hours, mae, mfe, half, dca, zone_fresh, crash_overlap}]."""
     c = {**RULE, **(cfg or {})}
     drt = rt if drt is None else drt
     bs = c["bar_s"]
@@ -548,38 +765,63 @@ def simulate(bars, cands, size_usd, rt, cfg=None, drt=None, t0=None, t1=None, cr
             continue
         b = bars[i + 1]
         e = b[1] * (1 + c["entry_slip"])
-        pos = {"entry": e, "ts": b[0], "tp_px": tp_price(e, c["tp"], rt, z, c), "stop_px": stop_px(e, z, c)}
+        if c.get("macro_filter") and ctx and ctx.get("macro") and ctx["macro"](ts_dec) == "risk_off":
+            continue
+        pos = {"entry": e, "first": e, "ts": b[0], "tp_px": tp_price(e, c["tp"], rt, z, c), "stop_px": stop_px(e, z, c),
+               "be_px": be_price(e, rt, c)}
         if c["tp"] in ("mid", "top") and pos["tp_px"] <= e:
             continue
         lots = [e]
-        dca_px = e * (1 - c["dca"]) if c.get("dca") else None
+        dca_px = dca_level(e, z, c) if (c.get("dca") or c.get("dca_mode") in ("zona", "atr")) else None
+        if dca_px is not None and dca_px <= pos["stop_px"] * 1.02:
+            dca_px = None     # a DCA level at the stop: no DCA (the stop never widens)
+        crt = rt
         hit, j = None, i + 1
         lo, hi = e, e
+        dca_log = None
         while j < n:
             bj = bars[j]
-            if dca_px is not None and len(lots) == 1 and bj[3] <= dca_px and dca_px > pos["stop_px"]:
-                lots.append(dca_px)    # one more lot at -dca: the average entry and the net target move with it
-                avg = 2 / (1 / lots[0] + 1 / lots[1])
-                pos["entry"] = avg
-                if c["tp"] not in ("mid", "top"):
-                    pos["tp_px"] = tp_price(avg, c["tp"], rt, z, c)
+            if dca_px is not None and len(lots) == 1 and not pos.get("half_px") and bj[3] <= dca_px:
+                fill_d = min(dca_px, bj[1]) * (1 + c["entry_slip"])
+                why = None if fill_d > pos["stop_px"] else "ispod stopa"
+                if why is None and ctx is not None:
+                    why = dca_refusal(_bt_ctx(ctx, bj[0], crash, j, lots), c)
+                if why is None:
+                    lots.append(fill_d)    # the one DCA lot: the average entry, the net target and the BE move with it
+                    avg = 2 / (1 / lots[0] + 1 / lots[1])
+                    crt = rt if rt2 is None else rt2
+                    pos["entry"] = avg
+                    pos["be_px"] = be_price(avg, crt, c)
+                    if c["tp"] not in ("mid", "top"):
+                        pos["tp_px"] = tp_price(avg, c["tp"], crt, z, c)
+                    dca_log = {"ts": bj[0], "px": fill_d}
+                else:
+                    dca_px = None if why != "ispod stopa" else dca_px
             hit = exit_on_bar(pos, bj, c)
             lo, hi = min(lo, bj[3]), max(hi, bj[2])
             if hit:
                 break
+            if c.get("reasoned") and ctx is not None:
+                rs, tight = reasoned_exit(pos, bj[4], crt, _bt_ctx(ctx, bj[0] + bs, crash, j, lots), c)
+                if rs:
+                    hit = (rs, bj[4] * (1 - c["exit_slip"]))
+                    break
+                if tight:
+                    pos["stop_px"] = tight
             j += 1
         if not hit:
             j = n - 1
             hit = ("kraj", bars[-1][4] * (1 - c["exit_slip"]))
         reason, fill = hit
         k = len(lots)
-        r = net_ret(pos["entry"], fill, rt)
-        rd = net_ret(pos["entry"], fill, drt)
+        r = blend_ret(pos, fill, crt, c, k)
+        rd = blend_ret(pos, fill, drt, c, k)
         out_ts = bars[j][0] + bs
         out.append({"ts": b[0], "out_ts": out_ts, "entry": pos["entry"], "exit": fill, "reason": reason, "ret": r,
                     "pnl": r * size_usd * k, "ret_demo": rd, "lots": k, "hours": round((out_ts - b[0]) / H, 2),
+                    "half": bool(pos.get("half_px")), "dca": dca_log, "first": e,
                     "mae": round(max(-0.99, min(lo, fill) / pos["entry"] - 1), 4),
-                    "mfe": round(max(hi, fill) / pos["entry"] - 1, 4), "rt": rt, "fx": fill / pos["entry"],
+                    "mfe": round(max(hi, fill) / pos["entry"] - 1, 4), "rt": crt, "fx": fill / pos["entry"],
                     "zone_fresh": bool(z.get("fresh")), "zone_ok": bool(z.get("ok")),
                     "crash_overlap": bool(crash is not None and crash.overlaps(b[0], out_ts))})
         free_at = j + int(c["cooldown_s"] // bs)

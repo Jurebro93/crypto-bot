@@ -179,6 +179,10 @@ PROCESSES = (
     # deploy and at 06:30, and only with a switch on the night deletion (01-06, under the heavy-job lock); nobody waits
     ("retencija", "-m ops.retencija", (), JOBS,
      "retencija live_trades i tg teksta: satni agregat, mjerenje u log; brisanje samo uz prekidač vlasnika, noću"),
+    # 15.11. (owner switch arhiva_mikrokapova, ops/arhiva.py): night only, copy -> verify -> gzip -> delete in short
+    # batches; nobody waits for it (a pause only stretches the night's move)
+    ("arhiva", "run_arhiva.py", (), JOBS,
+     "arhiva mikrokapova: noću seli retke mikrokapova i rugova u .gz arhive na disku (iza prekidača vlasnika)"),
     ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),
     ("dex", "run_dex.py", (), JOBS, "DexScreener tokeni događaja svakih 6 sati (noću)"),
     ("dugo", "run_dugo.py", (), JOBS, "dugoročni sloj svakih 6 sati (noću)"),

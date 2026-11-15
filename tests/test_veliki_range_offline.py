@@ -287,6 +287,7 @@ class Switch(SwitchBase):
         p.start()
         self.addCleanup(p.stop)
         vstore.reset_cache()
+        live._ST.clear()
         live._ST.update(tick=0.0, bar={}, said={}, gt={}, gt_ts=0.0, btc=None, btc_ts=0.0, q={})
         live._LIVE.clear()
         con = vstore.connect(self.vdb)
