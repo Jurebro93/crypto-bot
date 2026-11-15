@@ -1709,7 +1709,8 @@ TOOLS.append(
 # 15.11. (vlasnik: plan makro influencera s dopunama kritičara; makroinf/): the macro influencers, read-only
 TOOLS.append(
     {"name": "get_macro_influencers", "annotations": _READ,
-     "description": ("Makro influenceri (makroinf/): ~50 crypto accounts (100k+ followers; TA, macro / on-chain, "
+     "description": ("Makro influenceri (makroinf/): 50 crypto accounts, 300-500 by the owner's order of 15.11. "
+                     "(100k+ followers; TA, macro / on-chain, "
                      "YouTube, memecoin KOLs, news) whose calls on where BTC / ETH / SOL / alts / memes / the whole market "
                      "go are measured by LOCKED rules (pre-registered 7 d and 30 d horizons, volatility-scaled "
                      "thresholds known at the call time, conditional calls only once triggered, repeated calls = one "

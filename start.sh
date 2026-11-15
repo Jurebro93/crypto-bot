@@ -306,6 +306,9 @@ low keep zonewatch python3 run_zonewatch.py loop
 # 0,50 $ / 0,25 $ a day; one line "makroinf: sat: ..." an hour. The heavy re-scoring (clusters, the walk-forward of the
 # index, the quality check when missing) nightly 01-06 Zagreb (--night, once in 20 h). An explicit, budgeted exception
 # of fokus_midcap (ops/fokus.EXCEPTIONS). Writes makroinf.db, output/makroinf.md, output/makroinf_provjera.md.
+# 15.11. navečer (the owner's order, makroinf/discover.py): after the pilot the expansion to 300-500 accounts (discovery,
+# 18 months of history each) under its own one-off caps (40 $ / 15 $), the daily fetch of every account and the topics
+# under 1,50 $ / 0,50 $ a day; while the expansion has paid work under its caps the round answers 3 as in the pilot.
 ( sleep "${MAKROINF_FIRST_S:-480}"; while true; do low python3 run_makroinf.py krug; rc=$?; if [ "$rc" = 3 ]; then sleep 60; else [ "$rc" = 0 ] || echo "makroinf krug nije uspio"; sleep "${MAKROINF_KRUG_S:-600}"; fi; done ) &
 ( sleep 3300; while true; do python3 -m ops.heavy --night run_makroinf.py noc || echo "makroinf (noć) nije uspio"; sleep 3600; done ) &
 

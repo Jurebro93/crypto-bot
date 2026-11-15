@@ -12,6 +12,9 @@ States (deletions.state):
   api_error           the answer was empty for a whole batch (an API hiccup, never "all deleted"): tried again
 No automatic penalty; the page says "naknadno nedostupno", never "skriva promašaje". The <5 min flash rule of
 kol/deleted.py is not used here (macro calls are measured over days).
+15.11. navečer (the expansion to 300-500 accounts, ~18 months of history each): a post we fetched more than 30 days
+after it was written (the backfill's history) is checked once, at base + 30 d (stage 2), not three times: what
+disappears after we had it is still found, a month later, at a third of the cost; the daily posts keep +1 / +7 / +30.
 """
 import time
 
@@ -19,14 +22,16 @@ from makroinf import store, xapi
 
 STAGES_D = (1, 7, 30)
 RECHECK_H = 6
+HISTORY_D = 30   # fetched later than this after the post: history, one check at +30 d
 D = 86400
 
 
 def sync(con):
     """A deletions row for every macro post that has none (base = max(post time, fetched))."""
     con.execute("""INSERT OR IGNORE INTO deletions (id, handle, base_ts, stage, state)
-        SELECT t.id, t.handle, MAX(t.ts, t.fetched_ts), 0, NULL FROM tweets t JOIN accounts a ON a.handle = t.handle
-        WHERE t.macro = 1 AND a.status IN ('aktivan', 'neaktivan')""")
+        SELECT t.id, t.handle, MAX(t.ts, t.fetched_ts), CASE WHEN t.fetched_ts - t.ts > ? THEN 2 ELSE 0 END, NULL
+        FROM tweets t JOIN accounts a ON a.handle = t.handle WHERE t.macro = 1 AND a.status IN ('aktivan',
+        'neaktivan')""", (HISTORY_D * D,))
     con.commit()
 
 

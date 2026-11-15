@@ -4,10 +4,13 @@ disk), the configuration and the spend caps.
 Spend (CLAUDE.md: "prije svakog novog troška izmjeri"): every paid call is booked here (table spend: ts, day, src,
 phase, what, usd) and in usage.db (usage/meter: service "twitterapi" / "openai", method "makroinf"). The caps, per phase:
   pilot       twitterapi one-off PILOT (5 $) for the 50-account backfill; OpenAI one-off (4 $) for its classification
-  dan         after the pilot: twitterapi 0,50 $ a UTC day (incremental fetch, deletion checks, profiles, the rest of the
-              backfill), OpenAI 0,25 $ a UTC day (the new posts)
+  dan         after the pilot: twitterapi 1,50 $ a UTC day (the daily fetch of every active account, deletion checks,
+              profiles, the rest of the backfill), OpenAI 0,50 $ a UTC day (the new posts; the day's topics inside it,
+              at most narr_openai_usd)
   provjera    the quality check's critic pass (OPENAI_MODEL_DEEP), 1 $ a check
-  prosirenje  the expansion to 300 accounts, only after a passed check (or the owner forces it): its own one-off caps
+  prosirenje  the expansion to 300-500 accounts (15.11. navečer: by the owner's order, makroinf/discover.py; else only
+              after a passed check): one-off caps twitterapi 40 $ (discovery, probes, the deep history of every account),
+              OpenAI 15 $ (the history's classification); what is left after them goes on under the daily caps
 A call is made only when the most it can cost fits the cap left (twitterapi: a full page; OpenAI: openai_api.max_cost),
 so a cap is never crossed; at the cap the job stops cleanly and says so in the log.
 """
@@ -23,18 +26,27 @@ SWITCH = "makroinf_javno"    # owner switch: the public pages (default off: rout
 
 DEFAULT = {
     # caps (USD)
-    "pilot_twapi_usd": 5.0, "day_twapi_usd": 0.50, "pilot_openai_usd": 4.0, "day_openai_usd": 0.25,
-    "quality_openai_usd": 1.0, "expand_twapi_usd": 15.0, "expand_openai_usd": 5.0,
-    # accounts
-    "pilot_n": 50, "expand_n": 300, "min_followers": 100_000, "active_days": 30, "circle_max": 4, "circle_min_mentions": 3,
-    # fetch: 12 months back, two half-month windows a month with one page (~20 posts) each = ~40 macro posts a month
-    # spread over the year, + the last 100 posts (5 pages); daily: the macro query since the last fetch (<= 3 pages)
-    "months": 12, "half_pages": 1, "last_pages": 5, "incr_pages": 3, "page_posts": 20,
+    "pilot_twapi_usd": 5.0, "day_twapi_usd": 1.50, "pilot_openai_usd": 4.0, "day_openai_usd": 0.50,
+    "quality_openai_usd": 1.0, "expand_twapi_usd": 40.0, "expand_openai_usd": 15.0,
+    # accounts (15.11. navečer, the owner: "pratiti ih 300, 400, 500 ovih najredovitijih")
+    "pilot_n": 50, "expand_n": 500, "expand_min": 300, "min_followers": 100_000, "seed_min_followers": 50_000,
+    "active_days": 30, "circle_max": 4, "circle_min_mentions": 3, "min_market_share": 0.20, "max_promo_share": 0.5,
+    "profile_every_d": 7,
+    # discovery (makroinf/discover.py): followings pages of every measured account, user searches, one probe page each
+    "disc_follow_pages": 3, "disc_mention_lookups": 150, "disc_probe_max": 900, "disc_probe_min_followed": 2,
+    # fetch: 18 months back in half-month windows (one page, ~20 posts each; first half of every month, then the second
+    # halves newest first) up to depth_posts market posts an account, + the last 200 posts (10 pages); daily: the macro
+    # query since the newest stored post (<= 3 pages), every active account once in incr_every_s
+    "months": 18, "half_pages": 1, "last_pages": 10, "depth_posts": 500, "incr_pages": 3, "page_posts": 20,
     # classification
     "cls_model": "gpt-5-mini", "cls_batch": 20, "cls_effort": "minimal", "cls_out_per_post": 220, "cls_max_tries": 2,
     "cls_workers": 4,
     # a round of run.krug (every ~10 min from start.sh, every minute while the pilot runs): at most this long
     "krug_s": 420, "prices_every_s": 20 * 3600, "incr_every_s": 20 * 3600, "deleted_every_s": 6 * 3600,
+    # the day's topics (makroinf/teme.py): the cheap model, inside the daily OpenAI cap, at most narr_openai_usd a day
+    "narr_model": "gpt-5-mini", "narr_openai_usd": 0.05, "narr_every_s": 6 * 3600, "narr_max_posts": 300,
+    # the owner's order of 15.11. navečer (makroinf/discover.py): False stops it (nothing new is added or fetched deep)
+    "expand_by_order": True,
 }
 
 SCHEMA = """
@@ -82,7 +94,19 @@ CREATE TABLE IF NOT EXISTS quality (id TEXT PRIMARY KEY, stratum TEXT, category 
 CREATE TABLE IF NOT EXISTS demo_block (ts INTEGER, token TEXT, symbol TEXT, price REAL, idx REAL, mode TEXT);
 CREATE TABLE IF NOT EXISTS runs (ts INTEGER, kind TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS disc (handle TEXT PRIMARY KEY, name TEXT, followers INTEGER, statuses INTEGER, bio TEXT,
+    n_follow INTEGER DEFAULT 0, n_mention INTEGER DEFAULT 0, n_search INTEGER DEFAULT 0, seed TEXT, score REAL,
+    status TEXT, why TEXT, probe_ts INTEGER, n_probe INTEGER, last_ts INTEGER, posts_day REAL, market_share REAL,
+    promo_share REAL, regularity REAL, ts INTEGER, raw TEXT);
+CREATE TABLE IF NOT EXISTS disc_edge (src TEXT, dst TEXT, kind TEXT, PRIMARY KEY (src, dst, kind));
+CREATE TABLE IF NOT EXISTS daily_fetch (handle TEXT PRIMARY KEY, ts INTEGER, n INTEGER);
+CREATE TABLE IF NOT EXISTS mood_d (day INTEGER, win TEXT, ts INTEGER, data TEXT, PRIMARY KEY (day, win));
+CREATE TABLE IF NOT EXISTS topics_d (day INTEGER PRIMARY KEY, ts INTEGER, n_posts INTEGER, model TEXT, usd REAL,
+    data TEXT);
+CREATE INDEX IF NOT EXISTS tweets_ts ON tweets (ts);
 """
+# columns added after the first deploy (CREATE TABLE IF NOT EXISTS does not add them to an existing table)
+MIGRATE = (("accounts", "regularity", "REAL"), ("accounts", "market_share", "REAL"), ("accounts", "posts_day", "REAL"))
 
 
 def config(cfg=None):
@@ -108,6 +132,10 @@ def db_path():
 def connect(path=None):
     con = sqlite3.connect(path or db_path(), timeout=60)
     con.executescript(SCHEMA)
+    for table, col, typ in MIGRATE:
+        if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    con.commit()
     return con
 
 
@@ -169,7 +197,7 @@ def book(con, src, usd, phase, what, now=None):
         pass
 
 
-def spent(con, src, phase=None, day_=None):
+def spent(con, src, phase=None, day_=None, what=None):
     sql, args = "SELECT COALESCE(SUM(usd), 0) FROM spend WHERE src = ?", [src]
     if phase:
         sql += " AND phase = ?"
@@ -177,6 +205,9 @@ def spent(con, src, phase=None, day_=None):
     if day_:
         sql += " AND day = ?"
         args.append(day_)
+    if what:
+        sql += " AND what = ?"
+        args.append(what)
     r = q(con, sql, tuple(args))
     return float(r[0][0]) if r else 0.0
 

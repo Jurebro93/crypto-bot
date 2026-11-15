@@ -252,6 +252,8 @@ def route(path, qs):
     if path == "/kol-makro" or path.startswith("/kol-makro/"):   # 15.11. (makroinf/web.py): macro influencers in the app
         from makroinf import web as miweb
         h = path[len("/kol-makro/"):]
+        if h == "biblioteka":   # 15.11. navečer: the library of every stored post (makroinf/appviews.py)
+            return miweb.library(qs)
         return miweb.profile_page(h) if h else miweb.list_page()
     if path.startswith("/kol/"):
         return kol.kol_page(path[len("/kol/"):], qs)

@@ -7,17 +7,24 @@ ui/public.route like the other public pages:
 Behind the OWNER SWITCH makroinf_javno (default off; on since his order of 15.11.: "Možeš ti odmah objaviti te
 stranice javno ..."): while it is off every route answers 404 and nothing is in the sitemap, robots.txt or the menu.
 Rules (as ui/apjavno.py): only aggregated statistics with their intervals and n, the methodology, "insufficient
-evidence" + noindex below 10 episodes, links to the original posts (no post text is copied; a post no longer visible
-is "later unavailable", without a link), neutral wording (no accusations), the stances and the index with a
-PUBLIC_DELAY_S delay (members see them fresh in the app, makroinf/web.py), never keys, env names, internal services,
-costs or wallets. The numbers are the last scoring's: makroinf/web.sync drops the cached copies when it moves, and the
-sitemap's lastmod is the newest score time.
+evidence" (the label "still collecting evidence") below 10 episodes, links to the original posts (no post text is
+copied; a post no longer visible is "later unavailable", without a link), neutral wording (no accusations), the
+stances, the index and the market mood with a PUBLIC_DELAY_S delay (members see them fresh in the app,
+makroinf/web.py, makroinf/appviews.py), never keys, env names, internal services, costs or wallets. The numbers are
+the last scoring's: makroinf/web.sync drops the cached copies when it moves.
+15.11. navečer (the owner: "Objavi. Neka Google sve indeksira, pa nek se podaci osvježavaju."): EVERY page is
+indexable (no noindex, also below 10 episodes: the honest label stays) and in the sitemap, lastmod = the day of the
+newest scoring / topics (daily). The hub also carries the market mood of the influencers (as of 7 days ago, with its
+sources: the counts, the accounts, the posts) and the topics of the day (same day: topics are not stances; the accounts
+of a topic link to their pages here, not to today's posts).
 """
 import json
 import os
 import re
 import time
 
+from makroinf import mood as mmood
+from makroinf import teme as mteme
 from makroinf import web
 from ui.html import esc
 
@@ -81,9 +88,27 @@ T = {
         m_line="{n} episodes · vs best baseline {b} · follow vs always-bull {e} · later unavailable {g}",
         st_short="BTC 7 days ago",
         few_h="Still collecting evidence", few_note="Fewer than {m} measured episodes: no rank and no verdict yet. "
-        "Pages of these accounts stay out of search results until they have enough.",
+        "Their pages show what they said and are updated every day as the evidence comes in.",
+        mood_h="Market mood of the influencers", mood_as="as of {d}, published with a 7-day delay",
+        mood_none="Not enough history yet: the market mood is published with a 7-day delay once it exists.",
+        win={"24h": "24 hours", "7d": "7 days"}, sides={"bik": "Bullish", "medvjed": "Bearish", "neutralno": "Neutral"},
+        mood_card="{n} accounts with a view in the {w} to {d}",
+        mood_split="{b} bullish · {m} bearish · {z} neutral", mood_w="Weighted by accuracy: {v} ({s})",
+        mood_rule="Each account counts once, with the sign of its calls in the window (conditional, unclear, joke and "
+                  "promotional calls are left out). Weighted: more accurate accounts count more and a cluster of "
+                  "look-alike accounts counts as one and a half at most. ",
+        src_h="Where this comes from", src_cols=("Side", "Accounts", "Share", "Weighted"), src_posts="posts",
+        topics_h="Topics of the day", topics_note="Grouped from {p} market posts of {a} accounts in the 24 hours to {d} "
+        "(UTC), refreshed four times a day.", topics_none="No topics yet: they are grouped from the day's market posts.",
+        topic_meta="{a} accounts · {p} posts", topic_who="Accounts",
+        assets_h="By asset", assets_note="7 days to {d}; bullish and bearish as a share of the accounts with a side.",
+        assets_cols=("Asset", "Accounts", "Bullish", "Bearish", "Reading"),
+        ds_name="Crypto macro influencer market mood",
+        ds_desc="Daily share of bullish, bearish and neutral crypto macro influencers on X, from their classified "
+                "market calls, unweighted and weighted by measured accuracy, published with a 7-day delay.",
         few_cols=("Account", "Measured episodes", "BTC stance 7 days ago"),
-        few="insufficient evidence", none="No measured calls yet.",
+        few="still collecting evidence", none="No measured calls yet.",
+        cov="What we read: {p} posts, {c} of them market calls ({a}), {d0} to {d1}.",
         idx_h="Consensus of the most accurate accounts",
         idx="On BTC, as of {d}: {v} on a scale from −1 (all bearish) to +1 (all bullish), from {n} of the most accurate "
             "accounts with a view. Published with a 7-day delay.",
@@ -150,10 +175,28 @@ T = {
               "Naknadno nedostupno", "Stav o BTC-u prije 7 dana"),
         m_line="{n} epizoda · prema najboljoj osnovi {b} · praćenje prema uvijek-bik {e} · naknadno nedostupno {g}",
         st_short="BTC prije 7 dana",
-        few_h="Još skupljaju dokaze", few_note="Manje od {m} izmjerenih epizoda: još bez ranga i bez presude. Stranice "
-        "tih računa ostaju izvan rezultata pretrage dok ne skupe dovoljno.",
+        few_h="Još skupljaju dokaze", few_note="Manje od {m} izmjerenih epizoda: još bez ranga i bez presude. Njihove "
+        "stranice pokazuju što su rekli i osvježavaju se svaki dan kako dokazi stižu.",
+        mood_h="Raspoloženje influencera prema tržištu", mood_as="stanje {d}, objavljuje se s odgodom od 7 dana",
+        mood_none="Još nema dovoljno povijesti: raspoloženje se objavljuje s odgodom od 7 dana kad postoji.",
+        win={"24h": "24 sata", "7d": "7 dana"}, sides={"bik": "Bikovski", "medvjed": "Medvjeđi", "neutralno": "Neutralno"},
+        mood_card="{n} računa sa stavom u {w} do {d}",
+        mood_split="{b} bikovski · {m} medvjeđi · {z} neutralno", mood_w="Ponderirano točnošću: {v} ({s})",
+        mood_rule="Svaki račun broji se jednom, predznakom svojih izjava u razdoblju (uvjetne, nejasne, šaljive i "
+                  "promotivne izjave se ne broje). Ponderirano: točniji računi vrijede više, a skupina sličnih računa "
+                  "zajedno najviše kao jedan i pol. ",
+        src_h="Iz čega je izvučeno", src_cols=("Strana", "Računa", "Udio", "Ponderirano"), src_posts="objave",
+        topics_h="Teme dana", topics_note="Složeno iz {p} tržišnih objava {a} računa u 24 sata do {d} (UTC), "
+        "osvježava se četiri puta dnevno.", topics_none="Još nema tema: slažu se iz tržišnih objava dana.",
+        topic_meta="{a} računa · {p} objava", topic_who="Računi",
+        assets_h="Po imovini", assets_note="7 dana do {d}; bikovski i medvjeđi kao udio računa s jasnom stranom.",
+        assets_cols=("Imovina", "Računa", "Bikovski", "Medvjeđi", "Zaključak"),
+        ds_name="Raspoloženje kripto makro influencera",
+        ds_desc="Dnevni udio bikovskih, medvjeđih i neutralnih kripto makro influencera na X-u iz njihovih razvrstanih "
+                "izjava o tržištu, bez pondera i ponderirano izmjerenom točnošću, objavljeno s odgodom od 7 dana.",
         few_cols=("Račun", "Izmjerene epizode", "Stav o BTC-u prije 7 dana"),
-        few="nedovoljno dokaza", none="Još nema izmjerenih izjava.",
+        few="skuplja dokaze", none="Još nema izmjerenih izjava.",
+        cov="Što smo pročitali: {p} objava, od toga {c} izjava o tržištu ({a}), od {d0} do {d1}",
         idx_h="Konsenzus najtočnijih računa",
         idx="O BTC-u, stanje {d}: {v} na ljestvici od −1 (svi medvjeđi) do +1 (svi bikovski), od {n} najtočnijih računa "
             "sa stavom. Objavljuje se s odgodom od 7 dana.",
@@ -231,6 +274,25 @@ color:var(--fg);white-space:nowrap}.vb.good{background:#ecfdf5;border-color:#bbf
 .mc3 .card .vb{margin-top:8px}.who{color:var(--mut);margin:0 0 4px}.who a{color:var(--acc)}
 .plead{font-size:17px;max-width:760px;margin:6px 0 12px}.rp{display:block}.rp.mut{color:var(--mut)}td.nw{white-space:nowrap!important}
 @media(max-width:600px){.mixw{font-size:24px}table.coins td .mcat{white-space:normal}}
+.md2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 10px}@media(max-width:700px){.md2{grid-template-columns:1fr}}
+.mdc{border:1px solid var(--line);border-radius:18px;padding:16px 18px;background:#fff;min-width:0}
+.mdc .l{font-size:13px;color:var(--mut)}.mdc .w{font-size:26px;font-weight:760;letter-spacing:-.02em;margin:4px 0 10px;
+display:flex;align-items:center;gap:10px}.mdc .w i{width:12px;height:12px;border-radius:50%;background:#cfd5e1;flex:none}
+.mdc .w i.good{background:#16a34a}.mdc .w i.bad{background:#dc2626}.mdc p{margin:6px 0 0;color:var(--mut);font-size:14.5px}
+.mdc p b{color:var(--fg)}.mbar{display:flex;height:10px;border-radius:999px;overflow:hidden;background:var(--soft)}
+.mbar span{display:block;height:100%}.mbar .b{background:#16a34a}.mbar .n{background:#cfd5e1}.mbar .m{background:#dc2626}
+.mrule{color:var(--mut);font-size:14px;margin:6px 0 10px;max-width:820px}
+details.msrc{border:1px solid var(--line);border-radius:16px;background:#fff;margin:10px 0 0}
+details.msrc>summary{cursor:pointer;padding:12px 16px;font-weight:600;font-size:15px}details.msrc .in{padding:0 16px 14px}
+details.msrc table{font-size:14px}details.msrc th,details.msrc td{padding:9px 10px}
+.mwho{font-size:14px;line-height:1.9;margin:8px 0 0}.mwho b{display:block;color:var(--mut);font-weight:600;font-size:13px;line-height:1.4;margin-top:6px}
+.mwho span{white-space:nowrap;margin-right:8px}.mwho a{color:var(--acc)}.mwho a.p{font-size:11.5px;color:var(--mut);
+border:1px solid var(--line);border-radius:6px;padding:0 4px;margin-left:3px}
+ol.mtp{list-style:none;padding:0;margin:0;counter-reset:t;border:1px solid var(--line);border-radius:18px;background:#fff}
+ol.mtp>li{counter-increment:t;padding:14px 16px 14px 46px;position:relative;border-bottom:1px solid var(--line)}
+ol.mtp>li:last-child{border-bottom:0}ol.mtp>li:before{content:counter(t);position:absolute;left:18px;top:14px;color:var(--mut);font-weight:600}
+ol.mtp .mt-t{font-weight:650;font-size:16.5px}ol.mtp .mt-s{margin:3px 0 0}
+ol.mtp .mt-m{color:var(--mut);font-size:13.5px;margin:4px 0 0}ol.mtp .mt-m a{color:var(--acc)}
 </style>"""
 
 
@@ -296,6 +358,114 @@ def _jsonld(obj):
     return '<script type="application/ld+json">' + json.dumps(obj, ensure_ascii=False).replace("</", "<\\/") + "</script>"
 
 
+def _pct_i(x):
+    return "–" if x is None else f"{round(x * 100)}{NB}%"
+
+
+def _verdict_word(key, lang):
+    return mmood.VERDICT[lang].get(key, key)
+
+
+def _split(st, lang):
+    t = T[lang]
+    if not st or st.get("bik") is None:
+        return "–"
+    return f"{_pct_i(st['bik'])} {t['sides']['bik'].lower()} · {_pct_i(st['medvjed'])} {t['sides']['medvjed'].lower()}"
+
+
+def _post(h, i):
+    return f"https://x.com/{h}/status/{i}"
+
+
+def mood_html(lang, m=None):
+    """The market mood as of 7 days ago (both windows), the rule and its sources."""
+    t = T[lang]
+    m = m if m is not None else mmood.load(public=True)
+    head = f"<h2 class=s id=mood>{t['mood_h']}</h2>"
+    blocks = (m or {}).get("okviri") or {}
+    if not blocks or not any((b or {}).get("n") for b in blocks.values()):
+        return head + f"<div class=mix><p>{esc(t['mood_none'])}</p></div>"
+    d = _date(m.get("t"), lang)
+    cards, srcs = [], []
+    for key in ("24h", "7d"):
+        b = blocks.get(key)
+        if not b:
+            continue
+        tone = mmood.TONE.get(b["presuda"], "")
+        u = b["udio"]
+        bar = "".join(f"<span class={c} style='width:{round((u.get(k) or 0) * 100, 1)}%'></span>"
+                      for k, c in (("bik", "b"), ("neutralno", "n"), ("medvjed", "m")))
+        cards.append(f"<div class=mdc><div class=l>{esc(t['mood_card'].format(n=b['n'], w=t['win'][key], d=d))}</div>"
+                     f"<div class=w><i class='{tone}'></i>{esc(_verdict_word(b['presuda'], lang))}</div>"
+                     f"<div class=mbar>{bar}</div><p><b>{esc(_split(b['strane'], lang))}</b> · {b['broj']['neutralno']} "
+                     f"{t['sides']['neutralno'].lower()}</p><p>{esc(t['mood_w'].format(v=_verdict_word(b['presuda_pond'], lang).lower(), s=_split(b['strane_pond'], lang)))}</p></div>")
+        if not b["n"]:
+            continue
+        trs = "".join(f"<tr><td>{t['sides'][k]}</td><td class=n>{b['broj'][k]}</td><td class=n>{_pct_i(b['udio'][k])}</td>"
+                      f"<td class=n>{_pct_i(b['udio_pond'][k])}</td></tr>" for k in mmood.SIDES)
+        head_t = "".join(f"<th{' class=n' if j else ''}>{x}</th>" for j, x in enumerate(t["src_cols"]))
+        who = ""
+        for k in mmood.SIDES:
+            rows = b["racuni"][k]
+            if not rows:
+                continue
+            items = "".join(
+                f"<span><a href=\"{t['prof']}{r['h']}\">@{esc(r['h'])}</a>"
+                + "".join(f"<a class=p href=\"{_post(r['h'], i)}\" target=_blank rel=\"nofollow noopener\">{j}</a>"
+                          for j, i in enumerate(r["ids"][:3], 1)) + "</span>" for r in rows[:80])
+            who += f"<div class=mwho><b>{t['sides'][k]} · {len(rows)}</b>{items}</div>"
+        srcs.append(f"<details class=msrc><summary>{t['src_h']} · {t['win'][key]}</summary><div class=in><div class=tw>"
+                    f"<table><thead><tr>{head_t}</tr></thead><tbody>{trs}</tbody></table></div>{who}</div></details>")
+    line = mmood.line(blocks.get("24h"), lang)
+    return (head + f"<p class=mnote>{esc(line.rstrip('.'))} ({esc(t['mood_as'].format(d=d))}).</p>"
+            f"<div class=md2>{''.join(cards)}</div>"
+            f"<p class=mrule>{esc(t['mood_rule'])}{esc(mmood.rule_text(lang))}</p>{''.join(srcs)}")
+
+
+def topics_html(lang, tp=None, known=None):
+    """The topics of the day (same day): title, one sentence, how many accounts and posts, the accounts (links to their
+    pages here)."""
+    t = T[lang]
+    tp = tp if tp is not None else mteme.load()
+    head = f"<h2 class=s id=topics>{t['topics_h']}</h2>"
+    if not tp or not tp.get("topics"):
+        return head + f"<p class=mnote>{esc(t['topics_none'])}</p>"
+    known = known or set()
+    items = []
+    for x in tp["topics"]:
+        hs = [h for h in x.get("handles") or [] if h.lower() in known][:12]
+        who = ", ".join(f"<a href=\"{t['prof']}{h}\">@{esc(h)}</a>" for h in hs)
+        items.append(f"<li><div class=mt-t>{esc(x['title_' + lang] or x['title_en'])}</div>"
+                     f"<div class=mt-s>{esc(x['summary_' + lang] or x['summary_en'])}</div>"
+                     f"<div class=mt-m>{esc(t['topic_meta'].format(a=x['n_accounts'], p=x['n_posts']))}"
+                     + (f" · {t['topic_who']}: {who}" if who else "") + "</div></li>")
+    note = t["topics_note"].format(p=tp.get("n_objava", 0), a=tp.get("n_racuna", 0),
+                                   d=time.strftime("%d.%m. %H:%M" if lang == "hr" else "%d %b %H:%M",
+                                                   time.gmtime(tp.get("do") or 0)))
+    return head + f"<p class=mnote>{esc(note)}</p><ol class=mtp>{''.join(items)}</ol>"
+
+
+def assets_html(lang, m=None):
+    t = T[lang]
+    m = m if m is not None else mmood.load(public=True)
+    pa = (m or {}).get("po_imovini") or {}
+    trs = []
+    for a in mmood.ASSETS:
+        b = pa.get(a)
+        if not b or not b["n"]:
+            continue
+        tone = {"good": "st-up", "bad": "st-dn"}.get(mmood.TONE.get(b["presuda"], ""), "")
+        trs.append(f"<tr><td>{esc(ASSET[lang][a][:1].upper() + ASSET[lang][a][1:])}</td><td class=n>{b['n']}</td>"
+                   f"<td class=n>{_pct_i((b['strane'] or {}).get('bik'))}</td>"
+                   f"<td class=n>{_pct_i((b['strane'] or {}).get('medvjed'))}</td>"
+                   f"<td><span class='{tone}'>{esc(_verdict_word(b['presuda'], lang))}</span></td></tr>")
+    if not trs:
+        return ""
+    head = "".join(f"<th{' class=n' if 0 < j < 4 else ''}>{x}</th>" for j, x in enumerate(t["assets_cols"]))
+    return (f"<h2 class=s id=assets>{t['assets_h']}</h2><p class=mnote>{esc(t['assets_note'].format(d=_date(m.get('t'), lang)))}"
+            f"</p><div class=tw><table class=coins><thead><tr>{head}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>")
+
+
 def hub(lang):
     """HTML of the hub, or None while the switch is off / before any data."""
     if not on():
@@ -343,8 +513,12 @@ def hub(lang):
     kpi = (f"<div class=mk><span><b>{n}</b>{t['kpi'][0]}</span><span><b>{v['measured']}</b>{t['kpi'][1]}</span>"
            f"<span><b>{len(ranked)}</b>{t['kpi'][2]}</span><span>{t['kpi'][3]} <b style=margin:0>"
            f"{_date(v.get('ts'), lang)}</b></span></div>")
+    m = mmood.load(public=True)
+    tp = mteme.load()
+    known = {r["handle"].lower() for r in ranked + few}
     body = (f"{CSS}<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['h1']}</h1><p class=lead>"
             f"{esc(t['lead'].format(n=n))}</p>{kpi}</section>"
+            f"{mood_html(lang, m)}{topics_html(lang, tp, known)}{assets_html(lang, m)}"
             f"<h2 class=s>{t['idx_h']}</h2>{idx}<h2 class=s>{t['rank_h']} · {len(ranked)}</h2>{rank_html}{few_html}"
             f"<h2 class=s id={t['how_id']}>{t['how_h']}</h2><ul class=how>{how}</ul>"
             f"<div class=lock><p>{t['lock']}</p><a class='btn sm' href={P.L[lang]['home']}#pristup>{t['cta']}</a></div>"
@@ -353,16 +527,49 @@ def hub(lang):
     ld = {"@context": "https://schema.org", "@type": "CollectionPage", "name": t["h1"], "url": url,
           "inLanguage": lang, "description": t["desc"].format(n=n), "dateModified": _iso(v.get("ts")),
           "isPartOf": {"@type": "WebSite", "name": "MemeSonar", "url": base + P.L[lang]["home"]}}
-    if ranked:
-        ld["mainEntity"] = {"@type": "ItemList", "itemListElement": [
+    if ranked or few:   # every account page (ranked first): all of them are indexable
+        ld["mainEntity"] = {"@type": "ItemList", "numberOfItems": len(ranked) + len(few), "itemListElement": [
             {"@type": "ListItem", "position": k, "name": "@" + r["handle"], "url": f"{base}{t['prof']}{r['handle']}"}
-            for k, r in enumerate(ranked, 1)]}
+            for k, r in enumerate(ranked + few, 1)]}
+    lds = _jsonld(ld)
+    if m and (m.get("okviri") or {}).get("24h", {}).get("n"):
+        mt = m.get("t") or v.get("ts")
+        ds = {"@context": "https://schema.org", "@type": "Dataset", "name": t["ds_name"], "description": t["ds_desc"],
+              "url": f"{url}#mood", "inLanguage": lang, "isAccessibleForFree": True,
+              "creator": {"@type": "Organization", "name": "MemeSonar", "url": base + P.L[lang]["home"]},
+              "temporalCoverage": f"{time.strftime('%Y-%m-%d', time.gmtime(mt - 7 * 86400))}/"
+                                  f"{time.strftime('%Y-%m-%d', time.gmtime(mt))}",
+              "dateModified": _iso(m.get("ts")),
+              "variableMeasured": [t["sides"]["bik"], t["sides"]["medvjed"], t["sides"]["neutralno"]]}
+        lds += _jsonld(ds)
     return P._shell(lang, t["title"], t["desc"].format(n=n), "/macro-influencers", "/hr/makro-influenceri", body,
-                    jsonld=_jsonld(ld))
+                    jsonld=lds)
 
 
 def _episodes(h):
     return web.episodes(h, fresh=False, limit=40)
+
+
+def coverage(h, lang, now=None):
+    """One sentence of what is stored for the account (posts older than PUBLIC_DELAY_S only), or ""."""
+    from makroinf import store
+    con = store.ro()
+    if con is None:
+        return ""
+    cut = int(now or time.time()) - PUBLIC_DELAY_S
+    try:
+        r = store.q(con, "SELECT COUNT(*), MIN(ts), MAX(ts) FROM tweets WHERE lower(handle) = lower(?) AND ts < ?",
+                    (h, cut))
+        by = store.q(con, "SELECT asset, COUNT(DISTINCT id) FROM calls WHERE lower(handle) = lower(?) AND ts < ? GROUP "
+                          "BY asset ORDER BY 2 DESC", (h, cut))
+        nc = store.q(con, "SELECT COUNT(DISTINCT id) FROM calls WHERE lower(handle) = lower(?) AND ts < ?", (h, cut))
+    finally:
+        con.close()
+    if not r or not r[0][0]:
+        return ""
+    n, t0, t1 = r[0]
+    a = ", ".join(f"{ASSET[lang].get(x, x)} {k}" for x, k in by[:6]) or "–"
+    return T[lang]["cov"].format(p=n, c=(nc[0][0] if nc else 0) or 0, a=a, d0=_date(t0, lang), d1=_date(t1, lang))
 
 
 def _memecoin_page(h):
@@ -448,8 +655,10 @@ def profile(handle, lang):
                                   esc(t["rank_of"].format(k=rank, n=len(v["ranked"]))) if rank else
                                   f"<span class='vb few'>{t['few']}</span>") if x)
     stance = esc(t["stance"].format(s=_stance_text(me, lang)))
+    cov = coverage(h, lang)
     body = (f"{CSS}<section class=ph1><div class=crumb><a href={t['hub']}>{t['back']}</a></div><h1>@{esc(h)}</h1>"
-            f"<p class=who>{(esc(name) + ' · ') if name else ''}{meta}</p><p class=plead>{esc(lead)}</p><p>{stance} "
+            f"<p class=who>{(esc(name) + ' · ') if name else ''}{meta}</p><p class=plead>{esc(lead)}</p>"
+            + (f"<p class=mut>{esc(cov)}</p>" if cov else "") + f"<p>{stance} "
             f"<a href=\"{t['hub']}#{t['how_id']}\" style=color:var(--acc)>{t['method']}</a></p></section>"
             f"<div class=mc3>{cards}</div><h2 class=s>{t['hz_h']}</h2><div class=tw><table class=mh><thead><tr>{hz_head}"
             f"</tr></thead><tbody>{hz_rows}</tbody></table></div><h2 class=s>{t['ep_h']}</h2>{ep_html}{mc}"
@@ -468,7 +677,8 @@ def profile(handle, lang):
               {"@type": "ListItem", "position": 1, "name": t["crumb_home"], "item": base + P.L[lang]["home"]},
               {"@type": "ListItem", "position": 2, "name": t["nav"][0], "item": base + t["hub"]},
               {"@type": "ListItem", "position": 3, "name": "@" + h, "item": f"{base}{t['prof']}{h}"}]}}
-    return P._shell(lang, title, desc, f"/macro-influencer/{h}", f"/hr/makro-influencer/{h}", body, noindex=few,
+    # 15.11. navečer (the owner: "Neka Google sve indeksira"): indexable also below 10 episodes, the label says so
+    return P._shell(lang, title, desc, f"/macro-influencer/{h}", f"/hr/makro-influencer/{h}", body, noindex=False,
                     jsonld=_jsonld(ld))
 
 
@@ -485,16 +695,21 @@ def match(path):
 
 
 def urls():
-    """Sitemap entries (en, hr, priority, lastmod): only while the switch is on; profiles only with >= MIN_EP episodes;
-    lastmod = the day of the newest score."""
+    """Sitemap entries (en, hr, priority, lastmod): only while the switch is on; EVERY profile (15.11. navečer, the
+    owner: "Neka Google sve indeksira"), the ranked ones with a higher priority; lastmod = the day of the newest score
+    (the hub: of the newest score or topics), so it moves every day while the data is refreshed."""
     if not on():
         return []
     v = _view()
     if not v:
         return []
-    mod = time.strftime("%Y-%m-%d", time.gmtime(v.get("ts") or time.time()))
-    out = [("/macro-influencers", "/hr/makro-influenceri", "0.7", mod)]
+    ts = v.get("ts") or time.time()
+    tp = mteme.load()
+    mod = time.strftime("%Y-%m-%d", time.gmtime(ts))
+    hub_mod = time.strftime("%Y-%m-%d", time.gmtime(max(ts, (tp or {}).get("ts") or 0)))
+    out = [("/macro-influencers", "/hr/makro-influenceri", "0.7", hub_mod)]
     out += [(f"/macro-influencer/{r['handle']}", f"/hr/makro-influencer/{r['handle']}", "0.5", mod) for r in v["ranked"]]
+    out += [(f"/macro-influencer/{r['handle']}", f"/hr/makro-influencer/{r['handle']}", "0.4", mod) for r in v["few"]]
     return out
 
 
