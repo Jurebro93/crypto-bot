@@ -31,6 +31,9 @@ SEED = (
     ("InvestAnswers", "InvestAnswers", "edukacija", True),
     ("100trillionUSD", "PlanB", "makro", True),
     ("honey_xbt", "Hani", "ta", True),
+    # 15.11. navečer, the owner: "Ima i ovaj Marty Party, on isto dobre stvari objavljuje" (handle Pretpostavka: checked
+    # by the profile endpoint like every seed; if it does not resolve, candidates for the name wait for the owner)
+    ("martypartymusic", "Marty Party", "makro", True),
     # TA / traders
     ("rektcapital", "Rekt Capital", "ta", False),
     ("CryptoMichNL", "Michaël van de Poppe", "ta", False),
@@ -87,6 +90,9 @@ SEED = (
 OWNER_CONFIRMED = frozenset({"honey_xbt"})
 CIRCLE_OF = ("InvestAnswers",)   # the owner: "+ people he regularly appears with" (mentions / quotes in his posts)
 HANDLE = re.compile(r"[A-Za-z0-9_]{1,15}")
+GUESS_CAT = (("vijesti", r"news|breaking|alert|journalist|reporter"), ("memecoin", r"meme|degen|pump|shitcoin"),
+             ("makro", r"macro|on-?chain|economist|analyst|research|fund|statistic|data"),
+             ("edukacija", r"youtube|podcast|show|educat|course|channel"))
 CRYPTO_BIO = re.compile(r"crypto|bitcoin|btc|trad|chart|market|macro|invest|defi|web3|blockchain|altcoin", re.I)
 
 
@@ -131,6 +137,26 @@ def seed(con, now=None, path=None):
                     "(?,?,?,?,?,?,?)", (h, name, cat if cat in CATS else "ta", "vlasnik" if mine else "sjeme", "novo",
                                         1 if mine else 0, now))
         n += 1
+    named = {name for _h, name, _c, _m in rows}
+    for name, h in confirm.items():   # a candidate included before his answer (discover.py) goes when he picks another
+        h = str(h).lstrip("@")
+        if not HANDLE.fullmatch(h):
+            continue
+        if name not in named:   # a name only discovery asked about (the owner's "Adam"): his pick is his account
+            con.execute("DELETE FROM accounts WHERE handle = ?", (f"?{name}",))
+            if store.q(con, "SELECT 1 FROM accounts WHERE lower(handle) = lower(?)", (h,)):
+                con.execute("UPDATE accounts SET source = 'vlasnik', owner_seed = 1, note = ? WHERE lower(handle) = "
+                            "lower(?)", (f"vlasnik potvrdio za „{name}”", h))
+            else:
+                con.execute("INSERT INTO accounts (handle, name, category, source, status, owner_seed, added_ts, note) "
+                            "VALUES (?,?,?,?,?,?,?,?)", (h, name, "makro", "vlasnik", "novo", 1, now,
+                                                         f"vlasnik potvrdio za „{name}”"))
+                n += 1
+        con.execute("UPDATE accounts SET status = 'uklonjen', why = 'vlasnik potvrdio drugog kandidata' WHERE source = "
+                    "'vlasnik_kandidat' AND lower(handle) <> lower(?) AND lower(handle) IN (SELECT lower(handle) FROM "
+                    "candidates WHERE for_name = ?)", (str(h).lstrip("@"), name))
+        con.execute("UPDATE candidates SET status = CASE WHEN lower(handle) = lower(?) THEN 'potvrden' ELSE 'odbijen' "
+                    "END WHERE for_name = ?", (str(h).lstrip("@"), name))
     for h in own.get("makni") or []:
         con.execute("UPDATE accounts SET status = 'uklonjen', why = 'vlasnik maknuo' WHERE lower(handle) = lower(?)",
                     (str(h).lstrip("@"),))
@@ -143,6 +169,19 @@ def active(con, include_new=False):
     sts = ("aktivan", "novo") if include_new else ("aktivan",)
     return store.q(con, f"SELECT handle, category, source FROM accounts WHERE status IN ({','.join('?' * len(sts))}) "
                         "ORDER BY owner_seed DESC, added_ts, handle", sts)
+
+
+def guess_category(bio):
+    """The account category from its bio (Pretpostavka; "ta" when nothing matches)."""
+    return next((k for k, pat in GUESS_CAT if re.search(pat, bio or "", re.I)), "ta")
+
+
+def by_regularity(con, statuses=("aktivan",)):
+    """[(handle, status)] of the measured accounts, the owner's first, then the most regular (market posts a day of
+    the newest posts, fetch.regularity), the unmeasured last."""
+    sts = tuple(statuses)
+    return store.q(con, f"SELECT handle, status FROM accounts WHERE status IN ({','.join('?' * len(sts))}) AND handle "
+                        "NOT LIKE '?%' ORDER BY owner_seed DESC, COALESCE(regularity, -1) DESC, added_ts, handle", sts)
 
 
 def _f(u, *keys):
@@ -167,9 +206,13 @@ def apply_profile(con, h, u, c, now, owner_seed=False):
     sts = _f(u, "statusesCount", "statuses_count", "tweetsCount")
     prot = 1 if (u.get("protected") or u.get("isProtected")) else 0
     st, why = "aktivan", None
+    src = (store.q(con, "SELECT source FROM accounts WHERE handle = ?", (h,)) or [[None]])[0][0]
+    minf = int(c.get("seed_min_followers") or c["min_followers"]) if src == "vlasnik_kandidat" else int(c["min_followers"])
     if prot:
         st, why = "odbijen", "zaštićen račun"
-    elif fol is not None and fol < int(c["min_followers"]):
+    elif src == "vlasnik_kandidat" and fol is not None and fol < minf:
+        st, why = "odbijen", f"ispod {minf // 1000}k pratitelja ({fol:,})"
+    elif src != "vlasnik_kandidat" and fol is not None and fol < int(c["min_followers"]):
         st, why = ("aktivan", "vlasnikov izbor, ispod 100k pratitelja") if owner_seed else \
             ("odbijen", f"ispod {int(c['min_followers']) // 1000}k pratitelja ({fol:,})")
     con.execute("UPDATE accounts SET name = COALESCE(?, name), user_id = ?, followers = ?, statuses = ?, "
@@ -182,15 +225,16 @@ def apply_profile(con, h, u, c, now, owner_seed=False):
 
 
 def resolve(con, c, now=None, get=None, log=print, ph=None, limit=None):
-    """Profiles of the new accounts (and every account once a UTC day: followers / statuses_count). Owner picks that
+    """Profiles of the new accounts (and every account once in profile_every_d days: followers / statuses_count; with
+    500 accounts a daily snapshot would be a tenth of the daily cap for a number that barely moves). Owner picks that
     do not resolve get candidates (find_candidates). Returns the number of profiles read."""
     now = int(now or time.time())
     if not xapi.has_key(get):
         return 0
-    today = store.day(now)
+    since = store.day(now - (max(1, int(c.get("profile_every_d") or 1)) - 1) * 86400)
     rows = store.q(con, """SELECT a.handle, a.name, a.owner_seed, a.status FROM accounts a WHERE a.handle NOT LIKE '?%'
         AND a.status IN ('novo', 'aktivan', 'neaktivan') AND NOT EXISTS (SELECT 1 FROM profile_d p WHERE p.handle =
-        a.handle AND p.day = ?) ORDER BY (a.status = 'novo') DESC, a.owner_seed DESC, a.added_ts""", (today,))
+        a.handle AND p.day >= ?) ORDER BY (a.status = 'novo') DESC, a.owner_seed DESC, a.added_ts""", (since,))
     n = 0
     for h, name, mine, _st in rows[:limit] if limit else rows:
         try:

@@ -70,14 +70,20 @@ def prefilter(con):
     return n
 
 
-def pending(con, limit=2000, expansion=None):
+def pending(con, limit=2000, expansion=None, which=None):
     """[(id, handle, ts, text, quoted_text)] still to classify, interleaved over the accounts (newest first within
-    each), so a cap leaves every account partly covered. expansion True / False: only / no posts of expansion accounts."""
+    each), so a cap leaves every account partly covered. expansion True / False: only / no posts of expansion accounts.
+    which "dnevno": only the daily fetch's posts; "povijest": only the backfill's (15.11. navečer: the history of the
+    owner-ordered expansion goes under its own cap, the day's new posts under the daily one)."""
     cond = ""
     if expansion is True:
         cond = " AND a.source = 'prosirenje'"
     elif expansion is False:
         cond = " AND COALESCE(a.source, '') <> 'prosirenje'"
+    if which == "dnevno":
+        cond += " AND t.src = 'dnevno'"
+    elif which == "povijest":
+        cond += " AND COALESCE(t.src, '') <> 'dnevno'"
     rows = store.q(con, f"""SELECT t.id, t.handle, t.ts, t.text, t.quoted_text FROM tweets t JOIN accounts a ON
         a.handle = t.handle WHERE t.cls_ts IS NULL AND t.kw = 1 AND a.status IN ('aktivan', 'neaktivan'){cond}
         ORDER BY t.cls_tries, t.ts DESC LIMIT ?""", (int(limit) * 4,))
@@ -162,7 +168,8 @@ def apply(con, batch, data, model, now, max_tries=2):
     return len(macro_ids), len(not_macro - macro_ids), len(ids - macro_ids - not_macro)
 
 
-def run(con, c, now=None, log=print, deadline=None, call=None, ph=None, expansion=False, max_batches=None):
+def run(con, c, now=None, log=print, deadline=None, call=None, ph=None, expansion=False, max_batches=None,
+        which=None):
     """Classify pending posts within the cap and the deadline, cls_workers requests at a time (the pilot's ~1000
     requests in about an hour instead of four). A group is sent only when the most ALL its requests can cost fits what
     is left of the cap. call(model, instructions, text, schema, name, max_out, effort) -> {"data", "usage", "model",
@@ -178,7 +185,7 @@ def run(con, c, now=None, log=print, deadline=None, call=None, ph=None, expansio
     call = call or (lambda *a, **k: openai_api.call_json(*a, **k))
     model = c["cls_model"]
     size = int(c["cls_batch"])
-    rows = pending(con, size * (max_batches or 200), expansion=expansion)
+    rows = pending(con, size * (max_batches or 200), expansion=expansion, which=which)
     batches = [rows[k:k + size] for k in range(0, len(rows), size)][:max_batches or None]
     workers = max(1, int(c.get("cls_workers") or 1))
     p = ph or ("prosirenje" if expansion else store.phase(con, "openai"))

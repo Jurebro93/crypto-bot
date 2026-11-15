@@ -157,13 +157,23 @@ def metrics(rows):
     return out, passed, why
 
 
+def _keep(con, res):
+    """A new check result keeps the owner's force and his order (they are decisions, not results)."""
+    prev = store.kv_json(con, "provjera", {}) or {}
+    for k in ("forced", "forced_by", "forced_ts", "nalog"):
+        if prev.get(k) is not None:
+            res.setdefault(k, prev[k])
+    return res
+
+
 def run(con, c, now=None, log=print, call=None, write=True):
     """Export + the critic pass + the metrics; stores kv provjera {ts, passed, why, by_cat, usd, n}."""
     from critic import openai_api
     now = int(now or time.time())
     smp = sample(population(con))
     if len(smp) < 30:
-        res = {"ts": now, "passed": False, "why": f"premalo klasificiranih objava za provjeru ({len(smp)})", "n": len(smp)}
+        res = _keep(con, {"ts": now, "passed": False, "why": f"premalo klasificiranih objava za provjeru ({len(smp)})",
+                          "n": len(smp)})
         store.kv(con, "provjera", res)
         con.commit()
         return res
@@ -171,7 +181,7 @@ def run(con, c, now=None, log=print, call=None, write=True):
     sub = critic_subset(smp)
     model = openai_api.MODEL_DEEP
     if call is None and not openai_api.has_key():
-        res = {"ts": now, "passed": False, "why": "nema OPENAI_API_KEY za kritičara", "n": len(smp)}
+        res = _keep(con, {"ts": now, "passed": False, "why": "nema OPENAI_API_KEY za kritičara", "n": len(smp)})
         if write:
             _write(markdown(smp, res, now))
         store.kv(con, "provjera", res)
@@ -219,6 +229,8 @@ def run(con, c, now=None, log=print, call=None, write=True):
     prev = store.kv_json(con, "provjera", {}) or {}
     res = {"ts": now, "passed": passed, "why": why, "by_cat": by_cat, "usd": round(usd, 4), "n": len(smp),
            "n_kriticar": len(rows), "model": model, "forced": bool(prev.get("forced"))}
+    if prev.get("nalog"):
+        res["nalog"] = prev["nalog"]
     store.kv(con, "provjera", res)
     con.commit()
     if write:
@@ -243,9 +255,19 @@ def force(con, who, now=None):
     return q
 
 
+def force_by_order(con, who, order_id, now=None):
+    """15.11. navečer: the owner's explicit order to expand (makroinf/discover.py) overrides the gate. Recorded apart
+    from force(): it opens the expansion only, never the DEMO input of the index (index.input_state)."""
+    q = store.kv_json(con, "provjera", {}) or {}
+    q["nalog"] = {"who": who, "id": order_id, "ts": int(now or time.time()), "passed_then": bool(q.get("passed"))}
+    store.kv(con, "provjera", q)
+    con.commit()
+    return q
+
+
 def gate(con):
     """None when the expansion may run, else why not."""
     q = store.kv_json(con, "provjera", {}) or {}
-    if q.get("passed") or q.get("forced"):
+    if q.get("passed") or q.get("forced") or q.get("nalog"):
         return None
     return "provjera klasifikacije nije prošla" + (f" ({q.get('why')})" if q.get("why") else " (još nije odrađena)")

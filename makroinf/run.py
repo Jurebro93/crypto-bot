@@ -10,7 +10,12 @@ krug (a bounded round, krug_s seconds of work at most; resumable after every dep
   4. classification of the new posts (pilot 4 $, then 0,25 $ a day)
   5. the light scoring (episodes, outcomes, the three scores, today's prospective index, the DEMO input state); the
      first time the pilot's classification is complete also the quality check and the walk-forward (same day)
-  6. once an hour the line "makroinf: sat: ..."
+  6. once an hour the line "makroinf: sat: ..." and the spend per phase
+15.11. navečer, the owner's order (makroinf/discover.py; recorded once, it overrides the quality gate): discovery of
+  300-500 accounts, then the deep history of every account (the most regular first) under the expansion caps
+  (twitterapi 40 $, OpenAI 15 $), the rest under the daily caps (1,50 $ / 0,50 $); the daily fetch of every active
+  account every round (only the accounts not fetched in 20 h), the topics of the day every 6 h, the market mood after
+  every scoring (makroinf/mood.py)
 noc: the full re-scoring: clusters, the walk-forward of the index (train -> validation -> locked test), the historic
 index series, the quality check when it is missing, output/makroinf.md.
 """
@@ -19,7 +24,8 @@ import fcntl
 import json
 import time
 
-from makroinf import classify, deleted, fetch, index, prices, quality, racuni, report, rules, score, store, xapi
+from makroinf import (classify, deleted, discover, fetch, index, mood, prices, quality, racuni, report, rules, score,
+                      store, teme, xapi)
 
 D = 86400
 
@@ -109,7 +115,10 @@ def score_all(con, now=None, log=print, truth=None, write_index=True):
     st = index.input_state(con, now=now)
     store.kv(con, "ulaz", st)
     summ["ulaz"] = st
+    m = mood.refresh(con, now, calls)
+    summ["raspolozenje"] = {k: b["presuda"] for k, b in m["okviri"].items()}
     store.kv(con, "summary", summ)
+    con.commit()   # the pages' read-only connection (web.view) must not wait for this writer
     _refreshed(con, now, log)
     con.commit()
     return summ
@@ -207,7 +216,10 @@ def full(con, now=None, log=print, call=None, quality_check=True):
     st = index.input_state(con, now=now)
     store.kv(con, "ulaz", st)
     summ["ulaz"] = st
+    m = mood.refresh(con, now, calls)
+    summ["raspolozenje"] = {k: b["presuda"] for k, b in m["okviri"].items()}
     store.kv(con, "summary", summ)
+    con.commit()
     summ["javno"] = _refreshed(con, now, log)   # after the index of the night: the pages show this scoring
     con.commit()
     report.write(con)
@@ -239,6 +251,8 @@ def _krug(now, log, cfg, get, call, path, budget_s, refresh_prices):
             out["cijene"] = prices.refresh(con, now, log)
         pilot = not store.kv(con, "pilot_twapi_done")
         normal = [h for h, _c, s in racuni.active(con) if s != "prosirenje"]
+        # the owner's order of 15.11. navečer applies once the pilot is classified (its numbers are the baseline)
+        order = bool(store.kv(con, "pilot_openai_done")) and discover.record_order(con, c, now, log)
         if pilot:
             r = fetch.backfill(con, c, now, get, log, deadline, handles=normal)
             out["pilot"] = r
@@ -252,21 +266,29 @@ def _krug(now, log, cfg, get, call, path, budget_s, refresh_prices):
                 log(store.PREFIX + f"pilot dohvat gotov: {store.spent(con, 'twitterapi', 'pilot'):.2f} $ od "
                                    f"{c['pilot_twapi_usd']:.2f} $")
         else:
-            if _due(con, "incr_ts", c["incr_every_s"], now):
-                out["dnevno"] = fetch.incremental(con, c, now, get, log, deadline)
-                store.kv(con, "incr_ts", str(now))
-            if _due(con, "deleted_ts", c["deleted_every_s"], now):
+            # the daily fetch first (the day's posts of every active account; only those not fetched in 20 h, the
+            # most regular first), then the deletion checks, both under the daily cap
+            out["dnevno"] = fetch.incremental(con, c, now, get, log, deadline)
+            if _due(con, "deleted_ts", c["deleted_every_s"], now) and time.time() < deadline:
                 out["brisanja"] = deleted.check(con, c, now, get, log)
                 store.kv(con, "deleted_ts", str(now))
-            if time.time() < deadline:
-                out["povijest"] = fetch.backfill(con, c, now, get, log, deadline, handles=normal)
-            exp = [h for h, _c, s in racuni.active(con) if s == "prosirenje"]
-            if exp and time.time() < deadline:
-                out["prosirenje"] = fetch.backfill(con, c, now, get, log, deadline, ph="prosirenje", handles=exp)
+            if order:
+                if time.time() < deadline:
+                    out["otkrivanje"] = discover.step(con, c, now, get, log, deadline)
+                if time.time() < deadline:
+                    out["povijest"] = _deep(con, c, now, get, log, deadline)
+            else:
+                if time.time() < deadline:
+                    out["povijest"] = fetch.backfill(con, c, now, get, log, deadline, handles=normal)
+                exp = [h for h, _c, s in racuni.active(con) if s == "prosirenje"]
+                if exp and time.time() < deadline:
+                    out["prosirenje"] = fetch.backfill(con, c, now, get, log, deadline, ph="prosirenje", handles=exp)
         racuni.circle(con, c, now, get, log)
         racuni.mark_inactive(con, c, now)
         racuni.languages(con)
-        if time.time() < deadline:
+        if time.time() < deadline and order:
+            out["klasifikacija"] = _classify_order(con, c, now, log, deadline, call)
+        elif time.time() < deadline:
             out["klasifikacija"] = classify.run(con, c, now, log, deadline, call)
             r = out["klasifikacija"]
             if store.kv(con, "pilot_twapi_done") and not store.kv(con, "pilot_openai_done"):
@@ -278,6 +300,8 @@ def _krug(now, log, cfg, get, call, path, budget_s, refresh_prices):
             if store.kv(con, "prosirenje") and time.time() < deadline:
                 out["klasifikacija_prosirenje"] = classify.run(con, c, now, log, deadline, call, ph="prosirenje",
                                                                expansion=True)
+        if store.kv(con, "pilot_openai_done") and time.time() < deadline:
+            out["teme"] = teme.run(con, c, now, log, call)
         con.commit()
         if store.kv(con, "pilot_openai_done") and not store.kv(con, "prvi_izracun"):
             log(store.PREFIX + "pilot klasificiran: prvi puni izračun (rang, indeks, provjera kvalitete)")
@@ -289,14 +313,61 @@ def _krug(now, log, cfg, get, call, path, budget_s, refresh_prices):
         hour = now // 3600
         if store.kv(con, "sat") != str(hour):
             store.kv(con, "sat", str(hour))
+            fetch.update_regularity(con, now)
             log(report.hour_line(con, now, c))
+            if order:
+                log(discover.phase_line(con, now))
         # the pilot still has paid work to do (and the keys are there): run_makroinf.py answers 3, start.sh comes back in
         # a minute instead of ten (the owner: results the same day)
-        out["pilot_u_tijeku"] = bool(not store.kv(con, "pilot_openai_done") and xapi.has_key(get)
-                                     and (call is not None or _openai_key()))
+        out["pilot_u_tijeku"] = bool((not store.kv(con, "pilot_openai_done") or discover.in_progress(con, c))
+                                     and xapi.has_key(get) and (call is not None or _openai_key()))
         con.commit()
     finally:
         con.close()
+    return out
+
+
+def _deep(con, c, now, get, log, deadline):
+    """The deep history of every measured account by the owner's order (zadnjih 200 + up to depth_posts market posts
+    over 18 months), the most regular first in tiers of 100: under the expansion cap, then (when it is reached) the
+    rest under the daily cap after the day's fetch. kv prosirenje_dubina_gotova once no unit is left."""
+    hs = [h for h, _s in racuni.by_regularity(con, ("aktivan",))]
+    left = store.left(con, "twapi", "prosirenje", now, c)
+    ph = "prosirenje" if left >= twapi_page(c) else None
+    r = fetch.backfill(con, c, now, get, log, deadline, ph=ph, handles=hs, tier=100)
+    if ph and r.get("cap") and "strop" in r["cap"] and not store.kv(con, "prosirenje_strop_twapi"):
+        store.kv(con, "prosirenje_strop_twapi", str(now))
+        log(store.PREFIX + f"proširenje: strop twitterapi {c['expand_twapi_usd']:.2f} $ dosegnut; ostatak povijesti "
+                           f"({r['left']} jedinica) ide pod dnevni strop")
+        log(discover.phase_line(con, now))
+    if not r.get("cap") and r.get("left") == 0 and (discover._state(con).get("step") == "gotovo") and \
+            not store.kv(con, "prosirenje_dubina_gotova"):
+        store.kv(con, "prosirenje_dubina_gotova", str(now))
+        log(store.PREFIX + "proširenje: povijest svih računa dohvaćena")
+        log(discover.phase_line(con, now))
+    return r
+
+
+def twapi_page(c):
+    from kol import twapi
+    return twapi.cost(int(c["page_posts"]))
+
+
+def _classify_order(con, c, now, log, deadline, call):
+    """By the owner's order: the day's new posts first under the daily cap, then the history under the expansion
+    cap, and once that is reached the history under what is left of the daily cap."""
+    out = {"dnevno": classify.run(con, c, now, log, deadline, call, ph="dan", expansion=None, which="dnevno")}
+    if time.time() < deadline:
+        r = classify.run(con, c, now, log, deadline, call, ph="prosirenje", expansion=None, which="povijest")
+        out["povijest"] = r
+        if r.get("cap") and "strop" in r["cap"]:
+            if not store.kv(con, "prosirenje_strop_openai"):
+                store.kv(con, "prosirenje_strop_openai", str(now))
+                log(store.PREFIX + f"proširenje: strop OpenAI {c['expand_openai_usd']:.2f} $ dosegnut; ostatak "
+                                   "povijesti se razvrstava pod dnevnim stropom")
+            if time.time() < deadline:
+                out["povijest_dan"] = classify.run(con, c, now, log, deadline, call, ph="dan", expansion=None,
+                                                   which="povijest")
     return out
 
 
@@ -337,9 +408,7 @@ def _noc(now, log, path, call, gap_h):
         con.close()
 
 
-GUESS_CAT = (("vijesti", r"news|breaking|alert|journalist|reporter"), ("memecoin", r"meme|degen|pump|shitcoin"),
-             ("makro", r"macro|on-?chain|economist|analyst|research|fund"),
-             ("edukacija", r"youtube|podcast|show|educat|course|channel"))
+GUESS_CAT = racuni.GUESS_CAT
 
 
 def expand(con, c=None, force=False, who=None, now=None, get=None, log=print, target=None, twapi_usd=None,

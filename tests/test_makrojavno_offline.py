@@ -4,8 +4,9 @@ makroinfluencerima na dnevnoj bazi, osvježavati i stranice koje vide korisnici 
 
   - the owner order turns the switch makroinf_javno live once, in his name; he can turn it off and it stays off
   - public pages: 404 while off; on: the hub and every profile 200, the hub indexable with hreflang, canonical and
-    JSON-LD, profiles under 10 episodes noindex; the sitemap lists only profiles with enough evidence, lastmod = the
-    newest score's day; robots and the public menu carry the hub only while on
+    JSON-LD; since 15.11. navečer ("Neka Google sve indeksira") profiles under 10 episodes are indexable too (with the
+    label "still collecting evidence") and the sitemap lists every profile, lastmod = the newest score's day; robots
+    and the public menu carry the hub only while on
   - the stance (and the newest calls) fresh in the app, 7 days late on the public pages
   - after a scoring the cached public pages, the sitemap and the app tab are dropped (makroinf/web.sync); kv "javno"
     after every scoring; the night run logs "makroinf: javne stranice osvježene (N računa, M u sitemapu)"
@@ -183,7 +184,8 @@ class Public(Base):
         self.assertNotIn("/status/100\"", rich)
         self.assertIn("https://x.com/MacroMan/status/113", rich)    # the others link to the original
         small = self.get("/macro-influencer/SmallFry")[1]
-        self.assertIn('<meta name=robots content="noindex,follow">', small)
+        self.assertNotIn("noindex", small)                          # 15.11. navečer: every page indexable ...
+        self.assertIn("still collecting evidence", small)           # ... with the honest label
         hr = self.get("/hr/makro-influencer/MacroMan")[1]
         self.assertIn("naknadno nedostupno", hr)
         for p in self.PATHS:
@@ -192,9 +194,10 @@ class Public(Base):
         day = time.strftime("%Y-%m-%d", time.gmtime(NOW))
         self.assertIn("/macro-influencer/MacroMan</loc>", sm)
         self.assertIn("/hr/makro-influencer/MacroMan</loc>", sm)
-        self.assertNotIn("SmallFry", sm)                             # under 10 episodes: not offered to Google
+        self.assertIn("/macro-influencer/SmallFry</loc>", sm)        # under 10 episodes: offered to Google too
         self.assertRegex(sm, r"/macro-influencers</loc><lastmod>" + day)
-        self.assertEqual([u[0] for u in mpub.urls()], ["/macro-influencers", "/macro-influencer/MacroMan"])
+        self.assertEqual([u[0] for u in mpub.urls()], ["/macro-influencers", "/macro-influencer/MacroMan",
+                                                       "/macro-influencer/SmallFry"])
         self.assertTrue(all(u[3] == day for u in mpub.urls()))
 
     def test_stance_fresh_in_the_app_delayed_on_public_pages(self):
@@ -207,7 +210,8 @@ class Public(Base):
         self.assertNotIn("↓ dolje", tab.split("MacroMan", 1)[1].split("mi-r", 1)[0])
         self.assertIn("od " + time.strftime("%d.%m.", time.gmtime(NOW - 2 * D)), tab)
         hub_hr = self.get("/hr/makro-influenceri")[1]
-        row = main_of(hub_hr).split("/hr/makro-influencer/MacroMan", 1)[1].split("</tr>", 1)[0]
+        rank = main_of(hub_hr).split("<table class=mr>", 1)[1]
+        row = rank.split("/hr/makro-influencer/MacroMan", 1)[1].split("</tr>", 1)[0]
         self.assertIn("↓ dolje", row)
         self.assertNotIn("↑ gore", row)
         # the newest call: in the app profile, not on the public page (older than 7 days only)
@@ -223,7 +227,9 @@ class Public(Base):
 
     def test_cache_dropped_after_a_scoring(self):
         self.live()
-        self.assertNotIn("/macro-influencer/SmallFry", self.get("/sitemap.xml")[1])
+        self.assertIn("/macro-influencer/SmallFry</loc><lastmod>", self.get("/sitemap.xml")[1])
+        self.assertRegex(self.get("/sitemap.xml")[1], r"/macro-influencer/SmallFry</loc><lastmod>[\d-]+</lastmod>"
+                                                      r"<priority>0\.4<")   # still collecting evidence
         hub = self.get("/hr/makro-influenceri")[1]
         self.assertIn("Rangirani računi · 1", hub)
         tab = web.tab_html()
@@ -242,7 +248,8 @@ class Public(Base):
         self.assertEqual(s["enough"], 2)
         self.assertEqual(store.kv_json(self.con, "javno")["sitemap"], 2)
         self.assertIn("Rangirani računi · 2", self.get("/hr/makro-influenceri")[1])
-        self.assertIn("/macro-influencer/SmallFry", self.get("/sitemap.xml")[1])
+        self.assertRegex(self.get("/sitemap.xml")[1], r"/macro-influencer/SmallFry</loc><lastmod>[\d-]+</lastmod>"
+                                                      r"<priority>0\.5<")   # ranked now: the new sitemap at once
         self.assertIn("Najtočniji · 2", web.tab_html())
         with pagecache._lock:
             keys = set(pagecache._store)
@@ -261,7 +268,7 @@ class Public(Base):
         with mock.patch("makroinf.report.write"):
             s = run.noc(NOW + 120, log=logs.append, path=self.db, gap_h=0)
         self.assertIsNotNone(s)
-        self.assertIn("makroinf: javne stranice osvježene (2 računa, 1 u sitemapu)", logs)
+        self.assertIn("makroinf: javne stranice osvježene (2 računa, 2 u sitemapu)", logs)
         self.con = store.connect(self.db)
         self.assertEqual(store.kv_json(self.con, "javno")["ts"], NOW + 120)
 

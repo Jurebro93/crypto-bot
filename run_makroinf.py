@@ -13,9 +13,12 @@ konsenzusa najtočnijih kao DEMO ulaz u veliki/makro.
                                                  proširenje na 300 računa: odbija dok provjera nije prošla
     python3 run_makroinf.py kandidati            kandidati za račune bez poznatog handlea
     python3 run_makroinf.py izvjestaj            log linije i output/makroinf.md
+    python3 run_makroinf.py procjena             procjena troška proširenja prije troška (bez mreže)
+    python3 run_makroinf.py otkrivanje           stanje proširenja po nalogu vlasnika i trošak po fazi
 
-Trošak: pilot twitterapi 5 $ i OpenAI 4 $ jednokratno, zatim 0,50 $ / 0,25 $ dnevno (makroinf/store.py). Pravi novac:
-nikad (zastavica makroinf_indeks je NEVER_LIVE). Radi i dok je fokus_midcap uključen (ops/fokus.EXCEPTIONS).
+Trošak: pilot twitterapi 5 $ i OpenAI 4 $ jednokratno; proširenje po nalogu vlasnika (15.11. navečer, 300-500 računa)
+twitterapi 40 $ i OpenAI 15 $ jednokratno; zatim 1,50 $ / 0,50 $ dnevno (makroinf/store.py). Pravi novac: nikad
+(zastavica makroinf_indeks je NEVER_LIVE). Radi i dok je fokus_midcap uključen (ops/fokus.EXCEPTIONS).
 """
 import os
 import sys
@@ -29,7 +32,7 @@ def main(argv=None):
     a = list(sys.argv[1:] if argv is None else argv)
     kind = a[0] if a and not a[0].startswith("-") else "krug"
     log = lambda m: print(m, flush=True)  # noqa: E731
-    if kind not in ("krug", "noc", "ocjene", "provjera", "prosiri", "kandidati", "izvjestaj"):
+    if kind not in ("krug", "noc", "ocjene", "provjera", "prosiri", "kandidati", "izvjestaj", "procjena", "otkrivanje"):
         print(__doc__)
         return 2
     try:
@@ -72,6 +75,14 @@ def main(argv=None):
                 for ln in report.lines(con):
                     log(ln)
                 report.write(con)
+            elif kind == "procjena":
+                from makroinf import discover
+                log(discover.estimate_line(discover.estimate(con)))
+            elif kind == "otkrivanje":
+                import json
+                from makroinf import discover
+                log(json.dumps(discover.summary(con), ensure_ascii=False, indent=1, default=str))
+                log(discover.phase_line(con))
         finally:
             con.close()
     log(store.PREFIX + f"{kind} gotov za {time.time() - t:.0f} s")
