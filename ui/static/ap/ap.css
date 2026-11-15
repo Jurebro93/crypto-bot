@@ -505,3 +505,108 @@ a.apx-swchip{font-weight:600;color:var(--acc)}
  border-bottom:1px solid var(--line)}
 .apx-swr>div{display:flex;flex-direction:column;min-width:0}.apx-swr>div>b{font-size:15px;font-weight:600}
 .apx-swr .apx-mut{font-size:12.5px}
+/* 15.11. navečer (owner, the 3rd time): "Prekidači" is ONE closed row (title, "17 prekidača, 2 uključena, 1 čeka
+ tebe", a badge while Grok waits); its body opens only on a tap. The section around it is the chip's target. */
+.apx-swsec{scroll-margin-top:76px}
+.apx-acc.apx-sws{border:2px solid var(--ap-acc-line)}
+.apx-sws>summary{min-height:56px}
+.apx .apx-sws>summary h2.apx-swh{font-size:17px;margin:0}
+.apx-sws>summary .apx-swsum{order:3;flex:1 1 100%;font-size:13px;margin-top:-6px}
+.apx-swbadge{font-size:12px;font-weight:650;color:var(--ap-warn-t);background:var(--warnbg);border-radius:999px;padding:2px 10px;
+ box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 45%,var(--line))}
+a.apx-mkchip{font-weight:600;color:var(--acc)}
+/* "Koga pratimo": one closed row until tapped */
+.apx-cd>summary{list-style:none;display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;cursor:pointer;min-height:44px;
+ color:var(--fg)}
+.apx-cd>summary .apx-age{font-weight:400}
+.apx-cd>summary::-webkit-details-marker{display:none}
+.apx-cd>summary .apx-h2{margin:0}
+.apx-cd>summary::after{content:"›";margin-left:auto;transform:rotate(90deg);color:var(--mut);font-size:20px}
+.apx-cd[open]>summary::after{transform:rotate(-90deg)}
+.apx-cd>summary .apx-cdsum{order:3;flex:1 1 100%;font-size:13px}
+.apx-cd-in{margin-top:10px}
+/* the wallet's value and PnL by day at the top (ui/apterm.wallet_html) */
+.apx-wtop{padding:14px 16px;margin:0 0 16px}
+.apx-wv{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 28px}
+.apx-wv1{display:flex;flex-direction:column;min-width:0}
+.apx-wv1>.apx-mut{font-size:12.5px}
+.apx-wbig{display:flex;align-items:baseline;gap:6px;font-family:var(--ap-mono);font-variant-numeric:tabular-nums;font-size:30px;
+ font-weight:700;line-height:1.15;letter-spacing:-.02em}
+.apx .apx-wbig small{display:inline;font-size:15px;font-weight:600;color:var(--mut);letter-spacing:0}
+.apx-wfx{font-size:14px}
+.apx-wv2{display:grid;grid-template-columns:repeat(3,minmax(0,auto));gap:6px 22px}
+@media(max-width:700px){.apx-wv{gap:8px}.apx-wv2{width:100%;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px}
+ .apx-wc b{font-size:13.5px}.apx-wbig{font-size:28px}}
+.apx-wc{display:flex;flex-direction:column;min-width:0}
+.apx-wc i{font-style:normal;font-size:12px;color:var(--mut)}
+.apx-wc b{font-family:var(--ap-mono);font-variant-numeric:tabular-nums;font-size:15px;font-weight:650}
+.apx-wc small{font-size:11.5px;color:var(--mut)}
+.apx-wsplit{margin:8px 0 0;font-size:12.5px}
+.apx-wdays{margin:12px 0 0;border-top:1px solid var(--line);padding-top:8px}
+.apx-wdh{display:flex;align-items:center;gap:0 12px;flex-wrap:wrap;margin:0 0 6px;font-size:12.5px}
+.apx-wdh .apx-h3{margin:0;font-size:15px}.apx-wdh .apx-lnkb{margin-left:auto}
+.apx-wdsum{order:3;flex:1 1 100%;margin-top:-6px}
+.apx-lnkb{border:0;background:none;box-shadow:none;color:var(--acc);font:inherit;font-size:13px;font-weight:600;min-height:44px;
+ padding:0 4px;cursor:pointer}
+.apx-dstrip{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;padding:2px 2px 6px;scrollbar-width:thin;
+ -webkit-overflow-scrolling:touch}
+.apx-dchip{flex:0 0 auto;scroll-snap-align:start;display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:108px;
+ min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);
+ font:inherit;text-align:left;cursor:pointer;box-shadow:none;transform:none}
+.apx-dchip>span{font-size:12px;color:var(--mut)}
+.apx-dchip>b{font-family:var(--ap-mono);font-variant-numeric:tabular-nums;font-size:14px;font-weight:650}
+.apx-dchip>small{font-size:11.5px;color:var(--mut)}
+.apx-dchip[aria-pressed=true]{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc);background:var(--ap-acc-bg)}
+/* one day's card (ap.js dayCard): under the strip at the top and under the Portfelj chart */
+.apx-dcard{margin:10px 0 0;padding:10px 12px 12px;border:1px solid var(--line);border-radius:var(--ap-r2);background:var(--soft)}
+.apx-dcard[hidden],.apx-dlist[hidden]{display:none}
+.apx-dh{display:flex;align-items:center;gap:6px}
+.apx-dh>b{flex:1;text-align:center;font-size:15px;font-weight:650}
+.apx-dnav,.apx-dx{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:0;
+ border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);font-size:20px;line-height:1;cursor:pointer;
+ box-shadow:none;transform:none}
+.apx-dnav:disabled{opacity:.35;cursor:default}
+.apx-dx{border-color:transparent;background:none;font-size:24px;color:var(--mut)}
+.apx-dg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin:10px 0 6px}
+@media(min-width:701px){.apx-dg{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.apx-dg>div>span{display:block;font-size:12px;color:var(--mut)}
+.apx-dg>div>b{display:block;font-family:var(--ap-mono);font-variant-numeric:tabular-nums;font-size:15px;font-weight:650}
+.apx-dg>div>small{display:block;font-size:11.5px;color:var(--mut)}
+.apx-dg>div>b small{display:block;font-family:Inter,system-ui,sans-serif;font-size:12px;font-weight:500;color:var(--mut)}
+.apx-dt td small{color:var(--mut)}
+.apx-dt{width:100%;border-collapse:collapse;font-size:13px;margin:4px 0 0}
+.apx-dt th,.apx-dt td{padding:6px 4px;border-top:1px solid var(--line);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.apx-dt th{font-weight:500;color:var(--mut);font-size:12px}
+.apx-dt th:first-child,.apx-dt td:first-child{text-align:left;padding-left:0;white-space:normal}
+.apx-dnote{margin:6px 0 0;font-size:12px;color:var(--mut)}
+/* every day of the span under the Portfelj chart */
+.apx-dlist{margin:10px 0 0}
+.apx-dlist .apx-h3{margin:0 0 4px}
+.apx-drow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:2px 14px;width:100%;min-height:44px;align-items:center;
+ padding:6px 4px;border:0;border-top:1px solid var(--line);border-radius:0;background:none;color:var(--fg);font:inherit;
+ font-size:13.5px;text-align:left;cursor:pointer;box-shadow:none;transform:none}
+.apx-drow>b{font-family:var(--ap-mono);font-variant-numeric:tabular-nums;font-weight:650;text-align:right}
+.apx-drow>small{color:var(--mut);font-size:12px;text-align:right;min-width:72px}
+.apx-drow[aria-pressed=true]{background:var(--ap-acc-bg)}
+/* full screen (ap.js fsOpen): the same card above a dark backdrop; × top right (44 px, under the notch), the phone's
+ back button, Esc and a tap on the backdrop close it */
+.apx-fsbtn{margin-left:2px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;font:inherit;
+ font-size:12.5px;font-weight:600;min-height:36px;padding:0 12px;cursor:pointer;box-shadow:none;transform:none}
+.apx-fsx{display:none}
+.apx-fsbg{position:fixed;inset:0;z-index:95;background:rgba(11,18,32,.55)}
+.apx-fsbg[hidden]{display:none}
+.apx-card.is-fs{position:fixed;z-index:96;margin:0;overflow:auto;overscroll-behavior:contain;
+ top:max(48px,calc(env(safe-area-inset-top,0px) + 40px));bottom:max(10px,env(safe-area-inset-bottom,0px));
+ left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));
+ box-shadow:0 30px 80px -20px rgba(11,18,32,.55);padding-top:0}
+@media(min-width:701px){.apx-card.is-fs{top:4vh;bottom:4vh;left:max(3vw,calc(50vw - 520px));right:max(3vw,calc(50vw - 520px))}}
+.apx-card.is-fs>.apx-cbar:first-child{position:sticky;top:0;z-index:5;background:var(--card);margin:0 -2px 10px;
+ padding:8px 54px 8px 2px;min-height:60px}
+.apx-card.is-fs .apx-fsbtn{display:none}
+.apx-card.is-fs .apx-fsx{display:inline-flex;align-items:center;justify-content:center;position:absolute;top:8px;right:0;width:44px;
+ height:44px;padding:0;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--fg);font-size:26px;
+ line-height:1;cursor:pointer;box-shadow:none;transform:none}
+@media(max-width:700px){.apx-port.is-fs .apx-kpi{display:none}}
+.apx-port.is-fs .apx-pchart{height:min(46vh,440px)}
+#apx-chartbox.is-fs .apx-chart{height:min(70vh,640px)}
+html.apx-fsopen,html.apx-fsopen body{overflow:hidden}

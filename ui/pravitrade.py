@@ -631,7 +631,8 @@ def _today(tcon, cfg, result=True, now=None):
 
 
 POP_HTML = ('<dialog id=ap-pop><div class=bar2><span class=mut id=ap-pop-age style="font-size:13px"></span>'
-            '<button onclick="this.closest(\'dialog\').close()">Zatvori</button></div><div class=body><p class=mut>Učitavam…</p></div></dialog>')
+            '<button class=ap-popx onclick="this.closest(\'dialog\').close()" aria-label="Zatvori">Zatvori ×</button></div>'
+            '<div class=body><p class=mut>Učitavam…</p></div></dialog>')
 # 9.11. (Jure): everything opens in a pop-up, never a new page, and the pop-up re-fetches its content every second
 # while it is open (the swap is skipped while a field inside it has focus, so a stake being typed is never lost)
 # 9.11. 23:10 (Jure: the pop-up stays at "Učitavam…"): setInterval fired a new request every second whether or not
@@ -643,8 +644,9 @@ POP_HTML = ('<dialog id=ap-pop><div class=bar2><span class=mut id=ap-pop-age sty
 # 10.11. (Jure: pop-up preskočenog signala): a [data-pop] inside an open pop-up (its link to the token's live check)
 # swaps the content in place; showModal() is called only on a closed dialog (on an open one older browsers throw).
 POP_TIMEOUT_MS = 8000
-POP_JS = ("<script>(()=>{const d=document.getElementById('ap-pop');if(!d||window.__appop)return;window.__appop=1;let url='',t=null,n=0,cur=null,ctl=null;"
+POP_JS = ("<script>(()=>{const d=document.getElementById('ap-pop');if(!d||window.__appop)return;window.__appop=1;let url='',t=null,n=0,cur=null,ctl=null,pushed=0;"
           "const age=document.getElementById('ap-pop-age');"
+          "const pushPop=()=>{try{history.pushState(Object.assign({},history.state||{},{apPop:1}),'');pushed=1}catch(x){pushed=0}};"
           "async function load(){if(!url||cur===url)return;const u=url;cur=u;let to=null;"
           "try{ctl=new AbortController();const c=ctl;to=setTimeout(()=>c.abort()," + str(POP_TIMEOUT_MS) + ");"
           "const r=await fetch(u,{cache:'no-store',signal:c.signal});if(u!==url)return;"
@@ -654,11 +656,18 @@ POP_JS = ("<script>(()=>{const d=document.getElementById('ap-pop');if(!d||window
           "catch(e){if(u===url)age.textContent='server je spor, pokušavam ponovno…'}"
           "finally{clearTimeout(to);if(cur===u)cur=null}}"
           "document.addEventListener('click',e=>{const el=e.target.closest('[data-pop]');if(!el||e.target.closest('a,button,input,select,form'))return;"
-          "e.preventDefault();if(ctl)ctl.abort();url=el.dataset.pop;age.textContent='';d.querySelector('.body').innerHTML='<p class=mut>Učitavam…</p>';if(!d.open)d.showModal();load();"
+          "e.preventDefault();if(ctl)ctl.abort();url=el.dataset.pop;age.textContent='';d.querySelector('.body').innerHTML='<p class=mut>Učitavam…</p>';"
+          # 15.11. navečer (owner: "otvori se preko cijelog ekrana na mobitelu kartica i onda ne mogu je zatvoriti"): an
+          # open pop-up is one history entry, so the phone's back button closes it instead of leaving the page; the
+          # bar with "Zatvori" stays at the top while it scrolls (POP_CSS); Esc and a tap beside it close it as before
+          "if(!d.open)d.showModal(),pushPop();load();"
           "clearInterval(t);t=setInterval(load,1000)});"
-          "d.addEventListener('close',()=>{clearInterval(t);url='';if(ctl)ctl.abort()});d.addEventListener('click',e=>{if(e.target===d)d.close()})})()</script>")
+          "addEventListener('popstate',()=>{if(d.open&&!(history.state&&history.state.apPop)){pushed=0;d.close()}});"
+          "d.addEventListener('close',()=>{clearInterval(t);url='';if(ctl)ctl.abort();if(pushed){pushed=0;history.back()}});"
+          "d.addEventListener('click',e=>{if(e.target===d)d.close()})})()</script>")
 POP_CSS = ("<style>dialog#ap-pop{border:0;border-radius:18px;padding:0;max-width:min(96vw,680px);width:96vw;background:var(--card);color:var(--fg)}"
-           "dialog#ap-pop::backdrop{background:rgba(0,0,0,.45)}dialog#ap-pop .bar2{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}"
+           "dialog#ap-pop::backdrop{background:rgba(0,0,0,.45)}dialog#ap-pop .bar2{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);"
+           "position:sticky;top:0;z-index:2;background:var(--card)}dialog#ap-pop .ap-popx{min-height:44px;min-width:44px;padding:0 14px}"
            "dialog#ap-pop .body{padding:10px 14px 16px;font-size:15px;line-height:1.45}dialog#ap-pop .body h3{margin:10px 0 4px;font-size:17px}"
            ".ap-row{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--line);cursor:pointer;"
            "user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}.ap-row .k{font-size:13px;color:var(--mut);text-align:right;white-space:nowrap}"
@@ -1492,7 +1501,13 @@ def _makroinf_card(owner):
     if not owner:
         return ""
     from makroinf import report
-    return report.card_html(_sec, _item, esc, owner)
+    # 15.11. navečer (owner: "gdje mogu naći te nove liste influencera"): the chip "Makro influenceri" at the top of the
+    # page leads here, so the row is there also before the pilot's first round has stored any account
+    return report.card_html(_sec, _item, esc, owner) or _sec(
+        "Makro influenceri", "pilot: prvi krug još nije spremio račune",
+        '<p class=mut>Lista makro influencera (50 računa u pilotu, tri ocjene, indeks prema BTC-u) puni se nakon prvog '
+        'kruga (run_makroinf.py, svakih 10 min). Javne stranice /macro-influencers ostaju ugašene dok ne uključiš '
+        'prekidač makroinf_javno (u Prekidačima).</p>', sid="makroinf")
 
 
 def _konsenzus_card(owner):
@@ -4915,7 +4930,8 @@ TOGGLE_JS = ("<script>(()=>{const Q='details.ap-sec,details.ap-it,details.ap-pan
              # an old error again as if it were new
              "if(/[?&](ok|err)=/.test(location.search))try{history.replaceState(null,'',location.pathname+location.hash)}catch(e){}"
              "window.apOpen=root=>root.querySelectorAll(Q).forEach(d=>{if(d.id&&d.id in open)d.open=!!open[d.id]});window.apOpen(document);"
-             "const reveal=()=>{for(let t=location.hash.length>1&&document.getElementById(location.hash.slice(1));t;t=t.parentElement)if(t.matches&&t.matches('details'))t.open=true};"
+             # 15.11. navečer: a card marked data-tap ("Prekidači" on /pravi-trade) is never opened by an address
+             "const reveal=()=>{for(let t=location.hash.length>1&&document.getElementById(location.hash.slice(1));t;t=t.parentElement)if(t.matches&&t.matches('details:not([data-tap])'))t.open=true};"
              "reveal();addEventListener('hashchange',reveal);"
              "document.addEventListener('click',e=>{const s=e.target.closest('summary');if(!s||e.target.closest('a,button,input,select,.tip'))return;"
              "const d=s.parentElement;if(!d.matches(Q))return;e.preventDefault();"

@@ -11,6 +11,7 @@
   let F = {};
   try { F = JSON.parse($('#apx-first').textContent); } catch (e) { F = {}; }
   const URLS = F.urls || {};
+  const DAYS = F.days || null;   // 15.11.: the day cards at the top (a refresh of the first view does not carry them)
   // 11.11. (Jure: "mali info button na svim stupcima"): the info buttons of the numbers written here, the words of the tables
   // (ui/apterm.COL_HELP); .tip is the site's own tooltip (ui/html.JS: hover, tap, keyboard focus)
   const HELP = F.help || {};
@@ -223,11 +224,15 @@
     if (t) {
       S.hashDone = h;
       for (let p = t; p && p !== document.body; p = p.parentElement) {
-        if (p.tagName === 'DETAILS') p.open = true;
+        // 15.11. navečer (owner, the 3rd time): a card marked data-tap ("Prekidači") opens ONLY on his tap: an address
+        // (#prekidaci, #fl-..., #grok-auto after a form) scrolls to its closed row and never opens it
+        if (p.tagName === 'DETAILS' && !p.hasAttribute('data-tap')) p.open = true;
         if (p.classList && p.classList.contains('apx-pane') && p.hidden) showTab(p.id);
         if (p.classList && p.classList.contains('apx-subp') && p.hidden) { const b = $(`[data-sub="${p.id}"]`); if (b) showSub(b); }
       }
-      setTimeout(() => t.scrollIntoView({ block: 'start' }), 80);
+      const shut = t.closest('details[data-tap]:not([open])');
+      const to = shut ? (shut.parentElement || shut) : t;
+      setTimeout(() => to.scrollIntoView({ block: 'start' }), 80);
       return;
     }
     if (S.hashTried === h) return;
@@ -284,19 +289,26 @@
     if (top < 4) top = Math.max(4, Math.min(H - h - 4, 4));
     tip.style.transform = `translate(${Math.round(left)}px,${Math.round(top)}px)`;
   }
-  function interact(o) {   // o: box, chart, series(), n(), index(time), time(i), value(i), html(i), say(i)
+  // 15.11. navečer (owner: "Kad kliknem na graf ... ne mogu je zatvoriti, ne mogu otvoriti drugi dan"): a pinned box
+  // goes away with a tap anywhere outside the chart (iOS moves no focus there, so "blur" never came), and a chart
+  // with o.pick (Portfelj) opens the tapped day's card under it instead: on a touch screen it shows no floating box
+  // at all (on a 390-px phone the day's box covered the whole chart and every next tap landed on it)
+  const coarse = () => matchMedia('(pointer:coarse)').matches;
+  function interact(o) {   // o: box, chart, series(), n(), index(time), time(i), value(i), html(i), say(i), pick(i)?
     const tip = document.createElement('div');
     tip.className = 'apx-tip'; tip.hidden = true;
     o.box.appendChild(tip);
     let sr = o.box.nextElementSibling;
     if (!sr || !sr.classList.contains('apx-sr')) { sr = document.createElement('p'); sr.className = 'apx-sr'; sr.setAttribute('aria-live', 'polite'); o.box.after(sr); }
     const st = { k: -1, pin: false };
-    const show = (i, x, y) => { tip.innerHTML = o.html(i); placeTip(tip, o.box, x, y); };
+    const quiet = () => !!o.pick && coarse();   // the day's card speaks instead of a box over the chart
+    const show = (i, x, y) => { if (quiet()) return; tip.innerHTML = o.html(i); placeTip(tip, o.box, x, y); };
     const hide = () => { tip.hidden = true; };
+    const unpin = () => { st.pin = false; st.k = -1; hide(); try { o.chart.clearCrosshairPosition(); } catch (x) { /* older */ } };
     const at = (p, tap) => {
       const i = p && p.point && p.time != null ? o.index(p.time) : null;
       if (i == null) { if (!st.pin) hide(); return; }
-      if (tap) st.pin = true;
+      if (tap && !o.pick) st.pin = true;
       st.k = i; show(i, p.point.x, p.point.y);
     };
     o.chart.subscribeCrosshairMove(p => at(p, false));
@@ -304,9 +316,13 @@
       at(p, true);
       const i = p && p.time != null ? o.index(p.time) : null;
       if (i != null) { try { o.chart.setCrosshairPosition(o.value(i), o.time(i), o.series()); } catch (e) { /* older library */ } }
+      if (i != null && o.pick) o.pick(i);
     });
     const on = (ev, fn) => { o.box.addEventListener(ev, fn); offs.push(() => o.box.removeEventListener(ev, fn)); };
     const offs = [];
+    const away = e => { if ((st.pin || !tip.hidden) && !o.box.contains(e.target)) unpin(); };
+    document.addEventListener('pointerdown', away, true);
+    offs.push(() => document.removeEventListener('pointerdown', away, true));
     on('pointermove', e => { if (e.pointerType === 'mouse') st.pin = false; });
     on('mouseleave', () => { if (!st.pin) hide(); });
     const go = i => {
@@ -329,7 +345,8 @@
       else if (e.key === 'ArrowRight') i += e.shiftKey ? 10 : (st.k < 0 ? 0 : 1);
       else if (e.key === 'Home') i = 0;
       else if (e.key === 'End') i = n - 1;
-      else if (e.key === 'Escape') { st.pin = false; st.k = -1; hide(); try { o.chart.clearCrosshairPosition(); } catch (x) { /* older */ } return; }
+      else if (e.key === 'Escape') { if (st.pin || !tip.hidden) e.stopPropagation(); unpin(); return; }
+      else if ((e.key === 'Enter' || e.key === ' ') && o.pick && st.k >= 0) { e.preventDefault(); o.pick(st.k); return; }
       else return;
       e.preventDefault();
       go(Math.max(0, Math.min(n - 1, i)));
@@ -584,6 +601,7 @@
         PN.v === 'days' ? getJ('/pravi-trade/api/pnl-days?' + q) : Promise.resolve(null)]);
       PN.LW = LW; PN.p = p; if (j) PN.j = j;
       kpiDraw(); pnlDraw();
+      if (PN.v !== 'days' && DC.port.day) portDay(DC.port.day, DC.port.pt, true);   // an open day follows the account
     } catch (e) {
       pnlChart('');
       box.innerHTML = '<p class=apx-empty>Portfelj se nije učitao. Pokušat ću ponovno za minutu.</p>';
@@ -640,13 +658,15 @@
       PN.s1 = PN.chart.addHistogramSeries({ base: 0, priceLineVisible: false, lastValueVisible: false });
       PN.s2 = PN.chart.addLineSeries({ color: T.acc, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 4 });
       PN.tip = interact({ box, chart: PN.chart, series: () => PN.s2, n: () => (PN.j ? PN.j.rows.length : 0),
-        index: tm => PN.idx.get(tkey(tm)), time: i => PN.j.rows[i].day, value: i => pcum(PN.j.rows[i]) || 0, html: pnlTip, say: pnlSay });
+        index: tm => PN.idx.get(tkey(tm)), time: i => PN.j.rows[i].day, value: i => pcum(PN.j.rows[i]) || 0, html: pnlTip, say: pnlSay,
+        pick: i => { if (PN.j && PN.j.rows[i]) portDay(PN.j.rows[i].day); } });
     } else {
       PN.s1 = PN.chart.addAreaSeries({ lineColor: T.acc, lineWidth: 2, topColor: rgba(T.acc, 0.16), bottomColor: rgba(T.acc, 0.01),
         priceLineVisible: false, lastValueVisible: true, crosshairMarkerRadius: 4 });
       PN.s2 = null;
       PN.tip = interact({ box, chart: PN.chart, series: () => PN.s1, n: () => valRows().length,
-        index: tm => PN.idx.get(tkey(tm)), time: i => valRows()[i].t, value: i => valOf(valRows()[i]) || 0, html: valTip, say: valSay });
+        index: tm => PN.idx.get(tkey(tm)), time: i => valRows()[i].t, value: i => valOf(valRows()[i]) || 0, html: valTip, say: valSay,
+        pick: i => { const r = valRows()[i]; if (r) portDay(dayOf(r.t), r); } });
     }
   }
   const valRows = () => ((PN.p && PN.p.series) || []).filter(r => valOf(r) != null);
@@ -741,6 +761,8 @@
     PN.s2.setData(j.rows.map(r => ({ time: r.day, value: pcum(r) || 0 })));
     PN.tip.reset();
     PN.chart.timeScale().fitContent();
+    dayList();
+    if (DC.port.day) portDay(DC.port.day, null, true);   // the open day's card follows the span / unit / account
   }
   function pnlDay(r) {
     const [y, m, d] = r.day.split('-');
@@ -772,6 +794,135 @@
     return r.n ? `${pnlDay(r)}: ${fSol(r.pnl_sol, 4, true)}, ${fUsd(r.pnl_usd, true)}, ${r.n} zatvorenih, win rate ${fNum(r.win_rate, 0)} %`
       : `${pnlDay(r)}: bez zatvorenih tradeova`;
   }
+
+  // ---- one day's card (15.11. navečer, owner: "ne mogu otvoriti drugi dan da vidim koliko sam zaradio, potrošio i
+  //      tako dalje"): zarađeno (closed trades, every fee), potrošeno (buys that went through), vraćeno (sales), network
+  //      fees of every order that day, and the day's closed trades; ‹ › to the day before / after, × closes it. The
+  //      strip at the top reads the page's JSON (DAYS: live, 30 d, ui/apterm.pnl_live_top), the Portfelj card the
+  //      pnl-days answer of its account and span (PN.j). In place on the page: nothing covers the screen ----
+  const DC = { top: { box: '#apx-hday', day: '' }, port: { box: '#apx-day', day: '', pt: null } };
+  const dayOf = t => { try { return new Date(t * 1000).toLocaleDateString('sv-SE', { timeZone: (PN.j && PN.j.tz) || (DAYS && DAYS.tz) || 'Europe/Zagreb' }); } catch (e) { return new Date(t * 1000).toISOString().slice(0, 10); } };
+  const plural = (n, one, few, many) => n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? few : many;
+  function dayHtml(j, i, pt) {
+    const r = j.rows[i], live = j.mode === 'live', last = j.rows.length - 1;
+    const m = (xs, xu, sg) => live ? `${fSol(xs, 4, sg)}${xu != null ? `<small>${fUsd(xu, sg)}</small>` : ''}` : `${fUsd(xu, sg)}${xs != null ? `<small>${fSol(xs, 4, sg)}</small>` : ''}`;
+    const cell = (k, v, cls, sm) => `<div><span>${k}</span><b class="${cls || ''}">${v}</b>${sm ? `<small>${sm}</small>` : ''}</div>`;
+    const n = r.n || 0, nb = r.n_buys || 0, ns = r.n_sells || 0;
+    let h = `<div class=apx-dh><button type=button class=apx-dnav data-dnav=-1 aria-label="Dan prije"${i <= 0 ? ' disabled' : ''}>‹</button>` +
+      `<b>${esc(pnlDay(r))}</b><button type=button class=apx-dnav data-dnav=1 aria-label="Dan poslije"${i >= last ? ' disabled' : ''}>›</button>` +
+      `<button type=button class=apx-dx data-dclose aria-label="Zatvori dan">×</button></div>`;
+    if (!n && !nb && !ns && !r.fees_all_sol) return h + '<p class=apx-dnote>Taj dan nije bilo kupnji, prodaja ni zatvorenih tradeova.</p>';
+    if (pt) h += `<p class=apx-dnote>${esc(new Date(pt.t * 1000).toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' }))}: vrijednost ${live ? fSol(pt.v, 3) : fUsd(pt.v)}${pt.u != null && live ? ' · ' + fUsd(pt.u) : ''}${pt.pnl != null && live ? ' · PnL prema uplatama ' + fSol(pt.pnl, 3, true) : ''}</p>`;
+    h += '<div class=apx-dg>' +
+      cell('Zarađeno (neto)', n ? m(r.pnl_sol, r.pnl_usd, true) : '–', n ? tone(live ? r.pnl_sol : r.pnl_usd) : '',
+        n ? `${n} ${plural(n, 'zatvoren trade', 'zatvorena tradea', 'zatvorenih tradeova')}${n >= 10 && r.win_rate != null ? ', win rate ' + fNum(r.win_rate, 0) + NB + '%' : ''}` : 'nijedan zatvoren trade') +
+      cell('Potrošeno na kupnje', nb ? m(r.spent_sol, r.spent_usd, false) : '–', '', `${nb} ${plural(nb, 'kupnja', 'kupnje', 'kupnji')}`) +
+      cell('Vraćeno iz prodaja', live ? (ns ? m(r.back_sol, r.back_usd, false) : '–') : (n ? m(r.back_sol, r.back_usd, false) : '–'), '',
+        live ? `${ns} ${plural(ns, 'prodaja', 'prodaje', 'prodaja')}` : 'zatvoreni demo tradeovi') +
+      cell('Naknade', live ? (r.fees_all_sol ? m(r.fees_all_sol, r.fees_all_usd, false) : '–') : 'u PnL-u', '',
+        live ? 'mreža, sve transakcije toga dana' : 'simulacija: 1 % po strani + klizanje') + '</div>';
+    const tr = r.trades || [];
+    if (tr.length) {
+      h += '<table class=apx-dt><tr><th>Zatvoreno</th><th>Uloženo</th><th>Vraćeno</th><th>PnL</th></tr>' + tr.map(t =>
+        `<tr><td><button type=button class="apx-tok" data-sel="${esc(t.token)}" translate=no>${esc(t.sym)}</button></td>` +
+        `<td>${live ? fSol(t.in, 3) : fUsd(t.in)}</td><td>${live ? fSol(t.back, 3) : fUsd(t.back)}</td>` +
+        `<td class="${tone(t.pnl)}">${live ? fSol(t.pnl, 4, true) : fUsd(t.pnl, true)}${t.pct != null ? `<small> ${fPct(t.pct)}</small>` : ''}</td></tr>`).join('') + '</table>';
+      if (n > tr.length) h += `<p class=apx-dnote>Prikazano ${tr.length} najvećih od ${n} zatvorenih.</p>`;
+    }
+    if (n && r.rate_now) h += '<p class=apx-dnote>$ ↔ SOL po današnjem tečaju (taj dan bez snimke walleta).</p>';
+    return h;
+  }
+  function dayShow(which, j, day, pt) {
+    const c = DC[which], box = $(c.box);
+    if (!box || !j || !j.rows) return;
+    const i = j.rows.findIndex(r => r.day === day);
+    if (i < 0) { box.hidden = true; c.day = ''; return; }
+    c.day = day; if (pt !== undefined) c.pt = pt;
+    box.innerHTML = dayHtml(j, i, c.pt && dayOf(c.pt.t) === day ? c.pt : null);
+    box.hidden = false;
+    const marks = which === 'top' ? $$('.apx-dchip') : $$('#apx-dlist .apx-drow');
+    for (const b of marks) b.setAttribute('aria-pressed', String(b.dataset.day === day));
+    const on = marks.find(b => b.dataset.day === day);
+    if (on && on.parentElement.scrollWidth > on.parentElement.clientWidth) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  function dayHide(which) {
+    const c = DC[which], box = $(c.box);
+    c.day = ''; c.pt = null;
+    if (box) { box.hidden = true; box.replaceChildren(); }
+    for (const b of which === 'top' ? $$('.apx-dchip') : $$('#apx-dlist .apx-drow')) b.setAttribute('aria-pressed', 'false');
+  }
+  function topDay(day) {
+    if (DC.top.day === day && !$(DC.top.box).hidden) { dayHide('top'); return; }   // a second tap on the same day closes it
+    dayShow('top', DAYS, day);
+  }
+  // the Portfelj card: its account and span (PN.m, PN.d); the pnl-days answer is fetched when the value view is on
+  async function portDay(day, pt, quiet) {
+    const fresh = PN.j && PN.j.mode === PN.m && +PN.j.days === +PN.d;
+    if (!fresh) {
+      try { PN.j = await getJ(`/pravi-trade/api/pnl-days?m=${PN.m}&d=${PN.d}`); } catch (e) { if (!quiet) { const b = $(DC.port.box); if (b) { b.hidden = false; b.innerHTML = '<p class=apx-dnote>Dan se nije učitao. Dodirni ga ponovno.</p>'; } } return; }
+    }
+    dayShow('port', PN.j, day, pt === undefined ? null : pt);
+    dayList();
+    if (PN.kind === 'days' && PN.chart && PN.s2) {   // the chart's crosshair on the day the card shows
+      const r = PN.j.rows.find(x => x.day === day);
+      if (r) try { PN.chart.setCrosshairPosition(pcum(r) || 0, r.day, PN.s2); } catch (e) { /* older library */ }
+    }
+  }
+  // every day of the span with a buy or a closed trade, newest first, under the Portfelj chart (in "PnL po danima")
+  function dayList() {
+    const el = $('#apx-dlist'), j = PN.j;
+    if (!el) return;
+    if (!j || !j.rows || PN.v !== 'days' || j.mode !== PN.m) { el.hidden = true; return; }
+    const live = j.mode === 'live';
+    const rows = j.rows.filter(r => r.n || r.n_buys).reverse();
+    if (!rows.length) { el.hidden = true; return; }
+    el.innerHTML = `<h3 class=apx-h3>Svi dani (${j.days} d)</h3>` + rows.map(r => {
+      const v = live ? r.pnl_sol : r.pnl_usd;
+      return `<button type=button class=apx-drow data-pday="${esc(r.day)}" data-day="${esc(r.day)}" aria-pressed="${DC.port.day === r.day}">` +
+        `<span>${esc(pnlDay(r))}</span><b class="${r.n ? tone(v) : ''}">${r.n ? (live ? fSol(v, 4, true) : fUsd(v, true)) : '–'}</b>` +
+        `<small>${r.n ? r.n + ' zatv.' : ''}${r.n && r.n_buys ? ' · ' : ''}${r.n_buys ? r.n_buys + ' kup.' : ''}</small></button>`;
+    }).join('');
+    el.hidden = false;
+  }
+
+  // ---- full screen (15.11. navečer, owner: "otvori se preko cijelog ekrana na mobitelu kartica i onda ne mogu je
+  //      zatvoriti"): the Portfelj card or the token's chart above a dark backdrop, opened only by its own button
+  //      ("Cijeli zaslon", "Graf i svi dani"). It always closes: × top right (44 px), the phone's back button (one
+  //      history entry while it is open), Esc, a tap on the backdrop ----
+  const FS = { el: null, pushed: false, from: null };
+  function fsOpen(id, from) {
+    const el = document.getElementById(id);
+    if (!el || FS.el === el) return;
+    if (FS.el) fsClose();
+    if (root.classList.contains('sheet')) closeSheet();
+    FS.el = el; FS.from = from || null;
+    el.classList.add('is-fs');
+    document.documentElement.classList.add('apx-fsopen');
+    const bg = $('.apx-fsbg'); if (bg) bg.hidden = false;
+    el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
+    try { history.pushState(Object.assign({}, history.state || {}, { apxFs: id }), ''); FS.pushed = true; } catch (e) { FS.pushed = false; }
+    el.scrollTop = 0;
+    const x = $('.apx-fsx', el); if (x) x.focus({ preventScroll: true });
+  }
+  function fsClose(fromPop) {
+    const el = FS.el;
+    if (!el) return;
+    FS.el = null;
+    el.classList.remove('is-fs');
+    el.removeAttribute('role'); el.removeAttribute('aria-modal');
+    document.documentElement.classList.remove('apx-fsopen');
+    const bg = $('.apx-fsbg'); if (bg) bg.hidden = true;
+    if (FS.pushed && !fromPop) history.back();   // the entry fsOpen added (its popstate finds FS.el empty)
+    FS.pushed = false;
+    const f = FS.from || $(`[data-fs-open="${el.id}"]`, el);
+    FS.from = null;
+    if (f && f.isConnected) try { f.focus({ preventScroll: true }); } catch (e) { /* old browser */ }
+  }
+  addEventListener('popstate', () => {
+    // the phone's back button closes the full screen, the page stays (a pop-up's own entry on top of it: only that)
+    if (FS.el && !(history.state && history.state.apxFs)) fsClose(true);
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && FS.el) { e.preventDefault(); fsClose(); } });
 
   // ---- the live tick: header, positions' MC / PnL, the last candle; a changed set of positions reloads the tables ----
   function setHeader(lv, ts) {
@@ -1331,10 +1482,17 @@
     const m = tokOf(el);
     if (!MINT_RE.test(m)) return;
     e.preventDefault(); e.stopImmediatePropagation();
-    const d = document.getElementById('ap-pop'); if (d && d.open) d.close();
+    const d = document.getElementById('ap-pop'), wasOpen = !!(d && d.open);
+    if (wasOpen) d.close();   // its history entry goes back (POP_JS): the token's address is written after that
     const name = el.dataset.sym || ((el.querySelector('b') || el).textContent || '').trim().split(/\s+/)[0].slice(0, 24);
-    selectToken(m, name);
-    const hd = $('#apx-hdr'); if (hd && hd.getBoundingClientRect().top < 0) hd.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const pick = () => {
+      selectToken(m, name);
+      const hd = $('#apx-hdr'); if (hd && hd.getBoundingClientRect().top < 0) hd.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    // a token in a full-screen card (a day's trades): the card closes first (its history entry goes), then the chart
+    if (FS.el && FS.el.id !== 'apx-chartbox') { fsClose(); setTimeout(pick, 150); return; }
+    if (wasOpen) { setTimeout(pick, 150); return; }
+    pick();
   }, true);
 
   root.addEventListener('click', e => {
@@ -1401,6 +1559,35 @@
       S.unit = b.dataset.unit; S.fit = true;
       try { localStorage.setItem('apx.unit', S.unit); } catch (x) { /* no storage */ }
       if (chart) loadCandles(); else chartInit();
+      return;
+    }
+    if ((b = g('[data-fs-close]'))) { fsClose(); return; }
+    if ((b = g('[data-fs-open]'))) {
+      const id = b.dataset.fsOpen;
+      if (id === 'apx-port' && b.closest('#apx-wtop')) {   // "Graf i svi dani" at the top: the live account by day
+        const day = DC.top.day;
+        PN.m = 'live'; PN.v = b.dataset.pvSet || PN.v; pnlSave();
+        Promise.resolve(pnlLoad()).then(() => { if (day) portDay(day); });
+      }
+      fsOpen(id, b);
+      return;
+    }
+    if ((b = g('[data-dnav]'))) {
+      const which = b.closest('#apx-hday') ? 'top' : 'port', j = which === 'top' ? DAYS : PN.j, c = DC[which];
+      const i = j && j.rows ? j.rows.findIndex(r => r.day === c.day) : -1, k = i + +b.dataset.dnav;
+      if (i >= 0 && j.rows[k]) { if (which === 'top') dayShow('top', j, j.rows[k].day); else portDay(j.rows[k].day); }
+      return;
+    }
+    if ((b = g('[data-dclose]'))) { dayHide(b.closest('#apx-hday') ? 'top' : 'port'); return; }
+    if ((b = g('.apx-dchip[data-day]'))) { topDay(b.dataset.day); return; }
+    if ((b = g('[data-pday]'))) { portDay(b.dataset.pday); return; }
+    // 15.11. navečer: "Grok čeka tvoje odobrenje" opens Prekidači and its request on HIS tap (no address does)
+    if ((b = g('#apx-reqn'))) {
+      e.preventDefault();
+      const c = $('#prekidaci-d'), r = $('#sw-mcp');
+      if (c) c.open = true;
+      if (r) r.open = true;
+      (r || c || b).scrollIntoView({ block: 'start' });
       return;
     }
     if ((b = g('[data-sheet]'))) { openSheet(b.dataset.sheet); return; }

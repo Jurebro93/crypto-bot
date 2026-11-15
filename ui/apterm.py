@@ -1308,7 +1308,8 @@ def _pnl_rates(tcon, keys):
 
 
 def _pnl_trades(tcon, mode, t0):
-    """[(day ts, mint, symbol, pnl SOL or None, pnl USD or None, pct, fees SOL or None)] of the closed trades."""
+    """[(day ts, mint, symbol, pnl SOL or None, pnl USD or None, pct, fees SOL or None, in, back)] of the closed
+    trades; in / back are SOL (live) or USD (paper): what went in and what came back."""
     if mode == "live":
         rows = tcon.execute("SELECT COALESCE(closed_ts, opened_ts), token, symbol, sol_in, sol_back, COALESCE(fees_sol, 0) "
                             "FROM positions WHERE status='closed' AND mode='live' AND COALESCE(closed_ts, opened_ts) >= ?",
@@ -1316,7 +1317,7 @@ def _pnl_trades(tcon, mode, t0):
         out = []
         for ts, tok, sym, sin, sback, fees in rows:
             pnl = (sback or 0) - (sin or 0) - (fees or 0)
-            out.append((ts, tok, sym, pnl, None, pnl / sin * 100 if sin else None, fees or 0.0))
+            out.append((ts, tok, sym, pnl, None, pnl / sin * 100 if sin else None, fees or 0.0, sin or 0.0, sback or 0.0))
         return out
     lg = pt._league_ro()
     if lg is None:
@@ -1328,8 +1329,63 @@ def _pnl_trades(tcon, mode, t0):
         rows = []
     finally:
         lg.close()
-    return [(ts, tok, sym, None, pnl or 0.0, (pnl or 0.0) / size * 100 if size else None, None)
-            for ts, tok, sym, size, pnl in rows if ts]
+    return [(ts, tok, sym, None, pnl or 0.0, (pnl or 0.0) / size * 100 if size else None, None, size or 0.0,
+             (size or 0.0) + (pnl or 0.0)) for ts, tok, sym, size, pnl in rows if ts]
+
+
+DAY_TRADES = 15          # closed trades listed per day in the day's card (the biggest results first); the count is whole
+
+
+def _pnl_flows(tcon, mode, t0, tz):
+    """{day: {"spent", "n_buys", "back", "n_sells", "fees"}}: 15.11. (owner: "ne mogu otvoriti drugi dan da vidim
+    koliko sam zaradio, potrošio"): live = trade.db orders of that day (a buy that went through: SOL spent; a sale
+    that went through: SOL back; the network fee of EVERY order that day, also a failed one, as executor.day_pnl);
+    paper = the demo account's trades opened that day (USD put in) and closed that day (USD back). Read-only."""
+    out = {}
+    if mode == "live":
+        try:
+            rows = tcon.execute("SELECT ts, side, status, amount_in, amount_out, COALESCE(fee_lamports, 0) FROM orders "
+                                "WHERE mode='live' AND ts >= ?", (t0,)).fetchall()
+        except sqlite3.Error:
+            rows = []
+        for ts, side, status, a_in, a_out, fee in rows:
+            d = out.setdefault(_pnl_day_of(ts, tz), {"spent": 0.0, "n_buys": 0, "back": 0.0, "n_sells": 0, "fees": 0.0})
+            d["fees"] += (fee or 0) / 1e9
+            if status != "ok":
+                continue
+            if side == "buy":
+                d["spent"] += (a_in or 0) / 1e9
+                d["n_buys"] += 1
+            elif side == "sell":
+                d["back"] += (a_out or 0) / 1e9
+                d["n_sells"] += 1
+        return out
+    lg = pt._league_ro()
+    if lg is None:
+        return out
+    try:
+        rows = lg.execute("SELECT opened_ts, size_usd FROM trades WHERE user=? AND opened_ts >= ?",
+                          (settings.LEAGUE_USER, t0)).fetchall()
+        shut = lg.execute("SELECT closed_ts, size_usd, pnl_usd FROM trades WHERE user=? AND status='closed' AND "
+                          "closed_ts >= ?", (settings.LEAGUE_USER, t0)).fetchall()
+    except sqlite3.Error:
+        rows, shut = [], []
+    finally:
+        lg.close()
+    empty = {"spent": 0.0, "n_buys": 0, "back": 0.0, "n_sells": 0, "fees": 0.0}
+    for ts, size in rows:
+        if not ts:
+            continue
+        d = out.setdefault(_pnl_day_of(ts, tz), dict(empty))
+        d["spent"] += size or 0.0
+        d["n_buys"] += 1
+    for ts, size, pnl in shut:   # a demo sale: what went in plus its result (fee and slippage already in it)
+        if not ts:
+            continue
+        d = out.setdefault(_pnl_day_of(ts, tz), dict(empty))
+        d["back"] += (size or 0.0) + (pnl or 0.0)
+        d["n_sells"] += 1
+    return out
 
 
 def _pnl_build(tcon, cfg, mode, days, now):
@@ -1338,6 +1394,7 @@ def _pnl_build(tcon, cfg, mode, days, now):
     rates = _pnl_rates(tcon, keys)
     rate_now = _sol_usd(tcon)
     by_day = {k: [] for k, _ in keys}
+    flows = _pnl_flows(tcon, mode, keys[0][1], tz)
     for tr in _pnl_trades(tcon, mode, keys[0][1]):
         k = _pnl_day_of(tr[0], tz)
         if k in by_day:
@@ -1386,7 +1443,7 @@ def _pnl_build(tcon, cfg, mode, days, now):
                     "fees_sol": r2(fees, 6) if n else None,
                     "fees_usd": r2(fees * rate, 2) if n and fees is not None and rate else None,
                     "best": pick(trs, max) if n else None, "worst": pick(trs, min) if n else None,
-                    "rate": r2(rate, 2), "rate_now": r_now})
+                    "rate": r2(rate, 2), "rate_now": r_now, **_day_extra(by_day[k], flows.get(k), mode, rate)})
     total = {"n": tot["n"], "wins": tot["wins"], "win_rate": round(100 * tot["wins"] / tot["n"], 1) if tot["n"] else None,
              "pnl_sol": round(tot["sol"], 6) if sol_ok else None, "pnl_usd": round(tot["usd"], 2) if usd_ok else None,
              "fees_sol": round(tot["fees"], 6) if mode == "live" else None,
@@ -1398,6 +1455,30 @@ def _pnl_build(tcon, cfg, mode, days, now):
             "Demo račun Autopilota (paper): naknada 1 % po strani i klizanje su već u PnL-u. SOL po prosječnom tečaju toga dana.")
     return {"mode": mode, "days": days, "tz": tz, "ts": int(now), "native": "sol" if mode == "live" else "usd",
             "fees_known": mode == "live", "rate_now": r2(rate_now, 2), "rows": out, "total": total, "note": note}
+
+
+def _day_extra(trs, fl, mode, rate):
+    """The day card's numbers beside the PnL (15.11.): spent on buys, back from sales and every network fee of that
+    day (live: SOL, then $ at the day's rate; paper: $) and its closed trades (at most DAY_TRADES, the biggest result
+    first: symbol, mint, in, back, PnL, %)."""
+    fl = fl or {"spent": 0.0, "n_buys": 0, "back": 0.0, "n_sells": 0, "fees": 0.0}
+    live = mode == "live"
+
+    def both(x):
+        if live:
+            return round(x, 6), (round(x * rate, 2) if rate else None)
+        return (round(x / rate, 6) if rate else None), round(x, 2)
+    sp_s, sp_u = both(fl["spent"])
+    bk_s, bk_u = both(fl["back"])
+    out = {"spent_sol": sp_s, "spent_usd": sp_u, "n_buys": fl["n_buys"], "back_sol": bk_s, "back_usd": bk_u,
+           "n_sells": fl["n_sells"], "fees_all_sol": round(fl["fees"], 6) if live else None,
+           "fees_all_usd": round(fl["fees"] * rate, 2) if live and rate else None}
+    key = (lambda t: -abs(t[3] or 0)) if live else (lambda t: -abs(t[4] or 0))
+    out["trades"] = [{"sym": t[2] or short(t[1] or ""), "token": t[1], "in": round(t[7], 6 if live else 2),
+                      "back": round(t[8], 6 if live else 2), "pnl": round((t[3] if live else t[4]) or 0.0, 6 if live else 2),
+                      "pct": round(t[5], 2) if t[5] is not None else None, "ts": int(t[0])}
+                     for t in sorted(trs, key=key)[:DAY_TRADES]]
+    return out
 
 
 def pnl_days(user, mode="live", days=30, now=None):
@@ -1585,6 +1666,125 @@ def _kpi_html(k, mode):
                    for lab, val, sm, tone in _kpi_cells(k, mode))
 
 
+# ---------- the wallet's value and PnL by day at the top (15.11. navečer) ------------------------------------------
+# Owner: "Nestale su vrijednost voleta i ovo profit and loss po danu." They had not gone: the 14.11. layout (933ee22,
+# "na vrhu graf, brza kupovina i pozicije") moved the "Portfelj" card to the end of the grid, after Brza kupnja and
+# the whole Pozicije list, ~2000 px down on a phone, and "PnL po danima" was only a second view inside it. Now the
+# value (SOL, live $ and €, 24 h, danas, ukupno) and the last days' PnL are one compact card right under the title;
+# a tap on a day opens that day (zarađeno, potrošeno, vraćeno, naknade, tradeovi) with ‹ › to the day before / after.
+
+WTOP_DAYS = 7            # days on the strip at the top (the day card's ‹ › reaches all PNL_TOP_SPAN days)
+PNL_TOP_SPAN = 30
+_WD = ("pon", "uto", "sri", "čet", "pet", "sub", "ned")
+
+
+def _day_label(day, today):
+    """"danas", "jučer", else "pet 13.11." (Croatian, the page's day zone)."""
+    import datetime
+    d = datetime.date.fromisoformat(day)
+    t = datetime.date.fromisoformat(today)
+    if d == t:
+        return "danas"
+    if (t - d).days == 1:
+        return "jučer"
+    return f"{_WD[d.weekday()]} {d.day}.{d.month}."
+
+
+def pnl_live_top(tcon, cfg, now):
+    """pnl_days' live answer for PNL_TOP_SPAN days without the access check (the page already did it), from the same
+    cache (one build per PNL_TTL_S for every viewer)."""
+    key = ("live", PNL_TOP_SPAN)
+    with _LOCK:
+        hit = _PNL.get(key)
+    if hit and 0 <= now - hit[0] < PNL_TTL_S:
+        return hit[1]
+    d = _pnl_build(tcon, cfg, "live", PNL_TOP_SPAN, now)
+    with _LOCK:
+        _PNL[key] = (now, d)
+    return d
+
+
+def _plural(n, one, few, many):
+    return one if n % 10 == 1 and n % 100 != 11 else few if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else many
+
+
+def wallet_html(tcon, cfg, now, pnl=None):
+    """The card under the title: the wallet's whole value in SOL (big), the same in $ and € at the live rate, the result
+    of the last 24 h, today's (closed, every fee) and in total against the money put in; where the value is (free SOL,
+    in positions, the snapshot's time); then the last WTOP_DAYS days' PnL as a row of day buttons (newest first). A
+    tap on a day opens its card under the row (ap.js dayCard, from the page's JSON): no pop-up, nothing to get stuck
+    in. A broken part leaves a dash, never the page."""
+    try:
+        kpi = _port_live(tcon, cfg, PNL_TOP_SPAN, now)[0]
+    except Exception as e:  # noqa: BLE001 - the card stays, with dashes
+        print(f"autopilot: vrijednost walleta nije složena: {type(e).__name__}: {e}", flush=True)
+        kpi = {}
+    s = pt.equity_data(tcon, now).get("summary") or {}
+    r = pt._rates(s, now) if s else {}
+    usd_rate = r.get("sol_usd") or (kpi.get("value_usd") / kpi["value_sol"] if kpi.get("value_usd") and kpi.get("value_sol") else None)
+    eur = r.get("usd_eur") or s.get("usd_eur")
+    val = kpi.get("value_sol")
+    fx = []
+    if val is not None and usd_rate:
+        fx.append(f"≈ {pt._fiat(val * usd_rate)} $")
+        if eur:
+            fx.append(f"{pt._fiat(val * usd_rate * eur)} €")
+    rate_txt = f"1 SOL = {pt._fiat(usd_rate)} $" if usd_rate else ""
+
+    def cell(label, x, dec, small="", why=""):
+        txt = redak.sol(x, dec, sign=True) if x is not None else "–"
+        return (f'<span class=apx-wc title="{esc(why)}"><i>{esc(label)}</i><b class="{_tone(x)}">{txt}</b>'
+                + (f'<small>{esc(small)}</small>' if small else "") + '</span>')
+    tot_small = redak.pct(kpi["total_pct"], 1) if kpi.get("total_pct") is not None else ""
+    cells = (cell("24 h", s.get("pnl_24h_sol"), 3, why="promjena PnL-a prema zadnjoj snimki staroj barem 24 h")
+             + cell("Danas", kpi.get("today_sol"), 4, why="pozicije zatvorene danas, sa svim mrežnim naknadama")
+             + cell("Ukupno", kpi.get("total_sol"), 3, tot_small, "vrijednost walleta minus uplate"))
+    split = []
+    if kpi.get("free_sol") is not None:
+        split.append(f"slobodno {redak.sol(kpi['free_sol'], 3)}")
+    if kpi.get("pos_sol") is not None:
+        split.append(f"u pozicijama {redak.sol(kpi['pos_sol'], 3)} ({kpi.get('pos_n') or 0})")
+    if kpi.get("at"):
+        split.append(f"stanje u {_hm(kpi['at'])}")
+    days_html = ""
+    try:
+        pnl = pnl if pnl is not None else pnl_live_top(tcon, cfg, now)
+    except Exception as e:  # noqa: BLE001
+        print(f"autopilot: PnL po danu nije složen: {type(e).__name__}: {e}", flush=True)
+        pnl = None
+    if pnl and pnl.get("rows"):
+        rows = pnl["rows"]
+        today = rows[-1]["day"]
+        btns = []
+        for row in reversed(rows[-WTOP_DAYS:]):
+            n = row.get("n") or 0
+            v = row.get("pnl_sol")
+            sub = (f"{n} {_plural(n, 'trade', 'tradea', 'tradeova')}" if n else
+                   f"{row.get('n_buys') or 0} {_plural(row.get('n_buys') or 0, 'kupnja', 'kupnje', 'kupnji')}"
+                   if row.get("n_buys") else "bez tradeova")
+            btns.append(f'<button type=button class=apx-dchip data-day="{esc(row["day"])}" aria-pressed=false>'
+                        f'<span>{esc(_day_label(row["day"], today))}</span>'
+                        f'<b class="{_tone(v) if n else ""}">{redak.sol(v, 4, sign=True) if n and v is not None else "–"}</b>'
+                        f'<small>{esc(sub)}</small></button>')
+        t = pnl.get("total") or {}
+        tsum = (f'{PNL_TOP_SPAN} d: <b class="{_tone(t.get("pnl_sol"))}">{redak.sol(t.get("pnl_sol"), 3, sign=True)}</b> · '
+                f'{t.get("n") or 0} zatvorenih' if t.get("n") else f"{PNL_TOP_SPAN} d: bez zatvorenih tradeova")
+        days_html = (f'<div class=apx-wdays><div class=apx-wdh><h3 class=apx-h3>PnL po danu</h3>'
+                     '<button type=button class=apx-lnkb data-fs-open=apx-port data-pv-set=days>Graf i svi dani</button>'
+                     f'<span class="apx-mut apx-wdsum">{tsum}</span></div>'
+                     f'<div class=apx-dstrip role=group aria-label="PnL po danu, dodirni dan">{"".join(btns)}</div>'
+                     '<div class=apx-dcard id=apx-hday hidden aria-live=polite></div></div>')
+    big = redak.num(val, 3) if val is not None else "–"
+    return (f'<section class="apx-card apx-wtop" id=apx-wtop aria-label="Vrijednost walleta i PnL po danu">'
+            f'<div class=apx-wv><div class=apx-wv1><span class=apx-mut>Vrijednost walleta{_i("Ukupno")}</span>'
+            f'<b class=apx-wbig data-w=value>{big}<small>SOL</small></b>'
+            f'<span class=apx-wfx>{esc(" · ".join(fx))}'
+            + (f' <span class=apx-mut>({esc(rate_txt)})</span>' if rate_txt else "") + '</span></div>'
+            f'<div class=apx-wv2>{cells}</div></div>'
+            + (f'<p class="apx-mut apx-wsplit">{esc(" · ".join(split))}</p>' if split else "")
+            + days_html + '</section>')
+
+
 def port_html(tcon, cfg, now):
     """The "Portfelj" card under the token's chart (always shown: it carries the money): the live numbers in the
     first HTML; ap.js fills the chart (the wallet's value, or PnL by day) and switches Uživo / Paper, SOL / $ and
@@ -1603,15 +1803,24 @@ def port_html(tcon, cfg, now):
     span = ('<div class=apx-tf role=group aria-label="Raspon">'
             + "".join(f'<button type=button data-pd={n}{" class=on" if n == 30 else ""}>{n} d</button>' for n in PNL_SPANS)
             + '</div>')
+    # 15.11. navečer (owner: "Kad kliknem na graf, otvori se preko cijelog ekrana na mobitelu kartica i onda ne mogu
+    # je zatvoriti, ne mogu otvoriti drugi dan"): the full-screen view is this same card (ap.js fsOpen: "Cijeli zaslon"
+    # here, "Graf i svi dani" at the top) and it always closes: the × at the top right (44 px, under the phone's notch),
+    # the phone's back button (one history entry while open), Esc, a tap on the dark backdrop. A tap on the chart
+    # opens that day's card under it (#apx-day: zarađeno, potrošeno, vraćeno, naknade, tradeovi; ‹ › to the day
+    # before / after) instead of a floating box over the chart; every day of the span is a row of #apx-dlist.
     return (f'<section class="apx-card apx-port" id=apx-port aria-label="Portfelj"><div class=apx-cbar>'
             f'<h2 class=apx-h2 data-sec="">Portfelj</h2>{seg}<span class=apx-sp></span>'
             # the wallet is snapshotted every 5 min (trade/equity): amber only after three missed snapshots
-            f'<span class=apx-age data-ts="{int(kpi.get("at") or 0)}" data-short=1 data-stale=900 id=apx-port-age></span></div>'
+            f'<span class=apx-age data-ts="{int(kpi.get("at") or 0)}" data-short=1 data-stale=900 id=apx-port-age></span>'
+            '<button type=button class=apx-fsbtn data-fs-open=apx-port aria-label="Portfelj preko cijelog zaslona">Cijeli zaslon</button>'
+            '<button type=button class=apx-fsx data-fs-close aria-label="Zatvori cijeli zaslon" title="Zatvori (Esc)">×</button></div>'
             f'<div class=apx-kpi id=apx-kpi>{_kpi_html(kpi, "live")}</div>'
             f'<div class="apx-cbar apx-pbar">{view}{unit}{span}</div><div class=apx-psum id=apx-psum></div>'
             '<div class=apx-pchart id=apx-pchart tabindex=0 role=img aria-roledescription="graf" aria-label="Portfelj kroz '
-            'vrijeme, ili PnL po danima. Miš ili dodir pokazuje točku; strelice lijevo i desno idu točku po točku.">'
-            '<div class=apx-skel><i></i></div></div><p class=apx-pnote id=apx-pnote></p>'
+            'vrijeme, ili PnL po danima. Dodir ili klik otvara taj dan ispod grafa; strelice lijevo i desno idu točku po točku.">'
+            '<div class=apx-skel><i></i></div></div><div class=apx-dcard id=apx-day hidden aria-live=polite></div>'
+            '<p class=apx-pnote id=apx-pnote></p><div class=apx-dlist id=apx-dlist hidden></div>'
             '<p class=apx-attr>Graf: <a href="https://www.tradingview.com/" target=_blank rel=noopener>TradingView Lightweight '
             'Charts™</a></p></section>')
 
@@ -2102,6 +2311,11 @@ def _top_html(d, tcon, cfg, owner, now=None):
     sw_on = settings.pravi_novac_sve(con=tcon)
     chip = (f'<a class="apx-state apx-swchip{" warn" if sw_on else ""}" href="#prekidaci" id=apx-swchip>Prekidači'
             + (" · pravi novac uključen" if sw_on else "") + ' ↓</a>')
+    # 15.11. navečer (owner: "gdje mogu naći te nove liste influencera velikih unutar alata"): the macro influencers'
+    # card (makroinf/, "Makro influenceri") is under Postavke at the bottom, loaded on opening; this chip opens
+    # Postavke, waits for it and opens that card (ap.js scrollHash: #makroinf). Owner only, like the card.
+    if owner:
+        chip += '<a class="apx-state apx-mkchip" href="#makroinf" id=apx-mkchip>Makro influenceri ↓</a>'
     return (f'<div class=apx-top><h1>{TITLE}</h1>{st}{link}{chip}<span class=apx-sp></span>{switch}</div>'
             + (f'<div class="ap apx-alerts">{alerts}</div>' if alerts else "") + req)
 
@@ -2143,8 +2357,13 @@ def switches_html(d, tcon, cfg, owner, now=None):
     now = now or time.time()
     # 15.11. (owner: "Previše vertikalnog mjesta zauzimaju prekidači, svaka kartica mora biti minimizirana i tek na
     # dodir se otvori i proširi"): every card is one closed row (name, one line, its state) that opens on a tap; the
-    # ids stay on the rows, so TOGGLE_JS keeps an opened one open across the refresh. Only Grok's requests that wait
-    # for the owner's tap come open (they expire).
+    # ids stay on the rows, so TOGGLE_JS keeps an opened one open across the refresh.
+    # 15.11. navečer (owner, the 3rd time: "Opet je stavka prekidači maksimizirana, a ne ... da se minimizira pa da se
+    # na klikom na karticu otvori tijelo"): the WHOLE card is one closed row too (switches_summary: how many switches,
+    # how many on, how many wait for him, a badge for a waiting Grok request), its body opens only on his tap.
+    # data-tap: no address (#prekidaci, #fl-..., #grok-auto after a form) and no script opens it (TOGGLE_JS reveal,
+    # ap.js scrollHash); the chip at the top only scrolls to the closed row. Grok's waiting requests are a closed row
+    # with the badge "čeka" as well (the line at the top and the badge say they wait; a tap opens them).
     sw_on = settings.pravi_novac_sve(con=tcon)
     try:
         st = executor.switch_status(tcon, now, cfg, cfg.get("day_tz"))
@@ -2157,7 +2376,7 @@ def switches_html(d, tcon, cfg, owner, now=None):
                      "uključen" if sw_on else "isključen", "bad" if sw_on else "mut", "sw-pravi") + '</div>']
     mcp = pt._safe("mcp", pt._mcp_requests, tcon, owner)
     if mcp:
-        parts.append(_fold("Grokovi zahtjevi", "čekaju tvoje Odobri / Odbij", mcp, "čeka", "warn", "sw-mcp", open_=True))
+        parts.append(_fold("Grokovi zahtjevi", "čekaju tvoje Odobri / Odbij", mcp, "čeka", "warn", "sw-mcp"))
     glive = pt._safe("grok-auto", pt._grok_auto_live, tcon, owner, d.get("positions"), now, False)
     if glive:
         try:
@@ -2180,9 +2399,49 @@ def switches_html(d, tcon, cfg, owner, now=None):
         grp.append(_fold("Planovi izlaza", "kill switch planova i aktivni planovi", plans,
                          "pauzirani" if paused else "rade", "warn" if paused else "mut", "sw-planovi"))
     inner = "".join(x for x in parts if x) + f'<div class="ap ap-grp apx-swg">{"".join(x for x in grp if x)}</div>'
-    return (f'<section class="apx-card ap apx-sws" id=prekidaci><h2 class="apx-h2 apx-swh" data-sec="">Prekidači</h2>'
-            f'<p class="apx-mut apx-swi">Svi tvoji prekidači na jednom mjestu: pravi novac za sve strategije, Grok, '
-            f'Autopilot, planovi izlaza.</p>{inner}</section>')
+    n, n_on, n_wait = pt._safe("prekidači-zbroj", switches_count, tcon, cfg, owner, now, fallback=(0, 0, 0))
+    summ = switches_summary(n, n_on, n_wait)
+    badge = (f'<b class=apx-swbadge title="Grokov zahtjev čeka tvoje Odobri / Odbij">{n_wait} čeka</b>' if n_wait else "")
+    return (f'<section class=apx-swsec id=prekidaci aria-label="Prekidači"><details class="apx-acc apx-sws" id=prekidaci-d '
+            f'data-tap><summary><h2 class=apx-swh data-sec="">Prekidači</h2><span class="apx-mut apx-swsum">{esc(summ)}'
+            f'</span>{badge}</summary><div class="ap apx-acc-in"><p class="apx-mut apx-swi">Svi tvoji prekidači na jednom '
+            f'mjestu: pravi novac za sve strategije, Grok, Autopilot, planovi izlaza. Svaki red se otvara na dodir.</p>'
+            f'{inner}</div></details></section>')
+
+
+def switches_count(tcon, cfg, owner, now=None):
+    """(switches, switched on, waiting for the owner's tap) of "Prekidači" for its closed row: pravi_novac_sve, Grok
+    autotrade, the Autopilot, the microcap gate and every other owner switch (trade/settings.OWNER_SWITCHES) on
+    "uživo"; waiting = Grok's requests still open for Odobri / Odbij (ui/mcpapi.pending)."""
+    now = now or time.time()
+    st = settings.flag_state(tcon)
+    names = [x for x in settings.OWNER_SWITCHES if x in st and x != settings.MIKROKAP_MOON]
+    n = len(names) + 2                                   # + Grok autotrade + the Autopilot
+    n_on = sum(1 for x in names if st[x]["mode"] == "live") + (1 if cfg.get("on") else 0)
+    try:
+        from ui import grokauto
+        n_on += 1 if grokauto.state(tcon, now)["on"] else 0
+    except Exception:  # noqa: BLE001
+        pass
+    n_wait = 0
+    if owner:
+        try:
+            from ui import mcpapi
+            n_wait = len(mcpapi.pending(tcon, now))
+        except Exception:  # noqa: BLE001
+            n_wait = 0
+    return n, n_on, n_wait
+
+
+def switches_summary(n, n_on, n_wait):
+    """"17 prekidača, 2 uključena, 1 čeka tebe" (the closed row of Prekidači)."""
+    def word(k, one, few, many):
+        return one if k % 10 == 1 and k % 100 != 11 else few if 2 <= k % 10 <= 4 and not 12 <= k % 100 <= 14 else many
+    bits = [f"{n} {word(n, 'prekidač', 'prekidača', 'prekidača')}",
+            f"{n_on} {word(n_on, 'uključen', 'uključena', 'uključeno')}"]
+    if n_wait:
+        bits.append(f"{n_wait} čeka tebe")
+    return ", ".join(bits)
 
 
 def _fold(name, reason, inner, value, tone, iid, open_=False):
@@ -2285,7 +2544,10 @@ def page(qs, user, full=False):
                  + "".join(f'<button type=button data-tf={k}{" class=on" if k == "5m" else ""}>{k}</button>' for k in TFS)
                  + '</div><div class=apx-tf role=group aria-label="Jedinica"><button type=button data-unit=mc class=on>MC</button>'
                  '<button type=button data-unit=price>Cijena</button></div><span class=apx-sp></span>'
-                 '<span class=apx-age data-ts=0 data-short=1 id=apx-chart-age>graf se učitava</span></div>'
+                 '<span class=apx-age data-ts=0 data-short=1 id=apx-chart-age>graf se učitava</span>'
+                 '<button type=button class=apx-fsbtn data-fs-open=apx-chartbox aria-label="Graf preko cijelog zaslona">'
+                 'Cijeli zaslon</button><button type=button class=apx-fsx data-fs-close aria-label="Zatvori cijeli zaslon" '
+                 'title="Zatvori (Esc)">×</button></div>'
                  f'<div id=apx-chart class=apx-chart data-m="{esc(sel)}" tabindex=0 role=img aria-roledescription="graf" '
                  'aria-label="Graf svijeća. Miš ili dodir pokazuje podatke svijeće; strelice lijevo i desno idu svijeću po '
                  f'svijeću.">{_skel(1) if sel else ""}'
@@ -2336,6 +2598,9 @@ def page(qs, user, full=False):
                 + '</div><div class=apx-scrim data-sheet-close></div>')
         fj = {k: v for k, v in d.items() if not k.startswith("_")}
         fj["urls"] = {"lwc": static_url(LWC_FILE), "poll_s": POLL_S}
+        # 15.11.: the live PnL by day of the last PNL_TOP_SPAN days for the day cards at the top (ap.js dayCard)
+        pnl_top = pt._safe("pnl-po-danu", pnl_live_top, tcon, cfg, now, fallback=None)
+        fj["days"] = pnl_top
         fj["help"] = COL_HELP   # the info buttons of the numbers ap.js writes (Portfelj, PnL by day): the same words as the tables
         boot = json.dumps(fj, ensure_ascii=False, separators=(",", ":"), default=str).replace("</", "<\\/")
         noscript = ('<noscript><p class=apx-mut>Bez JavaScripta: <a href="/pravi-trade?sve=1">otvori sve dijelove odjednom</a>'
@@ -2349,12 +2614,16 @@ def page(qs, user, full=False):
         # ap.css puts the panel into the right column beside the three left parts.
         body = [pt.CSS, CSS, '<div class=apx id=apx data-owner=' + ("1" if owner else "0") + '>', toast,
                 _top_html(d, tcon, cfg, owner, now), noscript,
+                # 15.11. navečer (owner: "Nestale su vrijednost voleta i ovo profit and loss po danu"): back at the top
+                pt._safe("vrijednost-walleta", wallet_html, tcon, cfg, now, pnl_top),
                 '<div class=apx-grid><div class="apx-main apx-m1">', _hdr_html(d.get("header"), now), chart, '</div>',
                 panel_html(d, sel_pos), '<div class=apx-side-ph aria-hidden=true></div>',
                 '<div class="apx-main apx-m2">', tabs, panes, '</div>',
                 '<div class="apx-main apx-m3">', port_html(tcon, cfg, now), '</div></div>', cards,
                 pt._safe("prekidači", switches_html, d, tcon, cfg, owner, now),
                 ost, mbar,
+                # the backdrop of a card shown full screen (ap.js fsOpen): a tap on it closes the card
+                '<div class=apx-fsbg data-fs-close hidden></div>',
                 f'<script type=application/json id=apx-first>{boot}</script>', '</div>',
                 pt.POP_CSS, pt.POP_HTML, f'<script src="{static_url("ap.js")}" defer></script>']
         return TITLE, "".join(body)
@@ -2690,8 +2959,17 @@ def pratimo_html(tcon, cfg, owner, now, prefill=""):
             + "".join(f'<button type=button{" class=on" if i == 0 else ""} data-sub={k}>{lab}</button>'
                       for i, (k, lab, _h) in enumerate(parts)) + '</div>') if len(parts) > 1 else ""
     panes = "".join(f'<div class=apx-subp id={k}{" hidden" if i else ""}>{h}</div>' for i, (k, _lab, h) in enumerate(parts))
-    return (f'<h2 data-sec="" class=apx-h2>Koga pratimo <span class=apx-cnt>{sum(1 for f in fl if f.get("active"))}</span>'
-            f'{age_badge(now, now)}</h2>{tabs}{panes}{feed}')
+    # 15.11. navečer (owner: every card that grew long is one closed row, its body opens on a tap): the card is one row
+    # (how many wallets, influencers and tokens) until tapped; ui/pravitrade PATCH_JS keeps it open across the refresh
+    words = {"pr-w": ("wallet", "walleta", "walleta"), "pr-i": ("influencer", "influencera", "influencera"),
+             "pr-t": ("token", "tokena", "tokena")}
+    cnt = {"pr-w": sum(1 for f in fl if f["kind"] == "wallet" and f.get("active")),
+           "pr-i": sum(1 for f in fl if f["kind"] in ("kol", "ekipa") and f.get("active")),
+           "pr-t": len(re.findall(r'data-sel=', parts[-1][2])) if parts[-1][0] == "pr-t" else 0}
+    summ = ", ".join(f"{cnt[k]} {_plural(cnt[k], *words[k])}" for k, _lab, _h in parts if cnt[k]) or "praćenja i tokeni"
+    return (f'<details class=apx-cd id=apx-pratimo-d><summary><h2 data-sec="" class=apx-h2>Koga pratimo <span class=apx-cnt>'
+            f'{sum(1 for f in fl if f.get("active"))}</span>{age_badge(now, now)}</h2><span class="apx-mut apx-cdsum">'
+            f'{esc(summ)}</span></summary><div class=apx-cd-in>{tabs}{panes}{feed}</div></details>')
 
 
 def range_entry(r, x, now):
