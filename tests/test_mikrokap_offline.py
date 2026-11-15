@@ -493,12 +493,14 @@ class Paths(GateBase):
 class Orders(GateBase):
     def test_owner_order_last_turns_the_gate_on_once(self):
         from ui import assistnotes
-        self.assertEqual(assistnotes.OWNER_FLAG_ORDERS[-1][:2], ("mikrokap_blokada", "live"))
+        # 15.11.: the big tokens' order (veliki_range -> paper) came after it
+        mine = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == "mikrokap_blokada")
+        self.assertEqual([o[:2] for o in mine], [("mikrokap_blokada", "live")])
         self.assertNotIn(capgate.MOON_FLAG, [n for n, _m, _w in assistnotes.OWNER_FLAG_ORDERS])
         self.gate_on(False)
         self.con.execute("DELETE FROM settings WHERE k=?", (f"flag:{capgate.FLAG}",))
         self.con.commit()
-        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", assistnotes.OWNER_FLAG_ORDERS[-1:]):
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", mine):
             self.assertEqual(assistnotes.owner_flag_orders(self.con), ["zastavica mikrokap_blokada: off → live"])
             settings.set_flag(self.con, capgate.FLAG, "off", "Jure")    # the owner turns it off later
             self.assertEqual(assistnotes.owner_flag_orders(self.con), [])   # it stays off
