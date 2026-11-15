@@ -454,6 +454,8 @@ def pos_of(r):
            "tp_px": r["tp_px"], "stop_px": r["stop_px"], "be_px": be, "peak": r.get("peak")}
     if r.get("half_px"):
         pos["half_px"], pos["half"] = r["half_px"], r.get("half_frac") or 0.5
+    if pos["stop_px"] >= be * 0.999:
+        pos["be_armed"] = True
     return pos
 
 
@@ -463,7 +465,7 @@ def row_cfg(r):
     from veliki import rule
     h = r.get("half_frac")
     return {"trail": r.get("trail") or 0.0, "half": rule.RULE["half"] if h is None else h, "exit_slip": 0.0,
-            "stop_slip": 0.0, "stop_fill": "level"}
+            "stop_slip": 0.0, "stop_fill": "level", "be_at": rule.OWNER_EXIT["be_at"]}
 
 
 def half_sale(con, r, pos, price, liq, now):
@@ -500,7 +502,7 @@ def manage(con, r, q, age, now, cfg):
     rc = row_cfg(r)
     peak0 = pos.get("peak")
     if price <= pos["stop_px"]:
-        reason = "be" if pos.get("half_px") and pos["stop_px"] >= pos["be_px"] * 0.999 else "stop"
+        reason = "be" if pos["stop_px"] >= pos["be_px"] * 0.999 else "stop"
         return [close(con, r, price, q[1], q[3] if len(q) > 3 else None, reason, now)]
     if age > STALE_S:
         return out
@@ -513,9 +515,15 @@ def manage(con, r, q, age, now, cfg):
         r["peak"] = pos.get("peak")
     if hit:
         return out + [close(con, r, price, q[1], q[3] if len(q) > 3 else None, hit[0], now)]
-    if now - r["opened_ts"] >= (r.get("time_h") or cfg["time_h"]) * 3600:
+    if rule.OWNER_EXIT.get("time_h") and now - r["opened_ts"] >= (r.get("time_h") or cfg["time_h"]) * 3600:
         return out + [close(con, r, price, q[1], q[3] if len(q) > 3 else None,
-                            "trail" if pos.get("peak") else "time", now)]
+                            "trail" if pos.get("peak") else "time", now)]   # 15.11. navečer: no time stop (vlasnik)
+    if pos.get("be_armed") and pos["stop_px"] > r["stop_px"]:   # +5 % net: the stop moved to break-even
+        con.execute("UPDATE veliki_trades SET stop_px=?, be_px=? WHERE id=?", (pos["stop_px"], pos["be_px"], r["id"]))
+        con.commit()
+        r["stop_px"] = pos["stop_px"]
+        out.append(f"veliki{' PRAVI NOVAC' if r['user'] == _league_user() else ''} {r['symbol']}: +5 % neto, stop na "
+                   f"ulaz (break-even {pos['stop_px']:.6g})")
     from league import copy as lcopy
     try:
         col = lcopy._rugged(r["token"], q[3], q[1])
@@ -623,7 +631,14 @@ def context(tok, now):
         pr = {}
     dip = pr.get("dip") or {}
     m = store.cats().get(tok) or {}
-    bad = _holderi_bad(tok, now) or (dip.get("why") if dip.get("kind") == "los" else None)
+    # 15.11. navečer (vlasnik: "ako odmah nakon ulaza krene u mali loss, onda čekaš"): only NEW danger closes a position
+    # (prioritet.dynamic_bad + a deposit to sell); the facts known at the entry never do
+    try:
+        from veliki import prioritet as _pr
+        dyn = _pr.dynamic_bad(pr)
+    except Exception:  # noqa: BLE001
+        dyn = None
+    bad = _holderi_bad(tok, now) or dyn
     return {"btc_state": st.get("state"), "macro": mac, "cat": m.get("cat"), "metrics": m, "dip_kind": dip.get("kind"),
             "bad": bad, "vol_ratio": vol_ratio_live(tok, now)}
 

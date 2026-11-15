@@ -276,6 +276,28 @@ class Live(SwitchBase):
             self.assertEqual(vlive.owner_once(self.lg, self.now), [])
         self.assertEqual(self.lg.execute("SELECT time_h FROM veliki_trades WHERE token='74SBV4zzzz'").fetchone()[0], 72.0)
 
+    def test_owner_exit_break_even_at_five_percent_and_no_time_stop(self):
+        # 15.11. navečer (vlasnik): +5 % net -> the stop to break-even; no time stop; the target still sells half
+        pos = {"entry": 1.0, "first": 1.0, "ts": 0, "tp_px": 1.15, "stop_px": 0.95, "be_px": 1.03, "peak": None}
+        cfg = {"trail": 0.05, "half": 0.5, "exit_slip": 0.0, "stop_slip": 0.0, "stop_fill": "level",
+               "be_at": rule.OWNER_EXIT["be_at"]}
+        self.assertIsNone(rule.on_price(pos, 1.05, "t", 1.05, cfg))
+        self.assertEqual(pos["stop_px"], 0.95)                      # +1.9 % net: not yet
+        self.assertIsNone(rule.on_price(pos, 1.0816, "t", 1.0816, cfg))
+        self.assertEqual(pos["stop_px"], 1.03)                      # +5 % net over break-even: stop to break-even
+        self.assertEqual(rule.on_price(pos, 1.02, "t", 1.02, cfg)[0], "be")
+        self.assertIsNone(rule.OWNER_EXIT["time_h"])
+        bar = (10 * 86400, 1.0, 1.01, 0.99, 1.0, 0)
+        self.assertIsNone(rule.exit_on_bar({"entry": 1.0, "ts": 0, "tp_px": 1.5, "stop_px": 0.5, "be_px": 1.03},
+                                           bar, {"time_h": None, "bar_s": 3600}))
+
+    def test_dynamic_bad_ignores_facts_known_at_entry(self):
+        from veliki import prioritet
+        self.assertIsNone(prioritet.dynamic_bad({"facts": {"liq_ratio": 0.95, "sells_buys": 1.0, "c24": -3},
+                                                 "risk": "top 10 holdera 59 %"}))
+        self.assertIn("likvidnost", prioritet.dynamic_bad({"facts": {"liq_ratio": 0.5}}))
+        self.assertIn("holderi", prioritet.dynamic_bad({"facts": {}, "block": "holderi: tim prodaje"}))
+
     def test_chain_line_counts_bought_and_refused(self):
         import sqlite3
         import tempfile

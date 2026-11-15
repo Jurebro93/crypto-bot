@@ -60,7 +60,16 @@ RULE = {"bar_s": 3600, "look_d": 7, "tp": 15.0, "trail": 0.0, "stop": "pct20", "
         "stop_slip": 0.005, "stop_fill": "level", "min_net_mid": 0.03, "crash_filter": True, "dca": 0.0,
         "btc_up": False, "atr_k": 2.0, "atr_n": 14, "stop_cap": 0.20, "btc_mode": "dno", "inflow_x": 1.0,
         "half": 0.5, "tx_frac": 0.0, "dca_mode": "pct", "dca_atr_k": 3.0, "dca_min": 0.05, "dca_cats": ("A", "B"),
-        "reasoned": False, "macro_filter": False, "vol_collapse": 0.30, "cut_pct": 0.10, "protect_min": 0.01}
+        "reasoned": False, "macro_filter": False, "vol_collapse": 0.30, "cut_pct": 0.10, "protect_min": 0.01,
+        "be_at": 0.0}
+# 15.11. navečer (vlasnik: "Trade ne treba biti vremenski ograničen, nego sa stop loss ili take profit ... ako bude 5 %
+# profitu, stavi stop loss na ulaz, a onda take profit staviš na 10-15 % ... ako odmah nakon ulaza krene u mali loss,
+# onda čekaš"): OWNER_EXIT = the live exit of both midcap rules: no time stop, the stop moves to break-even once the
+# position is be_at (+5 %) NET above it, the target sells half (the rest: break-even + trailing); the reasoned exit
+# "los" fires only on NEW danger (liquidity pulled, holders selling, the team / insiders block, a deposit to sell),
+# never on facts known at the entry (concentration, dev share, authorities: veliki/prioritet.static_risk refuses those
+# before the buy)
+OWNER_EXIT = {"time_h": None, "be_at": 0.05}
 # 16.11. (vlasnik: "više tradeova, zatvaraju se gdje postoji dobar razlog ... uključi DCA"; the critic: "TP +8 % pa
 # trailing 5 %" could leave the WHOLE position at ~+2.6 % = 1.08 x 0.95):
 #   half       with a trailing (trail > 0) the target sells `half` (50 %) of the position (locked), the rest's stop moves
@@ -541,10 +550,15 @@ def on_price(pos, px, kind, b_open, cfg=None):
         base = px if kind == "t" else (b_open if kind == "o" else min(pos["stop_px"], b_open))
         if c["stop_fill"] == "low" and kind == "l":
             base = px
-        return ("be" if pos.get("half_px") and pos["stop_px"] >= pos.get("be_px", 0) * 0.999 else "stop"), \
-            base * (1 - c["stop_slip"])
+        return ("be" if (pos.get("half_px") or pos.get("be_armed")) and pos["stop_px"] >= pos.get("be_px", 0) * 0.999
+                else "stop"), base * (1 - c["stop_slip"])
     if lvl is not None and down and px <= lvl:
         return "trail", (px if kind in ("t", "c") else min(lvl, b_open)) * (1 - c["exit_slip"])
+    ba = c.get("be_at") or 0.0
+    if ba and up and not pos.get("half_px") and pos.get("be_px") and px >= pos["be_px"] * (1 + ba) \
+            and pos["stop_px"] < pos["be_px"]:
+        pos["stop_px"] = pos["be_px"]   # +be_at net reached: the stop to break-even (the owner's rule)
+        pos["be_armed"] = True
     if up and px >= pos["tp_px"]:
         if not tr:
             return "tp", (px if kind in ("o", "t") else pos["tp_px"]) * (1 - c["exit_slip"])
@@ -570,7 +584,7 @@ def exit_on_bar(pos, b, cfg=None):
         hit = on_price(pos, px, kind, b[1], c)
         if hit:
             return hit
-    if b[0] + c["bar_s"] - pos["ts"] >= c["time_h"] * H:
+    if c.get("time_h") and b[0] + c["bar_s"] - pos["ts"] >= c["time_h"] * H:
         return ("trail" if pos.get("peak") else "time"), b[4] * (1 - c["exit_slip"])
     return None
 
@@ -675,7 +689,7 @@ def reasoned_exit(pos, px, rt, ctx, cfg=None):
     net = net_ret(pos["entry"], px * (1 - c["exit_slip"]), rt)
     first = pos.get("first") or pos["entry"]
     from_first = px / first - 1
-    if ctx.get("bad") or ctx.get("dip_kind") == "los":
+    if ctx.get("bad"):   # 15.11. navečer: only new danger (live.context: dynamic reasons), never facts known at entry
         return "los", None
     if ctx.get("btc_state") == "slobodan_pad":
         if net >= c["protect_min"]:

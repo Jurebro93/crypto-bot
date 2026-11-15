@@ -69,6 +69,21 @@ def static_risk(d):
     return "; ".join(bad) or None
 
 
+def dynamic_bad(row):
+    """15.11. navečer: the NEW danger of an open position from its priority row: liquidity pulled (>= 30 % in 24 h),
+    holders selling (sells 1.6x buys while falling), the holders' block (insiders / the team selling). The static facts
+    (concentration, dev share, authorities: static_risk) are not here: they are checked before the buy. Text or None."""
+    f = (row or {}).get("facts") or {}
+    bad = []
+    if f.get("liq_ratio") is not None and f["liq_ratio"] < 0.7:
+        bad.append(f"likvidnost {(f['liq_ratio'] - 1):+.0%} u 24 h (LP povučen?)")
+    if (f.get("sells_buys") or 0) > 1.6 and (f.get("c24") or 0) < 0:
+        bad.append(f"prodaje {f['sells_buys']:.1f}x kupnje u 24 h (holderi prodaju)")
+    if (row or {}).get("block"):
+        bad.append(row["block"])
+    return "; ".join(bad) or None
+
+
 def classify(d):
     """(kind, why) for one dipped token's facts d: c24, c7d, liq_ratio, vol_ratio, sells_buys, safety, btc24,
     market_med, grok_dip."""
