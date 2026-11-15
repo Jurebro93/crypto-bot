@@ -7,6 +7,7 @@
     python3 run_critic.py stats [--dana 7] # calls, cost, hit rates (also MCP get_critic_stats)
     python3 run_critic.py loop             # the watcher of real-money fills (start.sh, supervised): a comment each
     python3 run_critic.py live --od A --do B   # comment the live fills A < id <= B (the watcher's child)
+    python3 run_critic.py market           # public reads of the market pages when due (critic/market.py; --sada: now)
     python3 run_critic.py deep --auto      # the deep session when due (run_sched every 10 min); --sada: now
 
 Needs OPENAI_API_KEY (without it: one log line an hour, nothing else); the owner switch openai_kritika (on by default).
@@ -32,6 +33,8 @@ def main(argv=None):
     t.add_argument("--sada", action="store_true")
     d = sub.add_parser("daily")
     d.add_argument("--sada", action="store_true")
+    m = sub.add_parser("market")
+    m.add_argument("--sada", action="store_true")
     s = sub.add_parser("stats")
     s.add_argument("--dana", type=int, default=7)
     sub.add_parser("loop")
@@ -60,6 +63,9 @@ def main(argv=None):
     elif a.cmd == "deep":
         from critic import deep
         res = deep.run(auto=a.auto and not a.sada)
+    elif a.cmd == "market":
+        from critic import market
+        res = market.run(force=a.sada)
     elif a.cmd == "trades":
         from critic import trades
         res = trades.run(force=a.sada)

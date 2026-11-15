@@ -254,6 +254,39 @@ def _tools(en_slug, lang="en"):
     return f"<p class=note>{'Compare tools' if lang == 'en' else 'Usporedi alate'}: {links}</p>"
 
 
+# 15.11. (vlasnik: "u blogove ubaciti interne linkove prema toj stranici ... blogove o najboljim influencerima interno
+# linkati na stranicu s velikim influencerima"): the public data pages a post is about, as one line under the text.
+# Keys: ui/marketpub.PAGES keys, "inf" = the influencer ranking (its Stars tab holds the big accounts).
+_INF, _MKT = ("inf", "calls"), ("market", "season")
+DATA_FOR = {
+    "what-is-a-kol-in-crypto": _INF, "influencer-clustering": _INF, "why-big-influencer-calls-are-hard-to-trade": _INF + ("besttime",),
+    "top-crypto-twitter-accounts-by-call-accuracy": _INF, "how-to-check-a-kol-track-record": _INF,
+    "tokens-sent-to-kol-wallets": _INF, "what-is-copy-trading": _INF, "best-crypto-telegram-channels": _INF,
+    "memecoin-telegram-groups-explained": _INF,
+    "how-to-trade-meme-coins": _MKT + ("besttime", "calls"), "what-is-pump-fun": ("launchpads",) + _MKT,
+    "how-to-spot-a-pump-fun-runner": ("launchpads", "season", "calls"), "how-to-buy-solana-meme-coins": _MKT + ("dex",),
+    "how-to-use-jupiter-swap": ("dex", "market"), "market-cap-liquidity-slippage": ("dex", "market"),
+    "what-is-dca-in-crypto": _MKT, "bundles-and-snipers": ("launchpads", "besttime"),
+    "what-is-a-pump-and-dump": ("calls", "season"), "fake-volume-check": ("dex", "launchpads"),
+}
+DATA_NAME = {"en": {"inf": "Influencer ranking: the big accounts, measured"}, "hr": {"inf": "Ljestvica influencera: velika imena, izmjereno"}}
+
+
+def _data(en_slug, lang="en"):
+    keys = DATA_FOR.get(en_slug, ())
+    if not keys:
+        return ""
+    from ui import marketpub as M
+    links = []
+    for k in keys:
+        if k == "inf":
+            links.append(("/influencers" if lang == "en" else "/hr/influenceri", DATA_NAME[lang]["inf"]))
+        elif k in M.PAGES:
+            links.append((M.PAGES[k][lang != "en"], M.NAV[lang][k][0]))
+    return (f"<p class=note>{'Live data, free' if lang == 'en' else 'Podaci uživo, besplatno'}: "
+            + " · ".join(f"<a href={h}>{esc(n)}</a>" for h, n in links) + "</p>")
+
+
 def _chips(en_slug, lang="en"):
     t = L[lang]
     links = [(h, _gl_name(g, lang)) for g in TERMS.get(en_slug, ()) for h in [_gl_href(g, lang)] if h]
@@ -394,9 +427,11 @@ CAT_LINKS = {
                               ("/hr/najbolji-kripto-alati/provjera-ruga", "Najbolji alati za provjeru ruga"),
                               ("/hr/rjecnik/rug-pull", "Rug pull"))},
     "wallets-and-influencers": {"en": (("/influencers", "Crypto influencer leaderboard"),
+                                       ("/crypto-influencer-calls", "Influencer calls today"),
                                        ("/best-crypto-tools/wallet-trackers", "Best wallet trackers"),
                                        ("/best-crypto-tools/copy-trading-platforms", "Copy trading platforms")),
                                 "hr": (("/hr/influenceri", "Ljestvica kripto influencera"),
+                                       ("/hr/pozivi-kripto-influencera", "Pozivi influencera danas"),
                                        ("/hr/najbolji-kripto-alati/pracenje-novcanika", "Najbolji alati za praćenje novčanika"),
                                        ("/hr/najbolji-kripto-alati/copy-trading-platforme", "Copy trading platforme"))},
 }
@@ -459,7 +494,7 @@ def page(slug, lang="en"):
     body = (f"<article class=art><section class=ph1><div class=crumb><a href={t['base']}>{t['crumb']}</a> · "
             f"{crumb_cat}</div><h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'], lang)} · {p['mins']} "
             f"{t['read']} · {t['by']}</div><figure class=bcov>{svg(p, lang)}</figure><div class=tldr><b>{t['short']}</b><p>{p['tldr']}</p></div></section>"
-            f"{_link_terms(p['body'], lang)}{_live(p['en'], lang)}{_tools(p['en'], lang)}<div class=lock><p>{t['lock']}</p>"
+            f"{_link_terms(p['body'], lang)}{_live(p['en'], lang)}{_tools(p['en'], lang)}{_data(p['en'], lang)}<div class=lock><p>{t['lock']}</p>"
             f"<a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div><p class=note>{t['note']}</p></article>"
             f"{_chips(p['en'], lang)}<h2 class=s>{t['next']}</h2><div class=bl>{''.join(_card(r, lang) for r in rel[:3])}</div>")
     en = f"/blog/{p['en']}"

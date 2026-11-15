@@ -32,7 +32,11 @@ def cmd_collect(a):
             print(f"makro: {makro.line()}")
     except Exception as e:  # noqa: BLE001
         print(f"makro: {type(e).__name__}: {e}", file=sys.stderr)
-    hist = a.history or newest < collect.today() - D or time.gmtime().tm_hour % 6 == 0
+    # 15.11. (vlasnik: "češće osvježavati"): the history is read on every pass (DefiLlama is free and keyless, ~1 MB
+    # an hour), so a day DefiLlama finishes or corrects late is on the pages within the hour; MARKET_HISTORY_EVERY_H
+    # (default 1) brings back a longer step
+    step = max(1, int(float(os.environ.get("MARKET_HISTORY_EVERY_H", "1"))))
+    hist = a.history or newest < collect.today() - D or time.gmtime().tm_hour % step == 0
     days = 0
     if hist:
         days = collect.daily(con, sources.overview(history=True))

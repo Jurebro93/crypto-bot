@@ -266,6 +266,39 @@ h1{font-size:clamp(38px,7vw,68px);line-height:1.04;letter-spacing:-.04em;margin:
 .ph.side{width:215px;opacity:.95}@media(min-width:761px){.ph.main{order:2}.ph.side+.ph.side{order:3}}
 @media(max-width:760px){.phones{justify-content:flex-start;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 20px 20px;margin:48px -20px 0;
 gap:14px;scrollbar-width:none}.phones::-webkit-scrollbar{display:none}.ph,.ph.side{width:72vw;scroll-snap-align:center}}
+.hero{position:relative;overflow:hidden}.hero>.w{position:relative;z-index:1}
+.hbg{position:absolute;inset:0;z-index:0;pointer-events:none;background-size:cover;background-position:top center;opacity:.2;
+filter:blur(2px) saturate(1.1);transform:scale(1.04);-webkit-mask-image:linear-gradient(#000 0,#000 45%,transparent 92%);
+mask-image:linear-gradient(#000 0,#000 45%,transparent 92%)}
+.hbg:after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at 50% 38%,rgba(255,255,255,.96) 0,rgba(255,255,255,.78) 42%,rgba(255,255,255,.35) 100%)}
+.dcta{margin:34px auto 0;max-width:980px}.dcta>p{margin:0 0 12px;color:var(--mut);font-size:15px;font-weight:600}
+.dcta>div{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.dcta a{display:block;text-align:left;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:18px;padding:16px 16px 14px;
+transition:transform .15s,box-shadow .15s,border-color .15s;backdrop-filter:blur(6px)}
+.dcta a:hover{transform:translateY(-3px);border-color:#c7cbf5;box-shadow:0 18px 40px -22px rgba(79,70,229,.55)}
+.dcta a b{display:block;font-size:22px;letter-spacing:-.02em;font-weight:780;line-height:1.15;font-variant-numeric:tabular-nums}
+.dcta a span{display:block;color:var(--mut);font-size:13px;margin:2px 0 10px;min-height:34px;line-height:1.3}
+.dcta a em{font-style:normal;font-weight:680;font-size:14.5px;color:var(--acc)}
+@media(max-width:860px){.dcta>div{grid-template-columns:1fr 1fr}}@media(max-width:420px){.dcta a b{font-size:19px}.dcta a{padding:13px}}
+.show{max-width:940px;margin:56px auto 0;text-align:left}
+.show .fr{border-radius:16px;background:#0b1220;padding:10px 10px 12px;box-shadow:0 50px 100px -40px rgba(11,18,32,.45)}
+.show .bar{display:flex;align-items:center;gap:6px;padding:2px 6px 10px}.show .bar i{width:10px;height:10px;border-radius:50%;background:#334155}
+.show .bar span{margin-left:10px;color:#94a3b8;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.show .vp{position:relative;aspect-ratio:16/9;border-radius:9px;overflow:hidden;background:#eef2f7}
+.show .vp img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 0;opacity:0;transition:opacity .7s}
+.show .vp img.on{opacity:1;animation:pan var(--dur,6s) ease-in-out forwards}
+@keyframes pan{0%,12%{object-position:50% 0}88%,100%{object-position:50% 100%}}
+.show .pg{height:3px;background:#1e293b;border-radius:2px;margin:10px 4px 0;overflow:hidden}
+.show .pg i{display:block;height:100%;width:0;background:linear-gradient(90deg,#818cf8,#2dd4bf)}
+.show .pg i.run{animation:pgr var(--dur,6s) linear forwards}@keyframes pgr{to{width:100%}}
+.show.paused .vp img.on,.show.paused .pg i{animation-play-state:paused}
+.show .tabs{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:16px 0 0}
+.show .tabs button{font:inherit;font-size:14px;font-weight:600;border:1px solid var(--line);background:#fff;color:var(--mut);
+border-radius:999px;padding:7px 14px;cursor:pointer}.show .tabs button.on{background:var(--fg);color:#fff;border-color:var(--fg)}
+.show .cap{text-align:center;color:var(--mut);font-size:14px;margin:10px 0 0;min-height:22px}
+@media(max-width:600px){.show .vp{aspect-ratio:4/3}.show .tabs{flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;scrollbar-width:none;padding-bottom:4px}
+.show .tabs button{flex:none}}
+@media(prefers-reduced-motion:reduce){.show .vp img.on,.show .pg i.run{animation:none}}
 section{padding:88px 0}.soft{background:var(--soft)}
 .eyebrow{color:var(--acc);font-weight:650;font-size:14px;margin-bottom:10px}
 h2{font-size:clamp(28px,4.5vw,44px);letter-spacing:-.035em;line-height:1.1;margin:0 0 14px;font-weight:780}
@@ -360,6 +393,18 @@ const lb=document.getElementById('lb');document.querySelectorAll('img[data-zoom]
 const nav=document.querySelector('nav.top'),cta=document.querySelector('.mcta'),form=document.getElementById('pristup');
 const tick=()=>{nav.classList.toggle('s',scrollY>8);const r=form.getBoundingClientRect();
  cta.classList.toggle('h',scrollY<300||(r.top<innerHeight&&r.bottom>0))};addEventListener('scroll',tick,{passive:true});tick();
+(()=>{const s=document.querySelector('.show');if(!s)return;const im=[...s.querySelectorAll('.vp img')],tb=[...s.querySelectorAll('.tabs button')],
+ pg=s.querySelector('.pg i'),cap=s.querySelector('.cap'),url=s.querySelector('.bar span'),D=6000;let i=0,t=0,left=D,st=0;s.style.setProperty('--dur',D+'ms');
+ const go=n=>{i=(n+im.length)%im.length;im.forEach((e,k)=>{e.classList.toggle('on',k===i);if(k===i&&e.dataset.src){e.src=e.dataset.src;delete e.dataset.src}});
+  const nx=im[(i+1)%im.length];if(nx.dataset.src){nx.src=nx.dataset.src;delete nx.dataset.src}
+  tb.forEach((e,k)=>{e.classList.toggle('on',k===i);e.setAttribute('aria-selected',k===i)});cap.textContent=tb[i].dataset.cap;url.textContent=tb[i].dataset.url;
+  pg.classList.remove('run');void pg.offsetWidth;pg.classList.add('run');left=D;arm()};
+ const arm=()=>{clearTimeout(t);st=Date.now();if(!s.classList.contains('paused'))t=setTimeout(()=>go(i+1),left)};
+ const pause=p=>{if(p===s.classList.contains('paused'))return;if(p){left=Math.max(400,left-(Date.now()-st));clearTimeout(t)}s.classList.toggle('paused',p);if(!p)arm()};
+ tb.forEach((e,k)=>e.onclick=()=>go(k));s.querySelector('.vp').onclick=()=>go(i+1);
+ s.addEventListener('mouseenter',()=>pause(true));s.addEventListener('mouseleave',()=>pause(false));
+ document.addEventListener('visibilitychange',()=>pause(document.hidden));
+ if(matchMedia('(prefers-reduced-motion:reduce)').matches){s.classList.add('paused');go(0);clearTimeout(t)}else go(0)})();
 """
 
 
@@ -633,6 +678,80 @@ def _ap_strip(lang):
     return f"<div class='w apst'>{html}</div>" if html and isinstance(html, str) else ""
 
 
+SHOW = [   # the hero's "mini video": (file, tab, caption, address shown in the frame); real screenshots of the app
+    ("tokeni.jpg", "Tokeni", "Novi, jaki i dugoročni tokeni na jednom popisu, s razlozima.", "app.memesonar.app/tokens"),
+    ("token-detalj.jpg", "Analiza tokena", "Šansa, Za i Protiv i rug provjera za svaki token.", "app.memesonar.app/token"),
+    ("influenceri.jpg", "Influenceri", "Tko stvarno pogađa: svaki poziv izmjeren.", "app.memesonar.app/kol"),
+    ("kol-profil.jpg", "Profil influencera", "Moć poziva, pogodak, rugovi i zadnji pozivi.", "app.memesonar.app/kol/profil"),
+    ("novcanici.jpg", "Novčanici", "Tko je upravo kupio ili prodao, uživo.", "app.memesonar.app/wallets"),
+    ("dugorocni-lista.jpg", "Dugoročni", "Stariji tokeni koji su preživjeli i imaju stalan volumen.", "app.memesonar.app/dugorocni"),
+]
+SHOW_EN = [
+    ("en-tokeni.jpg", "Tokens", "New, strong and long-term tokens on one list, with the reasons.", "app.memesonar.app/tokens"),
+    ("en-token-detalj.jpg", "Token analysis", "Chance, pros and cons and a rug check for every token.", "app.memesonar.app/token"),
+    ("en-influenceri.jpg", "Influencers", "Who actually hits: every call measured.", "app.memesonar.app/kol"),
+    ("en-kol-profil.jpg", "Influencer profile", "Call power, hit rate, rugs and the latest calls.", "app.memesonar.app/kol/profile"),
+    ("en-novcanici.jpg", "Wallets", "Who just bought or sold, live.", "app.memesonar.app/wallets"),
+    ("en-dugorocni-lista.jpg", "Long-term", "Older tokens that survived and keep steady volume.", "app.memesonar.app/long-term"),
+]
+
+
+def showcase(lang):
+    """The hero's interactive "mini video": the app's real screenshots in a browser frame, each panned top to bottom,
+    changing every 6 s; tabs jump to a screen, hover pauses, a click on the picture goes on. Only the first picture is
+    loaded with the page, the rest when their turn comes. Without JavaScript the first screenshot simply stands."""
+    en = lang == "en"
+    shots = SHOW_EN if en else SHOW
+    imgs = "".join(
+        f'<img {"src" if k == 0 else "data-src"}="/static/landing/{f}" alt="{esc(SHOTS.get(f, tab))}" decoding=async'
+        f'{" class=on fetchpriority=high" if k == 0 else ""}>' for k, (f, tab, _c, _u) in enumerate(shots))
+    tabs = "".join(f'<button type=button role=tab aria-selected={"true" if k == 0 else "false"}{" class=on" if k == 0 else ""} '
+                   f'data-cap="{esc(c)}" data-url="{esc(u)}">{esc(tab)}</button>' for k, (_f, tab, c, u) in enumerate(shots))
+    label = "MemeSonar screens" if en else "Ekrani MemeSonara"
+    return (f'<div class=show aria-label="{label}"><div class=fr><div class=bar><i></i><i></i><i></i><span>{esc(shots[0][3])}</span></div>'
+            f'<div class=vp>{imgs}</div><div class=pg><i></i></div></div>'
+            f'<div class=tabs role=tablist>{tabs}</div><p class=cap>{esc(shots[0][2])}</p></div>')
+
+
+def data_ctas(lang, v):
+    """Four buttons at the top (15.11., vlasnik: "4 call to action buttona ... pogledajte kako naši podaci mogu biti
+    korisni"): the free public data pages, each with its newest number when the market snapshot has one."""
+    en = lang == "en"
+    num = _n_en if en else _n
+    idx = calls = peak = None
+    try:
+        from ui import marketpub as M
+        d = M.snapshot()
+        if d:
+            if d.get("regime"):
+                sc = d["regime"][-1][1]
+                idx = f"{sc:.0f}/100 · {M.label(sc, lang)}"
+            c = d.get("calls")
+            if c and (c["x"].get(c["day"]) or {}).get("calls"):
+                calls = num(c["x"][c["day"]]["calls"])
+            h = d.get("hours")
+            if h and h.get("vol"):
+                b = max(range(24), key=lambda i: h["vol"][i])
+                peak = f"{b:02d}:00 UTC"
+    except Exception as e:  # noqa: BLE001 - the buttons stand without numbers
+        print(f"naslovnica: podaci za gumbe nedostupni: {type(e).__name__}: {e}", flush=True)
+    kols = num(v["kols"]) if v.get("kols") else None
+    if en:
+        head = "See what our data can do for you. Free, no account:"
+        items = [("/solana-market", idx or "Market today", "Meme coin season index: is the market hot or cold?", "Market today"),
+                 ("/crypto-influencer-calls", calls or "Calls today", "influencer calls on X yesterday, and how many worked" if calls else "How many calls influencers make and how many work", "Influencer calls"),
+                 ("/influencers", kols or "Ranking", "influencers scored by what the price did after their calls" if kols else "Influencers scored by what the price did after their calls", "Influencer ranking"),
+                 ("/best-time-to-trade-crypto", peak or "By the hour", "the hour meme coin volume peaks" if peak else "When meme coins trade and when calls work", "Best time to trade")]
+    else:
+        head = "Pogledaj kako ti naši podaci mogu koristiti. Besplatno, bez računa:"
+        items = [("/hr/solana-trziste", idx or "Tržište danas", "Indeks sezone meme coina: je li tržište vruće ili hladno?", "Tržište danas"),
+                 ("/hr/pozivi-kripto-influencera", calls or "Pozivi danas", "poziva influencera na X-u jučer i koliko ih je prošlo" if calls else "Koliko poziva objave influenceri i koliko ih prolazi", "Pozivi influencera"),
+                 ("/hr/influenceri", kols or "Ljestvica", "influencera ocijenjeno po tome što je cijena napravila nakon poziva" if kols else "Influenceri ocijenjeni po tome što je cijena napravila nakon poziva", "Ljestvica influencera"),
+                 ("/hr/najbolje-vrijeme-za-trgovanje-kriptom", peak or "Po satu", "sat u kojem je volumen meme coina najveći" if peak else "Kad se meme coini trguju i kad pozivi prolaze", "Najbolje vrijeme")]
+    cards = "".join(f"<a href={h}><b>{esc(b)}</b><span>{esc(sub)}</span><em>{esc(lab)} →</em></a>" for h, b, sub, lab in items)
+    return f"<div class=dcta><p>{head}</p><div>{cards}</div></div>"
+
+
 def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
     qs = qs or {}
     form = form or {}
@@ -737,13 +856,13 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 {P.nav_links(lang)}{switch}
 <a class=lnk href={app_href}>{app_label}</a><a class='btn p sm' href=#pristup>{t['req']}</a>{P.mobile_menu(lang)}</div></nav>
 {ap_strip}
-<header class=hero><div class=w>
+<header class=hero><div class=hbg style="background-image:url(/static/landing/{px}tokeni.jpg)"></div><div class=w>
 <span class=pill><span class=dot></span>{t['pill']}</span>
 <h1>{t['h1a']} <span class=g>{t['h1b']}</span></h1>
 <p class=sub>{t['sub']}</p>
 <div class=ctas><a class='btn p' href=#pristup>{t['req']}</a><a class='btn g' href={app_href}>{app_label}</a></div>
-<div class=phones><div class='ph main'>{_img(px + "mob-tokeni.jpg", True)}</div><div class='ph side'>{_img(px + "mob-kol-profil.jpg", True)}</div>
-<div class='ph side'>{_img(px + "mob-novcanici.jpg", True)}</div></div>
+{data_ctas(lang, v)}
+{showcase(lang)}
 </div></header>
 
 <section style='padding-top:40px'><div class=w>{nums_html}</div></section>

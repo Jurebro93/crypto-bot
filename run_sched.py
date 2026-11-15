@@ -324,6 +324,9 @@ JOBS = [
     # 15.11. navečer: the deep session (critic/deep.py decides: the first right after this deploy, then every 48 h in
     # the night window); the SQL is read-only, paced and capped per query
     ("kriticar_dubinski", every, (["run_critic.py", "deep", "--auto"], 10.0, True)),
+    # 15.11. (vlasnik: "kritičar može interpretirati te podatke ... u malim boksevima"): the critic's public reads of
+    # the market pages (critic/market.py decides: at most 2 a day, 6 h apart, the cheap model, a few cents a month); light
+    ("kriticar_trziste", every, (["run_critic.py", "market"], 60.0, True)),
     # 15.11. (vlasnik: "svi novi tokeni ... svoj page sa statistikom, feedbackom, tko ga je zvao ... i mišljenje";
     # tokenstranice/): every hour the token pages from our own databases (read-only) and a small batch of AI opinions
     # (gpt-5-mini, its own cap 0.30 $/day); nice 10 inside, light (no heavy lock: it only reads and waits on the API)

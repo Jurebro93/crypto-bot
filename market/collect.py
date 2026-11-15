@@ -7,6 +7,7 @@ D = 86400
 KEEP_DAYS = 400
 EXTRA_MIN_WEEK = 500_000   # $ in 7 days
 PARTIAL_SHARE = 0.6
+WHOLE = "all:solana"      # DefiLlama's Solana DEX total as its own page shows it (the public pages' "whole market")
 
 
 def today(now=None):
@@ -33,9 +34,11 @@ def daily(con, ov, now=None, fetch=sources.protocol_daily, min_week=EXTRA_MIN_WE
                 if k:
                     by_name[k] = p["slug"]
     cut, first = today(now), today(now) - KEEP_DAYS * D
-    vols, seen = {}, set()
+    vols, seen, whole = {}, set(), {}
     for day, parts in ov.get("totalDataChartBreakdown") or []:
         day = int(day) // D * D
+        if first <= day < cut:   # 15.11.: DefiLlama's own Solana total (every category: DEXs, launchpads, the rest)
+            whole[day] = sum(float(v) for v in (parts or {}).values() if isinstance(v, (int, float)))
         for name, vol in (parts or {}).items():
             slug = by_name.get(name)
             if slug and isinstance(vol, (int, float)):
@@ -68,12 +71,14 @@ def daily(con, ov, now=None, fetch=sources.protocol_daily, min_week=EXTRA_MIN_WE
     if last:   # DefiLlama has not finished that day yet: keep it out until a later fetch has it complete
         vols = {k: v for k, v in vols.items() if k[0] != last}
         tot = {k: v for k, v in tot.items() if k[0] != last}
+        whole.pop(last, None)
         con.execute("DELETE FROM daily WHERE day>=?", (last,))
         con.execute("DELETE FROM regime WHERE day>=?", (last,))
         print(f"market: {last} još nepotpun na DefiLlami, preskačem", flush=True)
     con.executemany("INSERT OR REPLACE INTO daily VALUES (?,?,?)",
                     [(d, s, v) for (d, s), v in list(vols.items()) + list(tot.items())]
-                    + [(d, "meta:reporting", float(n)) for d, n in counts.items() if d != last])
+                    + [(d, "meta:reporting", float(n)) for d, n in counts.items() if d != last]
+                    + [(d, WHOLE, v) for d, v in whole.items() if v > 0])
     con.execute("DELETE FROM daily WHERE day<?", (first,))
     return len({d for d, _ in vols})
 
@@ -161,6 +166,8 @@ def snapshot(con, ov, now=None):
         a[0] += v24
         a[1] += v7
     rows += [(ts, f"all:{g}", a, b) for g, (a, b) in tot.items()]
+    if ov.get("total24h"):   # 15.11.: DefiLlama's own Solana total, for the public pages' "last 24 hours" line
+        rows.append((ts, WHOLE, float(ov["total24h"]), float(ov.get("total7d") or 0)))
     con.executemany("INSERT OR REPLACE INTO snap VALUES (?,?,?,?)", rows)
     con.execute("DELETE FROM snap WHERE ts<?", (ts - 60 * D,))
     return len(rows)

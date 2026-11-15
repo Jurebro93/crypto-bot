@@ -38,11 +38,21 @@ def protocol_daily(slug):
     return out
 
 
-def sol_prices(days=120):
-    """[(unix_ts, usd)] one per day, oldest first."""
-    data = http.get_json(PRICES, {"span": days, "period": "1d"}, ttl=1800)
+def sol_prices(days=120, now=None):
+    """[(day, usd)] the SOL close of each finished UTC day, oldest first: `day` is that day's UTC midnight and the
+    price is the one at the next midnight. (15.11. audit: the old call returned the price at the hour of the fetch,
+    so a day's "price" moved with every reading and sat up to 8 % off the close.)"""
+    import time
+    D = 86400
+    today = int((now or time.time()) // D * D)
+    data = http.get_json(PRICES, {"start": today - days * D, "span": days + 1, "period": "1d"}, ttl=1800)
     pts = (data.get("coins") or {}).get("coingecko:solana", {}).get("prices") or []
-    return [(int(p["timestamp"]), float(p["price"])) for p in pts]
+    out = {}
+    for p in pts:
+        mid = int(round(int(p["timestamp"]) / D) * D)          # the midnight this point belongs to
+        if abs(int(p["timestamp"]) - mid) <= 3600 and mid <= today:
+            out[mid - D] = float(p["price"])                    # the price at midnight closes the day before
+    return sorted(out.items())
 
 
 BTC_PRICES = "https://coins.llama.fi/chart/coingecko:bitcoin"
