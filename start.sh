@@ -317,6 +317,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 # veliki/live; one "midcap: sat:" line an hour (counts, API use, MB a day). Switch off: the pass ends at once.
 ( sleep "${MIDCAP_FIRST_S:-120}"; while true; do r0=$(date +%s); low python3 run_veliki.py midcap || echo "midcap sakupljač nije uspio"; rs=$(( ${MIDCAP_EVERY_S:-90} - $(date +%s) + r0 )); [ "$rs" -lt 10 ] && rs=10; sleep "$rs"; done ) &
 ( sleep "${VELIKI_FIRST_S:-420}"; python3 -m ops.heavy run_veliki.py once || echo "veliki nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_veliki.py night || echo "veliki (noć) nije uspio"; done ) &
+# 15.11. (vlasnik: "insajderi drže velik dio ponude? oprez — ali to su često BURZE ... kad dio ponude ode na novčanik
+# burze, a token tamo još nije listan, to je jak signal"; holderi/, run_holderi.py): every HOLDERI_EVERY_S (10 min), a
+# short low-priority process outside the heavy lock, only with the owner switch fokus_midcap: the top 20 holders of the
+# midcaps (RugCheck free; top 50 every 6 h = the transfer watch), classes and insider share without exchanges / LP, the
+# moves of supply traced to exchange wallets (Helius inside holderi/config.json helius_credits_day, 15000), the
+# exchanges' free market lists once a day -> PRE-LISTING signals (loud log line + Telegram), the caution / listing
+# components of veliki/prioritet, the profitable holders' buys; one "holderi: sat:" line an hour with the cost.
+( sleep "${HOLDERI_FIRST_S:-300}"; while true; do low python3 run_holderi.py pass || echo "holderi nisu uspjeli"; sleep "${HOLDERI_EVERY_S:-600}"; done ) &
 
 # 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and
 # every call of a followed influencer -> fast.db queue -> five checks (rug, holders, flow, price vs the wallet's entry,

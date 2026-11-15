@@ -1019,8 +1019,11 @@ def tick(con, market_fn, now=None, force=False, toks=None):
         pr = prioritet.cached()
         lst = prioritet.order(lst, pr)
         univ = prioritet.order(univ, pr)
+        real_rank = {t: k for k, t in enumerate(prioritet.order(lst, pr, real=True))}
     except Exception:  # noqa: BLE001 - no priority: the list order
         prioritet, pr = None, {}
+        real_rank = {t: k for k, t in enumerate(lst)}
+    deferred = []   # 15.11. (holderi/): the real account's entries, taken after the loop in its own order (no listing bonus)
     for tok in lst:
         if _ST["bar"].get(tok) == hour:
             continue
@@ -1029,6 +1032,12 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             if now - _ST["said"].get(("dip", tok), 0) > 3600:
                 _ST["said"][("dip", tok)] = now
                 out.append(f"veliki {(pr[tok].get('symbol') or tok[:6])}: preskočen, pad iz lošeg razloga ({dip.get('why')})")
+            continue
+        blk = (pr.get(tok) or {}).get("block")
+        if blk:   # 15.11. (holderi/): insiders hold too much / the team is selling: no entry (demo or real)
+            if now - _ST["said"].get(("blk", tok), 0) > 3600:
+                _ST["said"][("blk", tok)] = now
+                out.append(f"veliki {(pr[tok].get('symbol') or tok[:6])}: preskočen, oprez ({blk})")
             continue
         q = mk.get(tok)
         if not q or not q[0]:
@@ -1052,26 +1061,38 @@ def tick(con, market_fn, now=None, force=False, toks=None):
         for user in users:   # the demo first: the real trade of the same signal carries its id (link_id)
             if (user, tok) in held:
                 continue
-            cp = caps(user, btc["state"])
-            c = rule.cost_at(cp["size_sol"], q[1], sol, rule.fee_side_of(url=q[2] if len(q) > 2 else None), tx)
-            why = rule.signal(bars, i, zone, c["rt"], cfg, btc["crash_obj"])
-            if why is not None:
-                _refused("7 d: " + why)
+            if user != settings.PAPER_USER:   # 15.11. (holderi/): real entries after the loop, own order (no listing bonus)
+                deferred.append((real_rank.get(tok, len(real_rank)), tok, user, q, zone, regime, bars, i, link))
                 continue
-            text, no, vid = enter(con, user, tok, q, now, sol, zone, cfg, regime, btc, link,
-                                  meta=prioritet.meta(tok, pr) if prioritet else None)
-            link = link or vid
-            if text:
-                out.append(text)
-                held.add((user, tok))
-            elif no and now - _ST["said"].get((user, tok), 0) > 3600:
-                _ST["said"][(user, tok)] = now
-                out.append(f"veliki {(q[4] if len(q) > 4 else None) or tok[:6]}: signal bez ulaza ({no})")
+            link = _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx,
+                              prioritet, pr) or link
+    for _k, tok, user, q, zone, regime, bars, i, link in sorted(deferred, key=lambda x: x[0]):
+        _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, prioritet, pr)
     out += intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet)
     if int(now) % 3600 < TICK_S:
         con.execute("DELETE FROM veliki_bars WHERE ts < ?", (int(now - 10 * 86400),))
         con.commit()
     return out
+
+
+def _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, prioritet, pr):
+    """One user's entry on one token when the 7 d rule signals (the cost at its size). The new trade id or None."""
+    from veliki import rule
+    cp = caps(user, btc["state"])
+    c = rule.cost_at(cp["size_sol"], q[1], sol, rule.fee_side_of(url=q[2] if len(q) > 2 else None), tx)
+    why = rule.signal(bars, i, zone, c["rt"], cfg, btc["crash_obj"])
+    if why is not None:
+        _refused("7 d: " + why)
+        return None
+    text, no, vid = enter(con, user, tok, q, now, sol, zone, cfg, regime, btc, link,
+                          meta=prioritet.meta(tok, pr) if prioritet else None)
+    if text:
+        out.append(text)
+        held.add((user, tok))
+    elif no and now - _ST["said"].get((user, tok), 0) > 3600:
+        _ST["said"][(user, tok)] = now
+        out.append(f"veliki {(q[4] if len(q) > 4 else None) or tok[:6]}: signal bez ulaza ({no})")
+    return vid
 
 
 def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None):
@@ -1096,6 +1117,9 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
         dip = (pr.get(tok) or {}).get("dip") or {}
         if dip.get("kind") == "los":
             _refused("dnevni: pad iz lošeg razloga")
+            continue
+        if (pr.get(tok) or {}).get("block"):   # 15.11. (holderi/): insiders / the team selling: no entry
+            _refused("dnevni: oprez (holderi)")
             continue
         b15, h1 = bars_intra(tok, now)
         z = intra.zone(h1, m15, icfg)
