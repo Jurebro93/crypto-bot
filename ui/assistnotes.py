@@ -782,7 +782,14 @@ OWNER_FLAG_ORDERS = (
     ("event_tokens", "paper", "vlasnik u chatu 14.11.: sve strategije pravim novcem, event_tokens iz shadowa u paper"),
     ("pravi_novac_sve", "live", "vlasnik u chatu 14.11.: „uključi prekidač, imaš moje dopuštenje da odmah krene tradati "
                                 "što prije” (0,1 SOL po tradeu, 10 otvorenih, 100 dnevno, dnevni gubitak 0,5 SOL)"),
+    # 15.11. (Jure, after the OpenAI critic's first reviews: no real-money strategy proven): "Ok, ugasi pravi novac za
+    # sada ... želim da se ugasi analiza tokena za trgovanje s pravim novcem, ali da se nastavi naravno pozadine za demo
+    # tradanje". The strategies stay in paper = the demo account; open real positions keep their exits.
+    ("pravi_novac_sve", "off", "vlasnik u chatu 15.11.: „Ok, ugasi pravi novac za sada” (demo nastavlja; otvorene prave "
+                               "pozicije zadržavaju izlaze)"),
 )
+# 15.11. (the same order): Grok autotrade buys with real money too, so it goes off once as well (grokauto.set_on)
+OWNER_ONCE_1511 = "owner_once:real_money_off_1511"
 
 
 # 11.11. (Jure: "Svakako promijeni maksimalnu poziciju tokenu na 1 sol"): settings the owner ordered in the chat, each
@@ -836,6 +843,17 @@ def owner_flag_orders(con, now=None):
             record_applied(con, 0, f"flag:{name}", old, new, why)
             done.append(f"zastavica {name}: {old} → {new}")
         settings.put(con, key, int(now or time.time()), "Jure")
+    if not settings.raw(con).get(OWNER_ONCE_1511):
+        try:
+            from ui import grokauto
+            if grokauto.state(con, now)["on"]:
+                grokauto.set_on(con, False, settings.owner() or "Jure", now=now)
+                record_applied(con, 0, "grok_autotrade", "on", "off", "vlasnik u chatu 15.11.: „Ok, ugasi pravi novac za "
+                                                                      "sada” (i Grokov autotrade, pravi novac)")
+                done.append("Grok autotrade: uključen → ugašen")
+            settings.put(con, OWNER_ONCE_1511, int(now or time.time()), "Jure")
+        except Exception as e:  # noqa: BLE001 - tried again at the next start
+            print(f"pravi trade: nalog vlasnika (Grok autotrade off) nije primijenjen: {type(e).__name__}: {e}", flush=True)
     for t in done:
         print(f"pravi trade: primijenjeno po nalogu vlasnika: {t}", flush=True)
     return done
