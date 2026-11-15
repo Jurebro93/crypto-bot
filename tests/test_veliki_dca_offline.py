@@ -93,7 +93,9 @@ class Reasoned(unittest.TestCase):
     def test_reasons(self):
         p = self.pos()
         self.assertEqual(rule.reasoned_exit(p, 1.0, 0.03, {"bad": "dev prodaje"})[0], "los")
-        self.assertEqual(rule.reasoned_exit(p, 1.0, 0.03, {"dip_kind": "los"})[0], "los")
+        # 15.11. navečer (vlasnik: "ako odmah nakon ulaza krene u mali loss, onda čekaš"): a dip classified "los" on
+        # facts known at the entry no longer closes; only new danger (ctx bad: live.context's dynamic reasons) does
+        self.assertEqual(rule.reasoned_exit(p, 1.0, 0.03, {"dip_kind": "los"}), (None, None))
         self.assertEqual(rule.reasoned_exit(p, 1.06, 0.03, {"btc_state": "slobodan_pad"})[0], "btc_zastita")
         self.assertEqual(rule.reasoned_exit(p, 0.88, 0.03, {"btc_state": "slobodan_pad"})[0], "btc_rez")
         self.assertEqual(rule.reasoned_exit(p, 0.97, 0.03, {"btc_state": "slobodan_pad"}), (None, None))
