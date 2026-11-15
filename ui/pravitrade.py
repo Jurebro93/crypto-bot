@@ -1485,6 +1485,16 @@ def _insajderi2_card(owner):
     return report.card_html(_sec, _item, esc, owner)
 
 
+def _makroinf_card(owner):
+    """15.11. (vlasnik, makroinf/, flag makroinf_indeks): "Makro influenceri", one closed row under Ostalo (owner only):
+    the rank with the three scores, n episodes, the stance now, "naknadno nedostupno", the index vs BTC, the quality
+    check, the DEMO input state, the costs and what waits for the owner's confirmation."""
+    if not owner:
+        return ""
+    from makroinf import report
+    return report.card_html(_sec, _item, esc, owner)
+
+
 def _konsenzus_card(owner):
     """15.11. (vlasnik, konsenzus/, flag konsenzus): "Konsenzus izvora", one closed row under Postavke (owner only):
     the best candidate of the source consensus walk-forward, its holdout numbers, the demo so far and why real money

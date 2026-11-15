@@ -290,6 +290,10 @@ CONTEXT_BLOCKS = [
     ("holderi_listing", lambda tcon, now, dbs: __import__("holderi.view", fromlist=["critic_summary"]).critic_summary()),
     # 15.11. (insajderi/): Insajderi 2.0: the copy walk-forward per MC bucket, the verdict, the classes, smart money
     ("insajderi2", lambda tcon, now, dbs: __import__("insajderi.report", fromlist=["critic_summary"]).critic_summary()),
+    # 15.11. (makroinf/): the macro influencers: three scores per account, the index walk-forward, the DEMO input state,
+    # the incremental EV on the midcap strategy, the quality check, the costs
+    ("makro_influenceri", lambda tcon, now, dbs: __import__("makroinf.report",
+                                                            fromlist=["critic_summary"]).critic_summary()),
 ]
 
 

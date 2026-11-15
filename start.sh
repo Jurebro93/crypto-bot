@@ -18,6 +18,8 @@ touch "$DATA_DIR/early.db"; ln -sfn "$DATA_DIR/early.db" early.db
 touch "$DATA_DIR/events.db"; ln -sfn "$DATA_DIR/events.db" events.db
 # 15.11. insajderi.db (Insajderi 2.0, insajderi/store.py): persistent too
 touch "$DATA_DIR/insajderi.db"; ln -sfn "$DATA_DIR/insajderi.db" insajderi.db
+# 15.11. makroinf.db (makro influenceri, makroinf/store.py): persistent too
+touch "$DATA_DIR/makroinf.db"; ln -sfn "$DATA_DIR/makroinf.db" makroinf.db
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1 UI_SNAP_DIR="$DATA_DIR/pagecache"
 # memory: glibc gives every thread its own malloc arena (up to 8 per CPU the host reports, not our 0.5 CPU), and
 # freed memory stays parked in them, so the threaded dashboard climbed to ~200 MB and the 512 MB server ran out
@@ -294,6 +296,18 @@ low keep zonewatch python3 run_zonewatch.py loop
 # output/pametni_novac.md and "insajderi2: " lines; the demo (flag insajderi2, league/auto.loop) reads the groups.
 ( sleep "${INSAJDERI_FIRST_S:-600}"; python3 -m ops.heavy run_insajderi.py once || echo "insajderi2 nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_insajderi.py night || echo "insajderi2 (noć) nije uspio"; done ) &
 ( sleep "${INSAJDERI_INCR_FIRST_S:-3600}"; while true; do python3 -m ops.heavy run_insajderi.py incr || echo "insajderi2 (3 h) nije uspio"; sleep "${INSAJDERI_INCR_S:-10800}"; done ) &
+
+# 15.11. (vlasnik: "Slažem se s prijedlogom koraka za plan makroinfluencera s dopunama kritičara"; makroinf/,
+# run_makroinf.py): the PILOT of 50 macro accounts starts soon after a deploy (MAKROINF_FIRST_S, 480 s; the owner wants
+# the work to start at once, it is small) and continues in short rounds every MAKROINF_KRUG_S (600 s) at low priority
+# (nice 10, network bound: twitterapi.io, OpenAI gpt-5-mini, CoinGecko; NOT under the heavy lock, a round is at most
+# ~7 min; while the pilot has paid work left the round answers 3 and the next one starts a minute later): the backfill (monthly quotas over 12 months + the last 100 posts) under the one-off cap 5 $, its
+# classification under 4 $, then the day's posts, deletion checks (+1 / +7 / +30 d) and the light scoring under
+# 0,50 $ / 0,25 $ a day; one line "makroinf: sat: ..." an hour. The heavy re-scoring (clusters, the walk-forward of the
+# index, the quality check when missing) nightly 01-06 Zagreb (--night, once in 20 h). An explicit, budgeted exception
+# of fokus_midcap (ops/fokus.EXCEPTIONS). Writes makroinf.db, output/makroinf.md, output/makroinf_provjera.md.
+( sleep "${MAKROINF_FIRST_S:-480}"; while true; do low python3 run_makroinf.py krug; rc=$?; if [ "$rc" = 3 ]; then sleep 60; else [ "$rc" = 0 ] || echo "makroinf krug nije uspio"; sleep "${MAKROINF_KRUG_S:-600}"; fi; done ) &
+( sleep 3300; while true; do python3 -m ops.heavy --night run_makroinf.py noc || echo "makroinf (noć) nije uspio"; sleep 3600; done ) &
 
 # 15.11. (vlasnik: "token koji ide gore-dolje tijekom dana ... 50 puta dnevno, 1-2 $ na svakom", oscilator/,
 # run_oscilator.py): per token-day the zigzag swings larger than the round-trip cost at 0.1-1 SOL + 1 $ net, then the

@@ -279,7 +279,18 @@ def collect(now=None):
     data["momentum"] = momentum(now)     # 11.11. (flags momentum_scalp, grok_ev_gate; momentum/)
     data["kriticar"] = kriticar(now)     # 15.11. (critic/: the OpenAI critic's review, verdicts, record, cost)
     data["arhiva"] = arhiva(now)         # 15.11. (ops/arhiva.py: microcap / rug rows moved to .gz archives last night)
+    data["makroinf"] = makroinf(now)     # 15.11. (makroinf/: the 3 most accurate macro accounts, what they say, the index)
     return data
+
+
+def makroinf(now):
+    """The macro influencers (makroinf/report.morning): the top 3 accurate (10+ episodes) and their BTC stance now,
+    the index of the most accurate and its change, the DEMO input state. None before the first scores."""
+    try:
+        from makroinf import report as mireport
+        return mireport.morning(now)
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
 
 
 def arhiva(now):

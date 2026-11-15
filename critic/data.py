@@ -375,6 +375,13 @@ def reports(now=None, budget_chars=2500):
             put("insajderi2", i2, i2.get("ts"))
     except Exception:  # noqa: BLE001
         pass
+    try:   # 15.11. (makroinf/): the macro influencers' scores, index walk-forward and DEMO input state
+        from makroinf import report as mireport
+        mi = mireport.critic_summary()
+        if mi:
+            put("makro_influenceri", mi, None)
+    except Exception:  # noqa: BLE001
+        pass
     try:   # 15.11. (konsenzus/): the source consensus walk-forward and its demo
         from konsenzus import view as kview
         k = kview.critic_summary()

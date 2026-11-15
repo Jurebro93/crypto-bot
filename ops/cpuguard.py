@@ -219,6 +219,11 @@ PROCESSES = (
     ("insajderi2", "run_insajderi.py", (), JOBS,
      "Insajderi 2.0: kupci prije poziva / skokova koji prodaju u skok, pametni novac; nakon deploya, svaka 3 h i noću, "
      "strop Helius kredita dnevno"),
+    # 15.11. (owner, makroinf/): macro influencers: a short round every ~10 min (network bound: twitterapi, OpenAI,
+    # CoinGecko; nice) and the nightly re-scoring under the heavy lock; writes only makroinf.db; may be paused
+    ("makroinf", "run_makroinf.py", (), JOBS,
+     "makro influenceri: krug svakih ~10 min (dohvat objava, klasifikacija, provjere brisanja, ocjene) i noćni izračun "
+     "indeksa; stropovi troška u kodu"),
     # 15.11. (owner, konsenzus/): read-only research after a deploy and nightly; writes only konsenzus.db
     ("konsenzus", "run_konsenzus.py", (), JOBS,
      "konsenzus izvora: walk-forward influencera, Telegram kanala i novčanika (samo čita baze), nakon deploya i noću"),

@@ -221,7 +221,7 @@ def categories(series, btc_h, btc_d, now, crash=None):
 
 
 def compute(series, btc_h, btc_d, now=None, log=print, budget_s=BUDGET_S, sol_usd=None, sizes=rule.SIZES_SOL,
-            grid=None, stops=tuple(rule.STOPS), cats=None, macro_days=None):
+            grid=None, stops=tuple(rule.STOPS), cats=None, macro_days=None, index_days=None):
     now = int(now or time.time())
     t_end = time.time() + budget_s
     sol = sol_usd or sol_now()
@@ -232,6 +232,13 @@ def compute(series, btc_h, btc_d, now=None, log=print, budget_s=BUDGET_S, sol_us
             macro_days = makro.daily_regimes(series, crash)
         except Exception:  # noqa: BLE001 - no market.db: the variants without the macro regime
             macro_days = {}
+    if index_days is None:   # 15.11. (makroinf/): the macro influencers' index over the macro regime, if there is one
+        try:
+            from makroinf import index as mindex
+            ov = mindex.veliki_overlay()
+            index_days = mindex.overlay_days(ov[1], ov[0], macro_days) if ov else {}
+        except Exception:  # noqa: BLE001 - no makroinf.db: no "makro_indeks" variant
+            index_days = {}
     reg = Regime(btc_d, btc_h)
     names = {m: s["symbol"] for m, s in series.items()}
     tradable = {m: s for m, s in series.items() if len(s["bars"]) >= 200}
@@ -325,10 +332,10 @@ def compute(series, btc_h, btc_d, now=None, log=print, budget_s=BUDGET_S, sol_us
             st, picks, per_cfg, hold = walk_one(v, cr, size, "pct20")
             if v == LIVE_VARIANT and abs(size - DEMO_SIZE) < 1e-9 and hold:
                 st["variants_holdout"] = _variants(tradable, cands, picks, per_cfg, folds, size * sol, sol, tx, crash,
-                                                   test_days, names, cats, macro_days)
+                                                   test_days, names, cats, macro_days, index_days)
             if v == LIVE_VARIANT and abs(size - min(sizes)) < 1e-9 and hold and size != DEMO_SIZE:
                 st["variants_holdout"] = _variants(tradable, cands, picks, per_cfg, folds, size * sol, sol, tx, crash,
-                                                   test_days, names, cats, macro_days)
+                                                   test_days, names, cats, macro_days, index_days)
                 st["by_age"] = by_key(hold, lambda x: _age_k(series[x["token"]], x["ts"]))
                 st["dead_n"] = sum(1 for x in hold if series[x["token"]].get("dead"))
             vo[f"{size:g}"] = st
@@ -394,15 +401,21 @@ VARIANTS = (
 
 
 def _variants(series, cands, picks, per_cfg, folds, usd, sol, tx, crash, test_days, names=None, cats=None,
-              macro_days=None):
+              macro_days=None, index_days=None):
     """The holdout's picks re-run with each VARIANTS change (DCA on / off and its trigger, the reasoned exits, the
     macro filter, the old whole-position trailing, the stop at the bar's low, the entry only after BTC turned up):
-    n, EV, CI95 by day, $ a day, max drawdown, worst trade, the worst 5 %, the DCA lots bought and the exit reasons."""
+    n, EV, CI95 by day, $ a day, max drawdown, worst trade, the worst 5 %, the DCA lots bought and the exit reasons.
+    15.11. (makroinf/): with index_days ({day: regime}: the macro regime, risk_off also on the days the macro
+    influencers' top index was bearish, known at the day's start) one more variant "makro_indeks" = "makro_filter" with
+    that regime: the incremental EV of the index on the same locked strategy (makroinf/index.incremental_ev)."""
     res = {}
     mfn = (lambda t: (macro_days or {}).get(int(t) // D)) if macro_days else None
     vols = {m: rule.vol_ratios(s["bars"]) for m, s in series.items()}
     wide = {}
-    for name, extra, smart in VARIANTS:
+    vlist = [(n_, e_, s_, mfn) for n_, e_, s_ in VARIANTS]
+    if index_days:
+        vlist.append(("makro_indeks", {"macro_filter": True}, True, lambda t: index_days.get(int(t) // D)))
+    for name, extra, smart, mf in vlist:
         hold = []
         for p, (a, b) in zip(picks, folds):
             if not p.get("pick"):
@@ -421,7 +434,7 @@ def _variants(series, cands, picks, per_cfg, folds, usd, sol, tx, crash, test_da
                 cost = rule.cost_at(usd / sol, s["liq"], sol, rule.fee_side_of(s["dex"]), tx)["rt"]
                 cost2 = rule.cost_at(usd / sol, s["liq"], sol, rule.fee_side_of(s["dex"]), tx, lots=2)["rt"]
                 k = (cats or {}).get(m) or {}
-                ctx = {"macro": mfn, "cat": k.get("cat"), "metrics": k, "vol": vols.get(m)} if smart else None
+                ctx = {"macro": mf, "cat": k.get("cat"), "metrics": k, "vol": vols.get(m)} if smart else None
                 for x in rule.simulate(s["bars"], cs, usd, cost, cc, crash=crash, t0=a * D, t1=b * D, rt2=cost2,
                                        ctx=ctx):
                     x["token"] = m

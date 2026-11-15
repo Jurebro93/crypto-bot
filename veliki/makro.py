@@ -355,3 +355,44 @@ def daily_regimes(series=None, crash=None, market_path=None, cfg=None):
         b24 = crash.chg(d, 24) if crash is not None else None
         out[d // D] = regime(chg(vol, d), chg(mid, d) if mid else None, st, b24, None, cfg)[0]
     return out
+
+
+# ---------- makroinf (15.11.): the macro influencers' index, an optional DEMO input -----------------------------------
+# (vlasnik: "Slažem se s prijedlogom koraka za plan makroinfluencera s dopunama kritičara": the index feeds the midcap
+# strategy only as a DEMO input until it proves incremental EV). Behind the flag makroinf_indeks (NEVER_LIVE):
+#   off      nothing (regime() and every real-account path never read it)
+#   shadow   demo_index() says "would block" (the caller logs it), nothing changes
+#   paper    the DEMO account takes no new entry while makroinf's input is "aktivan" and the prospective index of the most
+#            accurate accounts is <= -thr (makroinf/index.demo_check)
+_MI = {"ts": 0.0, "v": (False, None, "off")}
+
+
+def demo_index(now=None, max_age_s=300):
+    """(would_block, why, flag mode) of makroinf's index for the DEMO account; cached 5 min; never raises."""
+    if time.monotonic() - _MI["ts"] < max_age_s and _MI["ts"]:
+        return _MI["v"]
+    try:
+        from trade import settings
+        mode = settings.flag(settings.MAKROINF)
+    except Exception:  # noqa: BLE001 - unreadable: off (the old behaviour)
+        mode = "off"
+    v = (False, None, mode)
+    if mode != "off":
+        try:
+            from makroinf import index as mindex
+            blocks, why, _val = mindex.demo_check(now or time.time())
+            v = (bool(blocks), why, mode)
+        except Exception as e:  # noqa: BLE001
+            v = (False, f"makroinf nečitljiv ({type(e).__name__})", mode)
+    _MI.update(ts=time.monotonic(), v=v)
+    return v
+
+
+def demo_regime(now=None):
+    """(regime, why) for the DEMO account's new entries: regime_now(), turned risk_off by makroinf's index only when
+    the flag makroinf_indeks is paper and the index blocks. The real account uses regime_now() alone."""
+    base = regime_now(now)
+    blocks, why, mode = demo_index(now)
+    if blocks and mode == "paper":
+        return "risk_off", why
+    return base, None

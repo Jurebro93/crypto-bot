@@ -32,6 +32,7 @@ PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(
                          r"glossary(/.*)?|blog(/.*)?|best-crypto-tools(/.*)?|how-to-buy(/.*)?|rug-check(/.*)?|"
                          r"solana-market|meme-coin-season-index|solana-launchpads|solana-dex-volume|best-time-to-trade-crypto|"
                          r"telegram-channels|telegram/.*|"   # 10.11. (pregled): linked from the landing log and blogs
+                         r"macro-influencers?(/.*)?|"   # 15.11. (makroinf/): 404 while the owner switch is off
                          r"embed/.*|static/landing/.*|share/novosti\.png)$")
 
 

@@ -822,8 +822,29 @@ def robots():
             "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /best-crypto-tools\nAllow: /hr/najbolji-kripto-alati\n"
             "Allow: /telegram-channels\nAllow: /telegram/\nAllow: /hr/telegram-kanali\nAllow: /hr/telegram/\n"
             "Allow: /autopilot$\nAllow: /en/autopilot$\n"   # 10.11. (Jure): the public Autopilot page in search
-            + "".join(f"Allow: {p}\n" for p in _seo_robots()) + "Allow: /static/landing/\nDisallow: /\n\n"
+            + "".join(f"Allow: {p}\n" for p in _seo_robots()) + _makroinf_robots()
+            + "Allow: /static/landing/\nDisallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
+
+
+def _makroinf_robots():
+    """15.11. (makroinf/): the macro influencer pages' Allow lines, only while the owner switch makroinf_javno is on."""
+    try:
+        from makroinf import public as mpub
+        return mpub.robots_lines()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _makroinf_page(path):
+    """15.11. (makroinf/): fn() for /macro-influencers, /macro-influencer/<h> and the Croatian twins, else None. While
+    the owner switch makroinf_javno is off the fn answers None, so the page is a 404."""
+    try:
+        from makroinf import public as mpub
+        return mpub.match(path)
+    except Exception as e:  # noqa: BLE001
+        print(f"makroinf javno: {type(e).__name__}: {e}", flush=True)
+        return None
 
 
 def sitemap():
@@ -873,6 +894,11 @@ def sitemap():
         urls += telegrampub.urls()
     except Exception as e:  # noqa: BLE001
         print(f"sitemap: telegram nedostupan: {e}", flush=True)
+    try:   # 15.11. (makroinf/): only while the owner switch makroinf_javno is on
+        from makroinf import public as mpub
+        urls += mpub.urls()
+    except Exception as e:  # noqa: BLE001
+        print(f"sitemap: makro influenceri nedostupni: {e}", flush=True)
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">']
     for en, hr, pr in urls:
@@ -922,6 +948,8 @@ def route(path):
     elif path in ("/influencers", "/hr/influenceri"):
         lang = "en" if path == "/influencers" else "hr"
         fn, ctype = (lambda: leaderboard(lang)), "text/html"
+    elif _makroinf_page(path):   # 15.11. (makroinf/): 404 while the owner switch makroinf_javno is off
+        fn, ctype = _makroinf_page(path), "text/html"
     elif path in ("/telegram-channels", "/hr/telegram-kanali"):
         from ui import telegrampub
         lang = "en" if path == "/telegram-channels" else "hr"
