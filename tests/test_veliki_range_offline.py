@@ -342,6 +342,31 @@ class Switch(SwitchBase):
         self.assertIn("demo", gate.real_refusal(con=self.con, proof=good, stats={"n": 5},
                                                 cfg={gate.SWITCH: {"dokaz": "demo"}}))
 
+    def test_owner_order_real_money_without_waiting_for_the_proof(self):
+        """15.11. (Jure: "Odmah kreni tradat s pravim novcem, a istovremeno sakupljaš što više podataka"): his order turns
+        the switch on in his name and the proof mode to nalog_vlasnika, once; only BTC's free fall still holds."""
+        from ui import assistnotes
+        orders = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == gate.SWITCH)
+        self.assertEqual([o[:2] for o in orders], [(gate.SWITCH, "live")])
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", orders):
+            done = assistnotes.owner_flag_orders(self.con)
+        settings._FLAG_CACHE.clear()
+        self.assertIn(f"zastavica {gate.SWITCH}: off → live", done)
+        self.assertIn("veliki dokaz: walk-forward → nalog vlasnika (pravi novac odmah)", done)
+        self.assertTrue(gate.switch_on(self.con))
+        self.assertEqual(gate.proof_mode({}, self.con), "nalog_vlasnika")
+        no_proof = {"sizes": {"0.1": {"n": 3}}}
+        with mock.patch.object(gate, "btc_refusal", lambda now=None: None):
+            self.assertIsNone(gate.real_refusal(con=self.con, proof=no_proof, cfg={}))
+        with mock.patch.object(gate, "btc_refusal", lambda now=None: "BTC slobodan pad"):
+            self.assertEqual(gate.real_refusal(con=self.con, proof=no_proof, cfg={}), "BTC slobodan pad")
+        settings.set_flag(self.con, gate.SWITCH, "off", "Jure")               # he turns it off later
+        settings._FLAG_CACHE.clear()
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", orders):
+            self.assertEqual(assistnotes.owner_flag_orders(self.con), [])    # the order never undoes that
+        settings._FLAG_CACHE.clear()
+        self.assertIn("isključen", gate.real_refusal(con=self.con, proof=no_proof, cfg={}))
+
     def test_caps_owner_size_up_to_half(self):
         self.assertEqual(gate.real_caps({})["size_sol"], 0.1)
         self.assertEqual(gate.real_caps({gate.SWITCH: {"size_sol": 0.4}})["size_sol"], 0.4)
@@ -366,9 +391,10 @@ class Switch(SwitchBase):
         self.assertIn(gate.SWITCH, settings.OWNER_SWITCHES)
         self.assertIn("veliki_range", settings.NEVER_LIVE)
         self.assertEqual(settings.flag(gate.SWITCH, con=self.con), "off")
-        self.assertEqual(assistnotes.OWNER_FLAG_ORDERS[-1][:2], ("veliki_range", "paper"))
-        self.assertNotIn(gate.SWITCH, [n for n, _m, _w in assistnotes.OWNER_FLAG_ORDERS])
-        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", assistnotes.OWNER_FLAG_ORDERS[-1:]):
+        # 15.11.: the owner's own chat order turns his switch on (test_owner_order_real_money_...); here the demo order
+        mine = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == "veliki_range")
+        self.assertEqual([o[:2] for o in mine], [("veliki_range", "paper")])
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", mine):
             assistnotes.owner_flag_orders(self.con)
         self.assertEqual(settings.flag_state(self.con)["veliki_range"]["mode"], "paper")
         self.assertEqual(settings.flag_state(self.con)[gate.SWITCH]["mode"], "off")

@@ -808,9 +808,19 @@ OWNER_FLAG_ORDERS = (
     ("veliki_range", "paper", "vlasnik u chatu 15.11.: midcap memecoini (MC 5-150M; USELESS, TROLL, ANSEM, CHILLGUY, "
                               "Fartcoin) — range odmah u demo, puno tradeova; pravi novac samo njegovim prekidačem "
                               "pravi_novac_veliki"),
+    # 15.11. (Jure, twice, after the midcap list and the critic's caution, the backtest so far negative; his own words:
+    # "Kreni odmah tradeat s pravim novcem dok istovremeno u demo radiš puno tradeova i gledaš povijesne podatke" and
+    # "Odmah kreni tradat s pravim novcem, a istovremeno sakupljaš što više podataka"): his midcap real-money switch
+    # on, WITHOUT waiting for the proof (VELIKI_PROOF_KEY below), at veliki/gate.REAL's caps; he turns it off any time.
+    ("pravi_novac_veliki", "live", "vlasnik u chatu 15.11.: „Odmah kreni tradat s pravim novcem, a istovremeno sakupljaš "
+                                   "što više podataka” (mid-capovi; 0,1 SOL po tradeu, 5 otvorenih, dnevni gubitak 0,3 SOL)"),
 )
 # 15.11. (the same order): Grok autotrade buys with real money too, so it goes off once as well (grokauto.set_on)
 OWNER_ONCE_1511 = "owner_once:real_money_off_1511"
+# 15.11. (the same order): the midcap real money does not wait for the holdout proof ("odmah"): veliki/gate reads this
+# settings key; the proof is still computed, shown and written on every real trade
+VELIKI_PROOF_KEY = "veliki_dokaz"
+OWNER_ONCE_1511B = "owner_once:veliki_bez_dokaza_1511"
 
 
 # 11.11. (Jure: "Svakako promijeni maksimalnu poziciju tokenu na 1 sol"): settings the owner ordered in the chat, each
@@ -854,7 +864,8 @@ def owner_flag_orders(con, now=None):
         if old != mode:
             # 14.11.: the real-money switch accepts only the owner himself (settings.set_flag); this entry IS his own
             # order in the chat ("imaš moje dopuštenje"), so it is set in his name
-            who = settings.owner() if name == settings.SWITCH_ALL else "Jure (chat 10.11.)"
+            who = (settings.owner() if name in (settings.SWITCH_ALL, settings.VEL_SWITCH)   # 15.11.: his real money
+                   else "Jure (chat 10.11.)")
             try:
                 settings.set_flag(con, name, mode, who, now=now)
             except ValueError as e:   # refused (a gate): said in the log, tried again at the next start
@@ -864,6 +875,16 @@ def owner_flag_orders(con, now=None):
             record_applied(con, 0, f"flag:{name}", old, new, why)
             done.append(f"zastavica {name}: {old} → {new}")
         settings.put(con, key, int(now or time.time()), "Jure")
+    if (not settings.raw(con).get(OWNER_ONCE_1511B)
+            and any(n == settings.VEL_SWITCH and m == "live" for n, m, _w in OWNER_FLAG_ORDERS)):
+        try:   # 15.11.: his midcap real money without waiting for the proof (veliki/gate.proof_mode)
+            settings.put(con, VELIKI_PROOF_KEY, "nalog_vlasnika", settings.owner() or "Jure")
+            record_applied(con, 0, "veliki_dokaz", "walk", "nalog_vlasnika", "vlasnik u chatu 15.11.: „Odmah kreni tradat "
+                                                                           "s pravim novcem” (bez čekanja dokaza)")
+            done.append("veliki dokaz: walk-forward → nalog vlasnika (pravi novac odmah)")
+            settings.put(con, OWNER_ONCE_1511B, int(now or time.time()), "Jure")
+        except Exception as e:  # noqa: BLE001 - tried again at the next start
+            print(f"pravi trade: nalog vlasnika (veliki bez dokaza) nije primijenjen: {type(e).__name__}: {e}", flush=True)
     if not settings.raw(con).get(OWNER_ONCE_1511):
         try:
             from ui import grokauto
