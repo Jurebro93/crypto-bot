@@ -168,7 +168,7 @@ TFS = {"1m": (60, 6), "5m": (300, 24), "15m": (900, 72), "1h": (3600, 168)}   # 
 MINT = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
 OSTALO_ANCHORS = ("limiti", "cilj", "stop", "trigger", "mcp", "grok-auto", "pozivnice", "postavljanje", "exit-planovi",
                   "pregled-inf", "jos", "zastita", "sazetak", "ev-znacajke", "zastavice", "pravila", "fast-path",
-                  "preshill", "eventi", "preporuke", "vrijednost")
+                  "preshill", "eventi", "preporuke", "openai-prijedlozi", "vrijednost")
 
 _LOCK = threading.RLock()
 _FIRST = {}                       # (owner, mint) -> (ts, dict)
@@ -2141,20 +2141,54 @@ def switches_html(d, tcon, cfg, owner, now=None):
       6. the exit plans' kill switch while plans exist or are paused (pt._exit_plans_block, from Otvoreni nalozi)
     A viewer sees the states, no button."""
     now = now or time.time()
-    parts = [f'<div id=fl-{settings.SWITCH_ALL}>{pt._safe("pravi-novac-sve", pt._switch_box, tcon, cfg, owner)}</div>',
-             pt._safe("mcp", pt._mcp_requests, tcon, owner),
-             pt._safe("grok-auto", pt._grok_auto_live, tcon, owner, d.get("positions"), now, False)]
+    # 15.11. (owner: "Previše vertikalnog mjesta zauzimaju prekidači, svaka kartica mora biti minimizirana i tek na
+    # dodir se otvori i proširi"): every card is one closed row (name, one line, its state) that opens on a tap; the
+    # ids stay on the rows, so TOGGLE_JS keeps an opened one open across the refresh. Only Grok's requests that wait
+    # for the owner's tap come open (they expire).
+    sw_on = settings.pravi_novac_sve(con=tcon)
+    try:
+        st = executor.switch_status(tcon, now, cfg, cfg.get("day_tz"))
+        today = (f'danas kupnji {st["buys"]}/{st["max_buys_day"]}, otvoreno {st["open"]}/{st["max_open"]}, '
+                 f'{pt.redak.sol(st["pnl"], 3)} SOL' + (", dnevni stop dosegnut" if st["stopped"] else ""))
+    except Exception:  # noqa: BLE001 - the row still opens the full box
+        today = "stropovi, upozorenje i gumb"
+    parts = [f'<div id=fl-{settings.SWITCH_ALL}>'
+             + _fold("Pravi novac za sve strategije", today, pt._safe("pravi-novac-sve", pt._switch_box, tcon, cfg, owner),
+                     "uključen" if sw_on else "isključen", "bad" if sw_on else "mut", "sw-pravi") + '</div>']
+    mcp = pt._safe("mcp", pt._mcp_requests, tcon, owner)
+    if mcp:
+        parts.append(_fold("Grokovi zahtjevi", "čekaju tvoje Odobri / Odbij", mcp, "čeka", "warn", "sw-mcp", open_=True))
+    glive = pt._safe("grok-auto", pt._grok_auto_live, tcon, owner, d.get("positions"), now, False)
+    if glive:
+        try:
+            from ui import grokauto
+            g_on = bool(grokauto.state(tcon, now)["on"])
+        except Exception:  # noqa: BLE001
+            g_on = False
+        parts.append(_fold("Grok autotrade danas", "stanje, krugovi, pokušaji" + (" i Ugasi" if g_on else ""), glive,
+                           "uključen" if g_on else "isključen", "good" if g_on else "mut", "sw-grok"))
     grp = [pt._safe("grok-postavke", pt._grok_auto_setup, tcon, owner)]
     on = bool(cfg.get("on"))
     auto = (pt._switch_html(on) if owner else f'<b>{"uključen" if on else "isključen"}</b>')
     grp.append(f'<div class=apx-swr id=sw-autopilot><div><b>Autopilot</b><span class=apx-mut>nove kupnje bota; isti '
                f'prekidač je i u naslovu stranice</span></div>{auto}</div>')
     grp.append(pt._safe("vlasnikovi-prekidaci", owner_switches_html, tcon, owner))
-    grp.append(pt._safe("exit-planovi", pt._exit_plans_block, tcon, owner))
+    plans = pt._safe("exit-planovi", pt._exit_plans_block, tcon, owner)
+    if plans:
+        paused = bool(settings.raw(tcon).get("exit_plans_paused"))
+        grp.append(_fold("Planovi izlaza", "kill switch planova i aktivni planovi", plans,
+                         "pauzirani" if paused else "rade", "warn" if paused else "mut", "sw-planovi"))
     inner = "".join(x for x in parts if x) + f'<div class="ap ap-grp apx-swg">{"".join(x for x in grp if x)}</div>'
     return (f'<section class="apx-card ap apx-sws" id=prekidaci><h2 class="apx-h2 apx-swh" data-sec="">Prekidači</h2>'
             f'<p class="apx-mut apx-swi">Svi tvoji prekidači na jednom mjestu: pravi novac za sve strategije, Grok, '
             f'Autopilot, planovi izlaza.</p>{inner}</section>')
+
+
+def _fold(name, reason, inner, value, tone, iid, open_=False):
+    """One closed card row in "Prekidači" (15.11.): pt._item's look, opened on a tap; open_ for what waits for him."""
+    r = pt._srow(name, reason or None, value, None, value_tone=tone)
+    return (f'<details class=ap-it id={iid}{" open" if open_ else ""}><summary>{r}</summary>'
+            f'<div class=in>{inner}</div></details>')
 
 
 def owner_switches_html(tcon, owner):
@@ -2497,7 +2531,7 @@ def kupiti_html(tcon, cfg, owner, now):
     if owner:   # the assistant's suggestions only while some wait for the owner (an action), else nothing
         try:
             from ui import assistnotes
-            _r, n_sug = assistnotes.notes(tcon, "novo", "suggestion", 1, 0)
+            _r, n_sug = assistnotes.notes(tcon, "novo", "suggestion", 1, 0, not_key=assistnotes.CRITIC_KID)
         except Exception:  # noqa: BLE001
             n_sug = 0
         inner = pt._safe("prijedlozi", pt._suggest_section, tcon, owner)
@@ -2799,6 +2833,8 @@ def ostalo_html(tcon, cfg, owner, now, prefill=""):
             pt._safe("ev", pt._ev_card, owner),
             pt._safe("fast-path", pt._fast_card, owner),
             pt._recs_section(),
+            # 15.11. (owner): the OpenAI critic's suggestions under "Preporuke alata", accepted / applied once or rejected
+            pt._safe("openai-prijedlozi", pt._suggest_section, tcon, owner, "openai"),
             _wrap("Grokov dnevni sažetak", pt._safe("sazetak", pt._summary_card, tcon, owner), "sazetak-r"),
             # 11.11.: the wallet's value is the "Portfelj" card on the main view now (one chart, not two)
         ]

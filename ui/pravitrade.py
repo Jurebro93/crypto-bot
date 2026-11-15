@@ -1494,15 +1494,22 @@ def _change_words(pc):
     return json.dumps(pc, ensure_ascii=False)[:300]
 
 
-def _suggest_section(tcon, owner):
+def _suggest_section(tcon, owner, who="grok"):
     """10.11.: "Prijedlozi asistenta": the assistant's suggestions (kind suggestion, status novo), newest first, with
     the evidence and the proposed change as a readable line, and Prihvati / Odbij / Primijeni with an optional note.
-    Primijeni applies only the allow-listed keys (ui/assistnotes.APPLY) and logs old -> new."""
+    Primijeni applies only the allow-listed keys (ui/assistnotes.APPLY) and logs old -> new.
+    15.11. (owner: "pod preporuke alata karticu stavi OpenAI preporuke koje se mogu jednom prihvatiti i primijeniti na
+    bota ili odbiti; nakon svakoga audita algoritma i baze tu izlaze prijedlozi"): who="openai" is the same list of the
+    OpenAI critic's suggestions only (its daily and deep reviews, assistnotes.CRITIC_KID) under "OpenAI preporuke",
+    always shown (with its newest review's summary on top); who="grok" (the old card) leaves them out."""
     if not owner:
         return ""
     from ui import assistnotes
-    rows, total = assistnotes.notes(tcon, "novo", "suggestion", 30, 0)
-    acc, _n = assistnotes.notes(tcon, "prihvaćeno", "suggestion", 30, 0)
+    oa = who == "openai"
+    kf = {"key": assistnotes.CRITIC_KID} if oa else {"not_key": assistnotes.CRITIC_KID}
+    form_id = "oa-bulk" if oa else "as-bulk"
+    rows, total = assistnotes.notes(tcon, "novo", "suggestion", 30, 0, **kf)
+    acc, _n = assistnotes.notes(tcon, "prihvaćeno", "suggestion", 30, 0, **kf)
     # 11.11. (Jure: "lista treba biti čista ako nema što što zahtijeva pažnju"): an accepted note stays on the page only
     # while it has a change the bot can apply (its "Primijeni na bota" waits for the owner); an accepted critique
     # without one is the assistant's / developer's work item: logged (status, decided_ts, get_assistant_notes), not shown
@@ -1512,7 +1519,7 @@ def _suggest_section(tcon, owner):
                                          or isinstance(pc.get("insider_label"), dict))
     acc = [r for r in acc if _can(r)]
     n_acc = len(acc)
-    if not rows and not acc:
+    if not rows and not acc and not oa:
         return ""
     # 12.11. (Jure: "Možeš nekako grupirati ove prijedloge od groka ... teško mi je jedan po jedan svaki put otvarati
     # prijedloge i onda ići dolje do prihvati, primjeni na bota"): one row per suggestion (a tick, the title, the change
@@ -1534,7 +1541,7 @@ def _suggest_section(tcon, owner):
         nid = int(r["id"])
         line = ("#%d %s" % (nid, what))[:160]
         # 12.11.: one that cannot be applied as it stands starts unticked (its reason is under it); "Odbij" takes it
-        return (f'<label class=as-pick><input type=checkbox form=as-bulk name=sel_{nid} value=1 data-keep '
+        return (f'<label class=as-pick><input type=checkbox form={form_id} name=sel_{nid} value=1 data-keep '
                 f'data-what="{esc(line)}"{"" if bad else " checked"}> ')
 
     def _bad(pc):
@@ -1590,8 +1597,8 @@ def _suggest_section(tcon, owner):
         items.append(f'<h3 class=ap-sub><span>Prihvaćeni, još nisu primijenjeni</span><span>{n_acc}</span></h3>'
                      + "".join(acc_rows))
     n_all = len(rows) + n_acc
-    sel = "document.querySelectorAll('input[form=as-bulk]')"
-    bulk = (f'<form id=as-bulk method=post action=/pravi-trade/asbulk class="ap-exit as-bar">'
+    sel = f"document.querySelectorAll('input[form={form_id}]')"
+    bulk = (f'<form id={form_id} method=post action=/pravi-trade/asbulk class="ap-exit as-bar">'
             f'<button class=ap-buy onclick="var c=[...{sel}].filter(x=>x.checked);if(!c.length){{alert(\'Ništa nije '
             "označeno.');return false}return confirm('Primijeniti '+c.length+' prijedloga na bota?\\n\\n'+c.map(x=>"
             f'x.dataset.what).join(\'\\n\'))">Primijeni označene na bota</button>'
@@ -1612,6 +1619,26 @@ def _suggest_section(tcon, owner):
              'pravilo bez signala i težina callera; staru i novu vrijednost zapisuje. Pravila iza zastavice (težina '
              'callera, strop po tokenu, prag rasta, bez signala) tako idu u sjenu: zapisuju što bi napravila, a uživo '
              'ih uključuješ ti pod „Zastavice plana”, nakon backtesta.</p>')
+    if oa:
+        try:
+            srow, _t = assistnotes.notes(tcon, None, "daily_summary", 1, 0, key=assistnotes.CRITIC_KID)
+        except Exception:  # noqa: BLE001 - the list still shows
+            srow = []
+        head = ""
+        if srow:
+            sm = srow[0]
+            head = (f'<p><b>{esc(sm.get("title") or "Zadnji pregled")}</b> <span class=mut>· {esc(redak.ago(sm["ts"]))}'
+                    f'</span></p><p>{esc((sm.get("interpretation") or "")[:1500])}</p>')
+        if not n_all:
+            head += ('<p class=mut>Nema prijedloga koji čekaju. Novi stižu nakon svakog pregleda: dnevnog (06:40) i '
+                     'dubinskog pregleda algoritma i baze.</p>')
+        oa_inner = head + "".join(items) + (
+            '<p class=mut>Piše ih OpenAI kritičar nakon svakog pregleda algoritma i baze. Ništa se ne mijenja dok ne '
+            'tapneš: „Primijeni na bota” mijenja postavku jednom i zapisuje staru i novu vrijednost (samo dopuštene '
+            'postavke), „Odbij” ga makne i kritičar ga ne ponavlja, „Označi prihvaćenim” samo zapiše da se slažeš.</p>')
+        # the meta never starts with "0"/"nema": apterm.empty_meta would hide the card, and the owner wants it always
+        return _sec("OpenAI preporuke", (f"{total} čeka" if total else "pregledi algoritma i baze, ništa ne čeka")
+                    + (f" · {n_acc} prihvaćeno bez promjene" if n_acc else ""), oa_inner, sid="openai-prijedlozi")
     return _sec("Prijedlozi asistenta", f"{total} čeka" + (f" · {n_acc} prihvaćeno bez promjene" if n_acc else ""), inner,
                 sid="prijedlozi")
 
@@ -5036,6 +5063,7 @@ def page_classic(qs, user):
                      _safe("fast-path", _fast_card, owner),   # 11.11.: brzi put, svaka provjera signala (fast/)
                      _safe("grok", _mcp_section, tcon, owner), _safe("prijedlozi", _suggest_section, tcon, owner),
                      _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
+                     _safe("openai-prijedlozi", _suggest_section, tcon, owner, "openai"),
                      _safe("wallet", _wallet_row, tcon, owner, setup),
                      _safe("pozivnice", _invites, tcon) if owner else "", _safety()),
               '</div>', POP_CSS, POP_HTML, PATCH_JS, POP_JS, POLL_JS, JS]

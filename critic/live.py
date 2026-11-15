@@ -230,6 +230,7 @@ def loop(log=print, spawn=None, sleep=time.sleep, once=False, tcon=None, debounc
         tcon = executor.connect(settings.DB)
     store.ensure(tcon)
     spawn = spawn or _spawn
+    log_stored_reviews(tcon, log)
     last = store.kv_get(tcon, "live_last_order")
     if last is None:
         last = newest_order(tcon)
@@ -267,3 +268,35 @@ def loop(log=print, spawn=None, sleep=time.sleep, once=False, tcon=None, debounc
     finally:
         if own:
             tcon.close()
+
+
+def log_stored_reviews(tcon, log=print, now=None, hours=24, key="reviews_logged_1511"):
+    """15.11. (owner: "izvijesti me odmah nakon prvog pregleda"): ONCE (critic_kv `key`), the critic's reviews and
+    suggestions of the last `hours` that were stored before the findings had their own log lines (critic/daily.
+    log_findings): each review's summary in lines of at most 900 characters and each suggestion's title, reasoning and
+    change. Reads assistant_notes only; no API call."""
+    try:
+        if store.kv_get(tcon, key):
+            return 0
+        from ui import assistnotes
+        since = int((now or time.time()) - hours * 3600)
+        n = 0
+        for kind in ("daily_summary", "suggestion"):
+            rows, _t = assistnotes.notes(tcon, None, kind, 40, 0, key=assistnotes.CRITIC_KID)
+            for r in sorted((r for r in rows if (r.get("ts") or 0) >= since), key=lambda r: r["id"]):
+                if kind == "daily_summary":
+                    text = str(r.get("interpretation") or "")
+                    log(f"kritičar: zapisani pregled #{r['id']} {str(r.get('title') or '')[:120]}", flush=True)
+                    for i in range(0, min(len(text), 6000), 900):
+                        log(f"kritičar:   {text[i:i + 900]}", flush=True)
+                else:
+                    pc = r.get("proposed_change")
+                    log(f"kritičar: zapisani prijedlog #{r['id']} {str(r.get('title') or '')[:140]} | "
+                        f"{str(r.get('interpretation') or '')[:500]}"
+                        + (f" | promjena: {json.dumps(pc, ensure_ascii=False)[:300]}" if pc else ""), flush=True)
+                n += 1
+        store.kv_put(tcon, key, int(now or time.time()))
+        return n
+    except Exception as e:  # noqa: BLE001 - never stops the watcher
+        log(f"kritičar: zapisani pregledi nisu ispisani ({type(e).__name__}: {e})", flush=True)
+        return 0

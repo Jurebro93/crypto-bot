@@ -435,6 +435,10 @@ def run(now=None, log=print, tcon=None, auto=False, send=None, root=None, night_
             log(f"kritičar: dubinski sažetak nije zapisan ({e})", flush=True)
         store.kv_put(tcon, "deep_last", {"ts": now, "nalaza": len(ids), "upita": queries, "usd": round(spent, 4),
                                          "koliko_cesto": kc.get("preporuka")})
+        from critic.daily import log_findings
+        log_findings(log, "dubinski", sazetak, nalazi, (), [
+            "koliko često: " + f"{kc.get('preporuka')} ({kc.get('razlog')})" if kc.get("preporuka") else "",
+            *[f"eksperiment {e.get('naziv')}: {e.get('hipoteza')}" for e in (eks or [])]])
         log(f"kritičar: dubinski pregled spremljen, {len(ids)} nalaza, upita {queries}, trošak {spent:.3f} $ "
             f"({turns} poziva, {res['model']})", flush=True)
         return {"nalaza": len(ids), "upita": queries, "cost_usd": round(spent, 4), "poziva": turns}
