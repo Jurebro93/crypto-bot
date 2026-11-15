@@ -372,6 +372,23 @@ OWNER_SWITCH_NOTES[FOKUS] = ("Tvoj prekidač: „uživo” (uključeno tvojim na
                              "sakupljač midcapova 2M-200M radi svakih 90 s; otvorene pozicije, tvoje ručne kupnje, "
                              "veliki/, kritičar i sigurnosne provjere ostaju. Svaki drugi mod = sve kao prije.")
 
+# 15.11. (vlasnik: "Makni mikrokapove i rugove i sve njihove povijesne podatke iz baze ... one koji su od početka
+# zadržali volumen, njih zadrži"; then "Arhiviraj onda dok ima prostora na disku"; ops/arhiva.py): an owner switch,
+# "uživo" = at night (01-06 Zagreb, under the heavy-job lock) the rows of microcap (last MC < 2M) and rugged / dead tokens
+# move from the live databases into gzipped archive files on the data disk (archive/<db>/<table>_<date>.sqlite.gz,
+# copied, verified, compressed, verified again, only then deleted; run_arhiva.py vrati puts them back); it stops when
+# the disk is short. Any other mode = only the plan (output/arhiva_plan.md), nothing moves. Never trade.db, league.db,
+# veliki / midcap / konsenzus / oscilator / izlazi, the rug archive list, open positions or the owner's own trades.
+ARHIVA = "arhiva_mikrokapova"
+FLAGS[ARHIVA] = ("A1", "Arhiva mikrokapova: noću (01-06) retci tokena s MC ispod 2M $ i rugova / mrtvih tokena sele iz "
+                       "živih baza u komprimirane arhive na disku (kopija, provjera, gzip, provjera, tek onda brisanje); "
+                       "staje kad ponestaje prostora; midcapovi, otvorene pozicije, tvoji tradeovi i popis rugova ostaju")
+OWNER_SWITCHES = OWNER_SWITCHES | {ARHIVA}
+OWNER_SWITCH_NOTES[ARHIVA] = ("Tvoj prekidač: „uživo” (uključeno tvojim nalogom 15.11.) = noću 01-06 retci mikrokapova "
+                              "(zadnji MC < 2M $) i rugova sele u .gz arhive na disku (archive/), dok ima prostora; ništa "
+                              "se ne uništava, python3 run_arhiva.py vrati <baza> <tablica> ih vraća. Svaki drugi mod = "
+                              "samo plan u logu i output/arhiva_plan.md, ništa se ne seli.")
+
 
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""

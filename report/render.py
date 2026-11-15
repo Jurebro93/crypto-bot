@@ -301,6 +301,11 @@ def render(data, ai, source):
         from momentum import view as mview
         out.append(section("Momentum scalp i Grokova EV vrata", bullets(mview.lines(mo))))
 
+    # 15.11. (ops/arhiva.py): last night's archive of microcap / rug rows, in one line
+    ar = data.get("arhiva")
+    if ar:
+        out.append(section("Arhiva mikrokapova", para(arhiva_text(ar))))
+
     # 15.11. (vlasnik): the OpenAI critic (critic/): review, verdicts on open positions, its record and cost
     out.append(section("Kritičar (OpenAI)", kriticar_body(data.get("kriticar"))))
 
@@ -502,3 +507,14 @@ def insajderi_body(d):
 def _sl_label(sl):
     from koltest import book
     return book.sl_label(sl)
+
+
+def arhiva_text(ar):
+    """One sentence on last night's archive move (ops/arhiva.run's summary)."""
+    if ar.get("dry"):
+        return (f"Samo plan (prekidač arhiva_mikrokapova isključen): {ar.get('plan_rows', 0):,} redaka "
+                f"≈ {(ar.get('plan_b') or 0) / 1e6:,.0f} MB bi se premjestilo.").replace(",", ".")
+    txt = (f"Premješteno {ar.get('moved', 0):,} redaka u .gz arhive ({(ar.get('gz_b') or 0) / 1e6:,.0f} MB), "
+           f"oslobođeno {(ar.get('freed_b') or 0) / 1e6:,.0f} MB, disk slobodno "
+           f"{(ar.get('free_b') or 0) / 1e9:.1f} GB.").replace(",", ".")
+    return txt + (" Nastavlja sljedeće noći." if ar.get("stopped") else "")

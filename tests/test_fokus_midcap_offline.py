@@ -2,7 +2,7 @@
 TRENDING"; "Preskoči Good Guy ... posebno one koji su sada malo PALI; istraži ZAŠTO"): ops/fokus.py, veliki/midcap.py,
 veliki/prioritet.py, offline (no network).
 
-  - the owner switch fokus_midcap: an OWNER_SWITCH, on by his order (the LAST of OWNER_FLAG_ORDERS), off = old behaviour
+  - the owner switch fokus_midcap: an OWNER_SWITCH, on by his order (next to last of OWNER_FLAG_ORDERS; arhiva_mikrokapova came after it), off = old behaviour
   - switch on: the microcap jobs do not run (ops.heavy, run_sched, the runners' gate), the PumpPortal launch / migration
     subscriptions are not sent and only open positions + followed wallets are watched; switch off: as before
   - the KOL minute candles / measure only for midcap-list tokens while on
@@ -59,9 +59,12 @@ class Switch(Base):
         self.assertIn(fokus.SWITCH, settings.OWNER_SWITCHES)
         self.assertIn(fokus.SWITCH, settings.FLAGS)
         self.assertIn(fokus.SWITCH, settings.OWNER_SWITCH_NOTES)
-        self.assertEqual(assistnotes.OWNER_FLAG_ORDERS[-1][:2], (fokus.SWITCH, "live"))
+        # 15.11. navečer: the archive order (arhiva_mikrokapova, ops/arhiva.py) came after it and is the last now
+        mine = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == fokus.SWITCH)
+        self.assertEqual([o[:2] for o in mine], [(fokus.SWITCH, "live")])
+        self.assertEqual(assistnotes.OWNER_FLAG_ORDERS[-2][:2], (fokus.SWITCH, "live"))
         self.assertFalse(fokus.on())   # never set: off (the old behaviour)
-        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", assistnotes.OWNER_FLAG_ORDERS[-1:]):
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", mine):
             self.assertEqual(assistnotes.owner_flag_orders(self.con), [f"zastavica {fokus.SWITCH}: off → live"])
             settings._FLAG_CACHE.clear()
             self.assertTrue(fokus.on())
