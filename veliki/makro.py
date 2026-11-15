@@ -306,6 +306,27 @@ def current(now=None, path=None, max_age_s=3 * H):
     return v
 
 
+# 15.11. navečer (vlasnik: "Take profit na 10-15 %, nek bude u potpunosti take profit, osim ako Bitcoin nije doživio
+# neki veći skok i da cijelo tržište raste, da je zeleno i da je sentiment pozitivan. Onda uzmi dio profita"): BULL =
+# BTC up at least btc24 in 24 h AND the Solana meme sector green in 24 h AND the macro regime risk_on (the platforms'
+# volume up, BTC not falling); every other case (BTC still in its range) takes the whole profit at the target
+BULL = {"btc24": 0.03, "sector": 0.0, "regime": "risk_on"}
+
+
+def bull(now=None, snap=None, cfg=None):
+    """(True / False, why in Croatian): is the whole market rising now (see BULL)? Unknown data = False."""
+    c = {**BULL, **(cfg or {})}
+    v = snap if snap is not None else current(now)
+    if not v:
+        return False, "makro nepoznat"
+    b24 = v.get("btc24")
+    sec = (v.get("sector") or {}).get("mcap_chg24")
+    reg = v.get("regime")
+    ok = b24 is not None and b24 >= c["btc24"] and sec is not None and sec > c["sector"] and reg == c["regime"]
+    why = (f"BTC {(b24 or 0) * 100:+.1f} % 24 h, meme sektor {(sec or 0):+.1f} % 24 h, režim {reg or '?'}")
+    return ok, why
+
+
 def regime_now(now=None):
     """risk_on / neutral / risk_off / None (unknown)."""
     v = current(now)

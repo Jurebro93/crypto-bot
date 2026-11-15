@@ -560,7 +560,9 @@ def on_price(pos, px, kind, b_open, cfg=None):
         pos["stop_px"] = pos["be_px"]   # +be_at net reached: the stop to break-even (the owner's rule)
         pos["be_armed"] = True
     if up and px >= pos["tp_px"]:
-        if not tr:
+        # 15.11. navečer (vlasnik): the whole profit at the target unless the whole market rises (live row_cfg sets
+        # full_tp from veliki/makro.bull); a rest already running after its half keeps trailing
+        if not tr or (c.get("full_tp") and not pos.get("half_px")):
             return "tp", (px if kind in ("o", "t") else pos["tp_px"]) * (1 - c["exit_slip"])
         if h and not pos.get("half_px"):
             pos["half_px"] = (px if kind in ("o", "t") else pos["tp_px"]) * (1 - c["exit_slip"])
