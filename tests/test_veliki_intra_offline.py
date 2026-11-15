@@ -265,6 +265,17 @@ class Live(SwitchBase):
         self.assertAlmostEqual(rt, 0.045)
         self.assertAlmostEqual(drt, 0.045)
 
+    def test_owner_once_extends_the_open_trade_once(self):
+        from veliki import live as vlive
+        vlive.ensure(self.lg)
+        self.lg.execute("INSERT INTO veliki_trades (user, token, opened_ts, status, time_h) VALUES (?,?,?,?,?)",
+                        (LU, "74SBV4zzzz", int(self.now), "open", 24.0))
+        self.lg.commit()
+        with mock.patch.object(vlive, "OWNER_ONCE", (("t1", "74SBV4", 72.0),)):
+            self.assertTrue(vlive.owner_once(self.lg, self.now))
+            self.assertEqual(vlive.owner_once(self.lg, self.now), [])
+        self.assertEqual(self.lg.execute("SELECT time_h FROM veliki_trades WHERE token='74SBV4zzzz'").fetchone()[0], 72.0)
+
     def test_chain_line_counts_bought_and_refused(self):
         import sqlite3
         import tempfile

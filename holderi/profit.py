@@ -52,6 +52,16 @@ def established(n):
             out = [{"mint": x["mint"], "symbol": x.get("symbol"), "cat": None} for x in (vstore.the_list() or {}).get("tokens") or []]
         except Exception:  # noqa: BLE001
             out = []
+    # 15.11. (vlasnik: "i za ove nove tokene i volete koji ih drže, isto njih prati"): after the veliki table, every
+    # member of the midcap collector (2M-200M, by 24 h volume), so the new trending midcaps get their holders too
+    if len(out) < n:
+        try:
+            from veliki import midcap
+            have = {x["mint"] for x in out}
+            out += [{"mint": x["mint"], "symbol": x.get("symbol"), "cat": None} for x in midcap.members()
+                    if x.get("mint") and x["mint"] not in have]
+        except Exception:  # noqa: BLE001 - no collector: the table alone
+            pass
     return out[:n]
 
 

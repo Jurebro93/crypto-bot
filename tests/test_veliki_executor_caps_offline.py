@@ -58,3 +58,30 @@ class VelikiCaps(SwitchBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EquityFloor(SwitchBase):
+    """15.11. navečer (vlasnik: "ako padne ispod jedne solane, onda ćemo ugasiti"): automatic real buys stop under
+    1 SOL of wallet value; his manual buys are not held."""
+    def snap(self, sol, tokens=0.0, age=60):
+        self.con.execute("CREATE TABLE IF NOT EXISTS equity (ts INTEGER, sol REAL, usdc REAL, tokens_sol REAL, "
+                         "sol_usd REAL, usd_eur REAL, flow_sol REAL, src TEXT)")
+        self.con.execute("INSERT INTO equity VALUES (?,?,?,?,?,?,?,?)", (int(self.now - age), sol, 0.0, tokens, 150.0,
+                                                                        0.9, 0.0, "live"))
+        self.con.commit()
+
+    def test_under_one_sol_stops_automatic_buys(self):
+        self.snap(0.7, tokens=0.2)
+        self.assertIn("ispod poda 1 SOL", self.gate(balance=5.0) or "")
+
+    def test_above_the_floor_passes_the_floor(self):
+        self.snap(0.9, tokens=0.2)
+        self.assertNotIn("ispod poda", self.gate(balance=5.0) or "")
+
+    def test_manual_buy_is_not_held(self):
+        self.snap(0.5)
+        self.assertNotIn("ispod poda", self.gate(balance=5.0, manual=True) or "")
+
+    def test_stale_snapshot_uses_balance_and_open_stakes(self):
+        self.snap(5.0, age=7200)
+        self.assertIn("stanje SOL-a", self.gate(balance=0.5) or "")
