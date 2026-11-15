@@ -294,7 +294,14 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
     ex = ex or exit_rules(now)
     market_fn = market_fn or market
     srcs = sources or signals.Sources()
-    src = srcs.read(int(now), (cfg["mix_window_min"] + cfg["max_delay_min"]) * 60)
+    fk = False
+    if sources is None:   # 15.11. (owner switch fokus_midcap): no new comparison entries, the open ones keep their exits
+        try:
+            from ops import fokus
+            fk = fokus.on()
+        except Exception:  # noqa: BLE001
+            fk = False
+    src = {} if fk else srcs.read(int(now), (cfg["mix_window_min"] + cfg["max_delay_min"]) * 60)
     insider_set = getattr(srcs, "insiders", set())
     con = store.connect(path)
     try:

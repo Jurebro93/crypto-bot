@@ -90,6 +90,9 @@ DEFINITIONS = ("ulaz: MC u trenutku detekcije (fast_check submit_watch_token); t
 
 def mode():
     try:
+        from ops import fokus
+        if fokus.on():   # 15.11. (owner switch fokus_midcap): x_call_scalp (microcap calls) idles
+            return "off"
         from league import flags
         return flags.mode(FLAG)
     except Exception:  # noqa: BLE001

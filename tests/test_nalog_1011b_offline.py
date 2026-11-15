@@ -82,7 +82,9 @@ class LaterOrders(Base):
                                 "zastavica veliki_range: off → paper",
                                 # 15.11. (Jure: "Odmah kreni tradat s pravim novcem")
                                 "zastavica pravi_novac_veliki: off → live",
-                                "veliki dokaz: walk-forward → nalog vlasnika (pravi novac odmah)"])
+                                "veliki dokaz: walk-forward → nalog vlasnika (pravi novac odmah)",
+                                # 15.11. navečer (vlasnik: nikakvi resursi na mikrokapove; ops/fokus.py)
+                                "zastavica fokus_midcap: off → live"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")
         keys = {x["key"] for x in assistnotes.applied(self.tc)}
         self.assertTrue({"flag:market_scan", "flag:group_discovery", "flag:range_dca", "flag:insider_copy"} <= keys)

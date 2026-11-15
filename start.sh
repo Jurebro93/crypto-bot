@@ -38,6 +38,10 @@ python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
 # 11.11. (Jure, preporuka 3): one line in the log at every start: which Apify sources are off (hype/apify.json
 # "ugaseno") and which stay on and why ("zadrzano"); reading a small JSON, no network
 python3 -m hype.apify || true
+# 15.11. navečer (vlasnik: "ne želim više mikrokapove uopće ... sve resurse prebaci na midcapove 2M-200M"; owner switch
+# fokus_midcap, ops/fokus.py): one line at every start: which microcap jobs are off, which are retargeted, how many
+# midcaps the collector holds and from which sources (reads trade.db / midcap.db, no network)
+python3 -m ops.fokus || true
 
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).
@@ -124,9 +128,11 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 
 # pre-event watch: tokens of events in the next 14 days, DexScreener snapshot every hour, buyers via Helius
 # every 6 h (~10 credits per token, capped by --credits), correlation with the event approaching -> watch.db
+# 15.11. navečer: in a loop, so a run that ended at once under the owner switch fokus_midcap starts again (10 min) once
+# he turns it off; while it runs normally it never ends
 (
   sleep 900   # first calendar + dex scan must exist
-  low python3 run_watch.py run --every-min "${WATCH_EVERY_MIN:-60}" --credits "${WATCH_RUN_CREDITS:-3000}" >/dev/null
+  while true; do low python3 run_watch.py run --every-min "${WATCH_EVERY_MIN:-60}" --credits "${WATCH_RUN_CREDITS:-3000}" >/dev/null; sleep 600; done
 ) &
 
 # Helius Developer plan: new smart wallets once a day (early buyers of recent winners, scored by PnL)
@@ -297,6 +303,13 @@ low keep zonewatch python3 run_zonewatch.py loop
 # picked yet, the backtest again (at most once an hour, run_veliki.py once --ako-nema-pravila; veliki/live trades the
 # documented default rule until then).
 ( sleep "${VELIKI_CANDLES_FIRST_S:-240}"; while true; do low python3 run_veliki.py candles || echo "veliki svijeće nisu uspjele"; python3 -m ops.heavy run_veliki.py once --ako-nema-pravila || true; sleep "${VEL_CANDLES_EVERY_S:-900}"; done ) &
+# 15.11. navečer (owner switch fokus_midcap; veliki/midcap.py): the midcap collector, a short low-priority process every
+# MIDCAP_EVERY_S (90 s, counted from the start of a pass), outside the heavy lock: DexScreener trending / boosts /
+# profiles / CTO + GeckoTerminal trending + Jupiter lists every 15 min, every pass DexScreener numbers of the whole
+# 2M-200M list (free, 30 a request) -> midcap.db (one row a token a pass), GeckoTerminal 15m / 1h / 1d by volume inside
+# its own day cap (gt_day 4000; never the last part of veliki's key slice), RugCheck holders / LP, X momentum inside the scanner's day cap, the priority order of
+# veliki/live; one "midcap: sat:" line an hour (counts, API use, MB a day). Switch off: the pass ends at once.
+( sleep "${MIDCAP_FIRST_S:-120}"; while true; do r0=$(date +%s); low python3 run_veliki.py midcap || echo "midcap sakupljač nije uspio"; rs=$(( ${MIDCAP_EVERY_S:-90} - $(date +%s) + r0 )); [ "$rs" -lt 10 ] && rs=10; sleep "$rs"; done ) &
 ( sleep "${VELIKI_FIRST_S:-420}"; python3 -m ops.heavy run_veliki.py once || echo "veliki nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_veliki.py night || echo "veliki (noć) nije uspio"; done ) &
 
 # 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and

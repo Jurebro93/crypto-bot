@@ -1444,4 +1444,9 @@ def mcp(kind=None, top=None, path=None):
 
 
 if __name__ == "__main__":
+    try:   # 15.11. (owner switch fokus_midcap, ops/fokus.py): a microcap job ends at once while it is on
+        from ops import fokus
+        fokus.gate()
+    except ImportError:
+        pass
     sys.exit(main())

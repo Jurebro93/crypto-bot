@@ -1596,6 +1596,13 @@ def tasks(limit=20, now=None, src=None):
             return default
     rows, _meta = _cached(now, src)
     out = []
+    try:   # 15.11. navečer (owner switch fokus_midcap, ops/fokus.py): no Grok work on the microcaps; midcaps below
+        from ops import fokus
+        fk = fokus.on()
+    except Exception:  # noqa: BLE001
+        fk = False
+    if fk:
+        rows = [r for r in rows if (r.get("mcap") or 0) >= 2_000_000]
     toks = [r["token"] for r in rows[:40]]
     grows = safe(lambda: S.grok_rows(toks, now_i), {}) if toks else {}
     ops = safe(lambda: S.opinions(toks, now_i, CONFLICT_DONE_S), {}) if toks else {}
@@ -1679,8 +1686,38 @@ def tasks(limit=20, now=None, src=None):
     # table without Grok's verdict in the last 6 h
     def midcaps():
         from veliki import view as vview
-        return (vview.summary(zones=False).get("table") or [])[:15]
+        tab = (vview.summary(zones=False).get("table") or [])[:15]
+        if fk:   # 15.11. navečer: the trending midcaps of the collector (by priority) after the veliki table, 40 at most
+            from veliki import prioritet
+            have = {x["mint"] for x in tab}
+            for r in sorted(prioritet.cached().values(), key=lambda r: -r["score"]):
+                if r["mint"] not in have and len(tab) < 40:
+                    tab.append({"mint": r["mint"], "symbol": r.get("symbol"), "cat": "trending",
+                                "mcap": None, "pers90": None, "corr_d": None})
+        return tab
     mrows = safe(midcaps, [])
+    # 15.11. navečer (vlasnik: "istraži ZAŠTO su pali"; veliki/prioritet.py): the top dipped midcaps without Grok's
+    # reason in the last 12 h -> midcap_dip_reason (his answer is archived into veliki.db grok_sig and read back by
+    # veliki/prioritet.classify: "preskoči" with confidence >= 0.5 = a bad reason, the live loop skips the token)
+    drows = safe(lambda: __import__("veliki.prioritet", fromlist=["x"]).dipped_top(5), [])
+    dops = safe(lambda: S.opinions([x["mint"] for x in drows], now_i, 12 * 3600), {}) if drows else {}
+    for k, x in enumerate(drows):
+        if dops.get(x["mint"]):
+            continue
+        sym = x.get("symbol") or x["mint"][:6]
+        d = x.get("dip") or {}
+        out.append({"id": f"dip:{x['mint']}", "kind": "midcap_dip_reason", "priority": 2, "token": x["mint"],
+                    "symbol": sym, "rank": 50 + k,
+                    "why": (f"midcap pao {min(d.get('c24') or 0, d.get('c7d') or 0):+.0f} % (naš razlog: {d.get('kind')}: "
+                            f"{d.get('why')}), prioritet {x.get('score')}"),
+                    "instruction": (f"Why did ${sym} (CA {x['mint']}) fall? Search X and news: market-wide (BTC / SOL / "
+                                    "all memes down), profit-taking after a pump, or token-specific trouble (LP pulled, "
+                                    "dev or top holders selling, exploit, delisting, team drama)? Verdict kupi when the "
+                                    "reason is benign or market-wide, preskoči when it is token-specific trouble."),
+                    "answer_with": {"tool": "submit_signal_opinion",
+                                    "arguments": {"token": x["mint"], "verdict": "kupi | preskoči", "confidence": "<0-1>",
+                                                  "interpretation": "<zašto je pao: what you found>",
+                                                  "evidence": {"source": "midcap_dip_reason"}}}})
     mops = safe(lambda: S.opinions([x["mint"] for x in mrows], now_i, 6 * 3600), {}) if mrows else {}
     for k, x in enumerate(mrows):
         if mops.get(x["mint"]):

@@ -38,6 +38,9 @@ _LOCK = threading.Lock()
 def mode():
     """The flag's mode; "off" when trade settings cannot be read (cached 2 s by trade/settings)."""
     try:
+        from ops import fokus
+        if fokus.on():   # 15.11. (owner switch fokus_midcap): the fast path idles as if its flag were off
+            return "off"
         from trade import settings
         return settings.flag(FLAG)
     except Exception:  # noqa: BLE001

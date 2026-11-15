@@ -814,6 +814,11 @@ OWNER_FLAG_ORDERS = (
     # on, WITHOUT waiting for the proof (VELIKI_PROOF_KEY below), at veliki/gate.REAL's caps; he turns it off any time.
     ("pravi_novac_veliki", "live", "vlasnik u chatu 15.11.: „Odmah kreni tradat s pravim novcem, a istovremeno sakupljaš "
                                    "što više podataka” (mid-capovi; 0,1 SOL po tradeu, 5 otvorenih, dnevni gubitak 0,3 SOL)"),
+    # 15.11. navečer (vlasnik: "Ne želim više mikrokapove uopće ... nikakvi resursi na njih: ni trgovanje, ni skeniranje,
+    # ni analiza. Sve resurse prebaci na midcapove ... 2M do 200M ... posebno TRENDING tokene"; ops/fokus.py): the
+    # owner switch fokus_midcap on (live = on); he turns it off under Prekidači any time (everything as before)
+    ("fokus_midcap", "live", "vlasnik u chatu 15.11.: „ne želim više mikrokapove uopće ... sve resurse prebaci na "
+                             "midcapove 2M-200M, posebno trending” (poslovi za mikrokapove ugašeni ili preusmjereni)"),
 )
 # 15.11. (the same order): Grok autotrade buys with real money too, so it goes off once as well (grokauto.set_on)
 OWNER_ONCE_1511 = "owner_once:real_money_off_1511"

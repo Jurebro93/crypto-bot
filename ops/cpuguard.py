@@ -138,6 +138,8 @@ PROCESSES = (
     ("heavy", "-m ops.heavy", (), PROTECTED, "omotač teškog posla: čeka dijete i drži bravu; sam ne troši CPU"),
     # 11.11.: one line at every start (start.sh): which Apify sources are off and why; reads a small JSON, milliseconds
     ("apify-stanje", "-m hype.apify", (), PROTECTED, "jedan red na startu: ugašeni Apify izvori; čita mali JSON"),
+    # 15.11. navečer (owner switch fokus_midcap): one line at every start; reads trade.db / midcap.db, milliseconds
+    ("fokus-stanje", "-m ops.fokus", (), PROTECTED, "jedan red na startu: poslovi za mikrokapove ugašeni / preusmjereni"),
     ("sched", "run_sched.py", (), PROTECTED, "raspored: drži sat i pokreće svoje poslove; sam ne troši CPU"),
     # 2: the hype scan (a child of the demo loop every 2 min) and the nightly smart-wallet learning
     ("hype-status", "run_hype.py", ("status",), JOBS, "status tokena svakih 6 sati (raspored)"),
@@ -199,7 +201,8 @@ PROCESSES = (
      "kritičar (OpenAI): svakih 5 min provjera otvorenih pozicija, poziv samo na promjenu; dnevna revizija algoritma"),
     # 15.11. (owner, veliki/): the big tokens' list + candles every 3 h and the backtest after a deploy / nightly
     ("veliki", "run_veliki.py", (), JOBS,
-     "veliki tokeni: lista i svijeće svaka 3 h, walk-forward range pravila nakon deploya i noću (piše samo veliki.db)"),
+     "veliki tokeni: lista svaka 3 h, svijeće svakih 15 min, sakupljač midcapova svakih 90 s (midcap.db), walk-forward "
+     "range pravila nakon deploya i noću"),
     # 15.11. (owner, oscilator/): read-only walk-forward after a deploy and nightly; writes only oscilator.db
     ("oscilator", "run_oscilator.py", (), JOBS,
      "oscilator: walk-forward skalpiranja tokena koji osciliraju (samo čita minutne podatke), nakon deploya i noću"),
