@@ -824,6 +824,11 @@ OWNER_FLAG_ORDERS = (
     # ops/arhiva.py): the owner switch arhiva_mikrokapova on (live = on); he turns it off under Prekidači any time
     ("arhiva_mikrokapova", "live", "vlasnik u chatu 15.11.: „Arhiviraj onda dok ima prostora na disku” (mikrokapovi i "
                                    "rugovi iz živih baza u .gz arhive noću; midcapovi i oni koji su zadržali volumen ostaju)"),
+    # 15.11. (vlasnik: "Nastavi koristiti influencere, posebno u grupama ... insajderi i botovi koji kupuju prije poziva
+    # ... kako ih pratiti"; insajderi/): Insajderi 2.0's demo from the deploy. NEVER_LIVE: no order or switch here ever
+    # gives it real money.
+    ("insajderi2", "paper", "vlasnik u chatu 15.11.: Insajderi 2.0 (kupili prije poziva i prodali u skok) u demo; pravi "
+                            "novac nikad iz ove zastavice, vlasnik odlučuje kasnije s brojkama"),
 )
 # 15.11. (the same order): Grok autotrade buys with real money too, so it goes off once as well (grokauto.set_on)
 OWNER_ONCE_1511 = "owner_once:real_money_off_1511"

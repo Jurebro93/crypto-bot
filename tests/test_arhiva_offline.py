@@ -299,11 +299,13 @@ class Switch(Base):
         self.assertIn(arhiva.SWITCH, settings.OWNER_SWITCHES)
         self.assertIn(arhiva.SWITCH, settings.FLAGS)
         self.assertIn(arhiva.SWITCH, settings.OWNER_SWITCH_NOTES)
-        name, mode, why = assistnotes.OWNER_FLAG_ORDERS[-1]
+        # 15.11.: later owner orders (insajderi2 ...) come after it, so it is the last archive order, not the last
+        mine = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == arhiva.SWITCH)
+        name, mode, why = mine[-1]
         self.assertEqual((name, mode), (arhiva.SWITCH, "live"))
         self.assertIn("Arhiviraj onda dok ima prostora na disku", why)
         self.assertFalse(arhiva.switch_on(self.p["trade"]))   # never set: off (plan only)
-        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", assistnotes.OWNER_FLAG_ORDERS[-1:]):
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", mine[-1:]):
             self.assertEqual(assistnotes.owner_flag_orders(self.tc), [f"zastavica {arhiva.SWITCH}: off → live"])
         settings._FLAG_CACHE.clear()
         self.assertTrue(arhiva.switch_on(self.p["trade"]))

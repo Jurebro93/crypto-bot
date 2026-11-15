@@ -74,6 +74,13 @@ KEPT = ("ui", "trade (pravi novac / probni swapovi)", "cpuguard", "uptime", "hea
         "rug arhiva", "kalendar", "dugo", "simianx", "veliki (lista, backtest, demo)", "zonewatch", "kol krug (X pozivi)",
         "tg", "novčanici dokazani / rang / copy (samo baze)", "tržište / BTC", "potrošnja", "web", "events tick",
         "EV izvještaj", "dnevni trošak", "kritičar", "jutarnji izvještaj", "povrat pravila izlaza")
+# 15.11. (vlasnik: "dio resursa zadrži za ovo, veći dio ide na midcapove"): jobs that run on microcap data WHILE the
+# switch is on, as an explicit exception with their own budget (they are never in OFF, so nothing above stops them)
+EXCEPTIONS = (
+    (("run_insajderi", None), "insajderi2",
+     "Insajderi 2.0: kupci prije poziva / skokova koji prodaju u skok, pametni novac (insajderi/); strop Helius "
+     "kredita dnevno (16 % starih poslova insajderi/grupe/shill/novčanici, zadano 3.500), nice, veliki prolaz noću"),
+)
 _OFF_KEYS = {key for _m, key, _w in OFF}
 # what each OFF / RETARGET job cost, from its own caps in the code and start.sh (Pretpostavka: the caps, not a measured
 # day; the CPU guard logs only pauses and the biggest protected consumer, so the CPU column is the job class / budget)
@@ -151,8 +158,10 @@ def canon(argv):
 
 
 def off_key(argv):
-    """The OFF key of this command line, else None (whatever the switch)."""
+    """The OFF key of this command line, else None (whatever the switch). An EXCEPTION is never off."""
     mod, sub = canon(argv)
+    if any(m == mod and (s is None or s == sub) for (m, s), _k, _w in EXCEPTIONS):
+        return None
     for (m, s), key, _what in OFF:
         if m == mod and (s is None or s == sub):
             return key
@@ -248,8 +257,8 @@ def start_line(con=None):
                 f"({rng}) ne radi")
     offs = list(dict.fromkeys(key for _m, key, _w in OFF))
     return (f"fokus midcap: isključeno {len(offs)} poslova za mikrokapove ({', '.join(offs)}), preusmjereno "
-            f"{len(RETARGET)} ({', '.join(k_ for k_, _w in RETARGET)}); prikupljanje: {k} midcap tokena ({rng}), "
-            f"izvori {src}")
+            f"{len(RETARGET)} ({', '.join(k_ for k_, _w in RETARGET)}); iznimka s budžetom: "
+            f"{', '.join(k_ for _m, k_, _w in EXCEPTIONS)}; prikupljanje: {k} midcap tokena ({rng}), izvori {src}")
 
 
 def table():
@@ -260,6 +269,7 @@ def table():
             seen.add(key)
             out.append((key, what, "isključeno"))
     out += [(k, "", "preusmjereno: " + w) for k, w in RETARGET]
+    out += [(k, w, "iznimka s budžetom") for _m, k, w in EXCEPTIONS]
     return out
 
 

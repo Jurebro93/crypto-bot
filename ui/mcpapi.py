@@ -1692,6 +1692,20 @@ TOOLS.append(
          "kind": {"type": "string", "enum": ["hot", "cold", "deposit", "custodian"]},
          "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "evidence": {"type": "string", "maxLength": 300}},
          "required": ["address", "exchange", "evidence"]}})
+# 15.11. (vlasnik: "koji su novčanici prodavali u skok nakon poziva i jesu li kupili prije"; insajderi/): Insajderi 2.0
+TOOLS.append(
+    {"name": "get_insiders2", "annotations": _READ,
+     "description": ("Insajderi 2.0 (insajderi/): the influencer calls (X, Telegram, crews) and market jumps whose price "
+                     "jumped, the wallets that BOUGHT up to 7 days before and SOLD into the jump, merged by funding "
+                     "owner; groups classed insajder (confirmed out of sample) / bot_snajper / relayer / kandidat with "
+                     "n tokens, distinct callers front-run, lift vs chance, median lead, PnL; the copyability "
+                     "walk-forward at OUR constraints (bonded, MC >= 5M vs smaller; entry after their buy +60 s, exit "
+                     "when they sell / stop / time, net of cost) with n, hit %, EV, CI90 and the verdict; the top jumps "
+                     "with their catalyst and early buyers; the smart-money list. class filters the groups; limit "
+                     "1-100. Read-only; never real money."),
+     "inputSchema": {"type": "object", "properties": {
+         "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+         "class": {"type": "string", "enum": ["insajder", "bot_snajper", "relayer", "kandidat", "promatra"]}}}})
 # 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
 _P01 = {"type": "number", "minimum": 0, "maximum": 1}
 TOOLS.append(
@@ -1948,6 +1962,10 @@ def _tool(name, args, kid="local"):
     if name == "get_learned_exits":   # 15.11. izlazi/, read-only
         from izlazi import report as izreport
         d = izreport.mcp(args)
+        return d, "error" in d
+    if name == "get_insiders2":   # 15.11. insajderi/, read-only
+        from insajderi import report as i2report
+        d = i2report.mcp(args)
         return d, "error" in d
     if name == "get_midcaps":   # 15.11. veliki/, read-only
         from veliki import view as vview

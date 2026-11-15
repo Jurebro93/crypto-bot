@@ -1766,6 +1766,26 @@ def tasks(limit=20, now=None, src=None):
                                     "arguments": {"token": x["mint"], "verdict": "kupi | preskoči", "confidence": "<0-1>",
                                                   "interpretation": "<what you saw on X>",
                                                   "evidence": {"source": "midcap_review"}}}})
+    # 15.11. (vlasnik, Insajderi 2.0: "za svaki skok klasificiraj katalizator ... vijest: Grokov zadatak catalyst_check";
+    # insajderi/report.catalyst_tasks): the biggest jumps of the last 48 h without Grok's catalyst answer, 5 at most;
+    # his answer is archived (assistant_notes) and read back by insajderi/events.catalyze as the catalyst "vijest"
+    for k, e in enumerate(safe(lambda: __import__("insajderi.report", fromlist=["x"]).catalyst_tasks(5, now_i), [])):
+        sym = e.get("symbol") or e["token"][:6]
+        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(e["t0"]))
+        out.append({"id": f"cat:{e['token']}:{e['t0']}", "kind": "catalyst_check", "priority": 3, "token": e["token"],
+                    "symbol": sym, "rank": 150 + k,
+                    "why": (f"skok +{e['peak_pct']:.0f} % od {when}, naš katalizator: {e.get('catalyst') or 'nepoznato'}"),
+                    "instruction": (f"Why did ${sym} (CA {e['token']}) jump +{e['peak_pct']:.0f} % starting {when}? "
+                                    "Search X and news around that time: an influencer / Telegram call or a crew, an "
+                                    "exchange listing or listing rumour, a DexScreener boost / paid profile / community "
+                                    "takeover, a partnership or other news, a whale buying, or nothing visible. Name "
+                                    "the catalyst and its time; verdict neutralan (this is research, not a trade)."),
+                    "answer_with": {"tool": "submit_signal_opinion",
+                                    "arguments": {"token": e["token"], "verdict": "neutralan", "confidence": "<0-1>",
+                                                  "interpretation": "<katalizator i vrijeme: what you found>",
+                                                  "evidence": {"source": "catalyst_check",
+                                                               "catalyst": "poziv | listing | boost | vijest | kit | "
+                                                                           "nepoznato"}}}})
     out.sort(key=lambda t: (t["priority"], t.get("rank") or 999))
 
     def intake():

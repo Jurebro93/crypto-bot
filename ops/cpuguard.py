@@ -215,6 +215,10 @@ PROCESSES = (
     # 15.11. (owner, oscilator/): read-only walk-forward after a deploy and nightly; writes only oscilator.db
     ("oscilator", "run_oscilator.py", (), JOBS,
      "oscilator: walk-forward skalpiranja tokena koji osciliraju (samo čita minutne podatke), nakon deploya i noću"),
+    # 15.11. (owner, insajderi/): Insajderi 2.0 under the heavy lock (nice), a Helius day cap; writes only insajderi.db
+    ("insajderi2", "run_insajderi.py", (), JOBS,
+     "Insajderi 2.0: kupci prije poziva / skokova koji prodaju u skok, pametni novac; nakon deploya, svaka 3 h i noću, "
+     "strop Helius kredita dnevno"),
     # 15.11. (owner, konsenzus/): read-only research after a deploy and nightly; writes only konsenzus.db
     ("konsenzus", "run_konsenzus.py", (), JOBS,
      "konsenzus izvora: walk-forward influencera, Telegram kanala i novčanika (samo čita baze), nakon deploya i noću"),
