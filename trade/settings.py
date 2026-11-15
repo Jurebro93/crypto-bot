@@ -274,6 +274,33 @@ OWNER_SWITCH_NOTES[IZVORI] = ("Tvoj prekidač: „uživo” = signali konsenzusa
                               "jedna pozicija po tokenu, stop na serveru) uvijek. Svaki drugi mod = samo demo.")
 
 
+# 15.11. (vlasnik: "Zašto ne bismo pronašli token za koji znamo da ide gore-dolje tijekom dana i tradali ga 50 puta
+# dnevno, uzimajući 1-2 $ na svakom (s naknadama)? ... 10 takvih tokena"; oscilator/): FLAG "oscilator": paper = the
+# DEMO account PAPER_USER scalps today's top 10 oscillating tokens (oscilator/walk ranks them by day D's swings net of
+# the cost; oscilator/rule: the lower quarter of the last hour's range + the momentum turn, out at +1 $ net of the real
+# cost, stop -8 %, 60 min), 0.5 SOL a trade (OSC_DEMO_SOL), 10 open, 300 a day; never live by this flag (NEVER_LIVE).
+OSCILATOR = "oscilator"
+FLAGS[OSCILATOR] = ("P19", "Oscilator: demo račun skalpira 10 tokena koji su jučer najviše oscilirali (swingovi veći od "
+                           "troška + 1 $ neto, malo trenda); ulaz u donjoj četvrtini raspona zadnjeg sata kad cijena "
+                           "okrene gore, izlaz na +1 $ neto nakon pravog troška, stop −8 %, 60 min; 0,5 SOL, najviše 10 "
+                           "otvorenih, 300 ulaza dnevno")
+NEVER_LIVE[OSCILATOR] = "oscilator sam nikad ne trguje pravim novcem: pravi novac samo kroz prekidač pravi_novac_oscilator"
+PROFILE_FLAGS = PROFILE_FLAGS | {OSCILATOR}   # its paper mode never makes the paper account follow anybody
+# The owner switch (15.11., real money NOT now): "uživo" = the oscillator's entries ALSO buy on the real account, but
+# only while oscilator/gate.real_refusal() is None: the walk-forward proof at 0.1 SOL (n >= 100, EV > 0, the 90 %
+# interval's low > 0, $ a day > 0) AND the demo's own >= 50 closed trades with EV > 0; caps oscilator/gate.REAL (0.1
+# SOL, 3 open, 30 a day, a day's loss 0.3 SOL). Default off; only the owner's own tap (set_flag), never an order.
+OSC_SWITCH = "pravi_novac_oscilator"
+FLAGS[OSC_SWITCH] = ("P20", "Pravi novac za oscilator: ulazi oscilatora kupuju i pravim novcem, samo dok walk-forward na "
+                            "0,1 SOL ima dokaz (n 100+, EV i donja granica 90 % intervala > 0, $/dan > 0) i demo 50+ "
+                            "zatvorenih s EV > 0; 0,1 SOL po tradeu, najviše 3 otvorena, 30 dnevno, dnevni gubitak 0,3 SOL")
+OWNER_SWITCHES = OWNER_SWITCHES | {OSC_SWITCH}
+OWNER_SWITCH_NOTES[OSC_SWITCH] = ("Tvoj prekidač: „uživo” = ulazi oscilatora kupuju i pravim novcem, ali samo dok "
+                                  "walk-forward na 0,1 SOL ima dokaz (n 100+, EV > 0, donja granica 90 % intervala > 0, "
+                                  "$/dan > 0) i demo ima 50+ zatvorenih s EV > 0 nakon pravog troška; stropovi 0,1 SOL, "
+                                  "3 otvorena, 30 dnevno, dnevni gubitak 0,3 SOL. Svaki drugi mod = samo demo.")
+
+
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""
     try:
@@ -579,7 +606,7 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     cur = flag_state(con)[name]
     if mode == cur["mode"]:
         return cur
-    if mode == "live" and name in (SWITCH_ALL, IZVORI) and not is_owner(who):
+    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH) and not is_owner(who):
         # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
         # chat order, an applied suggestion or any other code path
         raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")

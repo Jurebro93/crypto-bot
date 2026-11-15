@@ -65,14 +65,72 @@ def impact(usd, liq):
 
 # ---------- calibration ----------------------------------------------------------------------------------------------
 
+# 15.11. (owner: "moraš uključiti fee u kalkulaciju"; the oscillator's check found the measured fee 2.9 % a side): a
+# buy's fee_lamports (trade/jupiter.fee_lamports) carries the RENT of the new token account (~0.00204 SOL = 2 % of a
+# 0.1 SOL buy), and that deposit comes back when the account is closed after the full sale (trade/executor.
+# _reclaim_rent, a "rent" row with a negative fee and no cost_pct, so the calibration never saw the refund). It is not
+# a cost: it is taken off a buy's network part here, and the network part of any order is capped at NET_FEE_CAP.
+RENT_LAMPORTS = 2_039_280      # an SPL token account's rent-exempt deposit
+NET_FEE_CAP_LAMPORTS = 1_000_000   # 0.001 SOL: signature + priority of one swap at most (TX_FEE_SOL 0.0005 typical)
+
+
+def network_lamports(side, fee_lamports):
+    """An order's network cost without the refundable token-account deposit, capped at NET_FEE_CAP_LAMPORTS."""
+    f = _f(fee_lamports) or 0.0
+    if side == "buy" and f >= RENT_LAMPORTS:
+        f -= RENT_LAMPORTS
+    return max(0.0, min(f, NET_FEE_CAP_LAMPORTS))
+
+
 def side_cost(cost_pct, side=None, amount_in=None, amount_out=None, fee_lamports=None):
-    """One order's per-side cost (fraction): cost_pct / 100 + its network fee over the SOL side of the swap."""
+    """One order's per-side cost (fraction): cost_pct / 100 + its network fee (without the refundable deposit) over the
+    SOL side of the swap."""
     c = _f(cost_pct)
     if c is None:
         return None
     sol = _f(amount_in) if side == "buy" else _f(amount_out) if side == "sell" else None
-    net = (_f(fee_lamports) or 0.0) / sol if sol and sol > 0 else 0.0
+    net = network_lamports(side, fee_lamports) / sol if sol and sol > 0 else 0.0
     return c / 100 + net
+
+
+def breakdown(rows, n=None):
+    """15.11.: what the measured per-side cost is made of, for the log: {"n", "buys", "sells", "price_pct" (median of
+    cost_pct: route fee + price impact at our size), "net_pct" (median network part), "side_pct" (median total),
+    "rent_n" (orders whose fee carried the refundable deposit)}. rows as calibrate()."""
+    n = n or CALIB_N
+    used = [r for r in rows if _f(r[0]) is not None][:n]
+    if not used:
+        return {"n": 0}
+    price = [_f(r[0]) / 100 for r in used]
+    net = []
+    for c, side, ain, aout, fee in used:
+        sol = _f(ain) if side == "buy" else _f(aout) if side == "sell" else None
+        net.append(network_lamports(side, fee) / sol if sol and sol > 0 else 0.0)
+    tot = [a + b for a, b in zip(price, net)]
+    return {"n": len(used), "buys": sum(1 for r in used if r[1] == "buy"), "sells": sum(1 for r in used if r[1] == "sell"),
+            "price_pct": round(100 * statistics.median(price), 2), "net_pct": round(100 * statistics.median(net), 2),
+            "side_pct": round(100 * max(0.0, statistics.median(tot)), 2),
+            "rent_n": sum(1 for r in used if r[1] == "buy" and (_f(r[4]) or 0) >= RENT_LAMPORTS)}
+
+
+def breakdown_line(path=None):
+    """One log line of breakdown() over trade.db's newest orders (read-only)."""
+    p = _trade_db(path)
+    try:
+        con = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=2)
+        try:
+            rows = con.execute("SELECT cost_pct, side, amount_in, amount_out, fee_lamports FROM orders WHERE "
+                               "cost_pct IS NOT NULL ORDER BY id DESC LIMIT ?", (CALIB_N,)).fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        return f"trošak swapa: nije izmjeren ({e})"
+    b = breakdown(rows)
+    if not b.get("n"):
+        return "trošak swapa: još nema izmjerenih naloga"
+    return (f"trošak swapa po strani {b['side_pct']:.2f} % (medijan zadnjih {b['n']} naloga: cijena i ruta "
+            f"{b['price_pct']:.2f} %, mreža {b['net_pct']:.2f} %; kupnji {b['buys']}, prodaja {b['sells']}; depozit token "
+            f"računa (vraća se nakon prodaje) izuzet na {b['rent_n']} kupnji)")
 
 
 def calibrate(rows, n=CALIB_N, min_n=CALIB_MIN_N):

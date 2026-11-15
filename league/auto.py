@@ -400,6 +400,12 @@ def fast_loop(market, user=None, every=FAST_EVERY_S):
                     print(text, flush=True)
             except Exception as e:  # noqa: BLE001
                 print(f"range izlazi: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:   # 15.11. (flag oscilator): the oscillator scalp's exits and entries (oscilator/live.py), at most every
+                from oscilator import live as olive   # OSC_TICK_S (5 s); off with nothing open: one cached flag read
+                for text in olive.tick(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"oscilator: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
             try:   # 11.11. (Jure, flag momentum_scalp): TP1 / trailing / stop / 45 min (momentum/trade.py)
                 from momentum import trade as mtrade
                 for text in mtrade.exits_once(con, market):

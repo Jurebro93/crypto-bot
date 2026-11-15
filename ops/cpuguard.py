@@ -197,6 +197,9 @@ PROCESSES = (
     # 15.11. (critic/, owner switch openai_kritika): waits on the OpenAI API, a few hundred ms of CPU a pass; advice only
     ("kriticar", "run_critic.py", (), JOBS,
      "kritičar (OpenAI): svakih 5 min provjera otvorenih pozicija, poziv samo na promjenu; dnevna revizija algoritma"),
+    # 15.11. (owner, oscilator/): read-only walk-forward after a deploy and nightly; writes only oscilator.db
+    ("oscilator", "run_oscilator.py", (), JOBS,
+     "oscilator: walk-forward skalpiranja tokena koji osciliraju (samo čita minutne podatke), nakon deploya i noću"),
     # 15.11. (owner, konsenzus/): read-only research after a deploy and nightly; writes only konsenzus.db
     ("konsenzus", "run_konsenzus.py", (), JOBS,
      "konsenzus izvora: walk-forward influencera, Telegram kanala i novčanika (samo čita baze), nakon deploya i noću"),

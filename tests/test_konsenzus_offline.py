@@ -341,9 +341,11 @@ class Settings(SwitchBase):
 
     def test_owner_order_paper_last_and_never_the_switch(self):
         from ui import assistnotes
-        self.assertEqual(assistnotes.OWNER_FLAG_ORDERS[-1][:2], ("konsenzus", "paper"))
+        # 15.11.: the oscillator's order (oscilator -> paper) came after it
+        self.assertIn(("konsenzus", "paper"), [o[:2] for o in assistnotes.OWNER_FLAG_ORDERS])
         self.assertNotIn(gate.SWITCH, [n for n, _m, _w in assistnotes.OWNER_FLAG_ORDERS])
-        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", assistnotes.OWNER_FLAG_ORDERS[-1:]):
+        mine = tuple(o for o in assistnotes.OWNER_FLAG_ORDERS if o[0] == "konsenzus")
+        with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", mine):
             assistnotes.owner_flag_orders(self.con)
         self.assertEqual(settings.flag_state(self.con)["konsenzus"]["mode"], "paper")
         self.assertEqual(settings.flag_state(self.con)[gate.SWITCH]["mode"], "off")

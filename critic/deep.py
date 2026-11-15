@@ -280,6 +280,9 @@ CONTEXT_BLOCKS = [
     ("naucni_izlazi_po_izvoru", learned_exits),
     # 15.11. (konsenzus/): the source consensus walk-forward: holdout per candidate, the decision, the demo so far
     ("konsenzus_izvora", lambda tcon, now, dbs: __import__("konsenzus.view", fromlist=["critic_summary"]).critic_summary()),
+    # 15.11. (oscilator/): the oscillator scalp: walk-forward per size (top 10 of day D traded on D+1), the range scalp on
+    # the same token-days, the demo so far, the real-money decision
+    ("oscilator", lambda tcon, now, dbs: __import__("oscilator.view", fromlist=["critic_summary"]).critic_summary()),
 ]
 
 

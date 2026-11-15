@@ -324,6 +324,16 @@ def _izvori_refusal():
         return f"konsenzus: dokaz se ne može pročitati ({type(e).__name__})"
 
 
+def _osc_refusal():
+    """15.11. (oscilator/): None when an oscillator trade of the real account may become a real buy (the owner's switch
+    pravi_novac_oscilator on AND the walk-forward + demo proof, oscilator/gate.real_refusal), else why not."""
+    try:
+        from oscilator import gate
+        return gate.real_refusal()
+    except Exception as e:  # noqa: BLE001 - no proof, no real money
+        return f"oscilator: dokaz se ne može pročitati ({type(e).__name__})"
+
+
 # 14.11. (owner: "Ja sada ne govorim o demu ... idemo s pravim novcem"; trade/settings "pravi_novac_sve"): while his
 # switch is on, every automatic demo trade of the real account is a real buy without the demo proof (PROOF, the
 # momentum gate), within trade/executor.SWITCH_CAPS. The hard rules are asked once more right here, on the real buy
@@ -652,6 +662,12 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                     why, wait = _switch_hard(lg, t, now)
                     if why and wait:
                         continue
+            if not why and (t["source"] or "").startswith("oscilator"):   # 15.11. (oscilator/): its own switch + the
+                why = _osc_refusal()                                       # proof; pravi_novac_sve never routes it
+                if not why:
+                    why, wait = _switch_hard(lg, t, now)
+                    if why and wait:
+                        continue
             auto_sw = sw and not size   # 14.11.: an automatic real buy under pravi_novac_sve (the owner's own: as before)
             strat = executor.strategy_of(t["source"])
             if not why and auto_sw:
@@ -792,6 +808,8 @@ def cmd_follow(a):
                       f"config mode={cfg.get('mode', '?')!r} samo kao napomena)", flush=True)
                 try:   # 11.11. (Jure: "pokaži iz loga da su Grokovi limiti nepromijenjeni"): the limits in force
                     print(f"pravi trade: {limits_line(con, cfg)}", flush=True)
+                    from trade import cost as _cost   # 15.11.: what the measured swap cost is made of
+                    print(f"pravi trade: {_cost.breakdown_line()}", flush=True)
                 except Exception as e:  # noqa: BLE001 - a log line never stops the loop
                     print(f"pravi trade: limiti nisu ispisani: {type(e).__name__}: {e}", flush=True)
                 beat["live"] = live_now

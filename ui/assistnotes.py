@@ -792,6 +792,11 @@ OWNER_FLAG_ORDERS = (
     # the owner switch pravi_novac_izvori, which no order here ever turns on.
     ("konsenzus", "paper", "vlasnik u chatu 15.11.: konsenzus izvora (influenceri, Telegram kanali, novčanici) odmah u "
                            "demo; pravi novac samo njegovim prekidačem pravi_novac_izvori uz dokaz na holdoutu"),
+    # 15.11. (vlasnik: "token koji ide gore-dolje ... tradali ga 50 puta dnevno, uzimajući 1-2 $ na svakom"; oscilator/):
+    # the oscillator scalp on the DEMO account from the deploy. Its real money is the owner switch pravi_novac_oscilator,
+    # which no order here ever turns on.
+    ("oscilator", "paper", "vlasnik u chatu 15.11.: oscilator (10 tokena koji idu gore-dolje, 1-2 $ po tradeu) odmah u "
+                           "demo; pravi novac samo njegovim prekidačem pravi_novac_oscilator uz walk-forward i demo dokaz"),
 )
 # 15.11. (the same order): Grok autotrade buys with real money too, so it goes off once as well (grokauto.set_on)
 OWNER_ONCE_1511 = "owner_once:real_money_off_1511"

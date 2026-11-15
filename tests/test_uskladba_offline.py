@@ -61,6 +61,14 @@ class CostModel(unittest.TestCase):
         fee, _n = cost.calibrate([(0.5, "buy", 100_000_000, 5, 1_000_000)] * 5)
         self.assertAlmostEqual(fee, 0.005 + 0.01)
         self.assertEqual(cost.calibrate([(-3.0, "buy", None, None, None)] * 5)[0], 0.0)   # never below 0
+        # 15.11.: the token account's deposit (2 039 280 lamports, refunded after the sale) is no cost: a 0.1 SOL buy
+        # whose fee carries it costs its route + 105 000 lamports of network (0.105 %), not 2.1 % more
+        fee, _n = cost.calibrate([(0.4, "buy", 100_000_000, 5, cost.RENT_LAMPORTS + 105_000)] * 5)
+        self.assertAlmostEqual(fee, 0.004 + 0.00105)
+        b = cost.breakdown([(0.4, "buy", 100_000_000, 5, cost.RENT_LAMPORTS + 105_000)] * 3
+                           + [(0.6, "sell", 5, 100_000_000, 50_000)] * 2)
+        self.assertEqual((b["n"], b["buys"], b["sells"], b["rent_n"], b["price_pct"]), (5, 3, 2, 3, 0.4))
+        self.assertEqual(cost.network_lamports("buy", 5_000_000), cost.NET_FEE_CAP_LAMPORTS)   # capped
         # only the newest 30 count
         rows = [(1.0, "buy", None, None, None)] * 30 + [(9.0, "buy", None, None, None)] * 30
         self.assertAlmostEqual(cost.calibrate(rows)[0], 0.01)

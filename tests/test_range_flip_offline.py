@@ -340,10 +340,12 @@ class LiveGate(TradeBase):
         names = list(settings.FLAGS)   # 11.11.: range_missed (G27) comes after it; 12.11.: x_call_scalp (G31)
         # 14.11.: range_demo (G32, the demo account's profile) after them, then the owner switch pravi_novac_sve (P14),
         # then the owner switch prati_zadnjih5 (P15, kol/zadnjih5.py); 15.11.: the owner switch openai_kritika (P16, critic/),
-        # the source consensus flag konsenzus (P17) and its owner switch pravi_novac_izvori (P18, konsenzus/)
+        # the source consensus flag konsenzus (P17) and its owner switch pravi_novac_izvori (P18, konsenzus/), the
+        # oscillator flag oscilator (P19) and its owner switch pravi_novac_oscilator (P20, oscilator/)
         self.assertEqual(names[names.index("range_flip") + 1:], ["range_missed", "x_call_scalp", "range_demo",
                                                                  "pravi_novac_sve", "prati_zadnjih5", "openai_kritika",
-                                                                 "konsenzus", "pravi_novac_izvori"])
+                                                                 "konsenzus", "pravi_novac_izvori", "oscilator",
+                                                                 "pravi_novac_oscilator"])
         self.assertEqual(settings.flag("range_flip", con=self.con), "off")
         self.assertNotIn("range_flip", settings.DATA_FLAGS)
         self.assertNotIn("range_flip", settings.NEVER_LIVE)
