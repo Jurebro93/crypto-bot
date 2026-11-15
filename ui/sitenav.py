@@ -53,7 +53,8 @@ ITEMS = {
     ],
 }
 
-PLUGINS = ("ui.blog", "ui.coinseo", "ui.botguides", "ui.marketpub")
+PLUGINS = ("ui.blog", "ui.coinseo", "ui.botguides", "ui.marketpub",
+           "makroinf.public")   # 15.11.: the macro influencers, next to the influencer ranking, only while published
 
 
 def _tools_items(lang):
@@ -78,11 +79,15 @@ def menu(lang):
             pass
     seen, out = set(), []
     for key, (label, hub, desc) in GROUPS[lang].items():
-        rows = []
-        for k, h, n, d in items:
+        rows, later = [], []
+        for k, h, n, d, *after in items:   # an optional 5th element: the href the item goes right after
             if k == key and h not in seen:
                 seen.add(h)
-                rows.append((h, n, d))
+                (later if after else rows).append(((h, n, d), after[0] if after else None))
+        rows = [r for r, _a in rows]
+        for r, a in later:
+            i = next((j + 1 for j, x in enumerate(rows) if x[0] == a), len(rows))
+            rows.insert(i, r)
         out.append((key, label, hub, desc, rows))
     return out
 

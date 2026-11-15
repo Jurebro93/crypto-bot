@@ -110,8 +110,20 @@ def score_all(con, now=None, log=print, truth=None, write_index=True):
     store.kv(con, "ulaz", st)
     summ["ulaz"] = st
     store.kv(con, "summary", summ)
+    _refreshed(con, now, log)
     con.commit()
     return summ
+
+
+def _refreshed(con, now, log):
+    """15.11. (vlasnik: "... osvježavati i stranice koje vide korisnici i Google"): kv "javno" after every scoring; the
+    UI process sees the new stamp and drops its cached macro pages (makroinf/web.sync). Returns (accounts, sitemap)."""
+    try:
+        from makroinf import web
+        return web.refreshed(con, now)
+    except Exception as e:  # noqa: BLE001 - the pages then refresh on their own cache times
+        log(store.PREFIX + f"javne stranice: oznaka osvježavanja nije upisana: {type(e).__name__}: {e}"[:200])
+        return None
 
 
 def index_now(con, calls, outs, truth, now):
@@ -196,6 +208,7 @@ def full(con, now=None, log=print, call=None, quality_check=True):
     store.kv(con, "ulaz", st)
     summ["ulaz"] = st
     store.kv(con, "summary", summ)
+    summ["javno"] = _refreshed(con, now, log)   # after the index of the night: the pages show this scoring
     con.commit()
     report.write(con)
     return summ
@@ -316,6 +329,9 @@ def _noc(now, log, path, call, gap_h):
         con.commit()
         for ln in report.lines(con, now):
             log(ln)
+        if s.get("javno"):   # 15.11.: the public pages and the app tab show the night's numbers from the next view
+            from makroinf import web
+            log(web.refreshed_line(*s["javno"]))
         return s
     finally:
         con.close()

@@ -249,6 +249,10 @@ def route(path, qs):
         return ekipe.page(qs)
     if path == "/kol/analize":   # 10.11. (Jure, prijedlog 3.3): the analyses that were folded under /kol, one tap away
         return kol.analize_page(qs)
+    if path == "/kol-makro" or path.startswith("/kol-makro/"):   # 15.11. (makroinf/web.py): macro influencers in the app
+        from makroinf import web as miweb
+        h = path[len("/kol-makro/"):]
+        return miweb.profile_page(h) if h else miweb.list_page()
     if path.startswith("/kol/"):
         return kol.kol_page(path[len("/kol/"):], qs)
     if path == "/wallets":
@@ -642,6 +646,23 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/kol-makro" or path.startswith("/kol-makro/"):
+            # 15.11. (vlasnik: "... staviti ih za sve korisnike aplikacije pod influencere, makroinfluencer i tab ...
+            # osvježavati i stranice koje vide korisnici"): every logged-in user. After a macro scoring the cached
+            # copies are dropped first (makroinf/web.sync), then the tab's list (a fragment the /kol tab fetches) or a
+            # page through route() and pagecache like any other.
+            from makroinf import web as miweb
+            try:
+                miweb.sync()
+            except Exception:  # noqa: BLE001 - the copies then live out their own cache time
+                pass
+            if path == "/kol-makro/lista":
+                try:
+                    frag = miweb.tab_html()
+                except Exception:  # noqa: BLE001
+                    _error_html()   # the traceback to the log under a reference; the tab says "try again"
+                    return self._send(500, b"")
+                return self._send(200, frag.encode("utf-8"))
         if path == "/tokenstranica/povratne":   # 15.11.: comments and votes of a token page, for this player
             from ui import tokenstranica
             frag = tokenstranica.fb_fragment(self.user, qs.get("m", ""), qs.get("e", ""))

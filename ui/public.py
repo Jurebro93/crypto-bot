@@ -317,7 +317,7 @@ def _ga_tag(lang):
 
 
 # Share cards (scripts/og_cards.py): the section a public path belongs to -> ui/static/landing/og-<key>[-hr].jpg
-OG_PREFIX = (("kols", ("/influencer",)),
+OG_PREFIX = (("kols", ("/influencer", "/macro-influencer")),   # 15.11.: the macro influencers share the influencer card
              ("coins", ("/solana-meme-coins", "/coin/", "/how-to-buy", "/rug-check", "/solana-", "/meme-coin", "/best-time")),
              ("tools", ("/best-crypto-tools",)),
              ("learn", ("/blog", "/glossary")))
@@ -906,16 +906,18 @@ def sitemap():
         urls += telegrampub.urls()
     except Exception as e:  # noqa: BLE001
         print(f"sitemap: telegram nedostupan: {e}", flush=True)
-    try:   # 15.11. (makroinf/): only while the owner switch makroinf_javno is on
+    try:   # 15.11. (makroinf/): only while the owner switch makroinf_javno is on; lastmod = the newest score's day
         from makroinf import public as mpub
         urls += mpub.urls()
     except Exception as e:  # noqa: BLE001
         print(f"sitemap: makro influenceri nedostupni: {e}", flush=True)
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">']
-    for en, hr, pr in urls:
+    for u in urls:   # (en, hr, priority[, lastmod]): an entry without its own lastmod is rebuilt from the data today
+        en, hr, pr = u[:3]
+        mod = min(u[3], day) if len(u) > 3 and u[3] else day
         for loc in (en, hr):
-            out.append(f"<url><loc>{base}{loc}</loc><lastmod>{day}</lastmod><priority>{pr}</priority>"
+            out.append(f"<url><loc>{base}{loc}</loc><lastmod>{mod}</lastmod><priority>{pr}</priority>"
                        f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
                        f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/></url>')
     from ui import blog
@@ -943,6 +945,17 @@ def _seo_page(path):
         if fn:
             return fn
     return None
+
+
+def _makroinf_sync():
+    """15.11. (vlasnik: "... osvježavati i stranice koje vide korisnici i Google"): after a macro influencer scoring (or
+    a flip of the switch makroinf_javno) the cached macro pages, the sitemap and robots.txt are dropped here
+    (makroinf/web.sync; one look at makroinf.db per 20 s at most)."""
+    try:
+        from makroinf import web
+        web.sync()
+    except Exception as e:  # noqa: BLE001 - the copies then simply live out CACHE_S
+        print(f"makroinf javno: osvježavanje: {type(e).__name__}: {e}"[:200], flush=True)
 
 
 def route(path):
@@ -996,6 +1009,7 @@ def route(path):
             return None
         lang, h = ("hr" if m.group(1) else "en"), m.group(2)
         fn, ctype = (lambda: profile(h, lang)), "text/html"
+    _makroinf_sync()   # 15.11.: a public page is served: drop the macro copies first if a scoring came since
     now = time.time()
     with _lock:
         hit = _cache.get(path)
