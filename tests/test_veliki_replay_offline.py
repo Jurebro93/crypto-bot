@@ -260,7 +260,7 @@ class NoLookAhead(unittest.TestCase):
         self.assertEqual(replay.tags_of(x, None, None)["makro"], "nepoznato")
 
     def test_point_in_time_filter(self):
-        f = {"supply": 1e7, "liq": 800e3, "liq_day": {(NOW - D) // D: 50e3}}
+        f = {"supply": 1e7, "liq": 800e3, "liq_day": {(NOW - D) // D: 40e3}}
         ok = replay.pit_of(f, {NOW // D: "risk_off"})
         self.assertTrue(ok(NOW - 3 * D, 1.0))
         self.assertFalse(ok(NOW - 3 * D, 0.1))            # MC 1M then: under the collector's range

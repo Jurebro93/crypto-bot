@@ -217,6 +217,23 @@ class RecoveryLive(base.Live):
         self.assertEqual({r[1] for r in rows}, {"neutral/blago_bik"})
         self.assertEqual(live.caps(PU, kind="intra")["max_open"], live.INTRA_MAX_OPEN)
 
+    def test_entry_asks_the_exits_question_first(self):
+        # 16.11. (production: Dz9mQ9 bought three times, each sold 9-11 s later for a reason known before the buy)
+        bad = {tok(100): "prijenos na burzu gate (depozit za prodaju)"}
+        p = mock.patch.object(live, "_holderi_bad", lambda t, now: bad.get(t))
+        p.start()
+        self.addCleanup(p.stop)
+        out, rows = self._go(False)
+        self.assertEqual([r[0] for r in rows], [tok(31)], out)             # the token the exit would sell is not bought
+        self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM veliki_trades WHERE token=?", (tok(100),)).fetchone()[0],
+                         0)
+        self.assertTrue(any("izlaz bi odmah prodao" in x and "depozit za prodaju" in x for x in out), out)
+        self.assertIn("izlaz bi odmah prodao", live.refusal_line())
+        # nothing bought now is sold on the next tick for a reason
+        out2 = live.tick(self.lg, lambda ts: self.mk(ts), now=self.now + 11, force=True)
+        self.assertFalse(any("razlog pada postao loš" in x for x in out2), out2)
+        self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM veliki_trades WHERE status='open'").fetchone()[0], 1)
+
     def test_intraday_position_takes_no_dca_lot(self):
         row = {"id": 1, "user": PU, "token": tok(100), "symbol": "MID", "kind": "intra", "lots": 1, "half_px": None,
                "stop_px": 0.5e-4, "zone": "{}"}

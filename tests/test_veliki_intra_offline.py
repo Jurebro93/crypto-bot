@@ -5,7 +5,7 @@ veliki/intra.py, veliki/live.py), offline:
     stopped falling, never in a BTC free fall; the stop under the zone's low, at most -12 %
   - the exit fix (the critic: "TP +8 % then trailing 5 %" could leave everything at ~+2.6 %): half at the target, the
     rest's stop to break-even, the trailing from the rest's peak; the blended return
-  - the demo universe: the veliki list + the midcap collector's members (MC 2M-200M, liquidity / volume >= $100k, a
+  - the demo universe: the veliki list + the midcap collector's members (MC 2M-200M, liquidity / volume >= $50k, a
     memecoin), >= 100 tokens; the line "veliki demo lista: N tokena"
   - live: an intraday demo entry at 0.1 SOL, the real account only on the veliki list's tokens, the half sale on the
     league trade, the trailing exit of the rest, max 3 rounds a token a day, the hour's report line
@@ -139,7 +139,7 @@ class Live(SwitchBase):
         mc = midcap.connect(self.mdb)
         rows = [(tok(100 + i), 100 + i, f"M{i}", f"P{i}", "raydium", 2e7, 300_000.0, 500_000.0 + i, None, 0, 0, None,
                  "dex", (i if i < 20 else None), 1, None) for i in range(110)]
-        rows += [(tok(300), 300, "THIN", "PX", "raydium", 2e7, 50_000.0, 900_000.0, None, 0, 0, None, "dex", None, 1, None),
+        rows += [(tok(300), 300, "THIN", "PX", "raydium", 2e7, 40_000.0, 900_000.0, None, 0, 0, None, "dex", None, 1, None),
                  (tok(301), 301, "USDC", "PY", "raydium", 2e7, 900_000.0, 900_000.0, None, 0, 0, None, "dex", None, 1,
                   None)]
         mc.executemany("INSERT INTO tokens VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
@@ -167,7 +167,7 @@ class Live(SwitchBase):
         toks, src = live.demo_tokens(self.now)
         self.assertGreaterEqual(len(toks), 100)
         self.assertEqual(toks[0], tok(31))                 # the veliki list first
-        self.assertNotIn(tok(300), toks)                   # liquidity < $100k
+        self.assertNotIn(tok(300), toks)                   # liquidity < $50k
         self.assertNotIn(tok(301), toks)                   # not a memecoin
         self.assertTrue(all(t in toks[1:21] for t in [tok(100 + i) for i in range(20)]))   # trending first
         self.assertEqual(src["veliki lista"], 1)
