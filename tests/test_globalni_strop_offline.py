@@ -92,7 +92,13 @@ class Global(SwitchBase):
         self.assertEqual(r["status"], "open")
         r = self.buy(grokauto.SRC, 2, size=0.5, manual=True, cfg=cfg)   # Grok's page limit goes up to 1 SOL
         self.assertEqual(r["status"], "open")
-        self.assertEqual([s["lamports"] for s in self.swaps], [int(0.1 * LAMPORTS)] * 2)
+        # 16.11. popodne (vlasnik: "5 pozicija × 0,2 SOL"): the midcap range's cap is 0.2 SOL, every other automatic
+        # buy (Grok here) stays at 0.1
+        self.assertEqual([s["lamports"] for s in self.swaps], [int(0.2 * LAMPORTS), int(0.1 * LAMPORTS)])
+        self.assertEqual((executor.auto_cap(True), executor.auto_cap(False)), (0.2, 0.1))
+        self.assertEqual([k for k, _t in executor.auto_hard(self.con, 0.2, self.now, veliki=True)], [])
+        self.assertEqual([k for k, _t in executor.auto_hard(self.con, 0.21, self.now, veliki=True)], ["auto_stake"])
+        self.assertEqual([k for k, _t in executor.auto_hard(self.con, 0.2, self.now)], ["auto_stake"])
         # a direct gate call (a page, a tool) with a bigger automatic stake is a HARD refusal
         kinds = [(k, key) for k, key, _t in executor.buy_checks(self.con, cfg, 0.3, self.now, True, balance=5.0,
                                                                 manual=True, auto=True)]

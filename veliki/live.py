@@ -18,13 +18,13 @@ the zones read are rebuilt from the 15m bars (rule.h1_from_15m), as in the backt
           at the entry), the stop, the time stop, a rug
   caps    demo: DEMO_MAX_OPEN (30) open, DEMO_PER_DAY (120) a Zagreb day (x 1.5 while BTC's bottom forms), the open
           positions' stress loss (stop + 8 pp) at most DEMO_RISK_TOTAL (25 %) of the demo account, cooldown 6 h a
-          token; size DEMO_SOL (0.5 SOL). Real (gate.REAL): 0.1 SOL, 5 open, 20 a day, a day's loss 0.3 SOL, MC 5-150M,
+          token; size DEMO_SOL (0.5 SOL). Real (gate.REAL): 0.2 SOL (16.11.; 0.1 before), 5 open, 20 a day, a day's loss 0.3 SOL, MC 5-150M,
           liquidity >= $500k, round-trip cost <= 6 %, no DCA; the real trade carries the demo trade's id (link_id)
           and the proof's state (proof); every trade carries BTC's state (btc_state)
   cost    each trade carries ret / pnl_usd at the REAL cost model (rule.cost_at: pool + route fee, the network fee,
           the impact at the quoted liquidity), ret_demo at the measured fee a side, and pnl_booked (league/store)
 Real money (owner switch pravi_novac_veliki, veliki/gate): the same entries ALSO on the real account LEAGUE_USER only
-while gate.real_refusal() is None, at its caps (0.1 SOL default, 5 open, day loss 0.3 SOL); run_trade.py asks again.
+while gate.real_refusal() is None, at its caps (0.2 SOL default, 5 open, day loss 0.3 SOL); run_trade.py asks again.
 
 15.11. ~12:35 UTC (vlasnik: "lista od barem 100 tokena, do 100 tradeova dnevno s ~10 %, više tradeova po tokenu"):
   universe  the DEMO universe demo_tokens(): the veliki list + the midcap collector's members (2M-200M, liquidity and
@@ -33,7 +33,11 @@ while gate.real_refusal() is None, at its caps (0.1 SOL default, 5 open, day los
             rebuilt from GeckoTerminal's 15m / the collector's snapshots / this module's quotes), the entry in the
             bottom 25 % once the bars stopped falling, never in a BTC free fall; half at +10 % net, the rest's stop to
             break-even + 5 % trailing, the stop under the zone (at most -12 %), 24 h; cooldown 30 min, at most 3 rounds
-            a token a day; demo 0.1 SOL (the real cost model), 30 open, 100 a day; REAL only on the veliki list's tokens
+            a token a day; demo 0.2 SOL (the real stake and cost model), 30 open, 100 a day; REAL only on the veliki list's tokens
+  stop      16.11. popodne (vlasnik; rule.OWNER_STOP): an INTRADAY position has only a wide safety stop 20 % under its
+            first entry while BTC is calm; BTC down 1.5 %+ over 4 h or in a free fall: the stop goes 4 % under the price
+            of that moment (break-even when the position is above it), once an episode; BTC calm: the earlier stop is
+            back (btc_stop); the +5 % -> break-even rule, the whole profit at the target, the reasoned exits stay
   exits     both rules (rule.on_price): with a trailing the target sells HALF (league sell_part: run_trade mirrors the
             share), the rest's stop moves to break-even and trails from its peak (the critic: no whole position at
             ~+2.6 % any more); every hour the report line (report_line) and the refused candidates by rule
@@ -59,7 +63,7 @@ DEMO_RISK_TOTAL = float(os.environ.get("VEL_DEMO_RISK_TOTAL", "0.25"))
 # trades it in the demo at INTRA_DEMO_SOL (0.1 SOL: the real cost model, honest numbers), INTRA_MAX_OPEN open and
 # INTRA_PER_DAY a Zagreb day; REAL only on the veliki list's tokens (age >= 15 d, MC 5-150M, liquidity >= $500k) under
 # the gate's caps (shared with the 7-day rule)
-INTRA_DEMO_SOL = float(os.environ.get("VEL_INTRA_DEMO_SOL", "0.1"))
+INTRA_DEMO_SOL = float(os.environ.get("VEL_INTRA_DEMO_SOL", "0.2"))   # 16.11.: the real stake (veliki/gate.REAL)
 INTRA_MAX_OPEN = int(os.environ.get("VEL_INTRA_MAX_OPEN", "30"))
 INTRA_PER_DAY = int(os.environ.get("VEL_INTRA_PER_DAY", "100"))
 # 16.11. (vlasnik: "treba što više tradeova danas"): the DEMO's list from $50k liquidity / volume (was $100k: ~47
@@ -111,7 +115,8 @@ def ensure(con):
                      ("trail", "REAL"), ("time_h", "REAL"), ("prio", "TEXT"), ("dip", "TEXT"), ("kind", "TEXT"),
                      ("half_frac", "REAL"), ("half_px", "REAL"), ("half_ts", "INTEGER"), ("be_px", "REAL"),
                      ("first_px", "REAL"), ("lots", "INTEGER"), ("dca_trade_id", "INTEGER"), ("dca_px", "REAL"),
-                     ("dca_ts", "INTEGER"), ("dca_why", "TEXT"), ("exit_why", "TEXT"), ("makro", "TEXT")):
+                     ("dca_ts", "INTEGER"), ("dca_why", "TEXT"), ("exit_why", "TEXT"), ("makro", "TEXT"),
+                     ("wide_px", "REAL"), ("tight_ts", "INTEGER")):
         if col not in have:
             con.execute(f"ALTER TABLE veliki_trades ADD COLUMN {col} {typ}")
 
@@ -290,7 +295,7 @@ def open_rows(con, user=None):
 
 
 def caps(user, btc_state=None, kind=None):
-    """The caps of one account for one rule: real (gate.REAL, shared by both rules: 0.1 SOL, 5 open, 20 buys a day
+    """The caps of one account for one rule: real (gate.REAL, shared by both rules: 0.2 SOL, 5 open, 20 buys a day
     incl. the DCA lots, a day's loss 0.3 SOL); demo: the 7-day rule DEMO_* (x DOWN_BONUS while BTC's bottom forms),
     the intraday rule INTRA_* at INTRA_DEMO_SOL."""
     from trade import settings
@@ -409,6 +414,14 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     if tp <= price:
         return None, "cilj nije iznad ulaza", None
     stop = intra.stop_px(price, zone, cfg) if kind == "intra" else rule.stop_px(price, zone, cfg)
+    wide_px = tight_ts = None
+    if kind == "intra":
+        # 16.11. popodne (vlasnik, rule.OWNER_STOP): only the wide safety stop while BTC is calm; BTC already falling
+        # at the entry: the tight stop from the start (the pre-episode stop, wide, is remembered for the calm)
+        wide_px = rule.wide_stop(price)
+        down, _bw = rule.btc_down((btc or {}).get("crash_obj"), now) if (btc or {}).get("crash_obj") else (False, "")
+        stop = rule.tight_stop(price, None) if down else wide_px
+        tight_ts = int(now) if down else None
     # 16.11. (production: the real account bought Dz9mQ9 three times and sold it 9-11 s later each time, "razlog pada
     # postao loš: prijenos na burzu (depozit za prodaju)", -2.6 % .. -5.6 % a round: the exit read a reason the entry
     # never asked about). The entry now asks the EXIT's own question first: what manage() would sell at once
@@ -457,12 +470,12 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     cur = con.execute(
         "INSERT INTO veliki_trades (user, token, symbol, opened_ts, trade_id, size_sol, size_usd, entry_px, tp_px, "
         "stop_px, rt, drt, liq, mcap, cfg, zone, regime, status, why, btc_state, proof, link_id, trail, time_h, prio, "
-        "dip, kind, half_frac, be_px, first_px, makro, lots) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,"
-        "?,?,?,?,?,?,?,1)",
+        "dip, kind, half_frac, be_px, first_px, makro, wide_px, tight_ts, lots) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"
+        "?,'open',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
         (user, tok, sym, int(now), tid, cp["size_sol"], size_usd, price, tp, stop, c["rt"], drt, liq, mcap,
          key, json.dumps(zj), regime, why[:200], st, proof, link_id, cfg.get("trail") or 0.0,
          cfg["time_h"], (meta or (None, None))[0], (meta or (None, None))[1], kind, half,
-         rule.be_price(price, c["rt"], {"exit_slip": 0.0}), price, _ST.get("makro_tag")))
+         rule.be_price(price, c["rt"], {"exit_slip": 0.0}), price, _ST.get("makro_tag"), wide_px, tight_ts))
     con.commit()
     head = "veliki PRAVI NOVAC: kupnja" if real else "veliki demo ulaz"
     rname = "dnevni raspon" if kind == "intra" else "raspon 7 d"
@@ -578,6 +591,7 @@ def manage(con, r, q, age, now, cfg):
     ld = liq_drop(r, q, now, now - age)   # 16.11.: the pool pulled within the hour: out before the stop is gapped
     if ld:
         return [close(con, r, price, q[1], q[3] if len(q) > 3 else None, "likvidnost", now, why=ld)]
+    out += btc_stop(con, r, pos, price, now)   # 16.11. popodne: the tight stop only while BTC falls (rule.OWNER_STOP)
     had_half = bool(pos.get("half_px"))
     hit = rule.on_price(pos, price, "t", price, rc)
     if pos.get("half_px") and not had_half:
@@ -617,6 +631,61 @@ def manage(con, r, q, age, now, cfg):
                    f"{ctx_text(ctx)}")
     out += dca(con, r, q, pos, now, cfg, ctx)
     return out
+
+
+def btc_stop(con, r, pos, price, now):
+    """16.11. popodne (vlasnik; rule.OWNER_STOP): the stop of an open INTRADAY position against BTC. BTC down 1.5 %+ over
+    4 h (or in a free fall): once an episode the stop goes 4 % under the price of that moment, or to break-even when
+    the position is above it, and the stop it replaces is remembered (wide_px); BTC calm again: that stop comes back.
+    Never lowers a stop that is already higher. Updates r / pos in place. [text]."""
+    from veliki import rule
+    if (r.get("kind") or "") != "intra" or pos.get("half_px"):
+        return []
+    st = btc_state(now)
+    if not st.get("known"):
+        return []
+    down, why = rule.btc_down(st["crash_obj"], now)
+    head = f"veliki{' PRAVI NOVAC' if r['user'] == _league_user() else ''} {r['symbol']}"
+    be = pos.get("be_px") or float("inf")
+    if r.get("tight_ts") and price >= be * (1 + (rule.OWNER_EXIT.get("be_at") or 0.0)) and (r.get("wide_px") or 0) < be:
+        # +5 % net reached during the episode: the owner's break-even rule holds after it too
+        con.execute("UPDATE veliki_trades SET wide_px=? WHERE id=?", (be, r["id"]))
+        con.commit()
+        r["wide_px"] = be
+    if down and not r.get("tight_ts"):
+        new = rule.tight_stop(price, pos.get("be_px"))
+        prev = r["stop_px"]
+        if new > prev:
+            con.execute("UPDATE veliki_trades SET stop_px=?, wide_px=?, tight_ts=? WHERE id=?",
+                        (new, prev, int(now), r["id"]))
+            con.commit()
+            r["stop_px"], r["wide_px"], r["tight_ts"] = new, prev, int(now)
+            pos["stop_px"] = new
+            if new >= pos.get("be_px", float("inf")) * 0.999:
+                pos["be_armed"] = True
+            return [f"{head}: {why}, uži stop {new:.6g} ("
+                    + ("na ulaz, pozicija je u plusu" if new >= pos.get("be_px", float("inf")) * 0.999
+                       else f"{new / price - 1:+.0%} od cijene") + ")"]
+        con.execute("UPDATE veliki_trades SET tight_ts=? WHERE id=?", (int(now), r["id"]))
+        con.commit()
+        r["tight_ts"] = int(now)
+        return []
+    if not down and r.get("tight_ts"):
+        back = r.get("wide_px")
+        txt = []
+        if back and back < r["stop_px"]:
+            con.execute("UPDATE veliki_trades SET stop_px=?, tight_ts=NULL WHERE id=?", (back, r["id"]))
+            r["stop_px"] = pos["stop_px"] = back
+            pos.pop("be_armed", None)
+            if back >= pos.get("be_px", float("inf")) * 0.999:
+                pos["be_armed"] = True
+            txt = [f"{head}: {why}, stop natrag na {back:.6g} ({back / pos['first'] - 1:+.0%} od ulaza)"]
+        else:
+            con.execute("UPDATE veliki_trades SET tight_ts=NULL WHERE id=?", (r["id"],))
+        con.commit()
+        r["tight_ts"] = None
+        return txt
+    return []
 
 
 # ---------- the context of the DCA and the reasoned exits (cached, read-only) ----------------------------------------
@@ -1092,6 +1161,36 @@ def owner_once(con, now=None):
     return out
 
 
+def owner_wide_once(con, now=None):
+    """16.11. popodne (vlasnik: "Trade-ovi trebaju biti otvoreni duže"; rule.OWNER_STOP), once (veliki_once
+    wide_stop_1611): the OPEN intraday positions whose stop is still the old one under the zone (3-12 % under the
+    entry, not at break-even) get the wide stop 20 % under their first entry. [text]."""
+    from veliki import rule
+    key = "wide_stop_1611"
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS veliki_once (k TEXT PRIMARY KEY, ts INTEGER, n INTEGER)")
+        if con.execute("SELECT 1 FROM veliki_once WHERE k=?", (key,)).fetchone():
+            return []
+        n = 0
+        for r in open_rows(con):
+            if (r.get("kind") or "") != "intra" or r.get("half_px"):
+                continue
+            pos = pos_of(r)
+            wide = rule.wide_stop(pos["first"])
+            if pos.get("be_armed") or r["stop_px"] <= wide:
+                continue
+            con.execute("UPDATE veliki_trades SET stop_px=?, wide_px=?, tight_ts=NULL WHERE id=?", (wide, wide, r["id"]))
+            n += 1
+        con.execute("INSERT INTO veliki_once VALUES (?,?,?)", (key, int(now or time.time()), n))
+        con.commit()
+        text = f"veliki: nalog vlasnika {key}: široki stop -20 % za {n} otvorenih dnevnih pozicija"
+        print(text, flush=True)
+        return [text]
+    except Exception as e:  # noqa: BLE001 - never stops the tick
+        print(f"veliki: nalog vlasnika wide_stop nije primijenjen ({type(e).__name__})", flush=True)
+        return []
+
+
 def tick(con, market_fn, now=None, force=False, toks=None):
     """One pass: exits of the open trades, then the entries: the 7-day rule after an hour completed (the veliki
     list), the intraday rule after a 15m bar completed (the demo universe). [text]."""
@@ -1102,6 +1201,7 @@ def tick(con, market_fn, now=None, force=False, toks=None):
     m = mode()
     ensure(con)
     owner_once(con, now)
+    owner_wide_once(con, now)
     opened = open_rows(con)
     if m not in ("paper", "live") and not opened:
         return []

@@ -200,12 +200,12 @@ class Prekidaci(Page):
         cfg = pravitrade._cfg(self.con)
         ns = apjed.novac_state(self.con, cfg, NOW)
         self.assertTrue(ns["on"])
-        self.assertEqual(apjed.caps_text(ns), "0,1 SOL po kupnji · 5 otvorenih · 20 kupnji dnevno · dnevni gubitak 0,3 SOL · "
+        self.assertEqual(apjed.caps_text(ns), "0,2 SOL po kupnji · 5 otvorenih · 20 kupnji dnevno · dnevni gubitak 0,3 SOL · "
                                               "staje ako novčanik padne pod 1 SOL")
         self.assertEqual(apjed.today_text(ns), "danas 1 kupnja, otvoreno 1 od 5, rezultat 0")
         row = self.body_of(self.page())
         row = row[row.index("id=fl-pravi_novac_veliki"):row.index("id=sw-trguje")]
-        for k in ("<b>Pravi novac</b>", '<span class="apx-jst on">uključen</span>', "<b>Stropovi:</b> 0,1 SOL po kupnji",
+        for k in ("<b>Pravi novac</b>", '<span class="apx-jst on">uključen</span>', "<b>Stropovi:</b> 0,2 SOL po kupnji",
                   "<b>Danas:</b> 1 kupnja, otvoreno 1 od 5", "action=/pravi-trade/flag",
                   "name=name value=pravi_novac_veliki", "name=mode value=off", 'class="ap-sw on apx-jbig" role=switch'):
             self.assertIn(k, row, k)
@@ -392,7 +392,7 @@ class Postavke(Page):
         self.midcap()
         html = apterm.lazy("ostalo", "Jure")
         lim = html[html.index("id=limiti-b"):html.index("id=izlazi-b")]
-        self.assertIn("ulog 0,1 SOL · 5 otvorenih · dnevni gubitak 0,3 SOL · pod 1 SOL", lim)
+        self.assertIn("ulog 0,2 SOL · 5 otvorenih · dnevni gubitak 0,3 SOL · pod 1 SOL", lim)
         self.assertIn("pod novčanika <b>1 SOL</b>: ispod toga bot ne kupuje", lim)
         self.assertEqual(lim.count("action=/pravi-trade/limits"), 1)
         form = lim[lim.index("<form"):lim.index("</form>")]

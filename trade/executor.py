@@ -242,7 +242,7 @@ def veliki_caps(cfg=None):
         from veliki import gate
         rc = gate.real_caps(cfg)
     except Exception:  # noqa: BLE001 - unreadable: the code's caps of 15.11.
-        rc = {"size_sol": 0.1, "max_open": 5, "max_buys_day": 20, "max_loss_day_sol": 0.3}
+        rc = {"size_sol": 0.1, "max_open": 5, "max_buys_day": 20, "max_loss_day_sol": 0.3}   # unreadable: the smaller
     size = float(rc["size_sol"])
     n = int(rc["max_buys_day"])
     return {"size_sol": size, "max_sol_per_trade": size, "max_open": int(rc["max_open"]), "max_buys_day": n,
@@ -398,6 +398,15 @@ def switch_line(st):
 # Grok autotrade's buys reach buy() through his buy path as a manual stake (ui/grokauto -> ui/pravitrade._post_buy ->
 # run_trade manual=True) but no person placed them, so they are automatic here (is_auto).
 AUTO_HARD_CAPS = {"max_sol_per_trade": 0.1, "max_loss_day": 0.5}
+# 16.11. popodne (vlasnik, odgovor na pitanje o kapitalu: "5 pozicija × 0,2 SOL"): the midcap range's automatic buys
+# (reason "veliki: ...") may stake 0.2 SOL; every other automatic buy (Grok, the other strategies) stays at 0.1, and
+# the day's loss cap is one for all of them
+AUTO_VELIKI_SOL = 0.2
+
+
+def auto_cap(veliki=False):
+    """The global stake cap of one automatic real buy (SOL)."""
+    return AUTO_VELIKI_SOL if veliki else AUTO_HARD_CAPS["max_sol_per_trade"]
 GROK_AUTO_SRC = "grok auto"   # ui/grokauto.SRC "Grok auto (MCP)"; a Grok request the owner approved is his own buy
 
 
@@ -406,10 +415,10 @@ def is_auto(reason, manual):
     return (not manual) or str(reason or "").strip().lower().startswith(GROK_AUTO_SRC)
 
 
-def auto_hard(con, size_sol, now, tz=None):
+def auto_hard(con, size_sol, now, tz=None, veliki=False):
     """The global cap's refusals of one automatic real buy: [(key, text)] (empty = within the cap)."""
     out = []
-    cap = AUTO_HARD_CAPS["max_sol_per_trade"]
+    cap = auto_cap(veliki)
     if size_sol > cap + 1e-9:
         out.append(("auto_stake", f"globalni strop automatskih pravih kupnji: ulog {size_sol:g} SOL iznad {cap:g} SOL"))
     lost = day_pnl(con, now, "live", tz)
@@ -421,13 +430,13 @@ def auto_hard(con, size_sol, now, tz=None):
     return out
 
 
-def final_check(con, size_sol, now, live, auto, tz=None):
+def final_check(con, size_sol, now, live, auto, tz=None, veliki=False):
     """16.11.: the last check before the swap is sent (after the gate and the sell check, which may take seconds):
     the kill switch for every buy, the global cap for every automatic real buy. The refusal text or None."""
     if os.path.exists(STOP_FILE):
         return "kill switch (trade/STOP)"
     if live and auto:
-        refused = auto_hard(con, size_sol, now, tz)
+        refused = auto_hard(con, size_sol, now, tz, veliki)
         if refused:
             return refused[0][1]
     return None
@@ -519,7 +528,7 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
                                      f"dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} SOL: stop do ponoći")
     if live and auto:   # 16.11.: the global cap of every automatic real buy, HARD (never overridden); after the
         # path's own caps so a refusal both give names the path's cap first (the strictest wins either way)
-        for key, text in auto_hard(con, size_sol, now, tz):
+        for key, text in auto_hard(con, size_sol, now, tz, ve):
             yield HARD, key, text
     n_open = con.execute("SELECT COUNT(*) FROM positions WHERE status IN ('open','pending') AND mode=?",
                          (mode,)).fetchone()[0]
@@ -928,14 +937,14 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
     if live and not manual and not sw and not ve:   # 11.11. (owner's rule C): an automatic stake above the live cap is cut to it;
         size_sol = min(size_sol, LIVE_CAPS["max_sol_per_trade"])   # the owner's own amount is refused by gate_buy instead
     if live and auto:   # 16.11.: the global cap: no automatic real stake above it (a path's smaller one stays smaller)
-        size_sol = min(size_sol, AUTO_HARD_CAPS["max_sol_per_trade"])
+        size_sol = min(size_sol, auto_cap(ve))
     why, passed = _gate(con, cfg, size_sol, now, live, token=token, add=add, manual=manual, override=ov, izvori=iz,
                         mcap=mcap, veliki=ve, auto=auto)
     if not why and cfg.get("sell_check", True):
         why = sell_check(token, size_sol, cfg.get("max_cost_pct"), cfg.get("tp_default") if tp_pct is None else tp_pct,
                          override=passed if ov else None)
     if not why:   # 16.11.: the last check before the swap (the sell check above may have taken seconds)
-        why = final_check(con, size_sol, now, live, auto, cfg.get("day_tz"))
+        why = final_check(con, size_sol, now, live, auto, cfg.get("day_tz"), ve)
     mark = (str(override) if isinstance(override, str) else "nadjačano")[:500] if ov else None
     # 9.11. (audit P11): the pending row carries the intended stake, so a buy that a crash leaves half-booked still
     # counts in the day limit and day_pnl (reconcile_pending keeps it); blocked/failed rows go back to 0 below

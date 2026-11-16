@@ -70,6 +70,44 @@ RULE = {"bar_s": 3600, "look_d": 7, "tp": 15.0, "trail": 0.0, "stop": "pct20", "
 # never on facts known at the entry (concentration, dev share, authorities: veliki/prioritet.static_risk refuses those
 # before the buy)
 OWNER_EXIT = {"time_h": None, "be_at": 0.05}
+# 16.11. popodne (vlasnik: "Sad je vrijeme da ući u trade-ove sa užim stop lossom u slučaju da tržišta prekrene dolje,
+# ali taj stop loss se postavlja samo ako Bitcoin napravi neki movement prema dolje. Trade-ovi trebaju biti otvoreni
+# duže ... mid-capovi obično sporije malo rastu"; his answers the same day: "Široki stop −20 %", "BTC −1,5 % u 4 h"):
+# OWNER_STOP = the stop of the INTRADAY rule's positions (demo and real):
+#   wide    while BTC is calm only a safety stop `wide` (20 %) under the first entry: a few percent of noise no longer
+#           closes the position, a token's own collapse costs about a fifth of the stake at most
+#   tight   once BTC is down `btc4h` (-1.5 %) or more over 4 h, or in a free fall: the stop goes `tight` (4 %) under the
+#           token's price of that moment, or to break-even when the position is above it; set once a BTC episode
+#   calm    BTC back above the threshold: the stop returns to what it was before the episode (the wide stop, or the
+#           break-even the +5 % rule had armed)
+# The +5 % -> break-even rule, the whole profit at the target and the reasoned exits stay as they were.
+OWNER_STOP = {"wide": 0.20, "btc4h": -0.015, "tight": 0.04}
+
+
+def wide_stop(first, cfg=None):
+    return first * (1 - {**OWNER_STOP, **(cfg or {})}["wide"])
+
+
+def tight_stop(px, be_px, cfg=None):
+    """The stop while BTC falls: break-even when the price is at or above it, else `tight` under the price."""
+    c = {**OWNER_STOP, **(cfg or {})}
+    return be_px if be_px and px >= be_px else px * (1 - c["tight"])
+
+
+def btc_down(crash, t, cfg=None):
+    """(True / False, why in Croatian): BTC down btc4h or more over 4 h, or in a free fall, known at t. Unknown BTC
+    is not "down" (no stop is tightened on missing data; the real account buys nothing without BTC anyway)."""
+    c = {**OWNER_STOP, **(cfg or {})}
+    try:
+        st = crash.regime(t)[0]
+        ch = crash.chg(t, 4)
+    except Exception:  # noqa: BLE001
+        return False, "BTC nepoznat"
+    if st == "slobodan_pad":
+        return True, "BTC u slobodnom padu"
+    if ch is not None and ch <= c["btc4h"]:
+        return True, f"BTC {ch:+.1%} u 4 h"
+    return False, ("BTC miran" + (f" ({ch:+.1%} u 4 h)" if ch is not None else ""))
 # 16.11. (vlasnik: "više tradeova, zatvaraju se gdje postoji dobar razlog ... uključi DCA"; the critic: "TP +8 % pa
 # trailing 5 %" could leave the WHOLE position at ~+2.6 % = 1.08 x 0.95):
 #   half       with a trailing (trail > 0) the target sells `half` (50 %) of the position (locked), the rest's stop moves
