@@ -312,9 +312,9 @@ class OwnerStop(base.Live):
     def test_calm_btc_only_the_wide_stop_and_the_owners_stake(self):
         rid, entry, stop, wide, tight, size, _be = self._enter()
         self.assertAlmostEqual(stop / entry, 0.80, places=6)
-        self.assertEqual((wide, tight, size), (stop, None, 0.2))
+        self.assertEqual((wide, tight, size), (stop, None, 0.1))
         from veliki import gate
-        self.assertEqual((gate.real_caps({})["size_sol"], gate.real_caps({})["max_open"]), (0.2, 5))
+        self.assertEqual((gate.real_caps({})["size_sol"], gate.real_caps({})["max_open"]), (0.1, 5))
         out = self._tick(entry * 0.90, 60)                       # -10 % of noise: still open, nothing tightened
         st = self._row(rid)
         self.assertEqual((st[0], st[4]), ("open", None), out)

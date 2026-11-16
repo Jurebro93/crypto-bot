@@ -292,7 +292,7 @@ class NoLookAhead(unittest.TestCase):
         b = ou_bars(3, 15)
         f = {"supply": 1e7, "liq": 800e3, "liq_day": {}}
         sim = replay.simulate_token(b, None, RT, 15.0, None, f, days)
-        self.assertEqual(len(sim), 19)
+        self.assertEqual(len(sim), 22)                    # 18 variants + risk_off + the new stop rule at 3 targets
         self.assertTrue(sim["risk_off"])
         self.assertTrue(all(x["ts"] // D in off for x in sim["risk_off"]))
         for k, trs in sim.items():
@@ -460,6 +460,44 @@ class Run(unittest.TestCase):
             self.assertTrue(f["ci90"][1] < 0 or f["ci90"][0] > 0)
         self.assertLess(len(replay.dumps(r)), 60_000)
 
+    def test_new_stop_rule_is_replayed_next_to_the_old_one(self):
+        nv = self.res["novo"]
+        self.assertEqual([v["tp"] for v in nv["varijante"]], list(replay.NOVO_TPS))
+        self.assertIn("široki stop −20 %", nv["tekst"])
+        for v in nv["varijante"]:
+            self.assertIn("n", v["svi"])
+            self.assertIn("n", v["izvan"])
+        self.assertIn("NOVO pravilo stopa", self.lines[0])
+        s = replay.summary(self.res)
+        self.assertEqual(sum(1 for r in s["redovi"] if r["naziv"].startswith("Novo pravilo stopa")), 3)
+        self.assertTrue(any("Novo pravilo stopa (od 16.11.)" in x for x in s["napomene"]))
+
+    def test_owner_stop_on_bars(self):
+        class C:
+            def __init__(self):
+                self.ch = 0.0
+
+            def regime(self, t, vol=None):
+                return "normalno", ""
+
+            def chg(self, t, hours=4):
+                return self.ch
+        c = C()
+        pos = {"entry": 1.0, "first": 1.0, "stop_px": 0.80, "be_px": 1.03}
+        intra.owner_stop_bar(pos, (0, 0.97, 0.98, 0.96, 0.97, 0), c)          # BTC calm: nothing
+        self.assertEqual(pos["stop_px"], 0.80)
+        c.ch = -0.02
+        intra.owner_stop_bar(pos, (900, 0.97, 0.98, 0.96, 0.97, 0), c)        # BTC falls: 4 % under the bar's open
+        self.assertAlmostEqual(pos["stop_px"], 0.97 * 0.96)
+        intra.owner_stop_bar(pos, (1800, 0.99, 0.99, 0.95, 0.96, 0), c)       # once an episode
+        self.assertAlmostEqual(pos["stop_px"], 0.97 * 0.96)
+        c.ch = -0.001
+        intra.owner_stop_bar(pos, (2700, 0.96, 0.97, 0.95, 0.96, 0), c)       # calm again: the wide stop is back
+        self.assertEqual(pos["stop_px"], 0.80)
+        c.ch = -0.03
+        intra.owner_stop_bar(pos, (3600, 1.05, 1.06, 1.04, 1.05, 0), c)       # in profit: break-even
+        self.assertEqual(pos["stop_px"], 1.03)
+
     def test_stored_and_logged(self):
         self.assertEqual(replay.latest(self.path)["ts"], NOW)
         self.assertEqual(len(self.lines), 1)
@@ -570,7 +608,9 @@ class Cli(unittest.TestCase):
         today = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 3600))
         self.assertEqual(self._main(["replay"], {"ts": 1, "day": today}), 1)               # asked for: runs
         self.assertEqual(self._main(["replay", "--ako-nema"], None), 1)                     # after a deploy, no result
-        self.assertEqual(self._main(["replay", "--ako-nema"], {"ts": 1, "day": "2026-01-01"}), 0)
+        self.assertEqual(self._main(["replay", "--ako-nema"], {"ts": 1, "day": "2026-01-01", "novo": {"x": 1}}), 0)
+        # 16.11.: a stored result from before the new stop rule is replayed once more after the deploy
+        self.assertEqual(self._main(["replay", "--ako-nema"], {"ts": 1, "day": "2026-01-01"}), 1)
         self.assertEqual(self._main(["replay", "--night"], {"ts": 1, "day": "2026-01-01"}), 1)
         self.assertEqual(self._main(["replay", "--night"], {"ts": 1, "day": today}), 0)     # once a day
         self.assertEqual(self._main(["replay", "--night"], None, night=False), 0)           # only in the night window

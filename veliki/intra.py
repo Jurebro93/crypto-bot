@@ -114,6 +114,23 @@ def position(entry, ts, z, rt, cfg=None):
             "stop_px": stop_px(entry, z, c), "be_px": rule.be_price(entry, rt, c)}
 
 
+def owner_stop_bar(pos, bar, crash):
+    """rule.OWNER_STOP on one bar of a replay (veliki/live.btc_stop on ticks): from what is known at the bar's open.
+    BTC down: once an episode the stop goes `tight` under the bar's open (break-even when the open is above it) and
+    the stop it replaces is remembered; BTC calm: that stop is back unless the +5 % rule armed break-even meanwhile."""
+    down = rule.btc_down(crash, bar[0])[0]
+    if down and not pos.get("tight"):
+        pos["tight"] = True
+        new = rule.tight_stop(bar[1], pos.get("be_px"))
+        if new > pos["stop_px"]:
+            pos["wide_prev"], pos["stop_px"] = pos["stop_px"], new
+    elif not down and pos.get("tight"):
+        pos["tight"] = False
+        prev = pos.pop("wide_prev", None)
+        if prev is not None and prev < pos["stop_px"] and not pos.get("be_armed"):
+            pos["stop_px"] = prev
+
+
 def simulate(b15, h1, rt, size_usd, cfg=None, crash=None, pit=None, zcache=None, ctx=None):
     """Offline replay on one token's 15m bars (and its 1h candles; None: rebuilt from the 15m): decide at each
     completed 15m bar's close, fill at the next bar's open; one position at a time, the cooldown and MAX_ROUNDS a UTC
@@ -151,10 +168,16 @@ def simulate(b15, h1, rt, size_usd, cfg=None, crash=None, pit=None, zcache=None,
         b = b15[i + 1]
         e = b[1] * (1 + c["entry_slip"])
         pos = position(e, b[0], z, rt, c)
+        if c.get("owner_stop"):   # 16.11. popodne (rule.OWNER_STOP): the wide stop; tight from the start when BTC falls
+            pos["stop_px"] = rule.wide_stop(e)
+            if crash is not None and rule.btc_down(crash, b[0])[0]:
+                pos["wide_prev"], pos["stop_px"], pos["tight"] = pos["stop_px"], rule.tight_stop(e, None), True
         day_n[d] = day_n.get(d, 0) + 1
         j, hit = i + 1, None
         lo = hi = e
         while j < len(b15):
+            if c.get("owner_stop") and crash is not None and j > i + 1 and not pos.get("half_px"):
+                owner_stop_bar(pos, b15[j], crash)
             hit = rule.exit_on_bar(pos, b15[j], c)
             lo, hi = min(lo, b15[j][3]), max(hi, b15[j][2])
             if hit:
