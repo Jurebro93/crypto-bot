@@ -39,6 +39,7 @@ while gate.real_refusal() is None, at its caps (0.1 SOL default, 5 open, day los
             ~+2.6 % any more); every hour the report line (report_line) and the refused candidates by rule
 """
 import os
+import re
 import time
 
 FLAG = "veliki_range"
@@ -108,7 +109,7 @@ def ensure(con):
                      ("trail", "REAL"), ("time_h", "REAL"), ("prio", "TEXT"), ("dip", "TEXT"), ("kind", "TEXT"),
                      ("half_frac", "REAL"), ("half_px", "REAL"), ("half_ts", "INTEGER"), ("be_px", "REAL"),
                      ("first_px", "REAL"), ("lots", "INTEGER"), ("dca_trade_id", "INTEGER"), ("dca_px", "REAL"),
-                     ("dca_ts", "INTEGER"), ("dca_why", "TEXT"), ("exit_why", "TEXT")):
+                     ("dca_ts", "INTEGER"), ("dca_why", "TEXT"), ("exit_why", "TEXT"), ("makro", "TEXT")):
         if col not in have:
             con.execute(f"ALTER TABLE veliki_trades ADD COLUMN {col} {typ}")
 
@@ -296,7 +297,8 @@ def caps(user, btc_state=None, kind=None):
         c = gate.real_caps()
         return {"size_sol": c["size_sol"], "max_open": c["max_open"], "per_day": c["max_buys_day"],
                 "loss_day_sol": c["max_loss_day_sol"], "real": True, "kind": None}
-    on = _ST.get("macro") == "risk_on"     # 15.11.: the macro regime risk_on -> more demo entries (never real)
+    # 15.11.: the macro regime risk_on -> more demo entries (never real); 16.11.: the same while "oporavak" holds
+    on = _ST.get("macro") == "risk_on" or bool(_ST.get("oporavak"))
     if kind == "intra":
         k = 1.5 if on else 1.0
         return {"size_sol": INTRA_DEMO_SOL, "max_open": int(INTRA_MAX_OPEN * k), "per_day": int(INTRA_PER_DAY * k),
@@ -440,12 +442,12 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     cur = con.execute(
         "INSERT INTO veliki_trades (user, token, symbol, opened_ts, trade_id, size_sol, size_usd, entry_px, tp_px, "
         "stop_px, rt, drt, liq, mcap, cfg, zone, regime, status, why, btc_state, proof, link_id, trail, time_h, prio, "
-        "dip, kind, half_frac, be_px, first_px, lots) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?,"
-        "?,?,?,?,1)",
+        "dip, kind, half_frac, be_px, first_px, makro, lots) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,"
+        "?,?,?,?,?,?,?,1)",
         (user, tok, sym, int(now), tid, cp["size_sol"], size_usd, price, tp, stop, c["rt"], drt, liq, mcap,
          key, json.dumps(zj), regime, why[:200], st, proof, link_id, cfg.get("trail") or 0.0,
          cfg["time_h"], (meta or (None, None))[0], (meta or (None, None))[1], kind, half,
-         rule.be_price(price, c["rt"], {"exit_slip": 0.0}), price))
+         rule.be_price(price, c["rt"], {"exit_slip": 0.0}), price, _ST.get("makro_tag")))
     con.commit()
     head = "veliki PRAVI NOVAC: kupnja" if real else "veliki demo ulaz"
     rname = "dnevni raspon" if kind == "intra" else "raspon 7 d"
@@ -1014,9 +1016,12 @@ def chain_line(con, user, d0, path=None):
     return f"; na lancu danas: kupljeno {bought}, odbijeno {refused}"
 
 
+_NUM = re.compile(r"[-+]?\d[\d.,]*")
+
+
 def _refused(why):
     """Count a refused candidate by its rule (the hour's line: which rule refuses how many)."""
-    k = (why or "?").split(" (")[0].split(":")[0][:60]
+    k = _NUM.sub("N", (why or "?").split(" (")[0])[:70]   # 16.11.: the whole reason (numbers folded), not its prefix
     r = _ST.setdefault("ref", {})
     r[k] = r.get(k, 0) + 1
 
@@ -1024,7 +1029,7 @@ def _refused(why):
 def refusal_line():
     r = _ST.get("ref") or {}
     _ST["ref"] = {}
-    top = sorted(r.items(), key=lambda kv: -kv[1])[:10]
+    top = sorted(r.items(), key=lambda kv: -kv[1])[:12]
     return "veliki odbijeni kandidati zadnji sat: " + ("; ".join(f"{k} {v}" for k, v in top) or "nijedan")
 
 
@@ -1149,6 +1154,21 @@ def tick(con, market_fn, now=None, force=False, toks=None):
         snap = None
     mac = (snap or {}).get("regime")
     _ST["macro"] = mac
+    try:   # 16.11. ("oporavak": BTC holds its bottom + the platforms' volume comes back; veliki/makro.recovery)
+        rec = makro.is_recovery(snap)
+        _ST["makro_tag"] = makro.tag(snap, makro.mood_now(now))
+        rec_why = ((snap or {}).get("oporavak") or {}).get("why")
+    except Exception:  # noqa: BLE001 - no label: the old behaviour
+        rec, rec_why = False, None
+        _ST["makro_tag"] = mac
+    _ST["oporavak"] = rec
+    if _ST.get("oporavak_said") != rec:
+        _ST["oporavak_said"] = rec
+        if rec:
+            out.append(f"veliki oporavak: DA — {rec_why}; kandidati redom po odzivu na rast BTC-a, ulaz i dalje samo "
+                       "na dnu raspona, demo stropovi x1,5, pravi stropovi isti")
+        elif rec_why:
+            out.append(f"veliki oporavak: ne — {rec_why}")
     if _ST.get("macro_said") != mac:
         _ST["macro_said"] = mac
         out.append(f"veliki makro režim: {mac or 'nepoznat (neutralno)'}"
@@ -1169,6 +1189,10 @@ def tick(con, market_fn, now=None, force=False, toks=None):
         lst = prioritet.order(lst, pr)
         univ = prioritet.order(univ, pr)
         real_rank = {t: k for k, t in enumerate(prioritet.order(lst, pr, real=True))}
+        if rec:   # 16.11.: while the recovery holds, the tokens that answer BTC's upticks first (both accounts)
+            from veliki import odziv
+            lst, univ = odziv.order(lst, pr), odziv.order(univ, pr)
+            real_rank = {t: k for k, t in enumerate(odziv.order(sorted(real_rank, key=real_rank.get), pr))}
     except Exception:  # noqa: BLE001 - no priority: the list order
         prioritet, pr = None, {}
         real_rank = {t: k for k, t in enumerate(lst)}

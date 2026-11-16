@@ -24,6 +24,19 @@ Uses (veliki/live): risk_off -> no new entries, no DCA, the reasoned exits; risk
 caps x RISK_ON_BONUS (the real caps never move). Every hour (veliki/midcap.run_pass) the line "makro platforme:
 pump.fun 24 h $…, Δ7d …; …; režim …" and one row in midcap.db makro_h (the history for the backtest). For the past
 (walk.py) the same rule on market.db's DAILY volumes: day d from the days before d only (daily_regimes).
+
+"Oporavak" (16.11., vlasnik: "Bitcoin je čini se pronašao svoje dno, pa bi imalo smisla očekivati da će volumen na meme
+platformama sada krenuti lagano prema gore. Tako da prema tome treba graditi strategiju"; recovery(), pure; RECOVERY):
+  BTC holds its bottom   not a free fall, 24 h >= -1 %, and a bottom formed lately: BTC's state is dno_se_potvrduje now
+                         or was dno_se_potvrduje / slobodan_pad within the last bottom_d (5) days of makro_h
+  the volume comes back  the meme platforms' chg at now > 6 h ago > 12 h ago (two consecutive readings step_h apart),
+                         up at least rise_min (3 pp) over the 12 h, and not under plat_min (-20 %)
+While it holds (and the regime is not risk_off) veliki/live tries its candidates in the order of veliki/odziv (the
+tokens that answer BTC's upticks first; the entry rule itself, the bottom of the range, does not change), the DEMO's
+caps x RISK_ON_BONUS, the REAL caps never move. Every trade stores the regime and the macro influencers' mood of its
+entry (veliki_trades.makro: "oporavak/blago_bik"), so the report measures each regime, and the mood WITHIN it, apart.
+The mood (makroinf/mood, the 7-day weighted verdict) is a label only: it decides nothing (makroinf stays a measured
+input until it proves incremental EV: the critic's rule of 15.11.).
 """
 import json
 import os
@@ -228,7 +241,13 @@ def line(snap):
                      f"trending), Δ7d {_p(md.get('chg'))}")
     parts.append(f"BTC {snap.get('btc_state') or '?'}" + (f" ({snap['btc24']:+.1%} 24 h)"
                                                           if snap.get("btc24") is not None else ""))
-    return PREFIX + "; ".join(parts) + f"; režim {snap.get('regime')} ({snap.get('why')}) [izvor {snap.get('src')}]"
+    op = snap.get("oporavak")
+    tail = ""
+    if op:
+        tail = (f"; oporavak {'DA' if op.get('ok') else 'ne'} ({op.get('why')})"
+                + (f"; influenceri 7 d: {op['mood'].replace('_', ' ')}" if op.get("mood") else ""))
+    return (PREFIX + "; ".join(parts) + f"; režim {snap.get('regime')} ({snap.get('why')})" + tail
+            + f" [izvor {snap.get('src')}]")
 
 
 def _btc(now):
@@ -269,6 +288,8 @@ def refresh(con, now=None, log=print, market_path=None):
     now = int(now or time.time())
     con.executescript(SCHEMA)
     s = snapshot(con, now, market_path)
+    ok, why, parts = recovery(s, history(con, now), now)
+    s["oporavak"] = {"ok": ok, "why": why, **parts, "mood": mood_now(now)}
     con.execute("INSERT OR REPLACE INTO makro_h (ts, regime, data) VALUES (?,?,?)",
                 (now // H * H, s["regime"], json.dumps(s, ensure_ascii=False)))
     con.execute("DELETE FROM makro_h WHERE ts < ?", (now - 120 * D,))
@@ -304,6 +325,111 @@ def current(now=None, path=None, max_age_s=3 * H):
     if not v or now - (v.get("ts") or 0) > max_age_s:
         return None
     return v
+
+
+# ---------- oporavak (16.11.) -------------------------------------------------------------------------------------------
+RECOVERY = {"btc24_min": -0.01, "bottom_d": 5, "step_h": 6, "steps": 2, "rise_min": 0.03, "plat_min": -0.20,
+            "near_s": 5400}
+BULLISH = ("jasno_bik", "blago_bik")
+_MOOD = {"ts": 0.0, "v": None}
+
+
+def _meme_chg(s):
+    return ((s.get("platforms") or {}).get("meme") or {}).get("chg")
+
+
+def history(con, now, days=None):
+    """[snapshot] of makro_h (con: midcap.db) of the last `days` days, oldest first."""
+    d = days if days is not None else RECOVERY["bottom_d"]
+    out = []
+    try:
+        for ts, data in con.execute("SELECT ts, data FROM makro_h WHERE ts >= ? AND ts <= ? ORDER BY ts",
+                                    (int(now - d * D), int(now))):
+            try:
+                v = json.loads(data)
+            except (ValueError, TypeError):
+                continue
+            v.setdefault("ts", ts)
+            out.append(v)
+    except sqlite3.Error:
+        return []
+    return out
+
+
+def recovery(snap, hist, now=None, cfg=None):
+    """(ok, why in Croatian, {"btc_ok", "vol_ok", "readings"}): BTC holds its bottom AND the meme platforms' volume
+    rose on two consecutive readings (see the module text). snap: the snapshot now; hist: the earlier snapshots
+    (history(), oldest first). Unknown data = False and said."""
+    c = {**RECOVERY, **(cfg or {})}
+    now = int(now or snap.get("ts") or time.time())
+    st, b24 = snap.get("btc_state"), snap.get("btc24")
+    seen = st == "dno_se_potvrduje" or any(
+        h.get("btc_state") in ("dno_se_potvrduje", "slobodan_pad") for h in hist
+        if now - (h.get("ts") or 0) <= c["bottom_d"] * D)
+    if st is None or b24 is None:
+        btc_ok, bw = False, "BTC nepoznat"
+    elif st == "slobodan_pad":
+        btc_ok, bw = False, "BTC slobodan pad"
+    elif b24 < c["btc24_min"]:
+        btc_ok, bw = False, f"BTC {b24:+.1%} u 24 h (pada)"
+    elif not seen:
+        btc_ok, bw = False, f"BTC bez nedavnog dna (zadnjih {c['bottom_d']} d)"
+    else:
+        btc_ok, bw = True, f"BTC drži dno ({b24:+.1%} u 24 h)"
+    rd = [_meme_chg(snap)]
+    for k in range(1, int(c["steps"]) + 1):
+        t = now - k * c["step_h"] * H
+        near = [h for h in hist if abs((h.get("ts") or 0) - t) <= c["near_s"] and _meme_chg(h) is not None]
+        rd.append(_meme_chg(min(near, key=lambda h: abs(h["ts"] - t))) if near else None)
+    if any(x is None for x in rd):
+        vol_ok, vw = False, f"volumen platformi: premalo očitanja ({sum(x is not None for x in rd)} od {len(rd)})"
+    else:
+        up = all(rd[i] > rd[i + 1] for i in range(len(rd) - 1))
+        txt = " ← ".join(f"{x:+.0%}" for x in rd)
+        if not up:
+            vol_ok, vw = False, f"volumen meme platformi ne raste dva očitanja zaredom ({txt})"
+        elif rd[0] - rd[-1] < c["rise_min"]:
+            vol_ok, vw = False, f"volumen meme platformi raste preslabo ({txt})"
+        elif rd[0] < c["plat_min"]:
+            vol_ok, vw = False, f"volumen meme platformi još duboko ispod prosjeka ({rd[0]:+.0%})"
+        else:
+            vol_ok, vw = True, f"volumen meme platformi raste ({txt}, svakih {c['step_h']} h)"
+    return btc_ok and vol_ok, f"{bw}; {vw}", {"btc_ok": btc_ok, "vol_ok": vol_ok,
+                                               "readings": [None if x is None else round(x, 3) for x in rd]}
+
+
+def mood_now(now=None, max_age_s=48 * H, cache_s=600):
+    """The macro influencers' 7-day verdict key (makroinf/mood: jasno_bik ... jasno_medvjed) or None (no makroinf,
+    older than max_age_s). A LABEL of the trades, never a condition. Cached; never raises."""
+    if _MOOD["ts"] and time.monotonic() - _MOOD["ts"] < cache_s:
+        return _MOOD["v"]
+    v = None
+    try:
+        from makroinf import mood
+        m = mood.load()
+        if m and (now or time.time()) - (m.get("ts") or 0) <= max_age_s:
+            b = (m.get("okviri") or {}).get("7d") or {}
+            v = b.get("presuda_pond") or b.get("presuda")
+            if v == "premalo":
+                v = None
+    except Exception:  # noqa: BLE001 - no makroinf: no label
+        v = None
+    _MOOD.update(ts=time.monotonic(), v=v)
+    return v
+
+
+def tag(snap, mood=None):
+    """The trade's macro label: "oporavak" while the recovery holds (and the regime is not risk_off), else the regime;
+    "/<mood>" appended when the influencers' mood is known. None without a snapshot."""
+    if not snap:
+        return None
+    reg = snap.get("regime")
+    base = "oporavak" if (snap.get("oporavak") or {}).get("ok") and reg != "risk_off" else reg
+    return (base or "nepoznato") + (f"/{mood}" if mood else "")
+
+
+def is_recovery(snap):
+    return bool(snap and (snap.get("oporavak") or {}).get("ok") and snap.get("regime") != "risk_off")
 
 
 # 15.11. navečer (vlasnik: "Take profit na 10-15 %, nek bude u potpunosti take profit, osim ako Bitcoin nije doživio

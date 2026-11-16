@@ -124,7 +124,7 @@ def ev_ci(rets):
 
 VCOLS = ("id", "user", "token", "symbol", "opened_ts", "closed_ts", "status", "kind", "size_sol", "size_usd",
          "entry_px", "tp_px", "stop_px", "rt", "ret", "pnl_usd", "reason", "half_ts", "half_px", "be_px", "trade_id",
-         "lots", "why")
+         "lots", "why", "makro", "prio")
 
 
 def rule_of(r):
@@ -291,12 +291,47 @@ def trading(now, p=None):
                     x["lanac"] = {"jucer": chain(p["trade"], rr, y0, d0), "7d": chain(p["trade"], rr, now - 7 * DAY, now + 1)}
                 out_rows.append(x)
         return {"jucer": {"od": y0, "do": d0, "dan": time.strftime("%d.%m.", time.gmtime(y0 + 7200))},
+                "po_rezimu": by_regime(rows, u, now - 7 * DAY),
                 "rows": out_rows, "otvoreno": open_positions(lcon, rows, p["midcap"], now, tpath=p["trade"]),
                 "otvoreno_n": sum(1 for r in rows if r.get("status") == "open")}
     except sqlite3.Error:
         return None
     finally:
         lcon.close()
+
+
+def by_regime(rows, u, t0):
+    """16.11. (veliki/makro.tag): the trades closed since t0 by the macro label of their entry ("oporavak", risk_on,
+    neutral; rows before the label: "bez oznake") and, inside "oporavak", by the influencers' mood and by the token's
+    answer to BTC (veliki/odziv: the upper / lower half of the measured ones). [{racun, rezim, n, ev, ci, zbroj}]."""
+    out = []
+    for acc in ("demo", "pravi"):
+        mine = [r for r in rows if r.get("user") == u[acc] and r.get("status") == "closed" and r.get("ret") is not None
+                and (r.get("closed_ts") or 0) >= t0]
+        groups = {}
+        for r in mine:
+            tg = (r.get("makro") or "bez oznake")
+            base, _, mood = tg.partition("/")
+            groups.setdefault(base, []).append(r)
+            if base == "oporavak":
+                groups.setdefault("oporavak, influenceri " + ("bikovski" if mood.endswith("_bik") else
+                                                              "nisu bikovski" if mood else "nepoznato"), []).append(r)
+                sc = _btc_up(r)
+                if sc is not None:
+                    groups.setdefault("oporavak, odziv na BTC " + ("jak" if sc >= 1.0 else "slab"), []).append(r)
+        for k in sorted(groups, key=lambda x: (not x.startswith("oporavak"), x)):
+            rr = groups[k]
+            ev, ci = ev_ci([r["ret"] for r in rr])
+            out.append({"racun": acc, "rezim": k, "n": len(rr), "ev": ev, "ci": ci,
+                        "zbroj": round(sum(r.get("pnl_usd") or 0.0 for r in rr), 2)})
+    return out
+
+
+def _btc_up(r):
+    try:
+        return float(((json.loads(r.get("prio") or "{}") or {}).get("btc_up") or {}).get("score"))
+    except (ValueError, TypeError):
+        return None
 
 
 # ---------- the rules: out-of-sample EV and real money ----------------------------------------------------------------
@@ -422,6 +457,8 @@ def market(now, p=None, movers=5):
                             "midcap_chg": (v.get("midcaps") or {}).get("chg"), "btc24": v.get("btc24")}
             ok, why = makro.bull(now, snap=v)
             out["makro"]["bull"], out["makro"]["bull_zasto"] = ok, why
+            op = v.get("oporavak") or {}
+            out["makro"]["oporavak"] = {"da": makro.is_recovery(v), "zasto": op.get("why"), "mood": op.get("mood")}
     except Exception:  # noqa: BLE001
         pass
     mcon = ro(p["midcap"])

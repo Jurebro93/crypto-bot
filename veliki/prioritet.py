@@ -272,12 +272,31 @@ def refresh(con, now=None):
         if h.get("listing") or h.get("oprez"):
             row["holders"] = {k: h.get(k) for k in ("listing", "listing_score", "listing_ex", "oprez", "why")}
         rows.append(row)
+    od = _odziv(con, now)
+    for row in rows:   # 16.11. (veliki/odziv): how the token answers BTC's upticks; the order while "oporavak" holds
+        if row["mint"] in od:
+            row["btc_up"] = od[row["mint"]]
     rows.sort(key=lambda r: -r["score"])
     prio = {"ts": now, "rows": rows[:KEEP]}
     midcap.kv_put(con, "prio", prio)
     con.commit()
     _C.update(ts=0.0)
     return prio
+
+
+def _odziv(con, now, every_s=3600):
+    """{mint: veliki/odziv row}, recomputed once an hour (kv "odziv"); {} when it cannot be computed."""
+    from veliki import midcap
+    try:
+        have = midcap.kv_get(con, "odziv", {}) or {}
+        if have.get("rows") is not None and now - (have.get("ts") or 0) < every_s:
+            return have["rows"]
+        from veliki import odziv, store
+        rows = odziv.all_of(con, store.btc_hourly(), now)
+        midcap.kv_put(con, "odziv", {"ts": int(now), "rows": rows})
+        return rows
+    except Exception:  # noqa: BLE001 - no BTC hours / no candles: no component
+        return {}
 
 
 def cached(path=None):
@@ -330,7 +349,8 @@ def meta(tok, prio=None):
     r = (cached() if prio is None else prio).get(tok)
     if not r:
         return None, None
-    return (json.dumps({"score": r["score"], **r["parts"], "facts": r.get("facts")}, ensure_ascii=False),
+    return (json.dumps({"score": r["score"], **r["parts"], "facts": r.get("facts"),
+                        **({"btc_up": r["btc_up"]} if r.get("btc_up") else {})}, ensure_ascii=False),
             json.dumps(r["dip"], ensure_ascii=False) if r.get("dip") else None)
 
 

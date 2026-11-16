@@ -229,6 +229,16 @@ def open_table(op):
     return ctable(["Pozicija", "Sada", "Stop", "Cilj"], rows, nowrap=True)
 
 
+def regime_items(rows):
+    out = []
+    for r in rows or []:
+        ci = f", interval 90 % {r['ci'][0]:+.1f} do {r['ci'][1]:+.1f} %" if r.get("ci") else ""
+        ev = f"prosjek {r['ev']:+.1f} % po tradeu{ci}" if r.get("ev") is not None else "bez prosjeka"
+        out.append(f"{'Demo' if r['racun'] == 'demo' else 'Pravi'}, {REGIME_HR.get(r['rezim'], r['rezim'])}: "
+                   f"{r['n']} zatvorenih, {ev}, zbroj {r['zbroj']:+.2f} $.")
+    return out
+
+
 def rules_items(pr):
     if not pr or pr.get("greska"):
         return ["Pravila: veliki/ se ne može pročitati" + (f" ({pr['greska']})" if pr else "") + "."]
@@ -290,6 +300,11 @@ def market_items(m, mi=None):
                    + (f"; Solana meme sektor {mk['sektor_chg24']:+.1f} % u 24 h" if mk.get("sektor_chg24") is not None
                       else "")
                    + (f"; midcapovi {pct(mk.get('midcap_chg'), True)}" if mk.get("midcap_chg") is not None else "") + ".")
+        op = mk.get("oporavak")
+        if op and op.get("zasto"):
+            out.append(("Oporavak: DA" if op.get("da") else "Oporavak: ne") + f" ({op['zasto']})."
+                       + (" Kandidati idu redom po odzivu na rast BTC-a; ulaz ostaje samo na dnu raspona."
+                          if op.get("da") else ""))
         out.append("Izlaz danas: " + ("pola na cilju, ostatak trailing (tržište raste: " if mk.get("bull")
                                       else "cijeli profit na cilju (") + f"{mk.get('bull_zasto')}).")
     else:
@@ -470,6 +485,11 @@ def midcap_sections(data, ai):
             para("Nema otvorenih midcap pozicija.")
     else:
         body += para("Još nema midcap tradeova (league.db veliki_trades).")
+    rz = regime_items((t or {}).get("po_rezimu"))
+    if rz:
+        body += sub("Rezultat po makro režimu ulaza (zatvoreno u 7 d)") + bullets(rz) + small(
+            "Režim se bilježi na ulazu od 16.11.; raniji tradeovi su „bez oznake”. Raspoloženje influencera je samo "
+            "oznaka, ne uvjet.")
     body += sub("Pravila: dokaz izvan uzorka i pravi novac") + bullets(rules_items(m.get("pravila")))
     body += sub("Novčanik i stropovi") + bullets(wallet_items(m.get("novcanik") or {}))
     out.append(section("Midcap trgovanje", body, ("/strategije", "Usporedba midcap strategija")))
