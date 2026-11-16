@@ -20,10 +20,18 @@ when the strong one does not fit (and for re-checks and live comments once CHEAP
 
 Measurement (vlasnik: "više učiti za manje novca"): a verdict is scored against what the price did after it. move r =
 MC later / MC at the critique - 1. A sell-type verdict (prodaj, prodaj_dio, stegni_sl) is right when r <= -HIT_BAND
-(the price fell more than about a round trip's cost), a hold-type one (drzi, prosiri_sl) when r > -HIT_BAND. "$ if
-followed" compares the advice with what the bot did: prodaj exits all at the critique's MC, prodaj_dio half, drzi holds;
-the bot held to the horizon or sold when the position closed before it; value = (advice's return - bot's return) x the
-position's USD value at the critique. stegni_sl / prosiri_sl get a hit but no $ (the stop's path is not simulated).
+(the price fell more than about a round trip's cost), a hold-type one (drzi, prosiri_sl) when r >= +HIT_BAND (it rose
+as much); a move inside the band either way ("ravno") decided nothing and is not scored, it is counted apart.
+16.11. (vlasnik: "prodaj 0 % pogodaka na 84 mjerenja, drži 100 %"): until then hold was right whenever r > -HIT_BAND,
+so a flat price (the midcaps of the real account rarely move 2 % in 30-60 min) was a hold hit AND a sell miss: the
+two rules were one threshold, sell 0 % and hold 100 % came from flat prices, not from the critic. stats() scores the
+stored MCs at read time, so the history is re-scored by the new rule; diagnose() shows the old and the new numbers,
+how many points were flat or exactly the critique's own MC, and on how many positions the verdicts sit.
+"$ if followed" compares the advice with what the bot did: prodaj exits all at the critique's MC, prodaj_dio half, drzi
+holds; the bot held to the horizon or sold when the position closed before it; value = (advice's return - bot's
+return) x the position's USD value at the critique. stegni_sl / prosiri_sl get a hit but no $ (the stop's path is not
+simulated). ADVICE ONLY: no code outside critic/ and the pages that show it reads a verdict; nothing closes, sells or
+changes a position or its exit because of one (tests/test_kriticar_mjerenje_offline.AdviceOnly).
 """
 import datetime as dt
 import hashlib
@@ -330,13 +338,22 @@ def evaluate(con, now=None, live=None, mc_at_fn=None, live_fn=None):
     return changed
 
 
+def hit_of(verdict, r):
+    """True / False of one verdict at the move r, None when the move stayed inside +-HIT_BAND (flat: decided nothing).
+    16.11.: symmetric (before, hold was right at any r > -HIT_BAND, so every flat price was a hold hit and a sell miss)."""
+    if r is None or abs(r) < HIT_BAND:
+        return None
+    return (r <= -HIT_BAND) if verdict in SELL_KIND else (r >= HIT_BAND)
+
+
 def score(verdict, mc0, mc_h, closed_ts=None, mc_close=None, ts=None, horizon_s=None):
     """(hit True/False/None, delta fraction vs the bot or None) of one verdict at one horizon. mc_h: MC at the
-    horizon (0/None = not measured). closed_ts / mc_close: the bot's exit when it came before the horizon."""
+    horizon (0/None = not measured). closed_ts / mc_close: the bot's exit when it came before the horizon. hit None
+    with a delta: measured but flat (hit_of)."""
     if not mc0 or not mc_h:
         return None, None
     r = mc_h / mc0 - 1
-    hit = (r <= -HIT_BAND) if verdict in SELL_KIND else (r > -HIT_BAND)
+    hit = hit_of(verdict, r)
     f = SELL_SHARE.get(verdict)
     if f is None:
         return hit, None
@@ -358,25 +375,37 @@ def stats(con, days=7, now=None):
             "COALESCE(SUM(tokens_out), 0) FROM critic_calls WHERE ts >= ? GROUP BY kind", (since,)):
         calls[kind] = {"poziva": n, "uspjelo": ok or 0, "usd": round(usd, 4), "tokena_ulaz": tin, "tokena_izlaz": tout}
     per = {}
-    for (verdict, ts, mc0, mc30, mc60, mcc, cts, val) in con.execute(
-            "SELECT verdict, ts, mc0, mc30, mc60, mc_close, closed_ts, value_usd FROM critic_verdicts WHERE ts >= ?",
+    for (verdict, ts, mc0, mc30, mc60, mcc, cts, val, pid) in con.execute(
+            "SELECT verdict, ts, mc0, mc30, mc60, mc_close, closed_ts, value_usd, pid FROM critic_verdicts WHERE ts >= ?",
             (since,)):
-        p = per.setdefault(verdict, {"n": 0, "h30": [0, 0], "h60": [0, 0], "hz": [0, 0], "usd60": 0.0, "usdz": 0.0})
+        p = per.setdefault(verdict, {"n": 0, "h30": [0, 0, 0], "h60": [0, 0, 0], "hz": [0, 0, 0], "usd60": 0.0,
+                                     "usdz": 0.0, "r60": [], "pids": set()})
         p["n"] += 1
+        p["pids"].add(pid)
         for key, mch, hs in (("h30", mc30, 1800), ("h60", mc60, 3600), ("hz", mcc, None)):
+            if not mc0 or not mch:
+                continue
             hit, delta = score(verdict, mc0, mch, cts, mcc, ts, hs)
-            if hit is None:
+            if key == "h60":
+                p["r60"].append(mch / mc0 - 1)
+            if delta is not None and val and key in ("h60", "hz"):
+                p["usd60" if key == "h60" else "usdz"] += delta * val
+            if hit is None:   # flat: measured, decided nothing (16.11.)
+                p[key][2] += 1
                 continue
             p[key][0] += 1
             p[key][1] += 1 if hit else 0
-            if delta is not None and val and key in ("h60", "hz"):
-                p["usd60" if key == "h60" else "usdz"] += delta * val
     out_v = {}
     names = {"h30": "30", "h60": "60", "hz": "zatvaranje"}
     for v, p in per.items():
-        out_v[v] = {"n": p["n"],
+        r60 = sorted(p["r60"])
+        out_v[v] = {"n": p["n"], "pozicija": len(p["pids"]),
                     **{f"pogodak_{w}": (round(p[k][1] / p[k][0], 3) if p[k][0] else None) for k, w in names.items()},
                     **{f"izmjereno_{w}": p[k][0] for k, w in names.items()},
+                    **{f"ravno_{w}": p[k][2] for k, w in names.items()},
+                    "medijan_pomaka_60_pct": (round(r60[len(r60) // 2] * 100, 2) if len(r60) % 2 else
+                                              round((r60[len(r60) // 2 - 1] + r60[len(r60) // 2]) * 50, 2))
+                    if r60 else None,
                     "usd_60min": round(p["usd60"], 2), "usd_zatvaranje": round(p["usdz"], 2)}
     sugg = {}
     try:
@@ -390,13 +419,73 @@ def stats(con, days=7, now=None):
             "budzet": budget(con, now)}
 
 
+def _old_hit(verdict, r):
+    """The rule before 16.11. (hold right at any r > -HIT_BAND), only for diagnose()'s side-by-side."""
+    return (r <= -HIT_BAND) if verdict in SELL_KIND else (r > -HIT_BAND)
+
+
+def diagnose(con, days=7, now=None):
+    """16.11. (vlasnik: "prodaj 0 % na 84 mjerenja, drži 100 %"): the critic's record checked against the measurement's
+    own failure modes, per verdict, at +30 / +60 min and at the close: n measured, the old and the new hit rate, how many
+    points were flat (|r| < HIT_BAND), how many equal the critique's own MC exactly (a missing price falling back to
+    it), how many are earlier than the critique (a wrong horizon: a close before ts), the median move in %, and on how
+    many positions the verdicts sit (re-critiques of one position every 15 min are not independent). Read-only:
+    {"dana", "pojas_pct", "presude": {verdict: {...}}}."""
+    now = int(now or time.time())
+    since = now - int(days) * 86400
+    per = {}
+    for verdict, ts, pid, mc0, mc30, mc60, mcc, cts in con.execute(
+            "SELECT verdict, ts, pid, mc0, mc30, mc60, mc_close, closed_ts FROM critic_verdicts WHERE ts >= ?",
+            (since,)):
+        p = per.setdefault(verdict, {"n": 0, "pids": set(), **{w: {"n": 0, "old": 0, "new_n": 0, "new": 0, "flat": 0,
+                                                                    "same": 0, "early": 0, "r": []}
+                                                                for w in ("30", "60", "zatvaranje")}})
+        p["n"] += 1
+        p["pids"].add(pid)
+        for w, mch, early in (("30", mc30, False), ("60", mc60, False),
+                              ("zatvaranje", mcc, bool(cts is not None and ts is not None and cts < ts))):
+            if not mc0 or not mch:
+                continue
+            q = p[w]
+            r = mch / mc0 - 1
+            q["n"] += 1
+            q["r"].append(r)
+            q["old"] += 1 if _old_hit(verdict, r) else 0
+            q["same"] += 1 if mch == mc0 else 0
+            q["early"] += 1 if early else 0
+            h = hit_of(verdict, r)
+            if h is None:
+                q["flat"] += 1
+            else:
+                q["new_n"] += 1
+                q["new"] += 1 if h else 0
+    out = {}
+    for v, p in per.items():
+        d = {"n": p["n"], "pozicija": len(p["pids"])}
+        for w in ("30", "60", "zatvaranje"):
+            q = p[w]
+            rs = sorted(q["r"])
+            med = None
+            if rs:
+                k = len(rs) // 2
+                med = rs[k] if len(rs) % 2 else (rs[k - 1] + rs[k]) / 2
+            d[w] = {"izmjereno": q["n"], "pogodak_staro": round(q["old"] / q["n"], 3) if q["n"] else None,
+                    "pogodak": round(q["new"] / q["new_n"], 3) if q["new_n"] else None, "odluceno": q["new_n"],
+                    "ravno": q["flat"], "isto_kao_kritika": q["same"], "prije_kritike": q["early"],
+                    "medijan_pomaka_pct": round(med * 100, 2) if med is not None else None}
+        out[v] = d
+    return {"dana": days, "pojas_pct": HIT_BAND * 100, "presude": out}
+
+
 def stats_line(s):
     """One sentence of stats() for the daily note, the log and the report."""
     v = s.get("presude") or {}
     parts = []
     for name, d in sorted(v.items(), key=lambda kv: -kv[1]["n"]):
         h = d.get("pogodak_60") if d.get("pogodak_60") is not None else d.get("pogodak_30")
-        parts.append(f"{name} {d['n']}" + (f" (pogodak 60 min {h * 100:.0f} %)" if h is not None else ""))
+        extra = ([f"pogodak 60 min {h * 100:.0f} %"] if h is not None else []) + \
+            ([f"ravno {d['ravno_60']}"] if d.get("ravno_60") else [])   # 16.11.: flat = decided nothing
+        parts.append(f"{name} {d['n']}" + (f" ({', '.join(extra)})" if extra else ""))
     usd = sum((d.get("usd_60min") or 0) for d in v.values())
     return (f"Kritičar {s.get('dana')} d: {s.get('poziva', 0)} poziva, {s.get('ukupno_usd', 0):.3f} $; presude: "
             + (", ".join(parts) or "nema") + f"; da su praćene (60 min): {usd:+.2f} $").replace(".", ",")

@@ -94,7 +94,7 @@ REASON_HR = {"tp": "cilj", "trail": "trailing nakon cilja", "stop": "stop", "tim
              "btc_zastita": "BTC slobodan pad: zaštita profita", "btc_rez": "BTC slobodan pad: rez ispod -10 %",
              "makro_zastita": "makro risk-off: zaštita profita", "makro_rez": "makro risk-off: rez ispod -10 %",
              "volumen": "volumen se urušio (24 h < 30 % prosjeka 7 d)", "los": "razlog pada postao loš",
-             "nestalo": "nestalo"}
+             "nestalo": "nestalo", "likvidnost": "likvidnost pala 50 %+ u satu (LP povučen?)"}
 DCA_HR = {"pct": "cijena {d:.0%} ispod prvog ulaza", "zona": "dno zone (podrška)", "atr": "{k:g} x ATR ispod ulaza"}
 
 
