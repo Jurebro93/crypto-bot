@@ -77,6 +77,16 @@ LIST_MAX_AGE_S = 72 * 3600
 BARS_RELOAD_S = 600
 BTC_RELOAD_S = 600
 STALE_S = 60
+# 16.11. (vlasnik, jutarnji izvještaj: "demo pozicija zatvorena na -59,4 % dok je SL bio oko -20 %"): the 24 h liquidity
+# signal (prioritet.dynamic_bad, -30 %, refreshed every collector pass) and the rug check (rugfilter/collapse on hype.db,
+# which the midcaps no longer feed while fokus_midcap holds the hype scan) are too slow or blind for a pool pulled
+# within the hour: the stop then fills far under its level. An open position (demo and real) also exits when the
+# deepest pool's liquidity is at or under LIQ_EXIT_DROP of its highest in the last hour (this loop's own quotes every
+# tick, the entry's liquidity counted inside the hour), seen on LIQ_CONFIRM fresh quotes in a row (one bad read is no
+# exit). Price-only moves cannot do it: a constant-product pool's USD depth falls with the square root of the price,
+# so -50 % of liquidity is -75 % of price, under every stop. The other exit rules are the owner's and unchanged.
+LIQ_EXIT_DROP = 0.5
+LIQ_CONFIRM = 2
 SCHEMA = """CREATE TABLE IF NOT EXISTS veliki_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, token TEXT, symbol TEXT, opened_ts INTEGER, trade_id INTEGER,
     size_sol REAL, size_usd REAL, entry_px REAL, tp_px REAL, stop_px REAL, rt REAL, drt REAL, liq REAL, mcap REAL,
@@ -504,6 +514,35 @@ def _league_user():
     return settings.LEAGUE_USER
 
 
+def _win():
+    """The quotes' liquidity of the last hour per open token (trade/stopgap.Window, this process's memory)."""
+    w = _ST.get("win")
+    if w is None:
+        from trade import stopgap
+        w = _ST["win"] = stopgap.Window()
+    return w
+
+
+def liq_drop(r, q, now, q_ts=None):
+    """16.11.: the reason text when the pool's liquidity is at or under LIQ_EXIT_DROP of its highest in the last hour
+    on LIQ_CONFIRM fresh quotes in a row (the count kept per row; q_ts = the quote's time, the same quote twice is one
+    confirmation), else None."""
+    liq = q[1] if len(q) > 1 else None
+    ref = _win().ref(r["token"], now, extra=(r.get("opened_ts"), r.get("liq")))
+    low = _ST.setdefault("liq_low", {})
+    if not liq or liq <= 0 or not ref or liq > LIQ_EXIT_DROP * ref:
+        low.pop(r["id"], None)
+        return None
+    seen = low.get(r["id"]) or (0, None)
+    qid = q_ts if q_ts is not None else now
+    n = seen[0] if seen[1] == qid else seen[0] + 1
+    low[r["id"]] = (n, qid)
+    if n < LIQ_CONFIRM:
+        return None
+    low.pop(r["id"], None)
+    return f"likvidnost ${liq / 1e3:,.0f}k, {liq / ref - 1:+.0%} od najviše u zadnjem satu (${ref / 1e3:,.0f}k)"
+
+
 def manage(con, r, q, age, now, cfg):
     """The exits of one open row at the quote q (age seconds old): the stop (even on a stale quote), then the half at
     the target, the trailing / break-even of the rest, the plain target, the time stop, a rug. [text]."""
@@ -519,6 +558,9 @@ def manage(con, r, q, age, now, cfg):
         return [close(con, r, price, q[1], q[3] if len(q) > 3 else None, reason, now)]
     if age > STALE_S:
         return out
+    ld = liq_drop(r, q, now, now - age)   # 16.11.: the pool pulled within the hour: out before the stop is gapped
+    if ld:
+        return [close(con, r, price, q[1], q[3] if len(q) > 3 else None, "likvidnost", now, why=ld)]
     had_half = bool(pos.get("half_px"))
     hit = rule.on_price(pos, price, "t", price, rc)
     if pos.get("half_px") and not had_half:
@@ -784,6 +826,14 @@ def close(con, r, price, liq, mcap, reason, now, why=None):
     con.execute("UPDATE veliki_trades SET status='closed', closed_ts=?, exit_px=?, reason=?, ret=?, pnl_usd=?, "
                 "ret_demo=?, pnl_booked=?, exit_why=? WHERE id=?",
                 (int(now), price, reason, ret, ret * r["size_usd"], rd, booked, why, r["id"]))
+    if reason != "nestalo":   # 16.11.: the planned stop against this exit, and why they differ (trade/stopgap)
+        from trade import stopgap
+        q_ts = (_ST["q"].get(r["token"]) or (None, None))[1]
+        stopgap.record(con, "veliki", r["id"], r["user"], r["token"], r["symbol"], r["entry_px"], r["stop_px"], price,
+                       reason, now, trade_id=r["trade_id"], q_age_s=(now - q_ts) if q_ts else None,
+                       q_gap_s=_win().gap(r["token"]), liq_ref=_win().ref(r["token"], now,
+                                                                         extra=(r.get("opened_ts"), r.get("liq"))),
+                       liq_exit=liq, rug=reason == "rug")
     con.commit()
     head = "veliki PRAVI NOVAC" if r["user"] == settings.LEAGUE_USER else "veliki"
     return (f"{head} {r['symbol']}: {rule.REASON_HR.get(reason, reason)}{' (' + why + ')' if why else ''}, "
@@ -1061,11 +1111,14 @@ def tick(con, market_fn, now=None, force=False, toks=None):
     if not all_t:
         return out
     mk = market_fn(all_t) or {}
+    open_t = {r["token"] for r in opened}
     for tok in all_t:
         q = mk.get(tok)
         if q and q[0]:
             add_price(con, tok, q[0], now)
             _ST["q"][tok] = (q, now)
+            if tok in open_t:   # 16.11.: the open positions' liquidity of the last hour (liq_drop, stop gaps)
+                _win().note(tok, now, q[1] if len(q) > 1 else None)
     con.commit()
     cfg = cfg_now()
     if cfg.get("default") and now - _ST.get("default_said", 0) >= 3600:

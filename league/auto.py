@@ -300,6 +300,33 @@ FAST_EVERY_S = 1.0
 FAST_BEAT_S = 600   # one line in the log this often: how many TP/SL positions are watched and whether prices come
 
 
+# 16.11. (vlasnik, jutarnji izvještaj: stop -20 %, izlaz -59,4 %): every TP/SL stop of a demo trade (the real account's
+# too) records its planned stop against the exit price and why they differ (trade/stopgap: rug, a liquidity drop from
+# the last hour's high, a gap through the stop); the loops' own quotes give the hour's liquidity
+_WIN = {"w": None}
+
+
+def _win():
+    if _WIN["w"] is None:
+        from trade import stopgap
+        _WIN["w"] = stopgap.Window()
+    return _WIN["w"]
+
+
+def _stop_gap(con, t, a, price, liq, rule, now):
+    """One stop_gaps row for a TP/SL close by its stop (rule sl / rug) and the commit; never raises."""
+    if rule not in ("sl", "rug"):
+        return
+    try:
+        from trade import stopgap
+        stopgap.record(con, "tpsl", t["id"], t["user"], t["token"], t["symbol"], t["entry_px"], a.get("sl_px"), price,
+                       rule, now, trade_id=t["id"], liq_ref=_win().ref(t["token"], now), liq_exit=liq,
+                       rug=rule == "rug")
+        con.commit()
+    except Exception as e:  # noqa: BLE001 - a measurement never stops an exit
+        print(f"auto sell: zapis stop gapa: {type(e).__name__}: {e}", flush=True)
+
+
 def _fast_market(market, tokens):
     mk = dict(market(tokens) or {})
     missing = [t for t in tokens if t not in mk]
@@ -342,6 +369,7 @@ def fast_once(con, market, user, now=None):
         price, liq, _, mcap = mk[t["token"]]
         if not price or price <= 0:
             continue
+        _win().note(t["token"], now, liq)
         a = json.loads(t["auto"])
         hit = _tpsl_hit(a, price, liq, now)
         if hit:
@@ -355,6 +383,7 @@ def fast_once(con, market, user, now=None):
                 pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap, exit_rule=rule)
             except ValueError:   # the main loop closed it in the same second
                 continue
+            _stop_gap(con, t, a, price, liq, rule, now)
             done.append((t["user"], t["symbol"] or t["token"][:6], f"auto {hit}: {pnl:+.2f} $"))
     return done
 
@@ -460,6 +489,8 @@ def run_once(con, market, now=None):
         a = json.loads(t["auto"])
         name = t["symbol"] or t["token"][:6]
         if a["mode"] == "tpsl":
+            if price and price > 0:
+                _win().note(t["token"], now, liq)
             hit = _tpsl_hit(a, price, liq, now)
             if hit:
                 rule = tpsl_rule(hit, price)
@@ -469,6 +500,7 @@ def run_once(con, market, now=None):
                         continue
                     rule = "rug" if g == "rug" else rule
                 pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap, exit_rule=rule)
+                _stop_gap(con, t, a, price, liq, rule, now)
                 done.append((t["user"], name, f"auto {hit}: {pnl:+.2f} $"))
             continue
         st = json.loads(t["auto_state"]) if t["auto_state"] else None
