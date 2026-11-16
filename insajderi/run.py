@@ -7,6 +7,9 @@
           (the demo's watched set), catalysts and the trending log; the walk-forwards keep the last full pass's numbers
   report  the reports and the log line only
 
+once / night / incr end with the pass of the influencers' probably linked wallets (insajderi/kolwallets.run_pass: its
+own small share of the Helius day cap, a time bound, one log line "insajderi kol: ...").
+
 Each pass ends with the log line (report.line) and output/insajderi.md + output/pametni_novac.md. Everything runs
 under the owner switch fokus_midcap as an explicit, budgeted exception (ops/fokus.EXCEPTIONS).
 """
@@ -53,6 +56,11 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
                 budget = min(left, int(cap * float(c["deploy_share"])))
             elif kind == "night":
                 budget = left
+                try:   # 16.11.: the influencers' linked wallets keep their own small share of the day cap
+                    from insajderi import kolwallets
+                    budget = max(0, left - kolwallets.reserve(con, p, c, now))
+                except Exception:  # noqa: BLE001
+                    pass
             else:   # incr: a small share of the cap for the new calls
                 budget = min(left, int(cap * float(c["incr_share"])))
             n_f, spent = (0, 0)
@@ -68,6 +76,12 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
             _log(log, f"Helius {spent:,} kr. ({n_f} događaja), danas {store.helius_spent(con, now):,} od {cap:,} "
                       f"({how})")
         summary = analyze(con, p, c, now, log=log, light=(kind == "incr"))
+        if kind != "report":   # 16.11.: the influencers' probably linked wallets (bounded, never raises into here)
+            try:
+                from insajderi import kolwallets
+                kolwallets.run_pass(con, p, c, now, kind=kind, fetch=fetch, credits=credits, log=log)
+            except Exception as e:  # noqa: BLE001
+                log(f"insajderi kol: prolaz nije uspio ({type(e).__name__}: {e})")
         if kind in ("night", "once"):
             store.kv(con, f"{kind}_last", now)
             con.commit()
@@ -80,6 +94,8 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
             from insajderi import report
             for line in report.lines(summary):
                 log(line)
+            if kind == "report":
+                log(report.kol_line())
         except Exception as e:  # noqa: BLE001
             _log(log, f"log linija ({type(e).__name__}: {e})")
         return summary

@@ -429,6 +429,20 @@ OWNER_SWITCH_NOTES[MAKROINF_JAVNO] = ("Tvoj prekidač: „uživo” = javne stra
                                       "tvojim nalogom u chatu 15.11.")
 PROFILE_FLAGS = PROFILE_FLAGS | {MAKROINF_JAVNO}
 
+# 16.11. (vlasnik: "Kako naći njihove sekundarne wallete ... Mora postojati stavka 'insider wallet' i algoritam koji ih
+# traži"; insajderi/kolwallets.py): FLAG "insajderi_kol": the LIVE MEASUREMENT of the influencers' probably linked
+# wallets. shadow (the default) / paper = when a "potvrđen" wallet group of an influencer buys a token (the trades we
+# already store), a "predpoziv" event is recorded and later settled: did he call it, the lead time, the price after the
+# call, did the group sell after the post. off = nothing recorded. No account ever buys in any mode and it never goes
+# live (NEVER_LIVE); the analysis itself (the owner's page) does not depend on the flag.
+INSAJDERI_KOL = "insajderi_kol"
+FLAGS[INSAJDERI_KOL] = ("P24", "Insajderski novčanici influencera: mjeri se kad vjerojatno povezani (potvrđeni) novčanik "
+                               "influencera kupi token prije njegova poziva: je li ga poslije zvao, koliko ranije je "
+                               "kupljeno i što je cijena napravila; samo mjerenje, nijedan račun ne kupuje")
+FLAG_DEFAULTS[INSAJDERI_KOL] = "shadow"
+NEVER_LIVE[INSAJDERI_KOL] = "insajderi_kol samo mjeri (nijedan račun ne kupuje); nikad ne trguje pravim novcem"
+PROFILE_FLAGS = PROFILE_FLAGS | {INSAJDERI_KOL}   # its paper mode never makes the paper account follow anybody
+
 
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""

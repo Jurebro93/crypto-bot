@@ -72,8 +72,10 @@ class Flags(Base):
         # 14.11.: range_demo (G32) paper by default: the owner's order of 14.11. (the demo account only, NEVER_LIVE)
         # 15.11.: openai_kritika (P16) on by default: an owner switch for advice only (critic/), never trades
         # 15.11.: mikrokap_moonshot (MK2) paper by default: the moonshot exception on the demo accounts only (NEVER_LIVE)
+        # 16.11.: insajderi_kol (P24) shadow by default: it only measures (insajderi/kolwallets.py), no account buys
         self.assertEqual(settings.FLAG_DEFAULTS, {"x_call_scalp": "shadow", "range_demo": "paper",
-                                                  "openai_kritika": "live", "mikrokap_moonshot": "paper"})
+                                                  "openai_kritika": "live", "mikrokap_moonshot": "paper",
+                                                  "insajderi_kol": "shadow"})
         self.assertEqual(settings.flag("x_call_scalp"), "shadow")
         self.assertEqual(settings.flag("dca_guard"), "off")
         for name in ("auto_exit_data", "sl_default_v2", "dca_guard", "caller_ev_rank", "latency_entry", "runup_default",

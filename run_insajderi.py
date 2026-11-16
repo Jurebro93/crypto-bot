@@ -9,6 +9,10 @@ one owner, can WE copy them at our constraints (bonded, MC >= 5M) and the "pamet
     python3 run_insajderi.py report                the log lines and output/insajderi.md, output/pametni_novac.md
     python3 run_insajderi.py budget                the Helius day cap and what was spent today
 
+once / night / incr end with the pass of the influencers' probably linked wallets (insajderi/kolwallets.py, 16.11.:
+the seed list insajderi/kol_seed.json, its own small share of the same Helius day cap, the log line "insajderi kol:
+..."); report prints its last line too.
+
 Runs under the owner switch fokus_midcap as an explicit, budgeted exception (ops/fokus.EXCEPTIONS). Real money: never.
 """
 import os
