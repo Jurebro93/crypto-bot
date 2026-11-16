@@ -284,8 +284,23 @@ def intake(con, cfg, now, want, start, acc):
     return n
 
 
-def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, quiet=False):
-    """One pass. Returns {'entered': n, 'closed': n, 'open': n}."""
+FOKUS_KEY = "strategije"
+FOKUS_SKIP = "fokus midcap: mikrokap strategije pauzirane"
+
+
+def paused():
+    """16.11. (vlasnik: "Treba maknuti strategije koje ne doprinose učenju i ove s micro capovima ... Sada idemo s mid
+    cap tokenima"): True while the owner switch fokus_midcap is on (ops/fokus RETARGET "strategije"): no new and no
+    pending entries, the open positions keep their exits. Never raises (unreadable = the old behaviour)."""
+    try:
+        from ops import fokus
+        return fokus.skip(FOKUS_KEY)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, quiet=False, fokus_on=None):
+    """One pass. Returns {'entered': n, 'closed': n, 'open': n}. fokus_on None = ask the switch (paused())."""
     from paper import sim
     cfg = cfg or load_config()
     if not cfg.get("enabled", True):
@@ -294,25 +309,24 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
     ex = ex or exit_rules(now)
     market_fn = market_fn or market
     srcs = sources or signals.Sources()
-    fk = False
-    if sources is None:   # 15.11. (owner switch fokus_midcap): no new comparison entries, the open ones keep their exits
-        try:
-            from ops import fokus
-            fk = fokus.on()
-        except Exception:  # noqa: BLE001
-            fk = False
+    # 15.11. (owner switch fokus_midcap): no new comparison entries, the open ones keep their exits; 16.11.: asked
+    # whatever the sources (the signals were read before and a pending row still entered), and the pending rows drop
+    fk = paused() if fokus_on is None else bool(fokus_on)
     src = {} if fk else srcs.read(int(now), (cfg["mix_window_min"] + cfg["max_delay_min"]) * 60)
     insider_set = getattr(srcs, "insiders", set())
     con = store.connect(path)
     try:
         start = store.start_ts(con, now)
         last_random = float(store.kv_get(con, "last_random", 0) or 0)
-        top_w, out_w = wallets_allowed(con, cfg) if "top_novcanici" in keys(cfg) else (set(), set())
-        want = wanted(src, cfg, now, last_random, out_w, top_w)
-        acc = accounts(con, cfg, ex=ex)
-        intake(con, cfg, now, want, start, acc)
-        if want.get("kontrola"):
-            store.kv_set(con, "last_random", int(now))
+        if fk:   # 16.11.: a signal taken before the switch must not enter after it
+            con.execute("UPDATE positions SET status='skip', close_reason=? WHERE status='pending'", (FOKUS_SKIP,))
+        else:
+            top_w, out_w = wallets_allowed(con, cfg) if "top_novcanici" in keys(cfg) else (set(), set())
+            want = wanted(src, cfg, now, last_random, out_w, top_w)
+            acc = accounts(con, cfg, ex=ex)
+            intake(con, cfg, now, want, start, acc)
+            if want.get("kontrola"):
+                store.kv_set(con, "last_random", int(now))
         con.commit()
         pending = con.execute("SELECT id, strat, token, seen_ts FROM positions WHERE status='pending'").fetchall()
         live = store.rows(con, "status='open'")

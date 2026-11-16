@@ -115,7 +115,7 @@ def para(text):
 
 def section(title, body, more=None):
     m = f'<div style="margin-top:10px;font-size:13px">{link(*more)} →</div>' if more else ""
-    return (f'<tr><td style="background:#fff;border:1px solid {LINE};border-radius:10px;padding:16px 18px">'
+    return (f'<tr><td style="background:#fff;border:1px solid {LINE};border-radius:10px;padding:14px 12px">'
             f'<div style="font-size:16px;font-weight:700;margin-bottom:6px">{title}</div>{body}{m}</td></tr>'
             f'<tr><td style="height:12px;font-size:0">&nbsp;</td></tr>')
 
@@ -131,27 +131,413 @@ def tlink(mint, sym):
     return link(f"/token/{e(mint)}", e(sym or (mint or "")[:6]))
 
 
+RULE_HR = {"intra": "dnevni raspon", "range": "raspon 7 d"}
+RULE_SHORT = {"intra": "dnevni", "range": "7 d"}
+ACC_HR = {"demo": "Demo", "pravi": "Pravi"}
+REGIME_HR = {"risk_on": "risk-on (tržište raste)", "neutral": "neutralno", "risk_off": "risk-off (bez novih ulaza)"}
+BTC_HR = {"slobodan_pad": "slobodan pad", "dno_se_potvrduje": "dno se potvrđuje", "normalno": "normalno"}
+
+
+def small(t):
+    return f'<span style="font-size:11px;color:{MUT}">{t}</span>'
+
+
+def colored(x, txt):
+    c = GOOD if (x or 0) > 0 else BAD if (x or 0) < 0 else INK
+    return f'<span style="color:{c}">{txt}</span>'
+
+
+def usd(x, signed=True):
+    return "–" if x is None else (f"{x:+,.2f} $" if signed else f"{x:,.2f} $")
+
+
+def sol(x, d=3, signed=True):
+    return "–" if x is None else (f"{x:+.{d}f} SOL" if signed else f"{x:.{d}f} SOL")
+
+
+def pp(x, d=1):
+    """A percentage already in % (EV / the price move), signed."""
+    return "–" if x is None else f"{x:+.{d}f} %"
+
+
+def hr(x):
+    """A plain number the Croatian way (0,1)."""
+    return "–" if x is None else f"{x:g}".replace(".", ",")
+
+
+def ci_txt(ci):
+    return "–" if not ci or ci[0] is None else f"{ci[0]:+.1f} … {ci[1]:+.1f} %"
+
+
+def ctable(headers, rows, nowrap=False):
+    """A compact table for the phone: 12px, tight padding, the first column left, the rest right (nowrap: the number
+    columns never break inside a value)."""
+    nw = "white-space:nowrap;" if nowrap else ""
+    th = "".join(f'<th align="{"left" if i == 0 else "right"}" style="font-size:10px;color:{MUT};font-weight:600;'
+                 f'padding:5px 4px;border-bottom:1px solid {LINE};text-transform:uppercase;letter-spacing:.02em;'
+                 f'line-height:1.25">{h}</th>' for i, h in enumerate(headers))
+    trs = "".join("<tr>" + "".join(
+        f'<td align="{"left" if i == 0 else "right"}" style="font-size:12px;padding:5px 4px;border-bottom:1px solid '
+        f'{LINE};vertical-align:top;line-height:1.35;{nw if i else ""}">{c}</td>' for i, c in enumerate(r)) + "</tr>"
+        for r in rows)
+    return f'<table width="100%" cellpadding=0 cellspacing=0 style="border-collapse:collapse"><tr>{th}</tr>{trs}</table>'
+
+
+def sub(title):
+    return f'<div style="font-size:13px;font-weight:600;margin:12px 0 2px">{title}</div>'
+
+
+def trading_table(t, key):
+    """Per account x rule (columns) the window's numbers (rows): yesterday or 7 days."""
+    rows = t.get("rows") or []
+    heads = [""] + [f'{ACC_HR[r["racun"]]}<br>{RULE_SHORT[r["pravilo"]]}' for r in rows]
+
+    def chain(r):
+        c = (r.get("lanac") or {}).get(key)
+        if r["racun"] != "pravi":
+            return small("demo")
+        if c is None:
+            return small("nepoznato")
+        return f'{c["kupljeno"]} / {c["odbijeno"]}' + (small(f'<br>{c["bez_zapisa"]} bez naloga') if c.get("bez_zapisa") else "")
+
+    lines = (("Ulaza", lambda r: str(r[key]["ulaza"])),
+             ("Zatvoreno", lambda r: str(r[key]["zatvoreno"])),
+             ("Neto", lambda r: colored(r[key]["pnl_usd"], usd(r[key]["pnl_usd"])) + "<br>"
+              + small(sol(r[key]["pnl_sol"]))),
+             ("Pogodak", lambda r: pct(r[key]["pogodak"])),
+             ("Do cilja", lambda r: str(r[key]["cilj"])),
+             ("Break-even", lambda r: str(r[key]["be"])),
+             ("TP cijeli / pola", lambda r: f'{r[key]["tp_cijeli"]} / {r[key]["tp_pola"]}'),
+             ("Stop", lambda r: str(r[key]["stop"])),
+             ("Na lancu: kupljeno / odbijeno", chain))
+    return ctable(heads, [[lab] + [f(r) for r in rows] for lab, f in lines], nowrap=True)
+
+
+def open_table(op):
+    rows = []
+    for x in op:
+        tail = [f'{ACC_HR[x["racun"]].lower()} · {RULE_SHORT[x["pravilo"]]}', f'ulaz {x["ulaz"]:.6g}',
+                f'{x["sati"]:g} h']
+        if x.get("pola"):
+            tail.append("pola prodano")
+        if x.get("be"):
+            tail.append("stop na BE")
+        if x.get("lanac") in ("blocked", "failed", "bez naloga"):
+            tail.append("na lancu odbijeno: samo u knjizi")
+        rows.append([tlink(x["token"], x["symbol"]) + "<br>" + small(" · ".join(tail)),
+                     colored(x.get("sada_pct"), pp(x.get("sada_pct"))), pp(x.get("stop_pct")), pp(x.get("cilj_pct"))])
+    return ctable(["Pozicija", "Sada", "Stop", "Cilj"], rows, nowrap=True)
+
+
+def rules_items(pr):
+    if not pr or pr.get("greska"):
+        return ["Pravila: veliki/ se ne može pročitati" + (f" ({pr['greska']})" if pr else "") + "."]
+    out = []
+    for rk in ("intra", "range"):
+        r = pr.get(rk) or {}
+        src = (r.get("izvor") or "").replace("0.1 SOL", "0,1 SOL")
+        if r.get("n") is None:
+            ho = f"{src}: još nema izračuna"
+        else:
+            ho = (f"{src}: n {r['n']}, EV {pp(r.get('ev_pct'), 2)} po tradeu (95 % interval po danu "
+                  f"{ci_txt(r.get('ci'))}), pogodak {pct(r.get('hit'))}")
+        real = "DA" if r.get("pravi") else "NE"
+        why = r.get("pravi_zasto")
+        out.append(f"{RULE_HR[rk].capitalize()}: {ho}. Pravi novac: {real}" + (f" ({why})" if why else "") + ".")
+    mode = {"walk": "walk-forward holdout", "demo": "demo dokaz", "nalog_vlasnika": "nalog vlasnika (bez čekanja dokaza)"}
+    out.append(f"Prekidač pravi_novac_veliki: {'uključen' if pr.get('prekidac') else 'isključen'}; dokaz: "
+               f"{mode.get(pr.get('nacin'), pr.get('nacin') or '?')}.")
+    return out
+
+
+def wallet_items(w):
+    out = []
+    if w.get("value_sol") is not None:
+        out.append(f"Novčanik: {sol(w['value_sol'], signed=False)}"
+                   + (f" ({w['value_usd']:,.0f} $)" if w.get("value_usd") else "")
+                   + f", promjena 24 h {sol(w.get('pnl_24h_sol'))}, ukupni PnL {sol(w.get('pnl_sol'))}.")
+    else:
+        out.append("Novčanik: još nema snimke vrijednosti (trade/equity).")
+    if w.get("pod_sol") is not None:
+        if w.get("pod_ok") is None:
+            out.append(f"Pod {hr(w['pod_sol'])} SOL: vrijednost nepoznata.")
+        else:
+            out.append(f"Pod {hr(w['pod_sol'])} SOL: " + ("iznad" if w["pod_ok"] else "ISPOD, automatske prave kupnje stoje")
+                       + f" ({sol(w.get('vrijednost'), signed=False)}, {w.get('izvor')}).")
+    c = w.get("stropovi") or {}
+    if c:
+        out.append(f"Stropovi pravog novca (midcap): {hr(c.get('size_sol'))} SOL po tradeu, {c.get('max_open')} "
+                   f"otvorenih, {c.get('max_buys_day')} kupnji dnevno, dnevni gubitak {hr(c.get('max_loss_day_sol'))} SOL "
+                   f"(danas {sol(w.get('dan_pravi_sol'))} na {w.get('dan_pravi_n', 0)} zatvorenih).")
+    return out
+
+
+def market_items(m, mi=None):
+    out = []
+    b = (m or {}).get("btc") or {}
+    if b and not b.get("poznato"):
+        out.append("BTC: cijena po satu nepoznata (veliki.db / market.db); pravi novac tada ne kupuje.")
+    elif b:
+        out.append(f"BTC: {BTC_HR.get(b.get('stanje'), b.get('stanje') or '?')}"
+                   + (f" ({b['zasto']})" if b.get("zasto") else "")
+                   + (f", 24 h {b['chg24'] * 100:+.1f} %" if b.get("chg24") is not None else "") + ".")
+    mk = (m or {}).get("makro")
+    if mk:
+        pl = ", ".join(f"{k} {v * 100:+.0f} %" for k, v in (mk.get("platforme") or {}).items() if v is not None)
+        out.append(f"Makro režim: {REGIME_HR.get(mk.get('rezim'), mk.get('rezim') or '?')} ({mk.get('zasto')}). Volumen "
+                   f"prema prosjeku 7 d: meme platforme {pct(mk.get('meme_chg'), True)}"
+                   + (f" ({pl})" if pl else "")
+                   + (f"; Solana meme sektor {mk['sektor_chg24']:+.1f} % u 24 h" if mk.get("sektor_chg24") is not None
+                      else "")
+                   + (f"; midcapovi {pct(mk.get('midcap_chg'), True)}" if mk.get("midcap_chg") is not None else "") + ".")
+        out.append("Izlaz danas: " + ("pola na cilju, ostatak trailing (tržište raste: " if mk.get("bull")
+                                      else "cijeli profit na cilju (") + f"{mk.get('bull_zasto')}).")
+    else:
+        out.append("Makro režim: nema svježe snimke (midcap.db makro_h); veliki ga tretira kao neutralno.")
+    if mi:
+        from makroinf import report as mireport
+        out.append(mireport.morning_text(mi))
+    sv = (m or {}).get("svemir") or {}
+    if sv:
+        out.append(f"Midcap svemir: {sv.get('clanova', 0)} tokena (2M–200M), od toga {sv.get('trending', 0)} trending; "
+                   f"velika lista (raspon 7 d, pravi novac): {sv.get('lista', 0)}.")
+    for key, word in (("gore", "Najviše gore 24 h"), ("dolje", "Najviše dolje 24 h")):
+        xs = (m or {}).get(key) or []
+        if xs:
+            out.append(f"{word}: " + ", ".join(f"{x['symbol']} {x['chg24']:+.0f} % (MC {money(x.get('mcap'))})"
+                                              for x in xs) + ".")
+    return out
+
+
+def research_items(i2, hd):
+    out = []
+    if i2:
+        w, dm = i2.get("wf") or {}, i2.get("demo") or {}
+        line = (f"Insajderi 2.0 (zastavica {i2.get('zastavica') or '?'}): odluka "
+                f"{'kopirati u demu' if i2.get('kopirati') else 'ne kopirati'}"
+                + (f" — {i2['odluka']}" if i2.get("odluka") else "")
+                + f". Događaja {i2.get('dogadaja') or 0}, potvrđenih grupa {i2.get('potvrdenih') or 0}; kopiranje MC ≥ 5M "
+                f"walk-forward n {w.get('n') or 0}, EV {pp(w.get('ev_pct'))}.")
+        if dm:
+            line += (f" Demo: {dm.get('n', 0)} zatvorenih, EV {pp(dm.get('ev_pct'))} (90 % {ci_txt(dm.get('ci'))}), "
+                     f"PnL {usd(dm.get('pnl_usd'))}, otvoreno {dm.get('otvoreno', 0)}.")
+        out.append(line)
+    else:
+        out.append("Insajderi 2.0: još nema prolaza ni demo tradeova.")
+    if hd:
+        nv = hd.get("novi_24h") or {}
+        tops = ", ".join(f"{x['symbol']} → {x['burza']} ({x['score']:.0f})" for x in hd.get("top") or [])
+        line = (f"Holderi i listing (24 h): prije listinga {nv.get('pre_listing', 0)}, depozit na burzu "
+                f"{nv.get('deposit_sell', 0)}" + (f"; najjači {tops}" if tops else "") + ".")
+        mj = []
+        for k, x in (hd.get("mjerenje") or {}).items():
+            if x.get("n"):
+                from report.midcap import KIND_HR
+                mj.append(f"{KIND_HR.get(k, k)} n {x['n']}, prosjek 24 h {pp(x.get('ev_pct'))}"
+                          + (f" (kontrola {pp(x.get('kontrola_pct'))})" if x.get("kontrola_pct") is not None else ""))
+        out.append(line + (" Izmjereno: " + "; ".join(mj) + "." if mj else " Izmjerenih ishoda još nema."))
+    else:
+        out.append("Holderi i listing: još nema signala.")
+    return out
+
+
+def kriticar_short(k):
+    """The critic in the midcap report: its newest review (first paragraph), up to 3 findings, one line of record
+    and cost. The full table stays on the page."""
+    if not k:
+        return para("Kritičar još nema pregleda.")
+    body = ""
+    sm = k.get("sazetak")
+    if sm:
+        body += f'<div style="font-size:13px;font-weight:600;margin:4px 0 2px">{e(sm.get("title"))}</div>'
+        body += para((sm.get("text") or "").split("\n\n")[0])
+    if k.get("nalazi"):
+        body += bullets([f"{x['title']}: {x['text']}" + (f" Prijedlog: {x['prijedlog']}" if x.get("prijedlog") else "")
+                         for x in k["nalazi"][:3]])
+    pv = k.get("presude") or {}
+    rec = "; ".join(f"{CRITIC_WORDS.get(v, v)} {d['n']} (u pravu na zatvaranju {pct(d.get('pogodak_zatvaranje'))})"
+                    for v, d in sorted(pv.items(), key=lambda kv: -kv[1]["n"])[:4])
+    j, m, b = k.get("jucer") or {}, k.get("mjesec") or {}, k.get("budzet") or {}
+    body += para((f"Presude 7 dana: {rec}. " if rec else "")
+                 + f"Trošak: jučer {j.get('poziva', 0)} poziva, ${j.get('usd', 0):.3f}; ovaj mjesec ${m.get('usd', 0):.2f}"
+                 + (f" od ${b.get('mjesec_strop', 0):.0f}." if b.get("mjesec_strop") else "."))
+    return body
+
+
+def _n(x):
+    return f"{int(x or 0):,}".replace(",", ".")
+
+
+def costs_rows(c):
+    """[(source, yesterday)] of usage/daily's saved row."""
+    rows = []
+    cg = c.get("coingecko") or {}
+    if cg:
+        rows.append(("CoinGecko / GeckoTerminal", f"ključem {_n(cg.get('kljuc'))} od {_n(cg.get('strop'))}, besplatno "
+                                                  f"{_n(cg.get('besplatno_ukupno'))}, HTTP 429: {_n(cg.get('e429_ukupno'))}"))
+    tw = c.get("twitterapi") or {}
+    if tw:
+        rows.append(("X (twitterapi.io)", f"{tw.get('usd') or 0:.2f} $"))
+    ap = c.get("apify") or {}
+    if ap:
+        rows.append(("Apify", f"{ap.get('usd_bot') or 0:.2f} $"))
+    pp_ = c.get("pumpportal") or {}
+    if pp_:
+        rows.append(("PumpPortal", f"{_n(pp_.get('tradeova'))} tradeova ≈ {pp_.get('sol') or 0:.3f} SOL"))
+    he = c.get("helius") or {}
+    if he:
+        acc = he.get("racun") or {}
+        rows.append(("Helius", f"{_n(he.get('krediti_bot'))} kredita"
+                     + (f" (račun +{(acc.get('dan') or 0) / 1e3:,.0f}k)" if acc.get("dan") is not None else "")))
+    ai_ = c.get("ai") or {}
+    if ai_:
+        rows.append(("AI oznake (Claude)", f"{ai_.get('usd') or 0:.2f} $, {_n(ai_.get('objava'))} objava"))
+    oa = c.get("openai") or {}
+    if oa:
+        dec = oa.get("odluke_vlasnika") or {}
+        rows.append(("OpenAI kritičar", f"{oa.get('usd') or 0:.2f} $, {_n(oa.get('poziva'))} poziva, "
+                                        f"{_n(oa.get('presuda'))} presuda"
+                     + (", odluke vlasnika: " + ", ".join(f"{k} {v}" for k, v in dec.items()) if dec else "")))
+    errs = [k for k, v in c.items() if isinstance(v, dict) and v.get("greska")]
+    if errs:
+        rows.append(("Nije izmjereno", ", ".join(errs)))
+    return rows
+
+
+def mikrokap_line(mk):
+    if not mk:
+        return ("Mikrokap strategije pauzirane od 15.11. (fokus midcap); konačni rezultat: nema zapisa usporedbe "
+                "strategija.")
+    return (f"Mikrokap strategije pauzirane od {mk.get('od') or '15.11.'} (fokus midcap); konačni rezultat: "
+            f"{mk['racuna']} demo računa, {_n(mk['zatvoreno'])} zatvorenih tradeova, ukupno {money(mk['pnl_usd'])} "
+            f"(najbolji {mk['najbolji']['name']} {mk['najbolji']['ret']:+.1%}, najslabiji {mk['najgori']['name']} "
+            f"{mk['najgori']['ret']:+.1%})"
+            + (f"; još otvoreno {mk['otvoreno']}, zatvaraju se svojim izlazima." if mk.get("otvoreno") else "."))
+
+
+def _sum(t, acc, key, f):
+    return sum((r[key] or {}).get(f) or 0 for r in (t or {}).get("rows") or [] if r["racun"] == acc)
+
+
+def mkpi(label, value, sub="", color=INK):
+    """kpi() for the phone: four of them fit 390 px (smaller number, tighter padding)."""
+    return (f'<td width="25%" valign="top" style="padding:7px 5px;background:#fff;border:1px solid {LINE};border-radius:10px">'
+            f'<div style="font-size:10px;color:{MUT};text-transform:uppercase;letter-spacing:.03em">{label}</div>'
+            f'<div style="font-size:16px;font-weight:700;color:{color};margin-top:2px;white-space:nowrap">{value}</div>'
+            f'<div style="font-size:10px;color:{MUT};line-height:1.3">{sub}</div></td>')
+
+
+def kusd(x):
+    return f"{x:+.0f} $" if abs(x) >= 10 else f"{x:+.2f} $"
+
+
+def midcap_kpis(m):
+    t, w, mk = m.get("trgovanje") or {}, m.get("novcanik") or {}, (m.get("trziste") or {}).get("makro") or {}
+    dz = _sum(t, "demo", "jucer", "zatvoreno")
+    dp = _sum(t, "demo", "jucer", "pnl_usd")
+    rz = _sum(t, "pravi", "jucer", "zatvoreno")
+    rp = _sum(t, "pravi", "jucer", "pnl_sol")
+    btc = ((m.get("trziste") or {}).get("btc") or {}).get("stanje")
+    reg = mk.get("rezim")
+    rc = {"risk_on": GOOD, "risk_off": BAD}.get(reg, INK)
+    return "".join([
+        mkpi("Demo jučer", kusd(dp) if t else "–", f"{dz} zatvorenih", GOOD if dp > 0 else BAD if dp < 0 else INK),
+        "<td width=3></td>",
+        mkpi("Pravi jučer", f"{rp:+.3f}" if t else "–", f"SOL · {rz} zatvorenih", GOOD if rp > 0 else BAD if rp < 0 else INK),
+        "<td width=3></td>",
+        mkpi("Novčanik", f"{w['value_sol']:.2f}" if w.get("value_sol") is not None else "–",
+            f"SOL · 24 h {w['pnl_24h_sol']:+.3f}" if w.get("pnl_24h_sol") is not None else "SOL"),
+        "<td width=3></td>",
+        mkpi("Makro", {"risk_on": "risk-on", "risk_off": "risk-off", "neutral": "neutralno"}.get(reg, "–"),
+            f"BTC {BTC_HR.get(btc, btc or '?')}", rc),
+    ])
+
+
+def midcap_sections(data, ai):
+    """The midcap report (16.11.): trading, market, research, costs, the paused microcap line."""
+    m = data.get("midcap") or {}
+    out = []
+    t = m.get("trgovanje")
+    body = bullets(ai.get("trgovanje"))
+    if t:
+        body += sub(f"Jučer ({t['jucer']['dan']})") + trading_table(t, "jucer")
+        body += sub("Zadnjih 7 dana") + trading_table(t, "7d")
+        body += small("Neto = nakon pravog troška (pool, ruta, mreža, utjecaj). Do cilja = cilj dodirnut (cijeli TP ili "
+                      "pola na cilju). Break-even = stop pomaknut na ulaz na +5 % neto pa pogođen.")
+        op = t.get("otvoreno") or []
+        body += sub(f"Otvorene pozicije ({t.get('otvoreno_n', len(op))})")
+        body += open_table(op) + small("Sada / stop / cilj: cijena prema ulaznoj, bez troška.") if op else \
+            para("Nema otvorenih midcap pozicija.")
+    else:
+        body += para("Još nema midcap tradeova (league.db veliki_trades).")
+    body += sub("Pravila: dokaz izvan uzorka i pravi novac") + bullets(rules_items(m.get("pravila")))
+    body += sub("Novčanik i stropovi") + bullets(wallet_items(m.get("novcanik") or {}))
+    out.append(section("Midcap trgovanje", body, ("/strategije", "Usporedba midcap strategija")))
+    body = para(ai.get("trziste")) + bullets(market_items(m.get("trziste"), data.get("makroinf")))
+    out.append(section("Tržište", body, ("/kol-makro", "Makro influenceri")))
+    body = para(ai.get("istrazivanje")) + bullets(research_items(m.get("insajderi2"), m.get("holderi")))
+    body += sub("Kritičar (OpenAI)") + kriticar_short(data.get("kriticar"))
+    out.append(section("Istraživanje", body))
+    c = m.get("troskovi")
+    body = para(ai.get("troskovi"))
+    if c:
+        body += sub(f"Jučer ({e(c.get('day'))}, UTC dan, brojke bota)") + ctable(["Izvor", "Jučer"],
+                                                                               [[e(a), e(b)] for a, b in costs_rows(c)])
+    else:
+        body += para("Još nema spremljenog dana (usage.db daily_cost se piše u 23:59 UTC).")
+    out.append(section("Troškovi po izvoru", body, ("/usage", "Potrošnja")))
+    if data.get("fokus"):
+        out.append(section("Mikrokap", para(mikrokap_line(m.get("mikrokap"))), ("/strategije#arhiva", "Arhiva")))
+    return out
+
+
 def render(data, ai, source):
     now = data["ts"]
-    p, k, acc, today = data["paper"], data["kols"], data["sessions"], data["today"]
     day = time.strftime("%d.%m.%Y.", time.localtime(now))
-    cur = today["now"]
-    cur_sig = (acc.get(cur) or {}).get("signal") or (acc.get(cur) or {}).get("call") or {}
-    wr = (p["wins"] / p["closed"]) if p["closed"] else None
-    mk = data.get("market")
-    kpis = "".join([
-        kpi("Demo PnL 24 h", money(p["pnl"]), f"{p['closed']} zatvorenih, {p['open_now']} otvoreno",
-            GOOD if p["pnl"] >= 0 else BAD),
-        "<td width=8></td>", kpi("Win rate", pct(wr), f"medijan {pct(p['median_ret'], True)}"),
-        "<td width=8></td>", kpi("KOL pozivi 24 h", f"{k['calls_24h']}", f"{k['new_kols']} novih KOL-ova"),
-        "<td width=8></td>", kpi("Tržište", f"{mk['score']:.0f}/100" if mk else "–", e(mk["label"]) if mk else ""),
-    ])
     out = [section("Ukratko", bullets(ai.get("ukratko")))]
     sp = data.get("spend") or []
     if sp:   # urgent only (2.11.: the banner is gone from the app; warnings live on /usage)
         out.append(section(f'<span style="color:{BAD}">Hitno: potrošnja</span>',
                            "".join(para(f"{a['title']}: {a['detail']}") for a in sp), ("/usage", "Potrošnja")))
+    out += midcap_sections(data, ai)
+    if not data.get("fokus") and data.get("paper") is not None:   # the switch off: the microcap sections as before
+        out += mikrokap_sections(data, ai)
+    sg = ai.get("prijedlozi") or []
+    if sg:
+        col = {"visok": BAD, "srednji": "#d97706", "nizak": MUT}
+        body = "".join(f'<div style="margin:8px 0 10px"><span style="font-size:11px;color:#fff;background:'
+                       f'{col.get(x["prioritet"], MUT)};border-radius:4px;padding:1px 6px">{e(x["prioritet"])}</span> '
+                       f'<b style="font-size:14px">{e(x["naslov"])}</b>'
+                       f'<div style="font-size:13px;line-height:1.5;color:#374151;margin-top:3px">{e(x["opis"])}</div></div>'
+                       for x in sg)
+        out.append(section("Prijedlozi za midcap strategiju", body))
+    if ai.get("upozorenja"):
+        out.append(section("Upozorenja", bullets(ai["upozorenja"])))
+    kpis = midcap_kpis(data.get("midcap") or {})
+    src = "AI interpretacija: " + e(source) if source and not source.startswith("pravila") else \
+        "Bez AI interpretacije (pravila)"
+    return f"""<!DOCTYPE html><html lang="hr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Jutarnji izvještaj {day}</title></head>
+<body style="margin:0;padding:0;background:{BG};{FONT};color:{INK}">
+<table width="100%" cellpadding=0 cellspacing=0 style="background:{BG}"><tr><td align="center" style="padding:16px 8px">
+<table width="680" cellpadding=0 cellspacing=0 style="max-width:680px;width:100%">
+<tr><td style="padding:0 2px 12px"><div style="font-size:12px;color:{MUT}">MemeSonar · jutarnji izvještaj · midcap · {day}</div>
+<div style="font-size:22px;font-weight:800;line-height:1.25;margin-top:4px">{e(ai.get("naslov"))}</div></td></tr>
+<tr><td><table width="100%" cellpadding=0 cellspacing=0><tr>{kpis}</tr></table></td></tr>
+<tr><td style="height:12px;font-size:0">&nbsp;</td></tr>
+{"".join(out)}
+<tr><td style="font-size:11px;color:{MUT};padding:4px 2px 20px">{src} · podaci iz baza bota, bez dodatnih plaćenih poziva ·
+{link("/izvjestaj", "svi izvještaji")} · {link("/strategije", "usporedba strategija")} · {link("/", "dashboard")}</td></tr>
+</table></td></tr></table></body></html>"""
 
+
+def mikrokap_sections(data, ai):
+    """The microcap sections of the old report (learned weights, KOLs, today's tokens, the pulse, the microcap demo,
+    the KOL test, the strategy comparison, the scanner, pre-call insiders, momentum, the archive, the entry rules).
+    16.11.: only while the owner switch fokus_midcap is OFF (collect.collect leaves their data out while it is on)."""
+    p, k, acc, today = data["paper"], data["kols"], data["sessions"], data["today"]
+    cur = today["now"]
+    out = []
     # what was learned
     body = bullets(ai.get("naucio"))
     wrows, seen = [], set()
@@ -306,15 +692,6 @@ def render(data, ai, source):
     if ar:
         out.append(section("Arhiva mikrokapova", para(arhiva_text(ar))))
 
-    # 15.11. (makroinf/): one line: the 3 most accurate macro accounts and what they say now, the index change
-    mi = data.get("makroinf")
-    if mi:
-        from makroinf import report as mireport
-        out.append(section("Makro influenceri", para(mireport.morning_text(mi))))
-
-    # 15.11. (vlasnik): the OpenAI critic (critic/): review, verdicts on open positions, its record and cost
-    out.append(section("Kritičar (OpenAI)", kriticar_body(data.get("kriticar"))))
-
     # the 1.11. entry rules and their effect
     ru = data.get("rules")
     if ru:
@@ -353,34 +730,7 @@ def render(data, ai, source):
         items += [h["text"] for h in ru.get("history") or []]
         out.append(section("Nova pravila ulaza: učinak", bullets(items), ("/paper", "Demo trading")))
 
-    # suggestions
-    sg = ai.get("prijedlozi") or []
-    if sg:
-        col = {"visok": BAD, "srednji": "#d97706", "nizak": MUT}
-        body = "".join(f'<div style="margin:8px 0 10px"><span style="font-size:11px;color:#fff;background:'
-                       f'{col.get(x["prioritet"], MUT)};border-radius:4px;padding:1px 6px">{e(x["prioritet"])}</span> '
-                       f'<b style="font-size:14px">{e(x["naslov"])}</b>'
-                       f'<div style="font-size:13px;line-height:1.5;color:#374151;margin-top:3px">{e(x["opis"])}</div></div>'
-                       for x in sg)
-        out.append(section("Prijedlozi za bolji algoritam", body))
-    if ai.get("upozorenja"):
-        out.append(section("Upozorenja", bullets(ai["upozorenja"])))
-
-    src = "AI interpretacija: " + e(source) if source and not source.startswith("pravila") else \
-        "Bez AI interpretacije (pravila)"
-    return f"""<!DOCTYPE html><html lang="hr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Jutarnji izvještaj {day}</title></head>
-<body style="margin:0;padding:0;background:{BG};{FONT};color:{INK}">
-<table width="100%" cellpadding=0 cellspacing=0 style="background:{BG}"><tr><td align="center" style="padding:20px 10px">
-<table width="680" cellpadding=0 cellspacing=0 style="max-width:680px;width:100%">
-<tr><td style="padding:0 2px 12px"><div style="font-size:12px;color:{MUT}">Crypto bot · jutarnji izvještaj · {day}</div>
-<div style="font-size:22px;font-weight:800;line-height:1.25;margin-top:4px">{e(ai.get("naslov"))}</div></td></tr>
-<tr><td><table width="100%" cellpadding=0 cellspacing=0><tr>{kpis}</tr></table></td></tr>
-<tr><td style="height:12px;font-size:0">&nbsp;</td></tr>
-{"".join(out)}
-<tr><td style="font-size:11px;color:{MUT};padding:4px 2px 20px">{src} · podaci iz baza bota, bez dodatnih Helius/Apify poziva ·
-{link("/izvjestaj", "svi izvještaji")} · {link("/", "dashboard")}</td></tr>
-</table></td></tr></table></body></html>"""
+    return out
 
 
 SOURCE_HR = {"caller": "Calleri (X, Telegram)", "wallet": "Praćeni novčanici", "scan": "Skener (bez callera)",

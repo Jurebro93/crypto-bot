@@ -1,5 +1,8 @@
-"""/strategije: five demo accounts of $1000 side by side (top tracked wallets, KOL calls, the tool's picks split into
-small / mid / large market cap; Mix switched off 4.11., the random control kept as a baseline, audit R6), same exit rules, so the page answers one question: which source of entries makes money."""
+"""/strategije. 16.11. (vlasnik: "Treba maknuti strategije koje ne doprinose učenju i ove s micro capovima ... Sada idemo
+s mid cap tokenima"): on top the MIDCAP strategies in one table (report/midcap.strategies: the veliki demo and the real
+account by rule, Insajderi 2.0 demo, the holders' signal measurement, the walk-forward variants), below the old microcap
+comparison (strat/: demo accounts of $1000 side by side, same exit rules) as a collapsed, read-only archive while the
+owner switch fokus_midcap is on (open while it is off)."""
 import time
 
 from ui.html import note, ago, badge, esc, num, signed, table, tdesc, tlink
@@ -144,19 +147,106 @@ def natjecanje_block():
             + "</div>")
 
 
+VRSTA = {"demo": ("demo", ""), "pravi": ("pravi novac", "good"), "mjerenje": ("mjerenje", "warn"),
+         "backtest": ("backtest", "")}
+
+
 def page(qs):
+    """16.11. (vlasnik: "zašto u strategijama nema tradeova? Treba maknuti strategije koje ne doprinose učenju i ove s
+    micro capovima ... Sada idemo s mid cap tokenima"): the MIDCAP strategies in one table (demo, real, measurement,
+    backtest), the old microcap accounts below as a collapsed, read-only archive while fokus_midcap is on."""
+    now = time.time()
+    try:
+        from strat import run
+        paused = run.paused()
+    except Exception:  # noqa: BLE001
+        paused = False
+    h = ["<h1>Usporedba strategija</h1>", midcap_html(now), mikrokap_html(now, paused)]
+    return "Usporedba strategija", "".join(h)
+
+
+def _wcell(x, vrsta):
+    if vrsta == "backtest" or not x:
+        return ("–", -1e18, "n")
+    if vrsta == "mjerenje":
+        return (f"{x['n']} signala", x["n"], "n")
+    p = x.get("pnl_usd") or 0.0
+    c = "pos" if p > 0 else "neg" if p < 0 else ""
+    return (f'<span class="{c}">{p:+,.2f} $</span><br><small class=mut>{x["n"]} zatv.</small>', p, "n")
+
+
+def midcap_rows_html(rows):
+    out = []
+    for r in rows:
+        word, cls = VRSTA.get(r["vrsta"], (r["vrsta"], ""))
+        ev, ci = r.get("ev_pct"), r.get("ci")
+        evc = "pos" if (ev or 0) > 0 else "neg" if (ev or 0) < 0 else ""
+        ev_html = ("–" if ev is None else f'<span class="{evc}">{ev:+.2f} %</span>') + (
+            f'<br><small class=mut>CI {esc(r.get("ci_label"))}: {ci[0]:+.1f}…{ci[1]:+.1f}</small>' if ci else "")
+        out.append([f'{badge(word, cls)} <b>{esc(r["naziv"])}</b>'
+                    + (f'<br><small class=mut>{esc(r.get("opis") or "")}</small>' if r.get("opis") else ""),
+                    num(r.get("n")), (ev_html, ev if ev is not None else -1e18, "n"),
+                    (f'{r["pogodak"]:.0%}' if r.get("pogodak") is not None else "–",
+                     r["pogodak"] if r.get("pogodak") is not None else -1, "n"),
+                    _wcell(r.get("d24"), r["vrsta"]), _wcell(r.get("d7"), r["vrsta"])])
+    return out
+
+
+def midcap_html(now):
+    try:
+        from report import midcap as rmid
+        rows = rmid.strategies(now)
+    except Exception as e:  # noqa: BLE001 - the page shows the archive even if the midcap data is unreadable
+        return note(f"Midcap usporedba se ne može pročitati ({esc(type(e).__name__)}).")
+    out = ("<h2 id=midcap>Midcap strategije (MC 2M–200M)</h2>"
+           + tdesc("Od 15.11. bot trguje midcapove (prekidač fokus_midcap). U jednoj tablici: demo i pravi novac po "
+                   "pravilu (<b>dnevni raspon</b>: zona zadnjih 48 h, cijeli profit na +10 % neto; <b>raspon 7 d</b>: "
+                   "zona zadnjih 7 dana), Insajderi 2.0 u demu, mjerenje signala holdera (bez novca) i backtest "
+                   "(walk-forward: pravilo birano na starijim danima, testirano na novijima). Svi rezultati su nakon "
+                   "pravog troška. <b>EV</b> = prosjek po tradeu; <b>CI</b> = interval (90 % za demo i pravi novac, 95 % "
+                   "po danu za backtest): kad mu je donja granica ispod nule, prednost još nije dokazana. <b>24 h</b> i "
+                   "<b>7 d</b> = zarada zatvorenih tradeova u tom razdoblju.")
+           + '<div class=midtab>' + table(["Strategija", ("n", "n"), ("EV po tradeu", "n"), ("Pogodak", "n"),
+                                          ("24 h", "n"), ("7 d", "n")], midcap_rows_html(rows), tid="midstr")
+           + "</div>")
+    return out + MID_CSS
+
+
+# 16.11.: the table must read on a phone (390 px) without sideways scrolling: the strategy's name wraps, the numbers
+# stay narrow
+MID_CSS = ("<style>.midtab table.s td,.midtab table.s th{padding:6px 6px}.midtab table.s td:first-child{white-space:normal;"
+           "min-width:150px}.midtab small{font-size:11px}@media(max-width:700px){.midtab table.s{font-size:12px}"
+           ".midtab table.s td,.midtab table.s th{padding:5px 4px}.midtab table.s td:first-child{min-width:130px}"
+           ".midtab .b{font-size:10px;padding:0 5px}}</style>")
+
+
+def mikrokap_html(now, paused):
+    """The old comparison of the microcap accounts (strat/), collapsed and read-only while fokus_midcap is on."""
+    try:
+        from report import midcap as rmid
+        from report import render as rrender
+        line = rrender.mikrokap_line(rmid.mikrokap(now))
+    except Exception:  # noqa: BLE001
+        line = "Mikrokap strategije pauzirane od 15.11. (fokus midcap)."
+    head = "Arhiva: mikrokap strategije" if paused else "Mikrokap strategije"
+    if not paused:
+        line = line.replace(" pauzirane od 15.11. (fokus midcap)", "").replace("konačni rezultat", "rezultat")
+    return (f'<details id=arhiva{"" if paused else " open"}><summary><b>{head}</b></summary>'
+            f'<p class=mut>{esc(line)}</p>{_mikrokap_body(now, paused)}</details>')
+
+
+def _mikrokap_body(now, paused):
     from strat import run, store
     cfg = _cfg()
-    now = time.time()
-    h = ["<h1>Usporedba strategija</h1>"]
+    h = []
     con = store.ro()
     if con is None:
-        return "Usporedba strategija", h[0] + tdesc(
-            "Pet demo računa po $1000 kreće sam nakon objave nove verzije. Za par minuta ovdje će biti prvi ulazi.")
+        return tdesc("Nema zapisa mikrokap strategija (strat.db).")
     try:
         ex = run.exit_rules(now)
         summ = run.summary(con, cfg, ex)
-        h.append(_verdict_box(summ))
+        if not paused:
+            h.append(_verdict_box(summ))
         start = int(float(store.kv_get(con, "start_ts", now)))
         eq = con.execute("SELECT ts, strat, value FROM equity WHERE ts >= ? ORDER BY ts",
                          (now - 30 * 86400,)).fetchall()
@@ -176,7 +266,9 @@ def page(qs):
         + ("; kad potroši $1000, nastavlja dalje u minus da alat uči na više tradeova" if not cfg.get("cash_limit", True)
            else "") + f". Signal koji vidimo kasnije od "
         f"{cfg['max_delay_min']} min se preskače. Bez pravog novca. Radi od "
-        f"{time.strftime('%d.%m. %H:%M', time.gmtime(start))} UTC ({days:.1f} dana)."))
+        f"{time.strftime('%d.%m. %H:%M', time.gmtime(start))} UTC ({days:.1f} dana)."
+        + (" <b>Pauzirano od 15.11.</b> (prekidač fokus_midcap): bez novih ulaza, otvorene pozicije se zatvaraju "
+           "svojim izlazima; samo za čitanje." if paused else "")))
     order = sorted((s for s in summ if not s.get("baseline")), key=lambda s: -s["value"])
     h.append("<div class=grid>" + "".join(_card(s, i + 1, len(order), color[s["key"]])
                                           for i, s in enumerate(order)) + "</div>")
@@ -192,7 +284,7 @@ def page(qs):
         h.append("<div class=grid>" + _card(ctrl, 0, 0, color.get("kontrola", "#94a3b8")).replace("0. od 0 · ", "Mjerilo · ")
                  + "</div>")
     total = sum(s["closed"] for s in summ)
-    if total < 20 * len(summ):
+    if total < 20 * len(summ) and not paused:
         h.append(note(f"⏳ Još je rano: zatvoreno je {total} tradeova. Pouzdana usporedba treba barem ~20 zatvorenih "
                        f"po strategiji (obično 2–4 dana)."))
     if ctrl and ctrl["closed"] >= 10:
@@ -236,13 +328,14 @@ def page(qs):
                       ("Najviši rast", "n"), ("Zarada", "n"), ("Rezultat", "n"), "Izlaz"], rows, tid="strtr",
                      mints=[p["token"] for p in sorted(recent, key=lambda p: -(p["entry_ts"] or 0))]))
 
-    if skips:
+    if skips and not paused:
         rows = [[esc(name.get(k, k)), esc(r or "–"), num(n)] for k, r, n in sorted(skips, key=lambda x: -x[2])]
         h.append("<h2 id=preskoceno>Što nije kupljeno i zašto</h2>" + tdesc(
             "Signali koji su stigli, ali ih račun nije kupio (zadnjih 10 dana).")
                  + table(["Strategija", "Razlog", ("Broj", "n")], rows))
-    h.append(wallets_html(cfg))
-    return "Usporedba strategija", "".join(h)
+    if not paused:
+        h.append(wallets_html(cfg))
+    return "".join(h)
 
 
 def wallets_html(cfg):

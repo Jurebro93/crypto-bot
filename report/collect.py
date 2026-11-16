@@ -1,4 +1,6 @@
 """Everything the morning report needs, from the databases the loops already fill (no paid API calls).
+16.11.: the midcap block comes from report/midcap.py; the microcap sections below (microcap()) are collected only while
+the owner switch fokus_midcap is off.
 
 Each section is collected on its own and degrades to None/[] when its database or table does not exist yet,
 so a fresh deploy still gets a report. All connections are read-only."""
@@ -263,23 +265,46 @@ def market(now):
         return None
 
 
-def collect(now=None):
+def fokus_on():
+    """16.11.: the owner switch fokus_midcap (ops/fokus.py) decides whether the microcap sections are collected."""
+    try:
+        from ops import fokus
+        return fokus.on()
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour (switch off)
+        return False
+
+
+def collect(now=None, fokus=None):
+    """16.11. (vlasnik: "Sada idemo s mid cap tokenima"): the midcap block (report/midcap.py), the macro influencers,
+    the critic and the urgent spend always; the old microcap sections only while the switch fokus_midcap is off."""
     now = int(now or time.time())
+    fk = fokus_on() if fokus is None else bool(fokus)
+    from report import midcap
+    data = {"ts": now, "fokus": fk, "midcap": midcap.collect(now), "spend": spend(now),
+            "kriticar": kriticar(now), "makroinf": makroinf(now)}
+    if fk:
+        return data
+    data.update(microcap(now))
+    return data
+
+
+def microcap(now):
+    """The old (microcap) report data: weights, exits, sessions, KOLs, today's tokens, the pulse, the demo, the KOL
+    test, the entry rules, the strategy comparison, the scanner, pre-call insiders, momentum, the archive."""
     acc = session_accuracy()
     try:
         with open(os.path.join(HERE, "kol", "config.json")) as f:
             hit_x = json.load(f).get("hit_x", 0.5)
     except (OSError, ValueError):
         hit_x = 0.5
-    data = {"ts": now, "kol_hit_definition": f"+{hit_x:.0%} u 24 h nakon poziva", "weights": weight_changes(now), "exits": exit_changes(now), "sessions": acc,
+    data = {"kol_hit_definition": f"+{hit_x:.0%} u 24 h nakon poziva", "weights": weight_changes(now),
+            "exits": exit_changes(now), "sessions": acc,
             "kols": kols(now), "today": today_tokens(now, acc), "pulse": pulse(now), "paper": paper(now),
             "market": market(now), "koltest": koltest(now), "rules": rules(now),
-            "strategije": strategije(now), "spend": spend(now), "skener": skener(now)}
+            "strategije": strategije(now), "skener": skener(now)}
     data["insajderi"] = insajderi(now)   # 10.11. (flag insider_copy, kol/precall.py)
     data["momentum"] = momentum(now)     # 11.11. (flags momentum_scalp, grok_ev_gate; momentum/)
-    data["kriticar"] = kriticar(now)     # 15.11. (critic/: the OpenAI critic's review, verdicts, record, cost)
     data["arhiva"] = arhiva(now)         # 15.11. (ops/arhiva.py: microcap / rug rows moved to .gz archives last night)
-    data["makroinf"] = makroinf(now)     # 15.11. (makroinf/: the 3 most accurate macro accounts, what they say, the index)
     return data
 
 
