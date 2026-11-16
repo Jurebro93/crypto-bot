@@ -34,7 +34,7 @@ _NC = {"until": 0.0}
 
 def no_credit(now=None):
     """True while the pause after an HTTP 402 lasts."""
-    return (now or time.time()) < _NC["until"]
+    return bool(_NC["until"]) and (now or time.time()) < _NC["until"]   # no clock read while nothing is paused
 
 
 def reset():

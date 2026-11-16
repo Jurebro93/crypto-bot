@@ -54,8 +54,8 @@ CREATE TABLE IF NOT EXISTS c1h (token TEXT, ts INTEGER, o REAL, h REAL, l REAL, 
 CREATE TABLE IF NOT EXISTS c1d (token TEXT, ts INTEGER, o REAL, h REAL, l REAL, c REAL, v REAL, PRIMARY KEY (token, ts));
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 """
-DEFAULTS = {"every_s": 90, "discover_every_s": 900, "leave_after_h": 24, "gt_day": 4000, "gt_pass": 40,
-            "gt_trend_pages": 2, "top_n": 100, "c15_every_h_top": 1, "c15_every_h": 6, "c1h_every_h": 6,
+DEFAULTS = {"every_s": 90, "discover_every_s": 900, "leave_after_h": 24, "gt_day": 1500, "gt_pass": 10, "gt_pass_s": 30,
+            "gt_trend_pages": 2, "top_n": 100, "c15_every_h_top": 6, "c15_every_h": 6, "c1h_every_h": 6,
             "c1d_every_h": 24, "safety_every_h": 24, "safety_pass": 4, "x_pass": 2, "x_every_min": 120,
             "snap_keep_days": 14, "prio_top": 10}
 FETCH = {}   # tests: "dex_tokens" (mints) -> pairs, "discover" () -> {mint: {src: rank}}, "rugcheck" (mint) -> report,
@@ -325,15 +325,30 @@ def candles(con, c, now, log=print):
                 plan.append((0 if (m, t) not in last else 1, k, m, pool, t))   # never filled first, then by volume
     plan.sort()
     used = 0
-    for _new, _k, m, pool, t in plan:
-        if used >= budget:
-            break
-        n = store.fill(con, m, pool, now, budget - used, tables=(t,))
-        used += n
-        con.execute("INSERT OR REPLACE INTO fill_ts VALUES (?,?,?)", (m, t, int(now)))
-        con.commit()
-        if n == 0:
-            continue
+    # 16.11. (production 09:01-12:10 UTC: 3 passes an hour instead of 40, no hourly macro / priority line for 3 h):
+    # GeckoTerminal answered 429 and every refused request waited patiently (store.gt_ohlcv: up to 4 tries x 90 s, no
+    # deadline here), up to 40 requests a pass, so one pass took hours and the 90-s snapshots, the priority and the
+    # macro regime stood still. The candles are a top-up, the snapshots are the job: the top-up now has gt_pass_s (30 s)
+    # a pass, stops at the first refusal (the next pass, 90 s later, tries again) and a refused token is NOT marked
+    # filled (it used to wait 1-6 h for its next try).
+    t_end = time.monotonic() + float(c.get("gt_pass_s", 30))
+    keep = store.DEADLINE[0]
+    store.DEADLINE[0] = t_end
+    try:
+        for _new, _k, m, pool, t in plan:
+            if used >= budget or time.monotonic() >= t_end:
+                break
+            ref0 = store.GT_STATS["refused"]
+            n = store.fill(con, m, pool, now, budget - used, tables=(t,))
+            used += n
+            if store.GT_STATS["refused"] > ref0:
+                con.commit()
+                log(PREFIX + f"svijeće: GeckoTerminal zauzet (429) nakon {used} zahtjeva, nastavak u sljedećem prolazu")
+                break
+            con.execute("INSERT OR REPLACE INTO fill_ts VALUES (?,?,?)", (m, t, int(now)))
+            con.commit()
+    finally:
+        store.DEADLINE[0] = keep
     if used:
         kv_put(con, f"gt:{_day(now)}", int(kv_get(con, f"gt:{_day(now)}", 0) or 0) + used)
         con.commit()
