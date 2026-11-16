@@ -19,6 +19,39 @@ class CapReached(Exception):
     """The phase's cap does not allow the next call."""
 
 
+class NoCredit(CapReached):
+    """twitterapi.io answered HTTP 402 (the account's credits are spent): nothing is fetched until it is topped up."""
+
+
+# 16.11.: from 05:45 UTC every call answered "402 Payment Required" and the discovery kept probing account after
+# account. One 402 now stops every makroinf call for NO_CREDIT_S (the callers already stop cleanly on CapReached), one
+# line says so, and the next try after the pause finds out whether the account was topped up. Nothing is billed.
+NO_CREDIT_S = 1800
+NO_CREDIT_TEXT = ("twitterapi.io: krediti potrošeni (HTTP 402 Payment Required): dohvat s X-a stoji dok se račun ne "
+                  "nadoplati; ponovni pokušaj za 30 min")
+_NC = {"until": 0.0}
+
+
+def no_credit(now=None):
+    """True while the pause after an HTTP 402 lasts."""
+    return (now or time.time()) < _NC["until"]
+
+
+def reset():
+    _NC["until"] = 0.0
+
+
+def _call(get, url, params):
+    try:
+        return _get(get)(url, params)
+    except Exception as e:  # noqa: BLE001 - only the 402 is ours, the rest goes up unchanged
+        if getattr(e, "code", None) == 402:
+            _NC["until"] = time.time() + NO_CREDIT_S
+            print("makroinf: " + NO_CREDIT_TEXT, flush=True)
+            raise NoCredit(NO_CREDIT_TEXT) from None
+        raise
+
+
 def has_key(get=None):
     return get is not None or bool(twapi.key())
 
@@ -28,6 +61,8 @@ def _get(get):
 
 
 def _need(con, kind_usd, ph, c, now):
+    if no_credit():
+        raise NoCredit(NO_CREDIT_TEXT)
     left = store.left(con, "twapi", ph, now, c)
     if left + 1e-12 < kind_usd:
         raise CapReached(f"strop twitterapi ({ph}) dosegnut: ostalo {left:.4f} $")
@@ -37,7 +72,7 @@ def search_page(con, query, cursor, ph, c, now=None, get=None, what="pretraga"):
     """One page of advanced search (Latest): (tweets, next_cursor or None)."""
     now = now or time.time()
     _need(con, twapi.cost(int(c["page_posts"])), ph, c, now)
-    d = _get(get)(twapi.URL, {"query": query, "queryType": "Latest", "cursor": cursor or ""}) or {}
+    d = _call(get, twapi.URL, {"query": query, "queryType": "Latest", "cursor": cursor or ""}) or {}
     if d.get("status") == "error" or (d.get("error") and not d.get("tweets")):   # not billed, the unit stays to do
         raise RuntimeError(f"twitterapi: {str(d.get('msg') or d.get('message') or d.get('error'))[:120]}")
     tw = [t for t in (d.get("tweets") or []) if isinstance(t, dict)]
@@ -50,7 +85,7 @@ def user(con, handle, ph, c, now=None, get=None):
     """Profile dict of one account, {"unavailable": True, ...} when X says so, or None (unknown / API error)."""
     now = now or time.time()
     _need(con, PER_USER, ph, c, now)
-    d = _get(get)(twapi.USER_URL, {"userName": handle}) or {}
+    d = _call(get, twapi.USER_URL, {"userName": handle}) or {}
     store.book(con, "twitterapi", PER_USER, ph, "profil", now)
     if d.get("status") != "success":
         msg = str(d.get("msg") or d.get("message") or "")
@@ -64,7 +99,7 @@ def user_search(con, query, ph, c, now=None, get=None, limit=20):
     """Accounts matching `query` (twitterapi.io user search): [dict]."""
     now = now or time.time()
     _need(con, PER_USER * limit, ph, c, now)
-    d = _get(get)(USER_SEARCH_URL, {"query": query}) or {}
+    d = _call(get, USER_SEARCH_URL, {"query": query}) or {}
     users = [u for u in (d.get("users") or d.get("data") or []) if isinstance(u, dict)][:limit]
     store.book(con, "twitterapi", max(PER_USER, PER_USER * len(users)), ph, "pretraga računa", now)
     return users
@@ -76,7 +111,7 @@ def by_ids(con, ids, ph, c, now=None, get=None):
     if not ids:
         return []
     _need(con, twapi.cost(len(ids)), ph, c, now)
-    d = _get(get)(twapi.TWEETS_URL, {"tweet_ids": ",".join(str(i) for i in ids)}) or {}
+    d = _call(get, twapi.TWEETS_URL, {"tweet_ids": ",".join(str(i) for i in ids)}) or {}
     out = [t for t in (d.get("tweets") or []) if isinstance(t, dict)]
     store.book(con, "twitterapi", twapi.cost(len(out)), ph, "provjera brisanja", now)
     return out
@@ -85,7 +120,7 @@ def by_ids(con, ids, ph, c, now=None, get=None):
 def followings(con, handle, ph, c, now=None, get=None, page=200):
     now = now or time.time()
     _need(con, 0.0006 + page * 0.00001, ph, c, now)
-    d = _get(get)(twapi.FOLLOWINGS_URL, {"userName": handle, "cursor": "", "pageSize": page}) or {}
+    d = _call(get, twapi.FOLLOWINGS_URL, {"userName": handle, "cursor": "", "pageSize": page}) or {}
     out = [u for u in (d.get("followings") or []) if isinstance(u, dict)]
     store.book(con, "twitterapi", max(0.0006, len(out) * 0.00001), ph, "praćeni", now)
     return out
@@ -96,7 +131,7 @@ def followings_page(con, handle, ph, c, now=None, get=None, cursor="", page=200,
     (kol/twapi.followings), at least $0.0006 a call."""
     now = now or time.time()
     _need(con, max(0.0006, page * 0.00001), ph, c, now)
-    d = _get(get)(twapi.FOLLOWINGS_URL, {"userName": handle, "cursor": cursor or "", "pageSize": page}) or {}
+    d = _call(get, twapi.FOLLOWINGS_URL, {"userName": handle, "cursor": cursor or "", "pageSize": page}) or {}
     if d.get("status") == "error":
         raise RuntimeError(f"twitterapi: {str(d.get('msg') or d.get('message'))[:120]}")
     out = [u for u in (d.get("followings") or []) if isinstance(u, dict)]
