@@ -552,9 +552,14 @@ class Pass(Base):
         from insajderi import report
         with mock.patch.object(store, "db_path", return_value=self.p["insajderi_db"]):
             md = report.markdown(run.summary(self.p["insajderi_db"]))
-            self.assertIn("## Insajderski novčanici influencera (vjerojatno povezani)", md)
-            self.assertIn("| Gama | handle nije potvrđen |", md)
-            self.assertIn("nije dokazana činjenica", md)
+            # the admin-visible markdown carries only the count: names and evidence stay on the owner-only page
+            self.assertIn("## Insajderski novčanici influencera", md)
+            self.assertIn("insajderi kol: ", md)
+            self.assertIn("/kol-insajderi (samo vlasnik)", md)
+            self.assertNotIn("Gama", md)
+            full = kw.markdown()
+            self.assertIn("| Gama | handle nije potvrđen |", full)
+            self.assertIn("nije dokazana činjenica", full)
             self.assertTrue(report.kol_line().startswith("insajderi kol: "))
 
     def test_predpoziv_is_recorded_and_settled_only_while_the_flag_is_on(self):

@@ -211,9 +211,12 @@ def markdown(s):
           "- kupnja prije poziva traži se do 7 dana unatrag preko token računa prodavača (jedna stranica, ~10 kredita)",
           "- ulaz +60 s, 5 % lošije kad nema cijene; izlaz kad grupa proda, stop -25 % ili 24 h; bondan = MC ≥ 60k ili "
           "migracija ili midcap lista", ""]
-    try:   # 16.11.: the influencers' probably linked wallets (insajderi/kolwallets.py)
+    try:   # 16.11.: the influencers' probably linked wallets (insajderi/kolwallets.py). output/insajderi.md is read by
+        # every admin (/outputs), and what this says about named people is the owner's alone: only the one-line count
+        # goes here, the names and the evidence stay on the owner-only page /kol-insajderi
         from insajderi import kolwallets
-        L += [kolwallets.markdown().rstrip("\n"), ""]
+        L += ["## Insajderski novčanici influencera", "", kolwallets.line(kolwallets.summary()),
+              "Detalji su na stranici /kol-insajderi (samo vlasnik).", ""]
     except Exception:  # noqa: BLE001 - the section never costs the report
         pass
     return "\n".join(L) + "\n"
