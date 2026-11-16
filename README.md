@@ -116,6 +116,8 @@ python3 run_wallets.py wallet <adresa>              # jedan wallet odmah, s otvo
 python3 run_wallets.py history <adresa>             # ocjena i PnL kroz vrijeme
 python3 run_wallets.py label <adresa> rugger        # ručna oznaka (--off makne)
 python3 run_wallets.py credits                      # potrošnja kredita ovaj mjesec i procjena
+python3 run_wallets.py kopija --force               # koliko bismo MI zaradili kopirajući dokazane novčanike (samo baze, bez mreže)
+python3 run_wallets.py osvjezi --stanje             # plaćeno osvježavanje dokazanih: isključeno dok wallets/config.json kopija.osvjezi nije true
 ```
 
 Kako se računa:

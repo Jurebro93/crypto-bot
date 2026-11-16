@@ -346,7 +346,8 @@ class LiveGate(TradeBase):
         # the big tokens' range flag veliki_range (P21) and its owner switch pravi_novac_veliki (P22, veliki/); the
         # owner switch fokus_midcap (MK3, ops/fokus.py: no resources on the microcaps); the owner switch arhiva_mikrokapova (A1, ops/arhiva.py:
         # microcap / rug rows into .gz archives at night); Insajderi 2.0's demo flag insajderi2 (P23, insajderi/); the
-        # macro influencers' DEMO input makroinf_indeks (MI1) and the public pages' owner switch makroinf_javno (MI2)
+        # macro influencers' DEMO input makroinf_indeks (MI1) and the public pages' owner switch makroinf_javno (MI2);
+        # 16.11.: the demo copies of the proven wallets kopija_dokazani (P24, wallets/kopija_demo.py)
         self.assertEqual(names[names.index("range_flip") + 1:], ["range_missed", "x_call_scalp", "range_demo",
                                                                  "pravi_novac_sve", "prati_zadnjih5", "openai_kritika",
                                                                  "konsenzus", "pravi_novac_izvori", "oscilator",
@@ -354,7 +355,8 @@ class LiveGate(TradeBase):
                                                                  "mikrokap_moonshot", "veliki_range",
                                                                  "pravi_novac_veliki", "fokus_midcap",
                                                                  "arhiva_mikrokapova", "insajderi2",
-                                                                 "makroinf_indeks", "makroinf_javno"])
+                                                                 "makroinf_indeks", "makroinf_javno",
+                                                                 "kopija_dokazani"])
         self.assertEqual(settings.flag("range_flip", con=self.con), "off")
         self.assertNotIn("range_flip", settings.DATA_FLAGS)
         self.assertNotIn("range_flip", settings.NEVER_LIVE)

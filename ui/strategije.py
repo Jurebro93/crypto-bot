@@ -209,7 +209,62 @@ def midcap_html(now):
            + '<div class=midtab>' + table(["Strategija", ("n", "n"), ("EV po tradeu", "n"), ("Pogodak", "n"),
                                           ("24 h", "n"), ("7 d", "n")], midcap_rows_html(rows), tid="midstr")
            + "</div>")
-    return out + MID_CSS
+    return out + kopija_html(now) + MID_CSS
+
+
+def kopija_html(now):
+    """16.11. (wallets/kopija.py): under the comparison table, what WE would have earned copying the proven wallets:
+    the verdict, the small table (after delay and cost, out of sample), the gap to the wallet's own return, the demo
+    copies and what is stale. "" before the first run; never takes the page down."""
+    try:
+        from report import midcap as rmid
+        k = rmid.kopija(now)
+    except Exception:  # noqa: BLE001
+        k = None
+    if not k or not (k.get("presuda") or k.get("demo")):
+        return ""
+
+    def row(r):
+        if r.get("malo"):
+            return [esc(r["naziv"]), num(r.get("n")), ("premalo podataka", -1e18, "n mut"), "–", "–"]
+        ev, ci = r.get("ev_pct"), r.get("ci")
+        c = "pos" if (ev or 0) > 0 else "neg" if (ev or 0) < 0 else ""
+        return [esc(r["naziv"]), num(r.get("n")),
+                (f'<span class="{c}">{ev:+.2f} %</span>'
+                 + (f'<br><small class=mut>CI 90 %: {ci[0]:+.1f}…{ci[1]:+.1f}</small>' if ci else ""), ev, "n"),
+                (f'{r["pogodak"]:.0%}' if r.get("pogodak") is not None else "–", r.get("pogodak") or -1, "n"),
+                (f'{r["zbroj_sol"]:+.2f} SOL' if r.get("zbroj_sol") is not None else "–", r.get("zbroj_sol") or 0, "n")]
+    ul = lambda xs: "<ul>" + "".join(f"<li>{esc(x)}</li>" for x in xs) + "</ul>"   # noqa: E731
+    head = ["Što je mjereno", ("Kopija", "n"), ("EV po tradeu", "n"), ("Pogodak", "n"), ("Zbroj", "n")]
+    h = ['<h2 id=kopija>Kopiranje dokazanih novčanika: koliko bismo zaradili mi</h2>']
+    if k.get("presuda"):
+        h.append(f"<p><b>{esc(k['presuda'])}</b></p>")
+        if k.get("redovi"):
+            h.append('<div class=midtab>' + table(head, [row(r) for r in k["redovi"]], tid="kopija-t") + "</div>")
+            h.append(note(f"Novčanici su odabrani na starijem dijelu podataka; mjereno je samo na zadnjih "
+                          f"{esc(k.get('dana_izvan'))} dana koje odabir nije vidio, s ulogom "
+                          f"{esc(str(k.get('ulog_sol')).replace('.', ','))} SOL, nakon kašnjenja i troška."))
+        if k.get("razlika"):
+            h.append("<h3>Zašto je novčanik u plusu, a kopija nije ista</h3>" + ul(k["razlika"]))
+        if k.get("skupine"):
+            h.append("<details><summary>Po veličini tokena, likvidnosti i načinu trgovanja novčanika</summary><div class=midtab>"
+                     + table(head, [row(r) for r in k["skupine"]], tid="kopija-s") + "</div></details>")
+        if k.get("mreza"):
+            h.append(f"<details><summary>Svih {len(k['mreza'])} isprobanih kombinacija (odabir · kašnjenje · izlaz)</summary>"
+                     "<div class=midtab>" + table(head, [row(r) for r in k["mreza"]], tid="kopija-m", limit=0)
+                     + "</div></details>")
+    d = k.get("demo")
+    if d:
+        late = f", ulaz tipično {d['kasnjenje_med_s']:.0f} s nakon njega" if d.get("kasnjenje_med_s") is not None else ""
+        ev = f", prosjek {d['ev_pct']:+.2f} % po kopiji" if d.get("ev_pct") is not None else ""
+        h.append(note(f"Demo kopije (mjerenje unaprijed, samo demo račun, i ispod 5M $): zatvoreno {d['n']}, otvoreno "
+                      f"{d['otvoreno']}{ev}{late}. Izlaz: {esc(k.get('demo_izlaz') or 'njegov izlaz ili stop −20 %')}."))
+    if k.get("svjezina"):
+        h.append("<h3>Što je zastarjelo</h3>" + ul(k["svjezina"]))
+    if k.get("napomene") or k.get("pristranosti"):
+        h.append("<details><summary>Kako čitati i gdje test griješi</summary>"
+                 + ul((k.get("napomene") or []) + (k.get("pristranosti") or [])) + "</details>")
+    return "".join(h)
 
 
 # 16.11.: the table must read on a phone (390 px) without sideways scrolling: the strategy's name wraps, the numbers
