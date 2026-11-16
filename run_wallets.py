@@ -10,6 +10,11 @@
     python3 run_wallets.py history <address>       # score and PnL over time
     python3 run_wallets.py label <address> rugger  # manual label (--off to remove)
     python3 run_wallets.py credits                 # Helius credits used by this module this month
+    python3 run_wallets.py kopija                  # what WE would have earned copying the proven wallets (wallets/kopija.py:
+                                                   # walk-forward on the stored trades and prices, no network); --ako-nema:
+                                                   # only when no result exists; --night: 01-06 Zagreb, once a day
+    python3 run_wallets.py osvjezi                 # refresh the proven wallets' trades (Helius, paid): only with
+                                                   # wallets/config.json "kopija" osvjezi true (default false: one line)
 """
 import argparse
 import datetime as dt
@@ -308,6 +313,87 @@ def cmd_rang(a):
         con.close()
 
 
+def _in_night(now):
+    try:
+        from ops import heavy
+        return heavy.night_now(dt.datetime.fromtimestamp(now, dt.timezone.utc))
+    except Exception:  # noqa: BLE001
+        from zoneinfo import ZoneInfo
+        return 1 <= dt.datetime.fromtimestamp(now, ZoneInfo("Europe/Zagreb")).hour < 6
+
+
+def cmd_kopija(a):
+    """16.11. (vlasnik: "kako ovdje postoji profitabilni wallet, a mi nemamo profitabilnu strategiju"): the copier's
+    walk-forward over the stored trades and prices (wallets/kopija.py): database reads only, no API call; the result
+    into wallets.db copy_rank_kv "kopija", one line "novčanici kopija: ...". Measurement only: no account trades."""
+    from wallets import kopija
+    now = int(time.time())
+    last = kopija.latest() or {}
+    if not a.force:
+        if a.ako_nema and last.get("ts"):
+            return
+        if a.night and (not _in_night(now) or last.get("day") == time.strftime("%Y-%m-%d", time.gmtime(now + 3600))):
+            return
+    try:
+        os.nice(5)
+    except OSError:
+        pass
+    kopija.run(now=now, log=lambda m: print(m, flush=True))
+
+
+def refresh_targets(con, limit):
+    """The wallets worth keeping fresh for the copy measurement: the proven-twice list, then the copy ranking's proven
+    and copyable wallets, best first, at most `limit`."""
+    from wallets import dokazani, rang
+    out = sorted(dokazani.current(wstore.DB))
+    for r in rang.ranked("wallet", wstore.DB, proven=True, copyable=True):
+        if r["target"] not in out:
+            out.append(r["target"])
+    return out[:max(0, int(limit))]
+
+
+def cmd_osvjezi(a, score=None):
+    """16.11.: under the owner switch fokus_midcap the scorer is off, so the proven wallets' trades (and with them the
+    "dokazan dvaput" list, the ranking and the copy measurement) go stale. This re-reads ONLY those wallets' new
+    transactions (the scorer's own recheck, ~10 Helius credits a page) inside a day cap. It costs credits, so it runs
+    only when wallets/config.json "kopija" osvjezi is true; the default is false: nothing is opened or called (--stanje
+    prints the estimate)."""
+    from wallets import kopija
+    c = kopija.config()
+    if not c["osvjezi"] and not getattr(a, "stanje", False):
+        return   # off: silent in the scheduled loop, nothing opened or called (the estimate is in the report)
+    con = wstore.connect()
+    now = int(time.time())
+    targets = refresh_targets(con, c["najvise_novcanika"])
+    if not c["osvjezi"]:
+        f = kopija.freshness(con, now)
+        print(f"novčanici osvježavanje: ISKLJUČENO (wallets/config.json kopija.osvjezi = false): {len(targets)} novčanika "
+              f"bi se osvježavalo svakih {c['svakih_h']} h, procjena {f['procjena_kredita_dan']} Helius kredita dnevno "
+              f"(strop {c['kredita_dan']}); ništa nije pozvano", flush=True)
+        return
+    day0 = now - now % 86400
+    used = con.execute("SELECT COALESCE(SUM(credits), 0) FROM helius_credits WHERE ts >= ? AND method = 'wallet_history'",
+                       (day0,)).fetchone()[0]
+    month = wstore.credits_since(con, _month_start())
+    left = min(c["kredita_dan"] - used, MONTHLY * SHARE - month)
+    spent = done = 0
+    for w in targets:
+        if spent + 30 > left:
+            break
+        row = con.execute("SELECT scored_at FROM wallets WHERE wallet=?", (w,)).fetchone()
+        if row and row[0] and now - row[0] < c["svakih_h"] * 3600:
+            continue
+        try:
+            s, _t, _pos = (score or score_one)(con, w, 1)
+        except Exception as e:  # noqa: BLE001 - one wallet never stops the rest
+            print(f"  {w}: {e}", file=sys.stderr)
+            continue
+        spent += s.get("credits") or 0
+        done += 1
+    print(f"novčanici osvježavanje: {done} od {len(targets)} novčanika, potrošeno {spent} Helius kredita (danas "
+          f"{used + spent} od stropa {c['kredita_dan']})", flush=True)
+
+
 def cmd_credits(a):
     con = wstore.connect()
     ms = _month_start()
@@ -365,10 +451,16 @@ def main(argv=None):
     lb.add_argument("name")
     lb.add_argument("--off", action="store_true")
     sub.add_parser("credits")
+    k = sub.add_parser("kopija")
+    k.add_argument("--ako-nema", action="store_true", help="samo kad još nema spremljenog rezultata")
+    k.add_argument("--night", action="store_true", help="samo 01-06 po Zagrebu, jednom dnevno")
+    k.add_argument("--force", action="store_true")
+    o = sub.add_parser("osvjezi")
+    o.add_argument("--stanje", action="store_true", help="dok je isključeno: ispiši procjenu kredita (ništa se ne zove)")
     a = p.parse_args(argv)
     {"harvest": cmd_harvest, "score": cmd_score, "top": cmd_top, "copy": cmd_copy, "wallet": cmd_wallet,
      "history": cmd_history, "label": cmd_label, "credits": cmd_credits, "dokazani": cmd_dokazani,
-     "rang": cmd_rang}[a.cmd](a)
+     "rang": cmd_rang, "kopija": cmd_kopija, "osvjezi": cmd_osvjezi}[a.cmd](a)
 
 
 if __name__ == "__main__":

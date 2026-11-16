@@ -1,4 +1,6 @@
 {
   "_": "Novčanici (wallets/). copy_hygiene (11.11., Grokova kritika #85, wallets/hygiene.py): novčanik ispada s popisa za kopiranje i s webhooka kad nije tradeao max_idle_h sati, ima oznaku bot/sniper/bundler/... ili po statistici izgleda kao bot (više od max_tpd tradeova dnevno ili medijan držanja ispod min_hold_s sekundi), i kad je tier S. Samo uklanja, nikad ne dodaje.",
-  "copy_hygiene": {"max_idle_h": 24, "max_tpd": 200, "min_hold_s": 30}
+  "copy_hygiene": {"max_idle_h": 24, "max_tpd": 200, "min_hold_s": 30},
+  "_kopija": "Kopija dokazanih novčanika (16.11., wallets/kopija.py). osvjezi: false = ništa se ne plaća. true = svakih svakih_h sati ponovno se čitaju SAMO novi tradeovi dokazanih i najbolje rangiranih novčanika (najviše najvise_novcanika), unutar kredita_dan Helius kredita dnevno (oko 10 kredita po provjeri); uključuje samo vlasnik, jer je to plaćeno prikupljanje koje je fokus midcap ugasio.",
+  "kopija": {"osvjezi": true, "kredita_dan": 2000, "najvise_novcanika": 150, "svakih_h": 6}
 }

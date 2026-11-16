@@ -177,6 +177,10 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 (
   sleep 1200
   while true; do
+    # 16.11. (wallets/kopija.py): the PAID refresh of the proven wallets' trades (the scorer is off under fokus_midcap, so
+    # "dokazan dvaput" and the copy measurement go stale). Does nothing and calls nothing unless the owner sets
+    # wallets/config.json "kopija" osvjezi true (default false); then at most kredita_dan Helius credits a day.
+    python3 -m ops.heavy run_wallets.py osvjezi || echo "wallets osvjezi nije uspio"
     python3 -m ops.heavy run_wallets.py dokazani || echo "wallets dokazani nije uspio"
     python3 -m ops.heavy run_wallets.py rang || echo "wallets rang nije uspio"
     python3 -m ops.heavy run_wallets.py copy >/dev/null || true
@@ -355,6 +359,15 @@ low keep zonewatch python3 run_zonewatch.py loop
 # the heavy-job lock (nice 10), a 5-min budget REPLAY_BUDGET_S; one line "veliki replay: ..." and midcap.db kv replay
 # (the morning report and /strategije show it).
 ( sleep "${REPLAY_FIRST_S:-900}"; python3 -m ops.heavy run_veliki.py replay --ako-nema || echo "veliki replay nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_veliki.py replay --night || echo "veliki replay (noć) nije uspio"; done ) &
+# 16.11. (vlasnik: "Objasni mi kako ovdje postoji profitabilni wallet, a mi nemamo profitabilnu strategiju"; wallets/
+# kopija.py): what WE would have earned copying the "dokazan dvaput" wallets: picked on the older 60 % of the stored
+# days, their buys of the newer 40 % taken 30 / 60 / 180 s later at the stored prices, sold after their sale / at a stop
+# / after 24 h, minus the real round trip at 0.1 SOL. Databases only (wallets.db trades + the stored price series): no
+# network, no paid call, no account trades. KOPIJA_FIRST_S (1200 s) after a start only when no result exists yet, then
+# nightly (01-06 Zagreb, once a day), under the heavy-job lock (nice 10), a 5-min budget KOPIJA_BUDGET_S; one line
+# "novčanici kopija: ..." and wallets.db copy_rank_kv "kopija" (the morning report and /strategije show it). Not a
+# microcap job of ops/fokus.OFF: it runs under the owner switch fokus_midcap too.
+( sleep "${KOPIJA_FIRST_S:-1200}"; python3 -m ops.heavy run_wallets.py kopija --ako-nema || echo "novčanici kopija nije uspjela"; while true; do sleep 3600; python3 -m ops.heavy --night run_wallets.py kopija --night || echo "novčanici kopija (noć) nije uspjela"; done ) &
 # 15.11. (vlasnik: "insajderi drže velik dio ponude? oprez — ali to su često BURZE ... kad dio ponude ode na novčanik
 # burze, a token tamo još nije listan, to je jak signal"; holderi/, run_holderi.py): every HOLDERI_EVERY_S (10 min), a
 # short low-priority process outside the heavy lock, only with the owner switch fokus_midcap: the top 20 holders of the
