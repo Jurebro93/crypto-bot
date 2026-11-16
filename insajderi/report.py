@@ -51,6 +51,12 @@ def lines(s):
     return out
 
 
+def kol_line():
+    """The last "insajderi kol: ..." line (run_insajderi.py report)."""
+    from insajderi import kolwallets
+    return kolwallets.line(kolwallets.summary())
+
+
 # ---------- the database views ---------------------------------------------------------------------------------------
 
 def groups(limit=20, path=None, cls=None):
@@ -205,6 +211,11 @@ def markdown(s):
           "- kupnja prije poziva traži se do 7 dana unatrag preko token računa prodavača (jedna stranica, ~10 kredita)",
           "- ulaz +60 s, 5 % lošije kad nema cijene; izlaz kad grupa proda, stop -25 % ili 24 h; bondan = MC ≥ 60k ili "
           "migracija ili midcap lista", ""]
+    try:   # 16.11.: the influencers' probably linked wallets (insajderi/kolwallets.py)
+        from insajderi import kolwallets
+        L += [kolwallets.markdown().rstrip("\n"), ""]
+    except Exception:  # noqa: BLE001 - the section never costs the report
+        pass
     return "\n".join(L) + "\n"
 
 
@@ -276,5 +287,6 @@ def card_html(sec, item, esc, owner=True):
              f"<table><tr><th>skupina</th><th>n</th><th>EV</th><th>CI90 od</th></tr>{rows}</table>"
              f"<p class=mut>Grupe</p><ul>{gs or '<li>—</li>'}</ul><p class=mut>Skokovi danas</p><ul>{tops or '<li>—</li>'}</ul>"
              f"<p class=mut>Helius danas {s.get('helius_today', 0):,} od {s.get('helius_cap', 0):,} kr.; pravi novac nikad "
-             f"iz ovog alata.</p>")
+             f"iz ovog alata.</p>"
+             '<p><a href="/kol-insajderi">Insajderski novčanici influencera →</a></p>')
     return sec("Insajderi 2.0", meta, inner, sid="insajderi2")

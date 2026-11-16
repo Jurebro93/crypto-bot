@@ -1706,6 +1706,38 @@ TOOLS.append(
      "inputSchema": {"type": "object", "properties": {
          "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
          "class": {"type": "string", "enum": ["insajder", "bot_snajper", "relayer", "kandidat", "promatra"]}}}})
+# 16.11. (vlasnik: "Kako naći njihove sekundarne wallete ... Mora postojati stavka 'insider wallet' i algoritam koji ih
+# traži"; insajderi/kolwallets.py): the influencers' probably linked wallets, read-only + a proposal inbox
+TOOLS.append(
+    {"name": "get_kol_insider_wallets", "annotations": _READ,
+     "description": ("Probably linked ('insider') wallets of the influencers on the owner's seed list "
+                     "(insajderi/kolwallets.py): per influencer the status (pratimo / nema poziva u podacima / handle "
+                     "nije potvrđen), his public wallets with their source, and the wallet groups (same-owner wallets "
+                     "merged) that bought before his calls again and again: class potvrđen / kandidat, calls "
+                     "front-run, share of those sold into the call, lift vs chance, exclusivity, median lead, SOL in "
+                     "/ out, the links to his public wallet (a SOL or token transfer from it, the split before a "
+                     "sale, a shared first funder, at most 2 hops, never through an exchange) and the evidence (which "
+                     "calls, times, transactions). Also the 'predpoziv' measurement: a confirmed group bought a token "
+                     "before he posted it; did he then call it, the lead time. A STATISTICAL INFERENCE from public "
+                     "on-chain data about named people: say 'vjerojatno povezani', never state wrongdoing as fact, "
+                     "never publish it. influencer: an id or X handle; limit 1-50 groups each; evidence: the per-call "
+                     "evidence (by default only when one influencer is asked for). Read-only; never real money."),
+     "inputSchema": {"type": "object", "properties": {
+         "influencer": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+         "evidence": {"type": "boolean"}}}})
+TOOLS.append(
+    {"name": "submit_kol_wallet",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+     "description": ("Propose an X handle or a PUBLICLY documented main wallet of an influencer on the seed list of "
+                     "get_kol_insider_wallets (or a new influencer), with the public source where it is written (a "
+                     "tracker page, the influencer's own post). Stored as nepotvrđeno and only shown to the owner: the "
+                     "algorithm never uses it until he writes it into the seed list. Never guess: no source, no "
+                     "proposal. Buys nothing. At most 30 an hour."),
+     "inputSchema": {"type": "object", "properties": {
+         "influencer": {"type": "string", "description": "the id from get_kol_insider_wallets, or a short new one"},
+         "name": {"type": "string", "maxLength": 60}, "handle": {"type": "string", "maxLength": 16},
+         "address": {"type": "string"}, "source": {"type": "string", "maxLength": 300}},
+         "required": ["influencer", "source"]}})
 # 15.11. (vlasnik: plan makro influencera s dopunama kritičara; makroinf/): the macro influencers, read-only
 TOOLS.append(
     {"name": "get_macro_influencers", "annotations": _READ,
@@ -1989,6 +2021,14 @@ def _tool(name, args, kid="local"):
     if name == "get_insiders2":   # 15.11. insajderi/, read-only
         from insajderi import report as i2report
         d = i2report.mcp(args)
+        return d, "error" in d
+    if name == "get_kol_insider_wallets":   # 16.11. insajderi/kolwallets.py, read-only
+        from insajderi import kolwallets
+        d = kolwallets.mcp(args)
+        return d, "error" in d
+    if name == "submit_kol_wallet":   # 16.11. insajderi/kolwallets.py: a proposal, always nepotvrđeno
+        from insajderi import kolwallets
+        d = kolwallets.submit(args, who=f"mcp:{kid}")
         return d, "error" in d
     if name == "get_midcaps":   # 15.11. veliki/, read-only
         from veliki import view as vview

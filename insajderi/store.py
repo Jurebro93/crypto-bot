@@ -39,6 +39,19 @@ DEFAULT = {
     "smart_min_jumps": 2, "signal_min_clusters": 2, "signal_window_s": 3600, "cluster_gap_s": 300,
     "cluster_min_tokens": 2, "trend_h": 6, "trend_top": 20,
     "keep_days": 60,
+    # the influencers' probably linked wallets (insajderi/kolwallets.py, 16.11.): the window of his calls, the trades
+    # around each (bought up to pre_days before, sold within kol_fast_s / kol_post_s after), its own small share of
+    # the Helius day cap (kol_helius_share a day, kol_pass_credits a pass), the classes and the time bound of a pass
+    "kol_days": 60, "kol_max_calls": 150, "kol_public_buys": True, "kol_fast_s": 3600, "kol_post_s": 86400,
+    "kol_helius_share": 0.10, "kol_pass_credits": 1500, "kol_sell_pages": 2, "kol_pre_pages": 2, "kol_lookups": 5,
+    "kol_helius_public_buys": False,   # Helius only for his posts; a public wallet's buys use the data we already hold
+    "kol_fund_lookups": 10, "kol_max_s": 600, "kol_incr_s": 120, "kol_min_calls": 2, "kol_confirm_calls": 3,
+    "kol_min_lift": 2.0, "kol_min_universe": 10, "kol_split_s": 21600, "kol_min_transfer_sol": 0.05, "kol_hops": 2,
+    "kol_max_listed": 30, "kol_pred_days": 3, "kol_pred_call_days": 7,
+    # the optional read of the seeded handles' posts from X (twitterapi.io): OFF while kol_x_usd_day is 0 (a new cost
+    # is the owner's decision); on, at most that many USD a UTC day, kol_x_handles accounts a pass, each at most every
+    # kol_x_every_h; an HTTP 402 is "nema kredita" and pauses it kol_x_pause_h
+    "kol_x_usd_day": 0.0, "kol_x_handles": 6, "kol_x_every_h": 6, "kol_x_days": 7, "kol_x_pause_h": 6,
 }
 
 SCHEMA = """
@@ -138,7 +151,12 @@ def paths(**over):
     p = gd.paths()
     extra = {"insajderi_db": db_path(),
              "midcap_db": None, "xfeat_db": None, "trade_db": None, "usage_db": None, "corr_db": None,
-             "listing_db": os.environ.get("LISTING_DB") or os.path.join(ROOT, "listing.db")}
+             "listing_db": os.environ.get("LISTING_DB") or os.path.join(ROOT, "listing.db"), "makroinf_db": None}
+    try:
+        from makroinf import store as mstore
+        extra["makroinf_db"] = mstore.db_path()
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from veliki import midcap
         extra["midcap_db"] = midcap.db_path()

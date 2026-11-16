@@ -22,6 +22,10 @@ buyers of each jump, what precedes a token entering trending, and one "pametni n
   report.py    output/insajderi.md, output/pametni_novac.md, the log lines, the card, get_insiders2, the critic block
   live.py      the demo strategy (flag insajderi2, paper, NEVER_LIVE): their buys in real time -> demo entries
   run.py       the passes (run_insajderi.py once | night | incr | report)
+  kolwallets.py  16.11. (vlasnik: "kako naći njihove sekundarne wallete ... algoritam koji ih traži"): per influencer of
+               kol_seed.json the wallets that front-run his calls again and again and sell into them, their links to
+               his public wallet(s), classes potvrđen / kandidat with the evidence; the predpoziv measurement (flag
+               insajderi_kol, shadow, never live); the owner's page /kol-insajderi and MCP get_kol_insider_wallets
 
 Real money: never from here (NEVER_LIVE; no switch); the owner decides later with the numbers.
 """

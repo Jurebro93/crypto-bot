@@ -1,0 +1,143 @@
+{
+  "_upute": "Sjeme za 'Insajderske novčanike influencera' (insajderi/kolwallets.py čita ga na svakom prolazu). Vlasnik smije dodati ili ispraviti unos: id (kratko, bez razmaka), name, handles (X handleovi bez @; prazno = handle nije potvrđen, ništa se ne računa), telegram (kanali bez t.me/), wallets (address + source URL + status). status: 'javna_oznaka' = adresu tako označava javni tracker (koristi se kao sidro za veze), 'vlasnik' = potvrdio vlasnik, 'osporeno' = osoba je javno zanijekala da je adresa njezina (prikazuje se, NE koristi se kao sidro). Ništa se ne pogađa: nepoznat handle ili adresa ostaje prazna uz bilješku. Sve što alat iz ovoga izvede je statistički zaključak iz javnih on-chain podataka ('vjerojatno povezani novčanici'), nikad dokazana činjenica i nikad za javne stranice. Prijedlozi iz MCP alata submit_kol_wallet čekaju u bazi kao 'nepotvrđeno' dok ih vlasnik ne upiše ovdje.",
+  "_provjereno": "2026-11-16: handleovi i adrese prepisani s javnih stranica navedenih u poljima source (KOLscan imenik računa, MadeOnSol KOL Scouts, KOL Explorer, novinski članci). Oznaka trackera je tvrdnja trackera, ne dokaz vlasništva.",
+  "influenceri": [
+    {
+      "id": "cupsey",
+      "name": "Cupsey",
+      "handles": ["Cupseyy"],
+      "handle_source": "https://cryptobriefing.com/bubblemaps-alleges-cupsey-solana-wallet-scheme/",
+      "wallets": [
+        {"address": "2fg5QD1eD7rzNNCsvnhmXFm5hqNgwTTG8p7kQ6f3rx6f", "status": "javna_oznaka", "label": "KOLscan: Cupsey (@Cupseyy)",
+         "source": "https://kolscan.io/account/2fg5QD1eD7rzNNCsvnhmXFm5hqNgwTTG8p7kQ6f3rx6f"},
+        {"address": "suqh5sHtr8HyJ7q8scBimULPkPpA557prMG47xCHQfK", "status": "javna_oznaka", "label": "MadeOnSol KOL Scouts: Cupsey",
+         "source": "https://madeonsol.com/kol/scouts/suqh5sHtr8HyJ7q8scBimULPkPpA557prMG47xCHQfK"}
+      ],
+      "note": "Bubblemaps (9.11.2026., prenosi Crypto Briefing) NAVODI oko 30 povezanih novčanika; članak ne objavljuje adrese sporednih novčanika i ništa nije dokazano. Naš alat ih ne preuzima, nego ih sam traži iz tradeova."
+    },
+    {
+      "id": "unipcs",
+      "name": "Unipcs (Bonk Guy)",
+      "handles": ["theunipcs"],
+      "handle_source": "https://kolscan.io/account/5M8ACGKEXG1ojKDTMH3sMqhTihTgHYMSsZc6W8i7QW3Y",
+      "wallets": [
+        {"address": "5M8ACGKEXG1ojKDTMH3sMqhTihTgHYMSsZc6W8i7QW3Y", "status": "javna_oznaka", "label": "KOLscan: Unipcs (aka 'Bonk Guy')",
+         "source": "https://kolscan.io/account/5M8ACGKEXG1ojKDTMH3sMqhTihTgHYMSsZc6W8i7QW3Y"}
+      ],
+      "note": "Sam je napisao da mu ljudi šalju tokene na javni novčanik da iskoriste njegove kopiraše: prijenos tokena PREMA javnom novčaniku zato nije dokaz veze."
+    },
+    {
+      "id": "jelitics",
+      "name": "Jelitics",
+      "handles": ["Jelitics"],
+      "handle_source": "https://coinfomania.com/solana-trader-jelitics-reports-1m-loss-across-12-tokens/",
+      "wallets": [],
+      "note": "Javna adresa novčanika nije pronađena (16.11.2026.): bez sidra se traže samo ponavljanja oko poziva."
+    },
+    {
+      "id": "slingoor",
+      "name": "Slingoor",
+      "handles": ["slingoorio"],
+      "telegram": ["slingdeez"],
+      "handle_source": "https://kolscan.io/account/5YRgrP3mjGzrzirYYN5HAQH19cTYREYwGxW6XRJQUzij",
+      "wallets": [
+        {"address": "5YRgrP3mjGzrzirYYN5HAQH19cTYREYwGxW6XRJQUzij", "status": "javna_oznaka", "label": "KOLscan: slingoor (@slingoorio)",
+         "source": "https://kolscan.io/account/5YRgrP3mjGzrzirYYN5HAQH19cTYREYwGxW6XRJQUzij"}
+      ],
+      "note": null
+    },
+    {
+      "id": "0xethan",
+      "name": "0xEthan",
+      "handles": ["0xEthan"],
+      "handle_source": "https://kolscan.io/account/6yVb4pxNwDfr6rovwNnBg3SyKSvDcHGD4WdFPN1JJBqm",
+      "wallets": [
+        {"address": "6yVb4pxNwDfr6rovwNnBg3SyKSvDcHGD4WdFPN1JJBqm", "status": "javna_oznaka", "label": "KOLscan: 0xEthan (@0xEthan)",
+         "source": "https://kolscan.io/account/6yVb4pxNwDfr6rovwNnBg3SyKSvDcHGD4WdFPN1JJBqm"}
+      ],
+      "note": null
+    },
+    {
+      "id": "jackduval",
+      "name": "Jack Duval",
+      "handles": ["jackduvalstocks"],
+      "handle_source": "https://kolscan.io/account/BAr5csYtpWoNpwhUjixX7ZPHXkUciFZzjBp9uNxZXJPh",
+      "wallets": [
+        {"address": "BAr5csYtpWoNpwhUjixX7ZPHXkUciFZzjBp9uNxZXJPh", "status": "javna_oznaka", "label": "KOLscan: Jack Duval (@jackduvalstocks)",
+         "source": "https://kolscan.io/account/BAr5csYtpWoNpwhUjixX7ZPHXkUciFZzjBp9uNxZXJPh"}
+      ],
+      "note": "Na popisu je napisan kao 'Jack Duvall'; javni izvori ga pišu 'Jack Duval'."
+    },
+    {
+      "id": "schoen",
+      "name": "Schoen",
+      "handles": ["Schoen_xyz"],
+      "handle_source": "https://kolscan.io/account/5hAgYC8TJCcEZV7LTXAzkTrm7YL29YXyQQJPCNrG84zM",
+      "wallets": [
+        {"address": "5hAgYC8TJCcEZV7LTXAzkTrm7YL29YXyQQJPCNrG84zM", "status": "javna_oznaka", "label": "KOLscan: Schoen (@Schoen_xyz)",
+         "source": "https://kolscan.io/account/5hAgYC8TJCcEZV7LTXAzkTrm7YL29YXyQQJPCNrG84zM"}
+      ],
+      "note": null
+    },
+    {
+      "id": "poorgoat",
+      "name": "Poor Goat",
+      "handles": ["PoorGoat_"],
+      "handle_source": "https://kolexplorer.com/kol/poorgoat",
+      "wallets": [
+        {"address": "HDixbrzwwLXczhDBk1JVrurPQsuLE8FUKnW2pucSXN3o", "status": "javna_oznaka", "label": "KOL Explorer: PoorGoat (@PoorGoat_)",
+         "source": "https://kolexplorer.com/kol/poorgoat"}
+      ],
+      "note": "Samo jedan tracker navodi ovu adresu; nije na KOLscanu."
+    },
+    {
+      "id": "aurelius",
+      "name": "Aurelius",
+      "handles": [],
+      "handle_source": null,
+      "wallets": [],
+      "note": "Handle nije potvrđen (16.11.2026.): pretraga nalazi samo istoimene tokene, ne i račun. Vlasnik upisuje handle kad ga zna."
+    },
+    {
+      "id": "ansem",
+      "name": "Ansem",
+      "handles": ["blknoiz06"],
+      "handle_source": "https://kolexplorer.com/kol/ansem",
+      "wallets": [
+        {"address": "AVAZvHLR2PcWpDf8BXY4rVxNHYRBytycHkcB5z5QNXYm", "status": "osporeno", "label": "trackeri (GMGN, KOLscan, Axiom, KOL Explorer): Ansem",
+         "source": "https://ourcryptotalk.com/news/ansem-wallet-denial-ansem-token-frenzy"}
+      ],
+      "note": "Ansem je 16.6.2026. javno napisao da ovaj novčanik NIJE njegov (kaže da je to kopiraš koji ga prati). Adresa je zato 'osporeno': prikazuje se, ali se veze s njom ne broje."
+    },
+    {
+      "id": "orangie",
+      "name": "Orangie",
+      "handles": ["orangie"],
+      "handle_source": "https://kolscan.io/account/DuQabFqdC9eeBULVa7TTdZYxe8vK8ct5DZr4Xcf7docy",
+      "wallets": [
+        {"address": "DuQabFqdC9eeBULVa7TTdZYxe8vK8ct5DZr4Xcf7docy", "status": "javna_oznaka", "label": "KOLscan: orangie (@orangie)",
+         "source": "https://kolscan.io/account/DuQabFqdC9eeBULVa7TTdZYxe8vK8ct5DZr4Xcf7docy"}
+      ],
+      "note": null
+    },
+    {
+      "id": "ethanprosper",
+      "name": "Ethan Prosper",
+      "handles": ["pr6spr"],
+      "handle_source": "https://kolscan.io/account/sAdNbe1cKNMDqDsa4npB3TfL62T14uAo2MsUQfLvzLT",
+      "wallets": [
+        {"address": "sAdNbe1cKNMDqDsa4npB3TfL62T14uAo2MsUQfLvzLT", "status": "javna_oznaka", "label": "KOLscan: Ethan Prosper (@pr6spr)",
+         "source": "https://kolscan.io/account/sAdNbe1cKNMDqDsa4npB3TfL62T14uAo2MsUQfLvzLT"}
+      ],
+      "note": null
+    },
+    {
+      "id": "anglio",
+      "name": "Anglio",
+      "handles": ["anglio"],
+      "handle_source": "https://x.com/anglio",
+      "wallets": [],
+      "note": "Pretpostavka: @anglio (račun koji već pratimo među makro influencerima). Postoji i zaseban račun @CryptoAnglio istog imena; jedan explorer (orbmarkets.io) adresu JD7ifFEX4mcAtE1Gro2thWPb4oNAYA1N5S9yTyb62Koo označava kao 'Anglio @cryptoanglio'. Nije potvrđeno da je to ista osoba, pa adresa NIJE upisana kao njegov novčanik. Vlasnik potvrđuje."
+    }
+  ]
+}
