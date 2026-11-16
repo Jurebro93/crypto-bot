@@ -33,9 +33,10 @@ def page(qs):
     sel = qs.get("dan") if qs.get("dan") in days else (days[0] if days else None)
     hour = os.environ.get("REPORT_HOUR", "7")
     b = ["<h1>Jutarnji izvještaj</h1><p class=mut>Svako jutro u "
-         f"{esc(hour)}:00 (Zagreb) bot složi izvještaj iz svojih baza: što je naučio, koje KOL-ove pratiti, tokeni za "
-         "današnje sesije, puls holdera i volumena i prijedlozi za algoritam. AI (Claude) interpretira brojke. "
-         "Šalje se na e-mail; ovdje su zadnjih 14.</p>"]
+         f"{esc(hour)}:00 (Zagreb) bot složi izvještaj iz svojih baza: midcap trgovanje (demo i pravi novac po pravilu, "
+         "otvorene pozicije, dokaz pravila, novčanik i stropovi), tržište (BTC, makro režim, makro influenceri), "
+         "istraživanje (Insajderi 2.0, holderi, kritičar), trošak po izvoru i prijedlozi za midcap strategiju. AI "
+         "(Claude) interpretira brojke. Šalje se na e-mail; ovdje su zadnjih 14.</p>"]
     miss = mail.missing()
     ai = "da" if os.environ.get("ANTHROPIC_API_KEY") else "ne (na serveru nema ključa za Claude)"
     line = (f"E-mail: <b>{'server ga sam ne šalje (nije upisana lozinka za slanje e-maila)' if miss else esc(mail.method()) + ' → ' + esc(', '.join(mail.recipients()))}</b>"

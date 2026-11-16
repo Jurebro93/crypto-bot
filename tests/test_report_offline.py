@@ -139,7 +139,7 @@ class ReportTest(unittest.TestCase):
         d = collect.collect(NOW)
         out, src = ai.interpret(d)
         self.assertEqual(src, "pravila")
-        self.assertTrue(out["naucio"])
+        self.assertTrue(out["trgovanje"])   # 16.11.: the rule-based lines are about the midcap trading now
 
 
 class DumpTest(unittest.TestCase):

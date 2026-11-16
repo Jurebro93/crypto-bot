@@ -1,5 +1,7 @@
-"""Daily morning report by e-mail: what the bot learned, KOLs to follow, tokens for today's sessions, sustained
-holder/volume growth, ideas for the algorithm. Claude writes the interpretation (ANTHROPIC_API_KEY).
+"""Daily morning report by e-mail. 16.11. (vlasnik: "Sada idemo s mid cap tokenima"): the midcap trading (demo and real
+by rule, the rules' out-of-sample EV, the wallet, the caps), the market (BTC, the macro regime, the macro influencers,
+the midcap universe), the research (Insajderi 2.0, holders / listing, the critic), yesterday's cost per source; the old
+microcap sections only while the switch fokus_midcap is off. Claude writes the interpretation (ANTHROPIC_API_KEY).
 
     python3 run_report.py build             # build today's report -> output/report-YYYY-MM-DD.html, no e-mail
     python3 run_report.py send              # build and e-mail now (REPORT_EMAIL_TO + SMTP_* or RESEND_API_KEY)
@@ -102,13 +104,49 @@ def send_today(use_ai=True, now=None):
     return st
 
 
+# 16.11. (vlasnik, gleda jutarnji izvještaj: "Zašto izvještaj nije osvježen onda"): after the deploy of the midcap
+# report, today's report is built and sent ONCE more when the loop starts, so the owner sees the new version today;
+# then the normal schedule (REPORT_HOUR) continues (state "sent" = today: no second send today). Each key once, ever
+# (output/report-state.json "once"). Before REPORT_HOUR nothing extra is sent: that morning's report is already the new
+# version; the key is marked done all the same. One line in the log either way.
+OWNER_ONCE = (("midcap_1611", "nova midcap verzija jutarnjeg izvještaja (vlasnik 16.11.)"),)
+
+
+def owner_once(now=None, log=print, send=None):
+    """Apply each OWNER_ONCE step once. Returns the keys that sent (or dumped) a report now."""
+    sent = []
+    for key, why in OWNER_ONCE:
+        if key in (load_state().get("once") or {}):
+            continue
+        hour = int(os.environ.get("REPORT_HOUR", "7"))
+        if local_now(now).hour < hour:
+            text = (f"izvještaj: nalog vlasnika {key}: prije {hour}:00, ne šaljem posebno (redovni jutarnji izvještaj "
+                    "već je nova verzija)")
+        else:
+            res = (send or send_today)(now=now) or {}
+            how = res.get("how") if not res.get("error") else ("e-mail nije poslan (" + str(res["error"])[:120]
+                                                               + "), HTML u logu za Gmail rutinu i na /izvjestaj")
+            text = f"izvještaj: nalog vlasnika {key}: {why} poslana odmah nakon deploya ({how})"
+            sent.append(key)
+        st = load_state()   # send_today saved its own state: add the mark to that
+        st.setdefault("once", {})[key] = int(time.time())
+        save_state(st)
+        log(text)
+    return sent
+
+
 def loop(every_min=5):
     hour = int(os.environ.get("REPORT_HOUR", "7"))
     tries = {}
+    resent = []
+    try:   # 16.11.: the owner's one-time resend after the deploy (OWNER_ONCE)
+        resent = owner_once(log=lambda t: print(t, flush=True))
+    except Exception as e:  # noqa: BLE001 - never stops the loop
+        print(f"report nalog vlasnika: {type(e).__name__}: {e}", flush=True)
     try:  # after a restart: put today's already built, unsent report back into the log for the Gmail routine
         st, day = load_state(), local_now().strftime("%Y-%m-%d")
         p = os.path.join(OUT, f"report-{day}.html")
-        if st.get("sent") != day and os.path.exists(p):
+        if not resent and st.get("sent") != day and os.path.exists(p):
             with open(p) as f:
                 dump.emit(day, f.read())
     except Exception as e:

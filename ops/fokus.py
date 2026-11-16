@@ -69,6 +69,10 @@ RETARGET = (
     ("top", "provjera ruga / holdera: otvorene pozicije + midcap lista umjesto mikrokap preporuka"),
     ("grok", "Grokovi zadaci: midcap_review za trending midcapove umjesto X provjera mikrokap kandidata"),
     ("xmom", "X momentum (twitterapi, isti dnevni strop skenera 0,30 $) za trending midcapove"),
+    # 16.11. (vlasnik: "Treba maknuti strategije koje ne doprinose učenju i ove s micro capovima ... Sada idemo s mid
+    # cap tokenima"): the 13 microcap comparison accounts (strat/run.step asks skip("strategije") every pass)
+    ("strategije", "Usporedba strategija (strat/, 13 demo računa po $1000 na mikrokapovima): bez novih i bez čekajućih "
+                   "ulaza; otvorene se zatvaraju svojim izlazima; rezultati u arhivi /strategije, usporedba je midcap"),
 )
 KEPT = ("ui", "trade (pravi novac / probni swapovi)", "cpuguard", "uptime", "health", "diskreport", "retencija",
         "rug arhiva", "kalendar", "dugo", "simianx", "veliki (lista, backtest, demo)", "zonewatch", "kol krug (X pozivi)",
@@ -129,6 +133,8 @@ SAVED = {
     "top": "isto (RugCheck/Jupiter/Helius 30/dan), samo drugi tokeni",
     "grok": "Grokov rad (bez našeg troška)",
     "xmom": "isti strop 0,30 $/dan",
+    "strategije": "CPU: prolaz svake minute u run_paper (signali iz kol/tg/hype/paper baza); DexScreener samo za "
+                  "otvorene pozicije",
 }
 
 
