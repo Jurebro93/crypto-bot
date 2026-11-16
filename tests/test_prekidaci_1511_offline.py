@@ -40,14 +40,14 @@ class Prekidaci(_Base):
     def test_every_card_is_one_closed_row_with_its_state(self):
         self.scenario(time.time())   # Grok on, an exit plan on MINT
         sw = self.switches(self.page("Jure", {"sve": "1"}))
-        for iid in ("sw-pravi", "sw-grok", "sw-planovi"):
-            m = re.search(rf"<details class=ap-it id={iid}( open)?>", sw)
+        for iid in ("sw-pravi", "sw-grok", "sw-planovi"):   # 16.11.: rows of the list under "Napredno"
+            m = re.search(rf'<details class="ap-it apx-jn" id={iid} data-jn(?: data-on)?( open)?>', sw)
             self.assertIsNotNone(m, iid)
             self.assertIsNone(m.group(1), f"{iid} must start closed")
         pravi = sw[sw.index("id=sw-pravi"):sw.index("</details>", sw.index("id=sw-pravi"))]
-        self.assertIn("Pravi novac za sve strategije", pravi)
+        self.assertIn("Pravi novac: kopiranje", pravi)                        # 16.11.: its plain name
         self.assertRegex(pravi, r"uključen|isključen")
-        self.assertIn("danas kupnji", pravi)                                   # today's numbers in the closed row
+        self.assertIn("Danas: kupnji", pravi)                                  # today's numbers in its box
         # the content is still in the page (a kill switch is never lazy), only folded
         for k in ("name=name value=pravi_novac_sve", "Ugasi Grok autotrade", "Pauziraj exit planove", "id=grok-auto"):
             self.assertIn(k, sw, k)
@@ -62,7 +62,7 @@ class Prekidaci(_Base):
         sw = self.switches(self.page())
         self.assertIn('<details class="apx-acc apx-sws" id=prekidaci-d data-tap><summary>', sw)
         self.assertIn('<b class=apx-swbadge title="Grokov zahtjev čeka tvoje Odobri / Odbij">1 čeka</b>', sw)
-        self.assertRegex(sw, r"\d+ prekidača, \d+ uključen\w*, 1 čeka tebe")
+        self.assertIn(">Grok čeka tvoje odobrenje<", sw)                      # 16.11.: the row above the five
         self.assertIn("<details class=ap-it id=sw-mcp>", sw)
         self.assertNotRegex(sw, r"<details[^>]*\sopen[\s>]")
         self.assertIn("action=/pravi-trade/mcpok", sw)                         # the buttons are inside, folded

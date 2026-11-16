@@ -115,8 +115,8 @@ class Page(Base):
         at = [body.index(k) for k in ("id=apx-hdr", "id=apx-chartbox", "id=kupi-odmah", ">Brza kupnja<", ">Pozicije <",
                                       ">Otvoreni nalozi <", ">Povijest<", ">Dnevnik<", "id=apx-port",
                                       "Nema prijedloga s EV &gt; 0", ">Koga pratimo <", ">Tko sada zove koji token (60 min)<",
-                                      ">Prekidači<", ">Postavke<", ">Pravila<", ">Uredi praćenja<", ">Wallet i uplata<",
-                                      ">Kako je zaštićeno<")]
+                                      ">Prekidači<", ">Postavke<", ">Limiti<", ">Izlazi<", ">Obavijesti<",
+                                      ">Koga bot kopira<", ">Wallet i uplata<", ">Kako je zaštićeno<")]
         self.assertEqual(at, sorted(at))
         # no secnav chips: every h2 opts out (10.11. 23:04: the cards' titles had made a chip bar again)
         h2s = re.findall(r"<h2[^>]*>", body)
