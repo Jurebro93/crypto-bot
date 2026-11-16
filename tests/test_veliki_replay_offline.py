@@ -196,8 +196,9 @@ class NoLookAhead(unittest.TestCase):
         earlier = [(c[0], c[1], c[2], c[3], c[4] * (1.5 if t - 3 * D < c[0] < t - 2 * D and k % 2 else 1.0), c[5])
                    for k, c in enumerate(h1)]
         self.assertNotEqual(replay.btc_up_before(earlier, btc, t), a)
-        # the plain call on every candle up to t (what a careless tag would do) DOES see the hour in progress
-        self.assertNotEqual(odziv.btc_up(odziv.closes([c for c in later if c[0] <= t]), btc, t), a)
+        # 16.11.: odziv.closes keys a candle by its CLOSE time, so even the plain call on every candle up to t no
+        # longer reads the hour in progress (its key is after t)
+        self.assertEqual(odziv.btc_up(odziv.closes([c for c in later if c[0] <= t]), btc, t), a)
 
     def _snap(self, ts, chg, state="dno_se_potvrduje", regime="neutral"):
         return {"ts": ts, "btc_state": state, "btc24": 0.01, "regime": regime, "platforms": {"meme": {"chg": chg}}}

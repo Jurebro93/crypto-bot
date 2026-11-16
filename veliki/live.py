@@ -719,6 +719,11 @@ def dca(con, r, q, pos, now, cfg, ctx):
         return []
     if (r.get("lots") or 1) >= 2 or r.get("half_px"):
         return []
+    if (r.get("kind") or "") == "intra":
+        # 16.11.: the intraday rule has no DCA (vlasnik: "ako odmah nakon ulaza krene u mali loss, onda čekaš"; a new
+        # entry comes at the range's bottom after the exit). It used to inherit the 7-day rule's lot at -10 % while
+        # its own stop is at most -12 %: a second 0.1 SOL two points above the stop.
+        return []
     price, liq = q[0], q[1]
     try:
         zone = json.loads(r.get("zone") or "{}")

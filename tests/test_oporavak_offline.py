@@ -85,8 +85,23 @@ class Odziv(unittest.TestCase):
         self.assertEqual(odziv.order(["c", "a", "d", "b"], pr), ["b", "a", "c", "d"])
 
     def test_closes_reads_candles_and_pairs(self):
-        self.assertEqual(odziv.closes([(T + 5, 1, 2, 0.5, 1.5, 9)]), {T: 1.5})
-        self.assertEqual(odziv.closes([(T, 80_000.0)]), {T: 80_000.0})
+        self.assertEqual(odziv.closes([(T + 5, 1, 2, 0.5, 1.5, 9)]), {T + H: 1.5})   # a candle's close is at start + 1 h
+        self.assertEqual(odziv.closes([(T, 80_000.0)]), {T: 80_000.0})               # a point price stays at its time
+
+    def test_all_of_compares_the_same_hour_and_skips_the_running_candle(self):
+        import sqlite3
+        btc = btc_series()
+        tk = token_series(btc, 2.0, 1.0)                      # {time: price at that time}
+        con = sqlite3.connect(":memory:")
+        con.executescript("CREATE TABLE tokens (mint TEXT, member INTEGER); CREATE TABLE c1h (token TEXT, ts INTEGER, "
+                          "o REAL, h REAL, l REAL, c REAL, v REAL); INSERT INTO tokens VALUES ('m', 1);")
+        for t, px in tk.items():                              # the candle that CLOSES at t starts at t - 1 h
+            con.execute("INSERT INTO c1h VALUES ('m', ?, ?, ?, ?, ?, 1)", (t - H, px, px, px, px))
+        last = max(tk)
+        con.execute("INSERT INTO c1h VALUES ('m', ?, 9, 9, 9, 9, 1)", (last,))   # still running at `last`: ignored
+        r = odziv.all_of(con, sorted(btc.items()), last)["m"]
+        self.assertEqual(r["hit"], 1.0)
+        self.assertAlmostEqual(r["beta_up"], 2.0, places=1)
 
 
 class Recovery(unittest.TestCase):
@@ -201,6 +216,14 @@ class RecoveryLive(base.Live):
         self.assertEqual([r[0] for r in rows], [tok(31), tok(100)], out)
         self.assertEqual({r[1] for r in rows}, {"neutral/blago_bik"})
         self.assertEqual(live.caps(PU, kind="intra")["max_open"], live.INTRA_MAX_OPEN)
+
+    def test_intraday_position_takes_no_dca_lot(self):
+        row = {"id": 1, "user": PU, "token": tok(100), "symbol": "MID", "kind": "intra", "lots": 1, "half_px": None,
+               "stop_px": 0.5e-4, "zone": "{}"}
+        cfg = {"dca": 0.10, "dca_mode": "pct"}
+        q = (0.85e-4, 2_000_000.0)
+        self.assertEqual(live.dca(self.lg, row, q, {"first": 1.0e-4}, self.now, cfg, {}), [])
+        self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
 
     def test_refusal_line_keeps_the_reason(self):
         live._ST["ref"] = {}
