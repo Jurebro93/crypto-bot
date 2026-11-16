@@ -608,7 +608,9 @@ class Cli(unittest.TestCase):
         today = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 3600))
         self.assertEqual(self._main(["replay"], {"ts": 1, "day": today}), 1)               # asked for: runs
         self.assertEqual(self._main(["replay", "--ako-nema"], None), 1)                     # after a deploy, no result
-        self.assertEqual(self._main(["replay", "--ako-nema"], {"ts": 1, "day": "2026-01-01"}), 0)
+        self.assertEqual(self._main(["replay", "--ako-nema"], {"ts": 1, "day": "2026-01-01", "novo": {"x": 1}}), 0)
+        # 16.11.: a stored result from before the new stop rule is replayed once more after the deploy
+        self.assertEqual(self._main(["replay", "--ako-nema"], {"ts": 1, "day": "2026-01-01"}), 1)
         self.assertEqual(self._main(["replay", "--night"], {"ts": 1, "day": "2026-01-01"}), 1)
         self.assertEqual(self._main(["replay", "--night"], {"ts": 1, "day": today}), 0)     # once a day
         self.assertEqual(self._main(["replay", "--night"], None, night=False), 0)           # only in the night window

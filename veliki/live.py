@@ -18,13 +18,13 @@ the zones read are rebuilt from the 15m bars (rule.h1_from_15m), as in the backt
           at the entry), the stop, the time stop, a rug
   caps    demo: DEMO_MAX_OPEN (30) open, DEMO_PER_DAY (120) a Zagreb day (x 1.5 while BTC's bottom forms), the open
           positions' stress loss (stop + 8 pp) at most DEMO_RISK_TOTAL (25 %) of the demo account, cooldown 6 h a
-          token; size DEMO_SOL (0.5 SOL). Real (gate.REAL): 0.2 SOL (16.11.; 0.1 before), 5 open, 20 a day, a day's loss 0.3 SOL, MC 5-150M,
+          token; size DEMO_SOL (0.5 SOL). Real (gate.REAL): 0.1 SOL, 5 open, 20 a day, a day's loss 0.3 SOL, MC 5-150M,
           liquidity >= $500k, round-trip cost <= 6 %, no DCA; the real trade carries the demo trade's id (link_id)
           and the proof's state (proof); every trade carries BTC's state (btc_state)
   cost    each trade carries ret / pnl_usd at the REAL cost model (rule.cost_at: pool + route fee, the network fee,
           the impact at the quoted liquidity), ret_demo at the measured fee a side, and pnl_booked (league/store)
 Real money (owner switch pravi_novac_veliki, veliki/gate): the same entries ALSO on the real account LEAGUE_USER only
-while gate.real_refusal() is None, at its caps (0.2 SOL default, 5 open, day loss 0.3 SOL); run_trade.py asks again.
+while gate.real_refusal() is None, at its caps (0.1 SOL default, 5 open, day loss 0.3 SOL); run_trade.py asks again.
 
 15.11. ~12:35 UTC (vlasnik: "lista od barem 100 tokena, do 100 tradeova dnevno s ~10 %, više tradeova po tokenu"):
   universe  the DEMO universe demo_tokens(): the veliki list + the midcap collector's members (2M-200M, liquidity and
@@ -295,7 +295,7 @@ def open_rows(con, user=None):
 
 
 def caps(user, btc_state=None, kind=None):
-    """The caps of one account for one rule: real (gate.REAL, shared by both rules: 0.2 SOL, 5 open, 20 buys a day
+    """The caps of one account for one rule: real (gate.REAL, shared by both rules: 0.1 SOL, 5 open, 20 buys a day
     incl. the DCA lots, a day's loss 0.3 SOL); demo: the 7-day rule DEMO_* (x DOWN_BONUS while BTC's bottom forms),
     the intraday rule INTRA_* at INTRA_DEMO_SOL."""
     from trade import settings
