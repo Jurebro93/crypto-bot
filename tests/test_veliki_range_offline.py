@@ -369,7 +369,7 @@ class Switch(SwitchBase):
         self.assertIn("isključen", gate.real_refusal(con=self.con, proof=no_proof, cfg={}))
 
     def test_caps_owner_size_up_to_half(self):
-        self.assertEqual(gate.real_caps({})["size_sol"], 0.1)
+        self.assertEqual(gate.real_caps({})["size_sol"], 0.2)
         self.assertEqual(gate.real_caps({gate.SWITCH: {"size_sol": 0.4}})["size_sol"], 0.4)
         self.assertEqual(gate.real_caps({gate.SWITCH: {"size_sol": 2.0}})["size_sol"], 0.5)
         self.assertEqual(gate.real_caps({gate.SWITCH: {"max_open": 50}})["max_open"], 5)

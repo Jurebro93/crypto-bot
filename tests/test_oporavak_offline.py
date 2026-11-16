@@ -259,6 +259,145 @@ for _n in [n for n in dir(base.Live) if n.startswith("test_")]:   # the base's o
     setattr(RecoveryLive, _n, None)
 
 
+class Btc:
+    """A BTC stub for live.btc_state: the state and the 4 h change the test sets."""
+
+    def __init__(self):
+        self.state, self.ch4 = "normalno", 0.002
+
+    def regime(self, t, vol=None):
+        return self.state, "test"
+
+    def chg(self, t, hours=4):
+        return self.ch4
+
+    def known(self, t):
+        return True
+
+    def last_end(self, t):
+        return None
+
+
+class OwnerStop(base.Live):
+    """16.11. popodne (vlasnik: "uži stop loss ... samo ako Bitcoin napravi neki movement prema dolje ... Trade-ovi
+    trebaju biti otvoreni duže"; his answers: wide stop -20 %, BTC -1.5 % in 4 h, 5 positions x 0.2 SOL)."""
+
+    def setUp(self):
+        super().setUp()
+        self.btc = Btc()
+        for obj, name, val in ((live, "btc_state", lambda now=None: {
+                "known": True, "crash": self.btc.state == "slobodan_pad", "crash_obj": self.btc, "last_end": None,
+                "state": self.btc.state, "why": "test"}),
+                (makro, "current", lambda now=None, path=None, max_age_s=0: dict(snap(self.now, 0.0), why="test")),
+                (makro, "mood_now", lambda now=None: None)):
+            p = mock.patch.object(obj, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+        self.flag("veliki_range", "paper")
+
+    def _enter(self, px=1.0e-4):
+        out = live.tick(self.lg, lambda ts: self.mk([t for t in ts if t == tok(100)], px), now=self.now, force=True)
+        r = self.lg.execute("SELECT id, entry_px, stop_px, wide_px, tight_ts, size_sol, be_px FROM veliki_trades WHERE "
+                            "user=? AND token=?", (PU, tok(100))).fetchone()
+        self.assertIsNotNone(r, out)
+        return r
+
+    def _row(self, rid):
+        return self.lg.execute("SELECT status, reason, stop_px, wide_px, tight_ts FROM veliki_trades WHERE id=?",
+                               (rid,)).fetchone()
+
+    def _tick(self, px, dt):
+        return live.tick(self.lg, lambda ts: self.mk(ts, px), now=self.now + dt, force=True)
+
+    def test_calm_btc_only_the_wide_stop_and_the_owners_stake(self):
+        rid, entry, stop, wide, tight, size, _be = self._enter()
+        self.assertAlmostEqual(stop / entry, 0.80, places=6)
+        self.assertEqual((wide, tight, size), (stop, None, 0.2))
+        from veliki import gate
+        self.assertEqual((gate.real_caps({})["size_sol"], gate.real_caps({})["max_open"]), (0.2, 5))
+        out = self._tick(entry * 0.90, 60)                       # -10 % of noise: still open, nothing tightened
+        st = self._row(rid)
+        self.assertEqual((st[0], st[4]), ("open", None), out)
+        out = self._tick(entry * 0.79, 120)                      # the token's own collapse: the wide stop
+        self.assertEqual(self._row(rid)[:2], ("closed", "stop"), out)
+
+    def test_btc_falls_tight_stop_then_calm_restores_the_wide_one(self):
+        rid, entry, stop, _w, _t, _s, be = self._enter()
+        self.btc.ch4 = -0.02                                     # BTC -2 % over 4 h
+        out = self._tick(entry * 0.97, 60)
+        st = self._row(rid)
+        self.assertEqual(st[0], "open", out)
+        self.assertAlmostEqual(st[2], entry * 0.97 * 0.96)       # 4 % under the price of that moment
+        self.assertAlmostEqual(st[3], stop)                      # the stop it replaced is remembered
+        self.assertEqual(st[4], int(self.now + 60))
+        self.assertTrue(any("BTC -2.0% u 4 h, uži stop" in x for x in out), out)
+        out = self._tick(entry * 0.95, 120)                      # set once an episode: not moved again
+        self.assertAlmostEqual(self._row(rid)[2], entry * 0.97 * 0.96)
+        self.btc.ch4 = -0.004                                    # BTC calm again
+        out = self._tick(entry * 0.95, 180)
+        st = self._row(rid)
+        self.assertEqual((st[0], st[4]), ("open", None), out)
+        self.assertAlmostEqual(st[2], stop)                      # back to the wide stop
+        self.assertTrue(any("stop natrag na" in x for x in out), out)
+
+    def test_btc_falls_while_in_profit_the_stop_goes_to_break_even(self):
+        rid, entry, _stop, _w, _t, _s, be = self._enter()
+        self.btc.ch4 = -0.02          # (a free fall with the position >= +1 % net sells at once: rule.reasoned_exit)
+        out = self._tick(be * 1.01, 60)
+        st = self._row(rid)
+        self.assertEqual(st[0], "open", out)
+        self.assertAlmostEqual(st[2], be)
+        self.assertTrue(any("na ulaz" in x for x in out), out)
+        out = self._tick(be * 0.99, 120)                         # falls through break-even: out at about zero
+        self.assertEqual(self._row(rid)[:2], ("closed", "be"), out)
+
+    def test_tight_stop_is_hit_while_btc_falls(self):
+        rid, entry, _stop, _w, _t, _s, _be = self._enter()
+        self.btc.ch4 = -0.016
+        self._tick(entry * 0.98, 60)
+        out = self._tick(entry * 0.98 * 0.95, 120)
+        self.assertEqual(self._row(rid)[:2], ("closed", "stop"), out)
+
+    def test_btc_already_falling_at_the_entry(self):
+        self.btc.ch4 = -0.03
+        rid, entry, stop, wide, tight, _s, _be = self._enter()
+        self.assertAlmostEqual(stop / entry, 0.96, places=6)
+        self.assertAlmostEqual(wide / entry, 0.80, places=6)
+        self.assertEqual(tight, int(self.now))
+
+    def test_open_positions_get_the_wide_stop_once(self):
+        rid, entry, _stop, _w, _t, _s, _be = self._enter()
+        self.lg.execute("UPDATE veliki_trades SET stop_px=?, wide_px=NULL WHERE id=?", (entry * 0.94, rid))   # the old stop
+        self.lg.execute("DELETE FROM veliki_once WHERE k='wide_stop_1611'")
+        self.lg.commit()
+        with mock.patch("builtins.print"):
+            out = live.owner_wide_once(self.lg, self.now)
+        self.assertIn("široki stop -20 % za 1 otvorenih", out[0])
+        self.assertAlmostEqual(self._row(rid)[2], entry * 0.80)
+        self.lg.execute("UPDATE veliki_trades SET stop_px=? WHERE id=?", (entry * 0.94, rid))
+        self.lg.commit()
+        self.assertEqual(live.owner_wide_once(self.lg, self.now), [])           # once
+        self.assertAlmostEqual(self._row(rid)[2], entry * 0.94)
+
+    def test_btc_down_rule(self):
+        from veliki import rule
+        b = Btc()
+        self.assertEqual(rule.btc_down(b, 0)[0], False)
+        b.ch4 = -0.015
+        self.assertEqual(rule.btc_down(b, 0), (True, "BTC -1.5% u 4 h"))
+        b.ch4, b.state = 0.01, "slobodan_pad"
+        self.assertEqual(rule.btc_down(b, 0), (True, "BTC u slobodnom padu"))
+        b.ch4, b.state = None, "normalno"
+        self.assertEqual(rule.btc_down(b, 0)[0], False)                         # unknown is not "down"
+        self.assertAlmostEqual(rule.wide_stop(1.0), 0.80)
+        self.assertAlmostEqual(rule.tight_stop(1.0, 1.03), 0.96)
+        self.assertAlmostEqual(rule.tight_stop(1.05, 1.03), 1.03)
+
+
+for _n in [n for n in dir(base.Live) if n.startswith("test_")]:
+    setattr(OwnerStop, _n, None)
+
+
 class Report(unittest.TestCase):
     def test_by_regime_groups_and_mood_and_answer(self):
         u = {"demo": "d", "pravi": "p"}

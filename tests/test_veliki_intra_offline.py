@@ -190,7 +190,7 @@ class Live(SwitchBase):
         self.assertTrue(all(r[4] == live.INTRA_DEMO_SOL for r in rows))
         self.assertTrue(any("veliki demo ulaz MID (dnevni raspon)" in x for x in out), out)
         rid, tp, stop = rows[0][0], rows[0][5], rows[0][6]
-        self.assertAlmostEqual(stop / 1.0e-4, 0.9 * 0.98, places=3)
+        self.assertAlmostEqual(stop / 1.0e-4, 0.80, places=3)   # 16.11. popodne: the wide stop (rule.OWNER_STOP)
         self.assertGreater(tp / 1.0e-4 - 1, 0.10)
         # the price reaches the target: half sold on the league trade, the rest's stop to break-even
         t1 = self.now + 60
@@ -239,7 +239,7 @@ class Live(SwitchBase):
         self.assertIn((PU, tok(100)), rows)
         self.assertNotIn((LU, tok(100)), rows)      # a midcap without the age / list check: demo only
         size = self.lg.execute("SELECT size_sol FROM veliki_trades WHERE user=?", (LU,)).fetchone()[0]
-        self.assertEqual(size, 0.1)
+        self.assertEqual(size, 0.2)   # 16.11. popodne: the owner's stake (veliki/gate.REAL)
 
     def test_real_needs_the_priority_row(self):
         # 15.11. popodne: without the priority row (holder / safety facts) no real buy; the demo still enters

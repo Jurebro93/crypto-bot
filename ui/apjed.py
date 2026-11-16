@@ -463,6 +463,18 @@ def _choice(action, field, cur, choices, sign):
                    f'<button{" class=ap-go" if v == cur else ""}>{sign}{v} %</button></form>' for v in choices)
 
 
+def _stop_li():
+    """The bot's stop in plain words, from the code's own numbers (veliki/rule.OWNER_STOP, 16.11.)."""
+    try:
+        from veliki import rule
+        o = rule.OWNER_STOP
+        return (f'<li><b>Stop:</b> dok je Bitcoin miran, samo široki stop {_g(o["wide"] * 100)} % ispod ulaza. Kad Bitcoin '
+                f'padne {_g(-o["btc4h"] * 100)} % u 4 sata, stop ide {_g(o["tight"] * 100)} % ispod trenutne cijene (ili na '
+                'ulaz ako je pozicija u plusu). Kad se Bitcoin smiri, vraća se široki stop.</li>')
+    except Exception:  # noqa: BLE001
+        return '<li><b>Stop:</b> široki sigurnosni stop ispod ulaza; uži samo kad Bitcoin pada.</li>'
+
+
 def _izlazi(cfg, owner):
     lo, hi, be, th = exit_rules()
     tp = f"+{_g(lo)} %" if lo == hi else f"+{_g(lo)} do {_g(hi)} %"
@@ -471,7 +483,7 @@ def _izlazi(cfg, owner):
     bot = (f'<h3 class=ap-sub><span>Bot (midcap)</span></h3><ul class=apx-jul><li><b>Cilj:</b> proda cijelu poziciju na {tp} '
            'dobiti.</li>'
            + (f'<li><b>Bez gubitka:</b> kad pozicija dođe na +{_g(be)} %, stop se diže na cijenu ulaza.</li>' if be else "")
-           + '<li><b>Stop:</b> ispod dna raspona u kojem je kupio.</li>'
+           + _stop_li()
            + (f'<li><b>Vrijeme:</b> izlazi nakon {_g(th)} h.</li>' if th else
               '<li><b>Vrijeme:</b> nema vremenskog stopa; izlazi ranije samo na novu opasnost.</li>') + '</ul>')
     mine = (f'<h3 class=ap-sub id=cilj><span>Tvoje kupnje i kopiranje: cilj</span><span>sada +{cur_tp} %</span></h3>'
