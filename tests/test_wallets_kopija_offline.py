@@ -432,7 +432,7 @@ class Run(Base):
         con.close()
         self.assertTrue(f["fokus"])
         self.assertEqual(f["ugaseno"], ["wallets_harvest", "wallets_score"])
-        self.assertFalse(f["osvjezi"])                                                   # the paid refresh: off by default
+        self.assertTrue(f["osvjezi"])                                                    # 16.11.: on in the committed config
         self.assertEqual(f["kredita_po_provjeri"], 20.0)
         self.assertEqual(f["kredita_dan_prije"], 2000)
         self.assertLessEqual(f["procjena_kredita_dan"], f["strop_kredita_dan"])
@@ -522,10 +522,14 @@ class Cli(Base):
 
     def test_the_paid_refresh_is_off_by_default_and_calls_nothing(self):
         import run_wallets
-        self.assertEqual(kopija.config()["osvjezi"], False)                              # the committed config
+        # 16.11. (vlasnik: "Imaš Helios ... nadopuni sve te influencere i volete"): the committed config turns the
+        # refresh ON (inside its day cap); the code's own default without that line stays OFF and calls nothing
+        self.assertEqual(kopija.config()["osvjezi"], True)
         score = mock.Mock(side_effect=AssertionError("plaćeni poziv"))
         out = io.StringIO()
+        off = dict(kopija.config(), osvjezi=False)
         with mock.patch.object(wstore, "DB", self.path), redirect_stdout(out), \
+                mock.patch.object(kopija, "config", lambda *a, **k: off), \
                 mock.patch.object(run_wallets, "score_one", score):
             run_wallets.cmd_osvjezi(argparse.Namespace(stanje=False))
             self.assertEqual(out.getvalue(), "")                                         # silent in the scheduled loop
