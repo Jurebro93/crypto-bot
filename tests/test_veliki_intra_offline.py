@@ -239,7 +239,7 @@ class Live(SwitchBase):
         self.assertIn((PU, tok(100)), rows)
         self.assertNotIn((LU, tok(100)), rows)      # a midcap without the age / list check: demo only
         size = self.lg.execute("SELECT size_sol FROM veliki_trades WHERE user=?", (LU,)).fetchone()[0]
-        self.assertEqual(size, 0.1)
+        self.assertEqual(size, 0.2)   # 16.11. popodne: the owner's stake (veliki/gate.REAL)
 
     def test_real_needs_the_priority_row(self):
         # 15.11. popodne: without the priority row (holder / safety facts) no real buy; the demo still enters

@@ -19,7 +19,7 @@ ne predlaži ništa za mikrokapove):
   25 % zone kad cijena prestane padati; demo na cijelom midcap svemiru, pravi novac samo na tokenima velike liste).
 - Izlazi: cijeli profit na cilju +10-15 % neto; pola + trailing ostatka samo kad cijelo tržište raste (BTC +3 % u 24 h,
   meme sektor zelen, makro režim risk_on); na +5 % neto stop ide na ulaz (break-even); nema vremenskog stopa.
-- Pravi novac: stropovi (0,1 SOL po tradeu, 5 otvorenih, 20 kupnji dnevno, dnevni gubitak 0,3 SOL) i pod novčanika
+- Pravi novac: stropovi (0,2 SOL po tradeu, 5 otvorenih, 20 kupnji dnevno, dnevni gubitak 0,3 SOL) i pod novčanika
   1 SOL (ispod njega automatske prave kupnje stoje). "Na lancu" = je li izvršitelj stvarno kupio ili odbio kupnju.
 - Makro režim iz volumena platformi (pump.fun, PumpSwap, Raydium, Meteora, trading appovi), Solana meme sektora i
   volumena midcapova: risk_off = bez novih ulaza; risk_on = više demo ulaza. Makro influenceri: indeks najtočnijih

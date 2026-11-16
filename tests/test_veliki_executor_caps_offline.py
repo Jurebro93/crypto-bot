@@ -22,8 +22,8 @@ class VelikiCaps(SwitchBase):
 
     def test_caps_are_the_gates(self):
         c = executor.veliki_caps({})
-        self.assertEqual((c["size_sol"], c["max_open"], c["max_buys_day"], c["max_loss_day"]), (0.1, 5, 20, 0.3))
-        self.assertAlmostEqual(c["max_sol_per_day"], 2.1)
+        self.assertEqual((c["size_sol"], c["max_open"], c["max_buys_day"], c["max_loss_day"]), (0.2, 5, 20, 0.3))
+        self.assertAlmostEqual(c["max_sol_per_day"], 4.1)   # 20 buys x 0.2 SOL + 0.1
         self.assertTrue(executor.is_veliki("veliki: dnevni raspon"))
         self.assertFalse(executor.is_veliki("konsenzus S1"))
 
