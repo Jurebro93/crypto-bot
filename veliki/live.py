@@ -92,6 +92,13 @@ STALE_S = 60
 # tick, the entry's liquidity counted inside the hour), seen on LIQ_CONFIRM fresh quotes in a row (one bad read is no
 # exit). Price-only moves cannot do it: a constant-product pool's USD depth falls with the square root of the price,
 # so -50 % of liquidity is -75 % of price, under every stop. The other exit rules are the owner's and unchanged.
+# 16.11. (production, 7GCihg twice in one day: "+5 % neto, stop na ulaz" and 42 s later "break-even" booked -3.6 %
+# (-5.2 % in the morning): ONE quote 8 % above the next one armed the break-even stop, the next normal quote was
+# already under it): a single quote no longer moves or fires that stop. The +5 % must HOLD for BE_CONFIRM_S before the
+# stop goes to the entry, and a break-even exit waits for a second quote under the stop BE_EXIT_S later (the plain
+# stop and the tight BTC stop fire at once, as before).
+BE_CONFIRM_S = float(os.environ.get("VEL_BE_CONFIRM_S", "30"))
+BE_EXIT_S = float(os.environ.get("VEL_BE_EXIT_S", "10"))
 LIQ_EXIT_DROP = 0.5
 LIQ_CONFIRM = 2
 SCHEMA = """CREATE TABLE IF NOT EXISTS veliki_trades (
@@ -573,6 +580,17 @@ def liq_drop(r, q, now, q_ts=None):
     return f"likvidnost ${liq / 1e3:,.0f}k, {liq / ref - 1:+.0%} od najviše u zadnjem satu (${ref / 1e3:,.0f}k)"
 
 
+def _held(key, now, secs):
+    """True once the condition `key` has been seen continuously for `secs` (first seen now: False unless secs <= 0)."""
+    c = _ST.setdefault("conf", {})
+    t0 = c.setdefault(key, now)
+    return now - t0 >= secs
+
+
+def _drop(key):
+    (_ST.get("conf") or {}).pop(key, None)
+
+
 def manage(con, r, q, age, now, cfg):
     """The exits of one open row at the quote q (age seconds old): the stop (even on a stale quote), then the half at
     the target, the trailing / break-even of the rest, the plain target, the time stop, a rug. [text]."""
@@ -585,7 +603,11 @@ def manage(con, r, q, age, now, cfg):
     peak0 = pos.get("peak")
     if price <= pos["stop_px"]:
         reason = "be" if pos["stop_px"] >= pos["be_px"] * 0.999 else "stop"
+        if reason == "be" and not r.get("tight_ts") and not _held(("bx", r["id"]), now, BE_EXIT_S):
+            return out          # one quote under break-even: wait for the next one (see BE_CONFIRM_S)
+        _drop(("bx", r["id"]))
         return [close(con, r, price, q[1], q[3] if len(q) > 3 else None, reason, now)]
+    _drop(("bx", r["id"]))
     if age > STALE_S:
         return out
     ld = liq_drop(r, q, now, now - age)   # 16.11.: the pool pulled within the hour: out before the stop is gapped
@@ -593,6 +615,12 @@ def manage(con, r, q, age, now, cfg):
         return [close(con, r, price, q[1], q[3] if len(q) > 3 else None, "likvidnost", now, why=ld)]
     out += btc_stop(con, r, pos, price, now)   # 16.11. popodne: the tight stop only while BTC falls (rule.OWNER_STOP)
     had_half = bool(pos.get("half_px"))
+    if rc.get("be_at") and pos.get("be_px") and not pos.get("be_armed") and pos["stop_px"] < pos["be_px"]:
+        if price >= pos["be_px"] * (1 + rc["be_at"]):
+            if not _held(("ba", r["id"]), now, BE_CONFIRM_S):
+                rc = {**rc, "be_at": 0.0}       # +5 % seen, not yet held: the stop does not move on this quote
+        else:
+            _drop(("ba", r["id"]))
     hit = rule.on_price(pos, price, "t", price, rc)
     if pos.get("half_px") and not had_half:
         out.append(half_sale(con, r, pos, price, q[1], now))

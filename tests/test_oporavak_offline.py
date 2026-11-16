@@ -379,6 +379,31 @@ class OwnerStop(base.Live):
         self.assertEqual(live.owner_wide_once(self.lg, self.now), [])           # once
         self.assertAlmostEqual(self._row(rid)[2], entry * 0.94)
 
+    def test_one_spiky_quote_does_not_arm_or_fire_break_even(self):
+        # 16.11. (production, 7GCihg twice: one quote 8 % above the next armed break-even, the next quote closed the
+        # position at -3.6 % / -5.2 %)
+        rid, entry, stop, _w, _t, _s, be = self._enter()
+        out = self._tick(be * 1.06, 10)                          # one quote at +6 % net
+        self.assertAlmostEqual(self._row(rid)[2], stop)          # the stop did not move
+        out = self._tick(be * 0.98, 20)                          # the next quote is back under break-even
+        self.assertEqual(self._row(rid)[0], "open", out)         # nothing sold: the wide stop holds
+        self.assertAlmostEqual(self._row(rid)[2], stop)
+        # +5 % that HOLDS for 30 s arms it
+        self._tick(be * 1.06, 100)
+        self._tick(be * 1.055, 115)
+        self.assertAlmostEqual(self._row(rid)[2], stop)
+        out = self._tick(be * 1.06, 131)
+        self.assertAlmostEqual(self._row(rid)[2], be)
+        self.assertTrue(any("+5 % neto, stop na ulaz" in x for x in out), out)
+        # armed: one quote under break-even waits for the next one
+        out = self._tick(be * 0.97, 140)
+        self.assertEqual(self._row(rid)[0], "open", out)
+        out = self._tick(be * 1.01, 150)                         # it was an outlier: still open
+        self.assertEqual(self._row(rid)[0], "open", out)
+        self._tick(be * 0.99, 160)
+        out = self._tick(be * 0.99, 171)                         # two quotes under it, 10 s apart: out
+        self.assertEqual(self._row(rid)[:2], ("closed", "be"), out)
+
     def test_btc_down_rule(self):
         from veliki import rule
         b = Btc()

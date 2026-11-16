@@ -651,6 +651,21 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/kol-insajderi":
+            # 16.11. (vlasnik, insajderi/kolwallets.py): the influencers' probably linked wallets. The OWNER only,
+            # checked here on the server (inferences about named people: no other account, no cached copy, never a
+            # public page); the page is built per request from insajderi.db (a few small reads).
+            from trade import settings as tsettings
+            from ui import kolinsajderi
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/kol>← Na influencere</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+            try:
+                html = page(*kolinsajderi.page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
         if path == "/kol-makro" or path.startswith("/kol-makro/"):
             # 15.11. (vlasnik: "... staviti ih za sve korisnike aplikacije pod influencere, makroinfluencer i tab ...
             # osvježavati i stranice koje vide korisnici"): every logged-in user. After a macro scoring the cached

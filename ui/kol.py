@@ -809,6 +809,13 @@ def _tabs():
 
 MAKRO_PANE = ('<div class=kl-pane data-pane=makro id=makro hidden data-src="/kol-makro/lista">'
               '<p class=ms-hint>Učitavam makro influencere…</p></div>')
+# 16.11. (vlasnik: "Mora postojati stavka 'insider wallet'"; insajderi/kolwallets.py): the item "Insajderski novčanici"
+# under Analize. The page is cached once for everybody, so the row carries adm-only (non-admins get a copy without
+# it, ui/admstrip) and the page behind it is the owner's only (run_ui.py answers 403 to anybody else).
+INSIDER_ROW = ('<div class=adm-only><ul class="ms-list"><li><a class="ms-row" href="/kol-insajderi"><div class="ms-m">'
+               '<div class="ms-t">Insajderski novčanici</div><div class="ms-s">vjerojatno povezani novčanici '
+               'influencera · vidi samo vlasnik</div></div><span class="ms-chev" aria-hidden="true"></span></a></li></ul>'
+               '</div>')
 
 
 def page(qs):
@@ -880,7 +887,8 @@ def page(qs):
             + f'<div class=kl-pane data-pane=kopiranje id=kopiranje hidden>{rang_pane(now)}</div>'
             + f'<div class=kl-pane data-pane=pozivi id=pozivi hidden>{recent}</div>'
             + MAKRO_PANE
-            + R.section("Analize", sid="analize") + analize + "</div>" + KL_JS.replace("__OLD__", json.dumps(list(OLD_IDS))))
+            + R.section("Analize", sid="analize") + analize + INSIDER_ROW + "</div>"
+            + KL_JS.replace("__OLD__", json.dumps(list(OLD_IDS))))
     return "Influenceri", _calm(body)
 
 
