@@ -62,8 +62,10 @@ DEMO_RISK_TOTAL = float(os.environ.get("VEL_DEMO_RISK_TOTAL", "0.25"))
 INTRA_DEMO_SOL = float(os.environ.get("VEL_INTRA_DEMO_SOL", "0.1"))
 INTRA_MAX_OPEN = int(os.environ.get("VEL_INTRA_MAX_OPEN", "30"))
 INTRA_PER_DAY = int(os.environ.get("VEL_INTRA_PER_DAY", "100"))
-DEMO_MIN_LIQ = float(os.environ.get("VEL_DEMO_MIN_LIQ", "100000"))
-DEMO_MIN_VOL = float(os.environ.get("VEL_DEMO_MIN_VOL", "100000"))
+# 16.11. (vlasnik: "treba što više tradeova danas"): the DEMO's list from $50k liquidity / volume (was $100k: ~47
+# tokens); the real account's own floors (veliki list, liquidity >= $500k, MC >= 5M) do not move
+DEMO_MIN_LIQ = float(os.environ.get("VEL_DEMO_MIN_LIQ", "50000"))
+DEMO_MIN_VOL = float(os.environ.get("VEL_DEMO_MIN_VOL", "50000"))
 DEMO_UNIV_MAX = int(os.environ.get("VEL_DEMO_UNIV_MAX", "250"))
 UNIV_EVERY_S = 30     # the demo universe's quotes this often (the open positions every tick)
 # 15.11. (vlasnik: "uključi DCA: tokeni poput Uselessa su se puno puta oporavili na prvi znak oporavka Bitcoina"): one
@@ -407,6 +409,19 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     if tp <= price:
         return None, "cilj nije iznad ulaza", None
     stop = intra.stop_px(price, zone, cfg) if kind == "intra" else rule.stop_px(price, zone, cfg)
+    # 16.11. (production: the real account bought Dz9mQ9 three times and sold it 9-11 s later each time, "razlog pada
+    # postao loš: prijenos na burzu (depozit za prodaju)", -2.6 % .. -5.6 % a round: the exit read a reason the entry
+    # never asked about). The entry now asks the EXIT's own question first: what manage() would sell at once
+    # (rule.reasoned_exit on live.context: a bad reason, a volume collapse) is not bought, on either account.
+    try:
+        ctx = context(tok, now)
+        rs, _tight = rule.reasoned_exit({"entry": price, "first": price, "stop_px": stop}, price, c["rt"], ctx,
+                                        {**cfg, "exit_slip": 0.0})
+    except Exception:  # noqa: BLE001 - an unreadable context is no reason to buy blind with real money
+        rs, ctx = ("nepoznato" if real else None), {}
+    if rs:
+        return None, (f"izlaz bi odmah prodao ({rule.REASON_HR.get(rs, rs)}"
+                      + (f": {ctx_text(ctx)}" if ctx else "") + ")"), None
     if not real:
         why = stress_room(con, user, size_usd, 1 - stop / price)
         if why:
