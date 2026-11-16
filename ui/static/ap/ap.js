@@ -572,13 +572,13 @@
   const PN = { m: 'live', u: 'sol', d: 30, v: 'val', kind: '', chart: null, s1: null, s2: null, j: null, p: null,
     idx: new Map(), busy: false, tip: null, LW: null };
   try {
-    PN.m = localStorage.getItem('apx.pm') === 'paper' ? 'paper' : 'live';
+    // 16.11. (owner: "Makni paper trading sa stranice uživo"): the card is real money only; a stored "paper" is ignored
     PN.u = localStorage.getItem('apx.pu') === 'usd' ? 'usd' : 'sol';
     PN.d = [7, 30, 90].includes(+localStorage.getItem('apx.pd')) ? +localStorage.getItem('apx.pd') : 30;
     PN.v = localStorage.getItem('apx.pv') === 'days' ? 'days' : 'val';
   } catch (e) { /* private mode */ }
   function pnlSave() {
-    try { localStorage.setItem('apx.pm', PN.m); localStorage.setItem('apx.pu', PN.u); localStorage.setItem('apx.pd', PN.d); localStorage.setItem('apx.pv', PN.v); } catch (e) { /* no storage */ }
+    try { localStorage.setItem('apx.pu', PN.u); localStorage.setItem('apx.pd', PN.d); localStorage.setItem('apx.pv', PN.v); } catch (e) { /* no storage */ }
   }
   function pnlMark() {
     for (const b of $$('[data-pm]')) b.classList.toggle('on', b.dataset.pm === PN.m);
@@ -627,6 +627,14 @@
     el.innerHTML = cells.map(([l, v, sm, t]) => `<div><span>${esc(l)}${tipI(l)}</span><b class="${t}">${v}</b><small>${esc(sm)}</small></div>`).join('');
     const a = $('#apx-port-age');
     if (a) { a.dataset.ts = k.at || p.ts || 0; age(); }
+    // "Brojevi se slažu" and "Kako se zbraja" (ui/apterm.uskl_inner): rewritten only when it changed, an opened one stays open
+    const ub = $('#apx-uskl');
+    if (ub && p.uskl != null && ub.dataset.h !== p.uskl) {
+      const open = !!ub.querySelector('details[open]');
+      ub.innerHTML = p.uskl; ub.dataset.h = p.uskl;
+      const d = ub.querySelector('details');
+      if (open && d) d.open = true;
+    }
   }
   // one chart in the box at a time: made anew when the view changes (its series differ)
   function pnlChart(kind) {
@@ -689,8 +697,11 @@
     const live = p.mode === 'live';
     if (note) note.textContent = p.note || '';
     if (sum) {
-      const a = rows[0], z = rows[rows.length - 1], ch = a && z ? valOf(z) - valOf(a) : null;
-      sum.innerHTML = rows.length > 1 ? `<span><b class=${tone(ch)}>${pfmt(ch)}</b>${live ? 'promjena vrijednosti' : 'zatvoreno'} u ${p.days} d${tipI('promjena')}</span>` : '';
+      // 16.11.: live = the span's RESULT net of deposits (PnL now - PnL before the span, from the server): over the whole
+      // history it is exactly "Ukupni PnL"; the value's change (last point - first point) counted a deposit as profit
+      const a = rows[0], z = rows[rows.length - 1], k = p.kpi || {};
+      const ch = live ? (PN.u === 'usd' ? k.period_usd : k.period_sol) : (a && z ? valOf(z) - valOf(a) : null);
+      sum.innerHTML = rows.length > 1 && ch != null ? `<span><b class=${tone(ch)}>${pfmt(ch)}</b>${live ? (k.period_whole ? 'rezultat od početka (bez uplata)' : `rezultat u ${p.days} d (bez uplata)`) : `zatvoreno u ${p.days} d`}${tipI('promjena')}</span>` : '';
     }
     if (rows.length < 2) {
       pnlEmpty(live ? 'Još nema dovoljno snimki vrijednosti walleta za graf (jedna svakih 5 min).' : `Demo račun nema zatvorenih tradeova u zadnjih ${p.days} dana.`);
@@ -716,7 +727,9 @@
     if (!r) return '';
     const row = (k, v, cls) => `<div class=r><span>${k}</span><span${cls ? ' class=' + cls : ''}>${v}</span></div>`;
     const when = new Date(r.t * 1000).toLocaleString('hr-HR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-    const ch = valOf(r) - valOf(rows[0]);
+    // live: the result since the span's start, net of deposits (PnL here - PnL before the span); in $ at today's rate
+    const base = (p.kpi && p.kpi.period_base) || 0;
+    const ch = p.mode === 'live' ? (r.pnl - base) * (PN.u === 'usd' ? (p.rate || 0) : 1) : valOf(r) - valOf(rows[0]);
     let h = `<b>${esc(when)}</b>`;
     if (p.mode === 'live') {
       h += row('Vrijednost', fSol(r.v, 3)) + (r.u != null ? row('u $', fUsd(r.u)) : '') +
@@ -1543,7 +1556,6 @@
     }
     if ((b = g('[data-edit-close]'))) { closeEdit(b.closest('.apx-edit')); return; }
     if ((b = g('[data-page]'))) { const box = $('#apx-hist'); if (box) loadBox(box, b.dataset.page); return; }
-    if ((b = g('[data-pm]'))) { PN.m = b.dataset.pm; pnlSave(); pnlLoad(); return; }
     if ((b = g('[data-pd]'))) { PN.d = +b.dataset.pd; pnlSave(); pnlLoad(); return; }
     if ((b = g('[data-pu]'))) { PN.u = b.dataset.pu; pnlSave(); pnlDraw(); return; }
     if ((b = g('[data-pv]'))) { PN.v = b.dataset.pv; pnlSave(); pnlLoad(); return; }
@@ -1594,7 +1606,20 @@
     if (g('[data-sheet-full]')) { openSheet(null, true); return; }
     if (g('[data-sheet-close]')) { closeSheet(); }
   });
+  // 16.11.: the search box of a plain list ("Napredno" of Prekidači, "Pravila u testiranju"): rows whose words do not
+  // hold every typed word are hidden; nothing typed = every row
+  function listFilter(inp) {
+    const box = inp.closest('.in') || inp.parentElement, words = inp.value.toLowerCase().split(/\s+/).filter(Boolean);
+    let n = 0;
+    for (const r of $$('[data-jn]', box)) {
+      const t = r.textContent.toLowerCase(), hit = words.every(w => t.includes(w));
+      r.hidden = !hit; if (hit) n += 1;
+    }
+    const none = $('.apx-jnone', box);
+    if (none) none.hidden = n > 0;
+  }
   root.addEventListener('input', e => {
+    if (e.target.matches && e.target.matches('[data-jq]')) { listFilter(e.target); return; }
     const f = form();
     if (f && f.contains(e.target)) {
       if (e.target.name === 'sol') for (const c of $$('[data-sol]', f)) c.classList.toggle('on', c.dataset.sol === e.target.value);

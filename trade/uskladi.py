@@ -20,7 +20,7 @@ report() puts them side by side, all in SOL, real money (mode 'live') only:
 The difference is said, never hidden: the wallet is right, and the usual reasons the ledger is off are listed with what
 the ledger itself shows of them (estimated fees, lots closed without a recorded sale, sales cut off mid-swap, buys only
 the wallet check found, an opening deposit rebuilt from the orders). "ok" = the wallet's own sums hold and the
-difference is inside TOL.
+difference is inside TOL. (No tick mark in the words: the page has no emoji, tests/test_autopilot_izgled_offline.)
 
 Also here, from the same rows: the result per TOKEN (every lot of a token summed: the owner bought Hope 21 times, one
 lot's +0,211 said nothing about the token's +0,9), how much of the profit the single best token made, and the deposits
@@ -224,8 +224,8 @@ def report(con, now=None, summary=None):
         notes.append("Naknade u knjizi su procjena iz Jupiterove ponude (potpis, prioritet, depozit token računa): "
                      f"ukupno knjiženo {_n(tot['fees'])} SOL, stvarno naplaćeno može biti manje.")
     if op_recon:
-        notes.append(f"Početna uplata {_n(op_sol, 4)} SOL izračunata je unatrag iz naloga (prije prve snimke "
-                     "novčanika); ako je na lancu drugačija, upisuje se naredbom trade.uskladi uplata.")
+        notes.append(f"Početna uplata {_n(op_sol, 4)} SOL izračunata je unatrag iz naloga, jer je mjerenje novčanika "
+                     "počelo nakon prvih tradeova; stvarni iznos s lanca može se upisati.")
     pend = sum(1 for p in lots if p["status"] == "pending")
     if pend:
         notes.append(f"{pend} {_word(pend, 'kupnja je', 'kupnje su', 'kupnji je')} upravo u tijeku: zbroj vrijedi nakon nje.")
@@ -243,10 +243,10 @@ def report(con, now=None, summary=None):
         text = (f"Zbroj novčanika se ne slaže za {_sol(sum_diff, 4).lstrip('+')}: vrijednost {_n(value)} ≠ slobodno "
                 f"{_n(free)} + pozicije {_n(pos)}, ili PnL ≠ vrijednost − uplate")
     elif ok:
-        text = "Brojevi se slažu ✓"
+        text = "Brojevi se slažu"
     else:
-        text = (f"Novčanik se slaže ✓ · knjiga tradeova je {'niža' if diff > 0 else 'viša'} za "
-                f"{_sol(abs(diff)).lstrip('+')}")
+        text = (f"Novčanik se slaže · zbroj pojedinih tradeova je {_sol(abs(diff)).lstrip('+')} "
+                f"{'niži' if diff > 0 else 'viši'}")
     return {"have": True, "ok": ok, "text": text, "diff_sol": round(diff, 9), "tol_sol": round(tol, 6),
             "wallet": {"value_sol": value, "free_sol": free, "pos_sol": pos, "usdc_sol": round(usdc_sol, 9),
                        "deposits_sol": dep, "pnl_sol": pnl, "sum_ok": sum_ok, "sum_diff_sol": round(sum_diff, 9)},

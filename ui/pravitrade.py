@@ -5369,7 +5369,9 @@ def post(path, form, user):
                 lcon.close()
             settings.set_flag(tcon, name, mode, user, paper=paper)
             print(f"pravi trade: {user} je zastavicu {name} postavio na {mode}", flush=True)
-            return f"{BACK}?ok={qq(f'Zastavica {name}: {FLAG_WORDS.get(mode, mode)}.')}#fl-{name}"
+            from ui import apjed   # 16.11.: the owner's switches answer in the page's plain words, not by flag name
+            said = apjed.flag_toast(name, mode) or f'Zastavica {name}: {FLAG_WORDS.get(mode, mode)}.'
+            return f"{BACK}?ok={qq(said)}#fl-{name}"
         if path == "/pravi-trade/rangepin":   # 11.11. (rangedca/owner.py): the owner's range pins, add / remove
             from rangedca import owner
             tok, act = (form.get("token") or "").strip(), (form.get("action") or "add").strip()

@@ -42,8 +42,9 @@ import threading
 import time
 from urllib.parse import quote
 
-from trade import executor, settings
+from trade import executor, settings, uskladi
 from ui import apgraf
+from ui import apjed
 from ui import pravitrade as pt
 from ui import redak
 from ui.html import esc, short
@@ -126,7 +127,8 @@ COL_HELP = {
     "win rate": "Udio zatvorenih tradeova u plusu; s manje od 10 zatvorenih nije zaključak („u procjeni”).",
     "dana u plusu / minusu": "Koliko je dana završilo u plusu, a koliko u minusu (dani bez tradea se ne broje).",
     "naknade": "Mrežne naknade svih zatvorenih pozicija u rasponu (samo uživo; u paperu su već u PnL-u).",
-    "promjena": "Promjena vrijednosti walleta (uživo) ili zbroja zatvorenih tradeova (paper) od prvog dana raspona.",
+    "promjena": "Rezultat u rasponu bez uplata i isplata: PnL sada minus PnL na početku raspona. Kad raspon pokriva "
+                "cijelu povijest novčanika, jednak je ukupnom PnL-u. Paper: zbroj zatvorenih tradeova od prvog dana raspona.",
 }
 
 
@@ -1549,6 +1551,15 @@ def _port_live(tcon, cfg, days, now):
     kpi = {"value_sol": value, "value_usd": usd(value), "free_sol": free, "pos_sol": pos, "pos_n": n_open,
            "today_sol": today, "today_usd": usd(today), "total_sol": total, "total_usd": usd(total), "total_pct": pct,
            "at": at}
+    # 16.11. (owner: "brojevi se ne poklapaju": "+0,353 promjena vrijednosti u 30 d" beside "Ukupni PnL +0,327" on a
+    # wallet 7 days old): the span's number is its RESULT, net of deposits (PnL now minus PnL before the span), so a
+    # span that covers the whole history says exactly the total PnL (trade/uskladi.period)
+    try:
+        per = uskladi.period(tcon, days, now, s)
+    except Exception:  # noqa: BLE001 - the chart stays, the span's number is left out
+        per = {"base_sol": None, "result_sol": None, "whole": False}
+    kpi.update(period_sol=per["result_sol"], period_usd=usd(per["result_sol"]), period_base=per["base_sol"],
+               period_whole=per["whole"])
     return kpi, series, rate
 
 
@@ -1622,10 +1633,11 @@ def portfelj(user, mode="live", days=30, now=None):
             return hit[1]
         cfg = pt._cfg(tcon)
         kpi, series, rate = (_port_live if mode == "live" else _port_paper)(tcon, cfg, days, now)
+        uskl = pt._safe("usklađenje", uskl_html, tcon, now, fallback="") if mode == "live" else None
     finally:
         tcon.close()
     d = {"mode": mode, "days": days, "ts": int(now), "rate": round(rate, 2) if rate else None, "kpi": kpi,
-         "series": series,
+         "series": series, "uskl": uskl,
          "note": ("Vrijednost walleta: SOL + otvorene pozicije po tržišnoj cijeni (snimka svakih 5 min); PnL prema uplatama."
                   if mode == "live" else
                   "Demo račun Autopilota (paper): linija je zbroj zatvorenih tradeova; otvorene po živoj cijeni, inače po ulogu.")}
@@ -1664,6 +1676,72 @@ def _kpi_cells(k, mode):
 def _kpi_html(k, mode):
     return "".join(f'<div><span>{esc(lab)}{_i(lab)}</span><b class="{tone}">{val}</b><small>{esc(sm)}</small></div>'
                    for lab, val, sm, tone in _kpi_cells(k, mode))
+
+
+# ---------- "Brojevi se slažu" (16.11.) ----------------------------------------------------------------------------
+# Owner: "krenuo sam sa jednom Solanom, piše da je 1.37 trenutno, a čini mi se da se brojevi ne poklapaju". One line in
+# the Portfelj card (a green dot, no tick: the page carries no emoji) says whether the numbers add up (trade/uskladi.report: the wallet's own sums, then the ledger of
+# trades against the wallet's PnL); a tap opens "Kako se zbraja": the parts with their amounts, the result per token
+# (every lot of a token summed) beside the one per trade, how much the best token alone made, and what the ledger
+# shows of a difference. Under it one line for the deposits still locked in empty token accounts (nothing is closed).
+
+DEMO_URL = "/strategije"   # the demo (paper) results' own page: the live page shows real money only
+
+
+def _sgn(x, dec=3):
+    return redak.sol(x, dec, sign=True)
+
+
+def uskl_inner(r):
+    """The inside of #apx-uskl from trade/uskladi.report's answer; "" when the wallet has no measured value yet."""
+    if not r or not r.get("have"):
+        return ""
+    w, c, bt = r["wallet"], r["closed"], r["by_token"]
+    n = len(r["lines"])
+    rows = "".join(f'<tr{" class=tot" if i == n - 1 else ""}><td>{"=" if i == n - 1 else "+" if i else ""}</td>'
+                   f'<td>{esc(lab)}</td><td class="n {_tone(v)}">{_sgn(v)}</td></tr>' for i, (lab, v) in enumerate(r["lines"]))
+    body = [f'<p>Novčanik, izmjereno na lancu: vrijednost <b>{redak.num(w["value_sol"], 3)}</b> = slobodno '
+            f'{redak.num(w["free_sol"], 3)} + u pozicijama {redak.num(w["pos_sol"], 3)}'
+            + (f' + USDC {redak.num(w["usdc_sol"], 3)}' if w["usdc_sol"] else "")
+            + f'. Uplaćeno <b>{redak.num(w["deposits_sol"], 3)}</b>. Ukupni PnL = {redak.num(w["value_sol"], 3)} − '
+            f'{redak.num(w["deposits_sol"], 3)} = <b class="{_tone(w["pnl_sol"])}">{_sgn(w["pnl_sol"])}</b>.</p>',
+            f'<table class=apx-uskt>{rows}</table>']
+    if not r["ok"] and w["sum_ok"]:
+        body.append('<p>Mjerodavan je novčanik: vrijednost i PnL gore su stanje na lancu. Razlika je u knjizi tradeova '
+                    '(zbroj pojedinih kupnji i prodaja), ne u novcu.</p>')
+    if bt.get("best"):
+        b = bt["best"]
+        nm = esc(b["symbol"] or short(b["token"]))
+        line = (f'<p><b>Po tokenu</b> (sve kupnje istog tokena zbrojene): {bt["n"]} '
+                f'{_plural(bt["n"], "zatvoren token", "zatvorena tokena", "zatvorenih tokena")}, {bt["plus"]} u plusu. '
+                f'Najbolji <span translate=no>{nm}</span> <b class="{_tone(b["pnl_sol"])}">{_sgn(b["pnl_sol"])}</b> '
+                f'({b["buys"]} {_plural(b["buys"], "kupnja", "kupnje", "kupnji")}, {b["sells"]} '
+                f'{_plural(b["sells"], "prodaja", "prodaje", "prodaja")})')
+        if bt.get("rest_sol") is not None:
+            line += (f'; svi ostali tokeni zajedno <b class="{_tone(bt["rest_sol"])}">{_sgn(bt["rest_sol"])}</b>')
+        body.append(line + '.</p>')
+    if c.get("best"):
+        body.append(f'<p><b>Po tradeu</b> (jedna kupnja i njena prodaja): {c["n"]} zatvorenih, {c["wins"]} dobitnih. '
+                    f'Najbolji <span translate=no>{esc(c["best"]["symbol"] or short(c["best"]["token"]))}</span> '
+                    f'{_sgn(c["best"]["pnl"])}'
+                    + (f', najgori <span translate=no>{esc(c["worst"]["symbol"] or short(c["worst"]["token"]))}</span> '
+                       f'{_sgn(c["worst"]["pnl"])}' if c["n"] > 1 else "") + '.</p>')
+    if not r["ok"] and r["notes"]:
+        body.append('<ul>' + "".join(f"<li>{esc(x)}</li>" for x in r["notes"]) + '</ul>')
+    rent = r.get("rent") or {}
+    rent_html = ""
+    if rent.get("n"):
+        rent_html = (f'<p class=apx-rent>Moguće vratiti ~{redak.sol(rent["sol"], 3)} zatvaranjem {rent["n"]} '
+                     f'{_plural(rent["n"], "praznog token računa", "prazna token računa", "praznih token računa")} '
+                     '(depozit ~0,002 SOL po računu; procjena iz knjige naloga, ništa se ne zatvara samo).</p>')
+    return (f'<details class="apx-uskd {"ok" if r["ok"] else "warn"}"><summary><b>{esc(r["text"])}</b>'
+            f'<span class=apx-lnkb>Kako se zbraja</span></summary><div class=apx-uski>{"".join(body)}</div></details>'
+            + rent_html)
+
+
+def uskl_html(tcon, now):
+    s = pt.equity_data(tcon, now).get("summary") or {}
+    return uskl_inner(uskladi.safe_report(tcon, now, s))
 
 
 # ---------- the wallet's value and PnL by day at the top (15.11. navečer) ------------------------------------------
@@ -1787,15 +1865,16 @@ def wallet_html(tcon, cfg, now, pnl=None):
 
 def port_html(tcon, cfg, now):
     """The "Portfelj" card under the token's chart (always shown: it carries the money): the live numbers in the
-    first HTML; ap.js fills the chart (the wallet's value, or PnL by day) and switches Uživo / Paper, SOL / $ and
-    7 / 30 / 90 days."""
+    first HTML; ap.js fills the chart (the wallet's value, or PnL by day) and switches SOL / $ and 7 / 30 / 90 days.
+    Real money only (16.11.); under the numbers the line "Brojevi se slažu" (uskl_html)."""
     try:
         kpi = _port_live(tcon, cfg, 30, now)[0]
     except Exception as e:  # noqa: BLE001 - the card stays, with dashes
         print(f"autopilot: portfelj nije složen: {type(e).__name__}: {e}", flush=True)
         kpi = {}
-    seg = ('<div class=apx-tf role=group aria-label="Račun"><button type=button data-pm=live class=on>Uživo</button>'
-           '<button type=button data-pm=paper>Paper</button></div>')
+    # 16.11. (owner: "Makni paper trading sa stranice uživo"): no Uživo / Paper switch; this page is real money only,
+    # the demo results have their own page (the link under the chart)
+    uskl = pt._safe("usklađenje", uskl_html, tcon, now, fallback="")
     view = ('<div class=apx-tf role=group aria-label="Prikaz"><button type=button data-pv=val class=on>Vrijednost</button>'
             '<button type=button data-pv=days>PnL po danima</button></div>')
     unit = ('<div class=apx-tf role=group aria-label="Jedinica"><button type=button data-pu=sol class=on>SOL</button>'
@@ -1810,19 +1889,20 @@ def port_html(tcon, cfg, now):
     # opens that day's card under it (#apx-day: zarađeno, potrošeno, vraćeno, naknade, tradeovi; ‹ › to the day
     # before / after) instead of a floating box over the chart; every day of the span is a row of #apx-dlist.
     return (f'<section class="apx-card apx-port" id=apx-port aria-label="Portfelj"><div class=apx-cbar>'
-            f'<h2 class=apx-h2 data-sec="">Portfelj</h2>{seg}<span class=apx-sp></span>'
+            f'<h2 class=apx-h2 data-sec="">Portfelj</h2><span class="apx-badge live">pravi novac</span><span class=apx-sp></span>'
             # the wallet is snapshotted every 5 min (trade/equity): amber only after three missed snapshots
             f'<span class=apx-age data-ts="{int(kpi.get("at") or 0)}" data-short=1 data-stale=900 id=apx-port-age></span>'
             '<button type=button class=apx-fsbtn data-fs-open=apx-port aria-label="Portfelj preko cijelog zaslona">Cijeli zaslon</button>'
             '<button type=button class=apx-fsx data-fs-close aria-label="Zatvori cijeli zaslon" title="Zatvori (Esc)">×</button></div>'
             f'<div class=apx-kpi id=apx-kpi>{_kpi_html(kpi, "live")}</div>'
+            f'<div class=apx-uskl id=apx-uskl>{uskl}</div>'
             f'<div class="apx-cbar apx-pbar">{view}{unit}{span}</div><div class=apx-psum id=apx-psum></div>'
             '<div class=apx-pchart id=apx-pchart tabindex=0 role=img aria-roledescription="graf" aria-label="Portfelj kroz '
             'vrijeme, ili PnL po danima. Dodir ili klik otvara taj dan ispod grafa; strelice lijevo i desno idu točku po točku.">'
             '<div class=apx-skel><i></i></div></div><div class=apx-dcard id=apx-day hidden aria-live=polite></div>'
             '<p class=apx-pnote id=apx-pnote></p><div class=apx-dlist id=apx-dlist hidden></div>'
             '<p class=apx-attr>Graf: <a href="https://www.tradingview.com/" target=_blank rel=noopener>TradingView Lightweight '
-            'Charts™</a></p></section>')
+            f'Charts™</a></p><p class=apx-demolink><a href="{DEMO_URL}">Demo rezultati →</a></p></section>')
 
 
 # ---------- HTML of the first view -------------------------------------------------------------------------------
@@ -2308,7 +2388,7 @@ def _top_html(d, tcon, cfg, owner, now=None):
     req = pt._safe("mcp-obavijest", req_notice, tcon, owner, now)
     # 14.11. 12:55 (owner: "nema nekakvog narančastog okvira"): the switches stay at the bottom as he ordered; this chip
     # in the title row jumps there and says while the real money for every strategy is on
-    sw_on = settings.pravi_novac_sve(con=tcon)
+    sw_on = settings.pravi_novac_sve(con=tcon) or executor.veliki_on(tcon)   # 16.11.: the midcap switch counts too
     chip = (f'<a class="apx-state apx-swchip{" warn" if sw_on else ""}" href="#prekidaci" id=apx-swchip>Prekidači'
             + (" · pravi novac uključen" if sw_on else "") + ' ↓</a>')
     # 15.11. navečer (owner: "gdje mogu naći te nove liste influencera velikih unutar alata"): the macro influencers'
@@ -2364,49 +2444,16 @@ def switches_html(d, tcon, cfg, owner, now=None):
     # data-tap: no address (#prekidaci, #fl-..., #grok-auto after a form) and no script opens it (TOGGLE_JS reveal,
     # ap.js scrollHash); the chip at the top only scrolls to the closed row. Grok's waiting requests are a closed row
     # with the badge "čeka" as well (the line at the top and the badge say they wait; a tap opens them).
-    sw_on = settings.pravi_novac_sve(con=tcon)
-    try:
-        st = executor.switch_status(tcon, now, cfg, cfg.get("day_tz"))
-        today = (f'danas kupnji {st["buys"]}/{st["max_buys_day"]}, otvoreno {st["open"]}/{st["max_open"]}, '
-                 f'{pt.redak.sol(st["pnl"], 3)} SOL' + (", dnevni stop dosegnut" if st["stopped"] else ""))
-    except Exception:  # noqa: BLE001 - the row still opens the full box
-        today = "stropovi, upozorenje i gumb"
-    parts = [f'<div id=fl-{settings.SWITCH_ALL}>'
-             + _fold("Pravi novac za sve strategije", today, pt._safe("pravi-novac-sve", pt._switch_box, tcon, cfg, owner),
-                     "uključen" if sw_on else "isključen", "bad" if sw_on else "mut", "sw-pravi") + '</div>']
-    mcp = pt._safe("mcp", pt._mcp_requests, tcon, owner)
-    if mcp:
-        parts.append(_fold("Grokovi zahtjevi", "čekaju tvoje Odobri / Odbij", mcp, "čeka", "warn", "sw-mcp"))
-    glive = pt._safe("grok-auto", pt._grok_auto_live, tcon, owner, d.get("positions"), now, False)
-    if glive:
-        try:
-            from ui import grokauto
-            g_on = bool(grokauto.state(tcon, now)["on"])
-        except Exception:  # noqa: BLE001
-            g_on = False
-        parts.append(_fold("Grok autotrade danas", "stanje, krugovi, pokušaji" + (" i Ugasi" if g_on else ""), glive,
-                           "uključen" if g_on else "isključen", "good" if g_on else "mut", "sw-grok"))
-    grp = [pt._safe("grok-postavke", pt._grok_auto_setup, tcon, owner)]
-    on = bool(cfg.get("on"))
-    auto = (pt._switch_html(on) if owner else f'<b>{"uključen" if on else "isključen"}</b>')
-    grp.append(f'<div class=apx-swr id=sw-autopilot><div><b>Autopilot</b><span class=apx-mut>nove kupnje bota; isti '
-               f'prekidač je i u naslovu stranice</span></div>{auto}</div>')
-    grp.append(pt._safe("mikrokap", mikrokap_html, tcon, owner, now))   # 15.11.: the microcap gate (trade/capgate)
-    grp.append(pt._safe("vlasnikovi-prekidaci", owner_switches_html, tcon, owner))
-    plans = pt._safe("exit-planovi", pt._exit_plans_block, tcon, owner)
-    if plans:
-        paused = bool(settings.raw(tcon).get("exit_plans_paused"))
-        grp.append(_fold("Planovi izlaza", "kill switch planova i aktivni planovi", plans,
-                         "pauzirani" if paused else "rade", "warn" if paused else "mut", "sw-planovi"))
-    inner = "".join(x for x in parts if x) + f'<div class="ap ap-grp apx-swg">{"".join(x for x in grp if x)}</div>'
-    n, n_on, n_wait = pt._safe("prekidači-zbroj", switches_count, tcon, cfg, owner, now, fallback=(0, 0, 0))
-    summ = switches_summary(n, n_on, n_wait)
+    # 16.11. (owner: "kad otvorim, ima 15 kartica ovih, svaka se može dodatno proširiti. Ne razumijem šta koja znači ...
+    # Ovo jednostavno treba biti toliko jednostavnije"): the body is ui/apjed.prekidaci: five plain rows at most (Pravi
+    # novac, Što bot trguje, Istraživanje, Hitno zaustavi sve, Napredno), every other switch one closed row of a
+    # searchable list under "Napredno", with the same forms and addresses as before. The closed card says the state of
+    # the real money in words instead of counting switches.
+    inner, summ, n_wait = apjed.prekidaci(d, tcon, cfg, owner, now)
     badge = (f'<b class=apx-swbadge title="Grokov zahtjev čeka tvoje Odobri / Odbij">{n_wait} čeka</b>' if n_wait else "")
     return (f'<section class=apx-swsec id=prekidaci aria-label="Prekidači"><details class="apx-acc apx-sws" id=prekidaci-d '
             f'data-tap><summary><h2 class=apx-swh data-sec="">Prekidači</h2><span class="apx-mut apx-swsum">{esc(summ)}'
-            f'</span>{badge}</summary><div class="ap apx-acc-in"><p class="apx-mut apx-swi">Svi tvoji prekidači na jednom '
-            f'mjestu: pravi novac za sve strategije, Grok, Autopilot, planovi izlaza. Svaki red se otvara na dodir.</p>'
-            f'{inner}</div></details></section>')
+            f'</span>{badge}</summary><div class="ap apx-acc-in apx-jed">{inner}</div></details></section>')
 
 
 def switches_count(tcon, cfg, owner, now=None):
@@ -2590,7 +2637,7 @@ def page(qs, user, full=False):
             cards += (f'<section class="apx-card apx-lz ap" id=apx-{name} data-x-src=/pravi-trade/l/{name} data-x-every={every} '
                       f'data-hide-empty{"" if c_in else " hidden"}>{c_in}</section>')
         ost = (f'<details class=apx-acc id=apx-ostalo{" open" if full or ek else ""}><summary><h2 data-sec="">Postavke</h2>'
-               '<span class=apx-mut>pravila, praćenja, zastavice, MCP ključ, wallet, dijagnostika…</span></summary>'
+               '<span class=apx-mut>limiti, izlazi, obavijesti, napredno</span></summary>'
                f'<div class="ap apx-acc-in" data-x-src=/pravi-trade/l/ostalo{esc(q_ek)}>{o_in}</div></details>')
         mbar = ('<div class=apx-mbar>'
                 + ('<button type=button class="apx-go buy" data-sheet=buy>Kupi</button><button type=button class="apx-go sell" '
@@ -3130,39 +3177,29 @@ def ostalo_html(tcon, cfg, owner, now, prefill=""):
     try:
         from league import copy
         copy.ensure(con)
-        settings_parts = [
-            pt._safe("pravila", pt._rules, tcon, cfg, owner),
-            pt._safe("praćenja", pt._follows, con, owner, settings.raw(tcon), prefill, "Uredi praćenja"),
-            # 14.11.: the owner's switches (pravi_novac_sve, exit_plan_live, ...) and Grok autotrade's switch and
-            # limits are in "Prekidači" on the main view; Zastavice lists the plan's other flags
-            pt._safe("zastavice", pt._flags_section, tcon, con, owner, settings.OWNER_SWITCHES),
-            pt._safe("grok", pt._mcp_section, tcon, owner),
-            pt._safe("wallet", pt._wallet_row, tcon, owner, _setup(tcon, cfg) if owner else {}),
-            pt._safe("pozivnice", pt._invites, tcon) if owner else "",
-            pt._safety(),
+        # 16.11. (owner: "Onda ovo settings, rules, isto. Toliko toga ima. Kako se ovo može pojednostavniti, skratiti?"):
+        # four plain blocks (ui/apjed.postavke): Limiti, Izlazi, Obavijesti, Napredno. The diagnostics are built here
+        # as before (one with nothing in it is not rendered); apjed puts the ones that wait for the owner under
+        # Obavijesti and the rest under Napredno, and leaves out what does nothing while the bot trades midcaps only.
+        diag = [
+            ("pregled", pt._safe("pregled", pt._review_section, tcon, owner)),
+            ("ev", pt._safe("ev", pt._ev_card, owner)),
+            ("fast-path", pt._safe("fast-path", pt._fast_card, owner)),
+            ("konsenzus", pt._safe("konsenzus", pt._konsenzus_card, owner)),   # 15.11. (konsenzus/)
+            ("oscilator", pt._safe("oscilator", pt._oscilator_card, owner)),   # 15.11. (oscilator/)
+            ("veliki", pt._safe("veliki", pt._veliki_card, owner)),   # 15.11. (veliki/): the big tokens' range
+            ("holderi", pt._safe("holderi", pt._holderi_card, owner)),   # 15.11. (holderi/): listing signals
+            ("insajderi2", pt._safe("insajderi2", pt._insajderi2_card, owner)),   # 15.11. (insajderi/)
+            ("makroinf", pt._safe("makroinf", pt._makroinf_card, owner)),   # 15.11. (makroinf/): macro influencers
+            ("preporuke", pt._recs_section()),
+            # 15.11. (owner): the OpenAI critic's suggestions, accepted / applied once or rejected
+            ("openai-prijedlozi", pt._safe("openai-prijedlozi", pt._suggest_section, tcon, owner, "openai")),
+            ("sazetak", _wrap("Grokov dnevni sažetak", pt._safe("sazetak", pt._summary_card, tcon, owner), "sazetak-r")),
         ]
-        diag_parts = [
-            pt._safe("pregled", pt._review_section, tcon, owner),
-            pt._safe("ev", pt._ev_card, owner),
-            pt._safe("fast-path", pt._fast_card, owner),
-            pt._safe("konsenzus", pt._konsenzus_card, owner),   # 15.11. (konsenzus/): the source consensus strategy
-            pt._safe("oscilator", pt._oscilator_card, owner),   # 15.11. (oscilator/): the oscillating tokens' scalp
-            pt._safe("veliki", pt._veliki_card, owner),   # 15.11. (veliki/): the big tokens' range
-            pt._safe("holderi", pt._holderi_card, owner),   # 15.11. (holderi/): listing signals + holder classes
-            pt._safe("insajderi2", pt._insajderi2_card, owner),   # 15.11. (insajderi/): insiders before calls
-            pt._safe("makroinf", pt._makroinf_card, owner),   # 15.11. (makroinf/): macro influencers, DEMO input
-            pt._recs_section(),
-            # 15.11. (owner): the OpenAI critic's suggestions under "Preporuke alata", accepted / applied once or rejected
-            pt._safe("openai-prijedlozi", pt._suggest_section, tcon, owner, "openai"),
-            _wrap("Grokov dnevni sažetak", pt._safe("sazetak", pt._summary_card, tcon, owner), "sazetak-r"),
-            # 11.11.: the wallet's value is the "Portfelj" card on the main view now (one chart, not two)
-        ]
+        diag = [(n, h) for n, h in diag if h and (not empty_meta(h) or _acts(h))]
+        return apjed.postavke(tcon, con, cfg, owner, now, prefill, _setup(tcon, cfg) if owner else {}, diag)
     finally:
         con.close()
-    out = "".join(h for h in settings_parts if h) + "".join(h for h in diag_parts if h and (not empty_meta(h) or _acts(h)))
-    out += ('<p class=apx-mut style="margin-top:14px"><a href="/pravi-trade?stari=1">Stari prikaz stranice</a> (privremeno, '
-            'za usporedbu)</p>')
-    return f'<div class=ap-grp>{out}</div>'
 
 
 def card_html(name, tcon, owner):

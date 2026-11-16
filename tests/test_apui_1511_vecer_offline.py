@@ -88,7 +88,8 @@ class Prekidaci(Page):
                                       'class="apx-acc apx-sws" id=prekidaci-d data-tap><summary><h2 class=apx-swh '
                                       'data-sec="">Prekidači</h2>'), sw[:200])
         self.assertNotRegex(sw, r"<details[^>]*\sopen[\s>]")                 # nothing inside comes open either
-        self.assertRegex(sw, r'<span class="apx-mut apx-swsum">\d+ prekidača, \d+ uključen\w*</span>')
+        # 16.11.: the closed card says the state of the real money in words, not a count of switches
+        self.assertRegex(sw, r'<span class="apx-mut apx-swsum">(Pravi novac: (uključen|isključen)|Zaustavljeno)[^<]*</span>')
         self.assertNotIn("apx-swbadge", sw)                                    # nothing waits for him
         for k in ("id=sw-pravi", "id=sw-autopilot", "name=name value=pravi_novac_sve"):   # the content is folded inside
             self.assertIn(k, sw, k)

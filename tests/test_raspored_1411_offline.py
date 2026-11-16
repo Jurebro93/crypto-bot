@@ -78,8 +78,8 @@ class Layout(Card):
         body = self.page()
         at = [body.index(k) for k in ("<h1>Autopilot</h1>", "id=apx-chartbox", "id=kupi-odmah", ">Brza kupnja<",
                                       "id=pozicije", "id=nalozi", "id=apx-port", "id=kupiti", "id=pratimo",
-                                      "id=prekidaci", ">Prekidači<", "id=fl-pravi-novac", "id=grok-auto",
-                                      "id=sw-autopilot", "id=exit-planovi", "id=apx-ostalo")]
+                                      "id=prekidaci", ">Prekidači<", "id=sw-autopilot", "id=fl-pravi-novac",
+                                      "id=grok-auto", "id=exit-planovi", "id=apx-ostalo")]   # 16.11.: the stop row first
         self.assertEqual(at, sorted(at))
         top = body[:body.index("id=apx-chartbox")]
         for k in ("Grokove pozicije", "id=grok-auto", "Ugasi Grok autotrade", "id=mcp-zahtjevi", "id=fl-pravi-novac"):

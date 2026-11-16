@@ -114,7 +114,7 @@ class Zbroj(Base):
         r = uskladi.report(self.con, now=self.t)
         self.assertTrue(r["have"])
         self.assertTrue(r["ok"], r)
-        self.assertEqual(r["text"], "Brojevi se slažu ✓")
+        self.assertEqual(r["text"], "Brojevi se slažu")
         w = r["wallet"]
         self.assertAlmostEqual(w["value_sol"], w["free_sol"] + w["pos_sol"])
         self.assertAlmostEqual(w["pnl_sol"], w["value_sol"] - 1.0)
@@ -144,7 +144,7 @@ class Zbroj(Base):
         self.assertTrue(r["wallet"]["sum_ok"])                           # the wallet itself still adds up
         self.assertAlmostEqual(r["wallet"]["deposits_sol"], 1.0)         # nothing was booked as a deposit
         self.assertAlmostEqual(r["diff_sol"], 0.045, places=6)
-        self.assertEqual(r["text"], "Novčanik se slaže ✓ · knjiga tradeova je niža za 0,045 SOL")
+        self.assertEqual(r["text"], "Novčanik se slaže · zbroj pojedinih tradeova je 0,045 SOL niži")
         labels = [lab for lab, _ in r["lines"]]
         self.assertIn("Razlika knjige i novčanika", labels)
         self.assertAlmostEqual(sum(v for _, v in r["lines"][:-1]), r["lines"][-1][1], places=6)
