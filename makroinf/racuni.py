@@ -1,6 +1,8 @@
 """The accounts: the seed (~50 diverse macro accounts incl. the owner's), the owner's own file racuni_vlasnik.json
-(add / remove / confirm), handle resolution through twitterapi.io (followers >= 100k, active in the last 30 days),
-the daily profile snapshot (followers, statuses_count) and the candidates for names whose handle is unknown.
+(add / remove / confirm), handle resolution through twitterapi.io (followers >= min_followers: 100k, 30k since the
+owner's order of 16.11.; active in the last 30 days; an account the owner named or confirmed is measured whatever
+its followers), the daily profile snapshot (followers, statuses_count) and the candidates for names whose handle is
+unknown.
 
 Never guessed silently: an owner name without a known handle and an owner seed whose handle does not resolve
 get CANDIDATES from twitterapi.io user search, stored as needs_owner_confirm; nothing is measured for them until the
@@ -86,8 +88,9 @@ SEED = (
     ("BitcoinMagazine", "Bitcoin Magazine", "vijesti", False),
     ("tier10k", "db (tier10k)", "vijesti", False),
 )
-# handles the owner confirmed himself (15.11.: Hani = @honey_xbt): never replaced by candidates, whatever X answers
-OWNER_CONFIRMED = frozenset({"honey_xbt"})
+# handles the owner confirmed himself (15.11.: Hani = @honey_xbt; 16.11.: "https://x.com/Adam_Tehc" = the "Adam ...
+# statistike" he meant, racuni_vlasnik.json potvrdi): never replaced by candidates, whatever X answers
+OWNER_CONFIRMED = frozenset({"honey_xbt", "adam_tehc"})
 CIRCLE_OF = ("InvestAnswers",)   # the owner: "+ people he regularly appears with" (mentions / quotes in his posts)
 HANDLE = re.compile(r"[A-Za-z0-9_]{1,15}")
 GUESS_CAT = (("vijesti", r"news|breaking|alert|journalist|reporter"), ("memecoin", r"meme|degen|pump|shitcoin"),
@@ -105,9 +108,10 @@ def owner_file(path=None):
         return {}
 
 
-def seed(con, now=None, path=None):
+def seed(con, now=None, path=None, log=None):
     """Insert the seed and the owner's file (once per handle; the owner's removals always win). Returns the number of
-    accounts added this time."""
+    accounts added this time. log: a line when the owner's confirmation of a name settles the candidate that was
+    measured in the meantime."""
     now = int(now or time.time())
     n = 0
     own = owner_file(path)
@@ -152,9 +156,23 @@ def seed(con, now=None, path=None):
                             "VALUES (?,?,?,?,?,?,?,?)", (h, name, "makro", "vlasnik", "novo", 1, now,
                                                          f"vlasnik potvrdio za „{name}”"))
                 n += 1
-        con.execute("UPDATE accounts SET status = 'uklonjen', why = 'vlasnik potvrdio drugog kandidata' WHERE source = "
-                    "'vlasnik_kandidat' AND lower(handle) <> lower(?) AND lower(handle) IN (SELECT lower(handle) FROM "
-                    "candidates WHERE for_name = ?)", (str(h).lstrip("@"), name))
+        # 16.11. (the owner, on the candidate measured until his answer): "may stay as a normal account if it passes the
+        # normal filters on its own, otherwise remove it"
+        for (kh,) in store.q(con, "SELECT handle FROM accounts WHERE source = 'vlasnik_kandidat' AND status <> 'uklonjen' "
+                                  "AND lower(handle) <> lower(?) AND lower(handle) IN (SELECT lower(handle) FROM "
+                                  "candidates WHERE for_name = ?)", (h, name)):
+            why = _on_its_own(con, kh, now)
+            if why is None:
+                con.execute("UPDATE accounts SET source = 'prosirenje', note = ? WHERE handle = ?",
+                            (f"bio kandidat za „{name}” (vlasnik potvrdio @{h}); ostaje kao običan račun jer sam prolazi "
+                             "uobičajene filtre", kh))
+            else:
+                con.execute("UPDATE accounts SET status = 'uklonjen', why = ? WHERE handle = ?",
+                            (f"vlasnik potvrdio drugog kandidata; sam ne prolazi uobičajene filtre: {why}"[:200], kh))
+            if log:
+                log(store.PREFIX + f"vlasnik potvrdio @{h} za „{name}”: dotadašnji kandidat @{kh} "
+                    + ("ostaje kao običan račun (sam prolazi uobičajene filtre)" if why is None else f"maknut ({why})")
+                    + "; ostali kandidati za to ime skinuti s čekanja")
         con.execute("UPDATE candidates SET status = CASE WHEN lower(handle) = lower(?) THEN 'potvrden' ELSE 'odbijen' "
                     "END WHERE for_name = ?", (str(h).lstrip("@"), name))
     for h in own.get("makni") or []:
@@ -162,6 +180,16 @@ def seed(con, now=None, path=None):
                     (str(h).lstrip("@"),))
     con.commit()
     return n
+
+
+def _on_its_own(con, h, now):
+    """None when the account passes the normal filters of the expansion on what is stored (discover.normal_verdict),
+    else the reason."""
+    try:
+        from makroinf import discover
+        return discover.normal_verdict(con, store.config(), h, now)
+    except Exception as e:  # noqa: BLE001 - no verdict: it does not stay
+        return f"provjera nije uspjela ({type(e).__name__})"
 
 
 def active(con, include_new=False):
@@ -213,8 +241,9 @@ def apply_profile(con, h, u, c, now, owner_seed=False):
     elif src == "vlasnik_kandidat" and fol is not None and fol < minf:
         st, why = "odbijen", f"ispod {minf // 1000}k pratitelja ({fol:,})"
     elif src != "vlasnik_kandidat" and fol is not None and fol < int(c["min_followers"]):
-        st, why = ("aktivan", "vlasnikov izbor, ispod 100k pratitelja") if owner_seed else \
-            ("odbijen", f"ispod {int(c['min_followers']) // 1000}k pratitelja ({fol:,})")
+        k = int(c["min_followers"]) // 1000   # the owner's own pick is measured whatever its followers
+        st, why = ("aktivan", f"vlasnikov izbor, ispod {k}k pratitelja") if owner_seed else \
+            ("odbijen", f"ispod {k}k pratitelja ({fol:,})")
     con.execute("UPDATE accounts SET name = COALESCE(?, name), user_id = ?, followers = ?, statuses = ?, "
                 "created_at = ?, resolved_ts = ?, protected = ?, status = CASE WHEN status IN ('novo', 'aktivan', "
                 "'odbijen', 'neaktivan') THEN ? ELSE status END, why = ? WHERE handle = ?",
@@ -306,7 +335,7 @@ def candidates(con):
 
 def circle(con, c, now=None, get=None, log=print, ph=None):
     """The owner's "+ people he regularly appears with" for CIRCLE_OF: the accounts these mention / quote most in
-    their stored posts (>= circle_min_mentions), 100k+ followers, at most circle_max; added as source krug:<who>
+    their stored posts (>= circle_min_mentions), min_followers+ followers, at most circle_max; added as source krug:<who>
     (the owner can remove them in racuni_vlasnik.json). Returns the handles added."""
     now = int(now or time.time())
     added = []
@@ -348,7 +377,8 @@ def circle(con, c, now=None, get=None, log=print, ph=None):
         store.kv(con, f"krug:{who}", json.dumps({"ts": now, "added": added}))
         con.commit()
         if added:
-            log(store.PREFIX + f"krug @{who}: dodano {', '.join('@' + a for a in added)} (najčešće spominjani, 100k+)")
+            log(store.PREFIX + f"krug @{who}: dodano {', '.join('@' + a for a in added)} (najčešće spominjani, "
+                               f"{int(c['min_followers']) // 1000}k+)")
     return added
 
 

@@ -139,6 +139,12 @@ def hour_line(con, now=None, c=None):
         exp = (f"; proširenje twitterapi {_usd(store.spent(con, 'twitterapi', 'prosirenje'))} / "
                f"{_usd(cap.get('twapi_usd') or c['expand_twapi_usd'])}, OpenAI "
                f"{_usd(store.spent(con, 'openai', 'prosirenje'))} / {_usd(cap.get('openai_usd') or c['expand_openai_usd'])}")
+    if store.kv(con, "prosirenje2"):   # 16.11.: the second wave (30k+, the ceiling 800) under its own caps
+        cap = store.kv_json(con, "prosirenje2", {}) or {}
+        exp += (f"; 2. val (30k+) twitterapi {_usd(store.spent(con, 'twitterapi', 'prosirenje2'))} / "
+                f"{_usd(cap.get('twapi_usd') or c['expand2_twapi_usd'])}, OpenAI "
+                f"{_usd(store.spent(con, 'openai', 'prosirenje2'))} / "
+                f"{_usd(cap.get('openai_usd') or c['expand2_openai_usd'])}")
     m = store.kv_json(con, "raspolozenje", {}) or {}
     b = (m.get("okviri") or {}).get("24h") or {}
     from makroinf import mood
@@ -333,13 +339,23 @@ def _order_html(path, esc):
         return ""
     est = sm.get("procjena") or {}
     sp = sm.get("trosak_po_fazi") or {}
+    v2 = sm.get("val2") or {}
+    n2, e2 = v2.get("nalog") or {}, v2.get("procjena") or {}
+    wave2 = ("<p class=mut>2. val po tvom nalogu (" + esc(n2.get("kada") or "") + f": „{esc(n2.get('citat') or '')}”): prag "
+             f"{(n2.get('prag_pratitelja') or 0) // 1000}k pratitelja, strop {n2.get('cilj', 0)} računa (sada "
+             f"{v2.get('racuna', 0)}); otkrivanje: {esc(v2.get('korak') or '—')}, ponovno razmotreno "
+             f"{v2.get('ponovno') or 0}, dodano {v2.get('dodano', 0)}; procjena twitterapi "
+             f"{_usd((e2.get('twapi') or {}).get('ukupno'))}, potrošeno {_usd((v2.get('potroseno') or {}).get('twapi'))} / "
+             f"{_usd((v2.get('stropovi') or {}).get('twapi'))}; OpenAI procjena {_usd((e2.get('openai') or {}).get('ukupno'))}, "
+             f"potrošeno {_usd((v2.get('potroseno') or {}).get('openai'))} / "
+             f"{_usd((v2.get('stropovi') or {}).get('openai'))}.</p>") if n2 else ""
     return ("<p class=mut>Proširenje po tvom nalogu (" + esc(n.get("kada") or "") + "): "
             + ("vrata provjere kvalitete nadjačana nalogom; " if n.get("provjera_nadjacana") else "")
             + f"otkrivanje: {esc(sm.get('korak') or '—')}, kandidata {sm.get('kandidata', 0)}, dodano "
             f"{sm.get('dodano', 0)}; procjena twitterapi {_usd((est.get('twapi') or {}).get('ukupno'))} / "
             f"{_usd((est.get('stropovi') or {}).get('twapi'))}, OpenAI {_usd((est.get('openai') or {}).get('ukupno'))} / "
             f"{_usd((est.get('stropovi') or {}).get('openai'))}. Stvarno po fazi: "
-            + esc(", ".join(f"{k} {_usd(v)}" for k, v in sp.items()) or "još ništa") + ".</p>")
+            + esc(", ".join(f"{k} {_usd(v)}" for k, v in sp.items()) or "još ništa") + ".</p>" + wave2)
 
 
 # ---------- MCP, critic, morning report ---------------------------------------------------------------------------------

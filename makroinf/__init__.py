@@ -5,7 +5,9 @@ integritet), brisanja kao "naknadno nedostupno", indeks konsenzusa najtočnijih 
 
 Pilot 50 računa prvo; proširenje na 300 tek kad provjera klasifikacije prođe (makroinf/quality.py) — 15.11. navečer
 vlasnik je izričitim nalogom naložio proširenje na 300-500 najredovitijih računa (discover.py: vrata nadjačana nalogom,
-zapisano), dnevno praćenje svih, biblioteku svih objava i tumačenje (raspoloženje, teme). Moduli:
+zapisano), dnevno praćenje svih, biblioteku svih objava i tumačenje (raspoloženje, teme). 16.11. vlasnik: "možeš
+pratiti influencere od 30k+ followera i dodaj ih na listu": prag 30k pratitelja, strop 800 računa, drugi val
+proširenja s vlastitim stropovima troška (discover.record_order2 / step2). Moduli:
   store     makroinf.db, konfiguracija, stropovi troška (twitterapi, OpenAI) po fazi
   racuni    sjeme računa, vlasnikova datoteka racuni_vlasnik.json, razrješenje handleova, kandidati za imena bez poznatog handlea
   fetch     mjesečne kvote napredne pretrage + zadnjih 100 objava, dnevno inkrementalno
