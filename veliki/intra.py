@@ -20,6 +20,8 @@ Exit (rule.on_price, the same as the 7-day rule): half at +tp (10 %) NET of the 
 break-even and a 5 % trailing from its peak; the stop under the zone's low (lo x 0.98), at most -12 % (stop_cap) and
 at least 3 % under the entry; the time stop 24 h.
 """
+import bisect
+
 from veliki import rule
 
 H, M15 = 3600, 900
@@ -112,24 +114,38 @@ def position(entry, ts, z, rt, cfg=None):
             "stop_px": stop_px(entry, z, c), "be_px": rule.be_price(entry, rt, c)}
 
 
-def simulate(b15, h1, rt, size_usd, cfg=None, crash=None):
+def simulate(b15, h1, rt, size_usd, cfg=None, crash=None, pit=None, zcache=None, ctx=None):
     """Offline replay on one token's 15m bars (and its 1h candles; None: rebuilt from the 15m): decide at each
     completed 15m bar's close, fill at the next bar's open; one position at a time, the cooldown and MAX_ROUNDS a UTC
-    day. [{ts, out_ts, entry, exit, reason, ret, pnl, half, ret_demo, rt, fx, hours, mae, mfe}] (walk.stats reads
-    them)."""
+    day. [{ts, out_ts, entry, exit, reason, ret, pnl, half, ret_demo, rt, fx, hours, mae, mfe, px0, z_lo, z_hi}]
+    (walk.stats reads them; px0 = the signal's close, z_lo / z_hi = the zone of the entry).
+    The hooks of veliki/replay.py (all off by default: today's behaviour): pit(t, px) False = no entry at that close
+    (the point-in-time universe); zcache {t: zone} shared between calls whose cfg differs only in keys the zone's
+    geometry does not read (bottom moves only its informational s_hi); cfg "reasoned" with ctx {"macro": fn(t) or
+    None} = the reasoned exits veliki/live.manage makes on the bars' closes (rule.reasoned_exit: BTC free fall, the
+    macro regime risk_off); the owner's exits are cfg keys (time_h None, be_at, full_tp; same_bar: rule.exit_on_bar)."""
     c = cfg_of(cfg)
     hh = rule.h1_from_15m(b15, h1)
+    hts = [x[0] for x in hh]
+    k = int(c["calm"])
     out, free_at, day_n = [], 0, {}
-    i = c["calm"] + 1
+    i = k + 1
     while i < len(b15) - 1:
         t = b15[i][0] + M15
         d = t // 86400
         if t < free_at or day_n.get(d, 0) >= MAX_ROUNDS:
             i += 1
             continue
-        z = zone(hh, t, c)
+        if pit is not None and not pit(t, b15[i][4]):
+            i += 1
+            continue
+        z = zcache.get(t) if zcache is not None else None
+        if z is None:   # only the candles the zone reads (the same set zone() would pick out of all of them)
+            z = zone(hh[bisect.bisect_left(hts, t - c["look_h"] * H):bisect.bisect_right(hts, t - H)], t, c)
+            if zcache is not None:
+                zcache[t] = z
         st = crash.regime(t)[0] if crash is not None else None
-        if signal(b15[i][4], z, b15[:i + 1], c, st) is not None:
+        if signal(b15[i][4], z, b15[i - k - 1:i + 1], c, st) is not None:   # calm() reads the last calm + 1 bars
             i += 1
             continue
         b = b15[i + 1]
@@ -143,6 +159,13 @@ def simulate(b15, h1, rt, size_usd, cfg=None, crash=None):
             lo, hi = min(lo, b15[j][3]), max(hi, b15[j][2])
             if hit:
                 break
+            if c.get("reasoned") and ctx is not None:
+                rs, tight = rule.reasoned_exit(pos, b15[j][4], rt, rule._bt_ctx(ctx, b15[j][0] + M15, crash, j, [e]), c)
+                if rs:
+                    hit = (rs, b15[j][4] * (1 - c["exit_slip"]))
+                    break
+                if tight:
+                    pos["stop_px"] = tight
             j += 1
         if not hit:
             j = len(b15) - 1
@@ -152,7 +175,7 @@ def simulate(b15, h1, rt, size_usd, cfg=None, crash=None):
         out.append({"ts": b[0], "out_ts": out_ts, "entry": e, "exit": hit[1], "reason": hit[0], "ret": r,
                     "pnl": r * size_usd, "half": bool(pos.get("half_px")), "ret_demo": r, "rt": rt,
                     "fx": hit[1] / e, "hours": round((out_ts - b[0]) / H, 2), "mae": round(lo / e - 1, 4),
-                    "mfe": round(hi / e - 1, 4)})
+                    "mfe": round(hi / e - 1, 4), "px0": b15[i][4], "z_lo": z["lo"], "z_hi": z["hi"]})
         free_at = out_ts + COOLDOWN_S
         i = j + 1
     return out

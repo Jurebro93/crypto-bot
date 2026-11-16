@@ -12,6 +12,9 @@ the MIDCAP strategy, read-only from the databases the loops already fill (no net
   rules       each rule's out-of-sample EV (veliki.db: the 7-day rule's walk-forward proof at the real size, the
               intraday rule's 15m replay at 0.1 SOL) and whether real money may buy it now (veliki/gate, the same
               decision veliki/live.enter makes: the 7-day rule only with a passing holdout)
+  replay      the intraday rule's historical test over every collector member (veliki/replay.py, midcap.db kv
+              "replay"): the verdict in one sentence, a small table (all days, the holdout, the picked variant), the
+              findings and the known biases
   wallet      trade/equity's newest snapshot (value, PnL 24 h), the real-money caps (veliki/gate.real_caps), the
               midcap real account's realized result today against its day-loss cap, the 1 SOL floor
               (trade/executor.equity_floor / equity_value)
@@ -379,6 +382,20 @@ def rules(now, p=None):
     return out
 
 
+def replay(now, p=None):
+    """The intraday rule replayed over every midcap collector member (veliki/replay.summary of midcap.db kv "replay":
+    {"presuda", "redovi", "nalazi", "napomene", "pristranosti", ...}); None before its first run."""
+    p = p or paths()
+    try:
+        from veliki import replay as vreplay
+        return vreplay.summary(vreplay.latest(p["midcap"]))
+    except Exception:  # noqa: BLE001 - the test is one part of the report
+        return None
+
+
+REPLAY_NAME = "Dnevni raspon: povijesni test na svim midcapovima"
+
+
 # ---------- the wallet, the caps, the 1 SOL floor ---------------------------------------------------------------------
 
 def wallet(now, p=None, trade_rows=None):
@@ -654,10 +671,11 @@ def _wnd(rows, t0):
     return {"n": len(cl), "pnl_usd": round(sum(r.get("pnl_usd") or 0 for r in cl), 2)}
 
 
-def strategies(now=None, p=None, rinfo=None, hd=None):
+def strategies(now=None, p=None, rinfo=None, hd=None, rp=None):
     """[row] of every midcap strategy measured so far: the veliki demo and the real account by rule (closed trades at
     the real cost), the Insajderi 2.0 demo, the listing signals (measurement, no money), the 7-day rule's holdout at
-    the real size, the intraday rule's replay and the walk-forward variants (holdout at the demo size)."""
+    the real size, the intraday rule's replay (the veliki list, and veliki/replay.py's over every collector member:
+    its holdout) and the walk-forward variants (holdout at the demo size)."""
     now = int(now or time.time())
     p = p or paths()
     out = []
@@ -708,6 +726,17 @@ def strategies(now=None, p=None, rinfo=None, hd=None):
     if ri.get("n") is not None:
         out.append(_row(f"Dnevni raspon: {ri['izvor']}", "backtest", ri["n"], ri.get("ev_pct"), ri.get("ci"),
                         ri.get("hit"), opis=f"≥ +10 %: {ri.get('deset') or 0}", ci_label="95 % po danu"))
+    rp = replay(now, p) if rp is None else rp
+    if rp:   # 16.11. (veliki/replay.py): the holdout row (the last 40 % of the days), else all days, else "premalo"
+        rows_ = rp.get("redovi") or []
+        ho = rows_[1] if len(rows_) > 1 else {}
+        x = ho if not ho.get("malo") else (rows_[0] if rows_ and not rows_[0].get("malo") else {})
+        what = ("izvan uzorka (zadnjih " + str(rp.get("dana_izvan")) + " d)" if x is ho and x else
+                "svi dani (izvan uzorka premalo tradeova)" if x else "premalo podataka (manje od 30 tradeova)")
+        out.append(_row(REPLAY_NAME, "backtest", x.get("n") or ho.get("n") or 0, x.get("ev_pct"), x.get("ci"),
+                        x.get("pogodak"), opis=f"{what}; {rp.get('tokena')} tokena, {rp.get('dana')} dana svijeća od "
+                        f"15 min, {str(rp.get('ulog_sol')).replace('.', ',')} SOL, trošak kruga "
+                        f"{str(rp.get('trosak_pct')).replace('.', ',')} %; nalaza {rp.get('nalaza') or 0}"))
     try:
         from veliki import walk
         size = f"{walk.DEMO_SIZE:g}"
@@ -739,7 +768,9 @@ def collect(now):
     for key, fn in (("trgovanje", lambda: trading(now, p)), ("pravila", lambda: rules(now, p)),
                     ("trziste", lambda: market(now, p)), ("insajderi2", lambda: insajderi2(now, p)),
                     ("holderi", lambda: holderi(now, p)), ("troskovi", lambda: costs(now, p)),
-                    ("strategije", lambda: strategies(now, p, out.get("pravila") or {}, out.get("holderi") or {})),
+                    ("replay", lambda: replay(now, p)),
+                    ("strategije", lambda: strategies(now, p, out.get("pravila") or {}, out.get("holderi") or {},
+                                                      out.get("replay") or {})),
                     ("mikrokap", lambda: mikrokap(now))):
         try:
             out[key] = fn()

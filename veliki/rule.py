@@ -582,9 +582,21 @@ def exit_on_bar(pos, b, cfg=None):
     rest's stop to break-even and arms a trailing stop trail under the highest high since (half 0: the old whole
     position trailing, never under the target's own level x (1 - trail))."""
     c = {**RULE, **(cfg or {})}
-    for px, kind in _path(b):
+    path = _path(b)
+    worst = c.get("same_bar") == "stop"
+    s0 = pos["stop_px"]
+    if worst and b[3] <= s0:
+        # veliki/replay.py's conservative reading (off by default): a bar whose low reaches the stop it started with is
+        # walked open-low-high-close, so a bar that touches both the stop and the target (or the break-even level) is
+        # a stop; only an open already at the target still sells there
+        path = ((b[1], "o"), (b[3], "l"), (b[2], "h"), (b[4], "c"))
+    for px, kind in path:
         hit = on_price(pos, px, kind, b[1], c)
         if hit:
+            if worst and hit[0] in ("be", "stop") and pos["stop_px"] > s0 and kind in ("l", "c"):
+                # the stop moved up INSIDE this bar (break-even armed at its high) and the price then fell through it:
+                # filled at that level, not at the bar's open under it (min(stop, open) is for a stop set before the bar)
+                hit = (hit[0], pos["stop_px"] * (1 - c["stop_slip"]))
             return hit
     if c.get("time_h") and b[0] + c["bar_s"] - pos["ts"] >= c["time_h"] * H:
         return ("trail" if pos.get("peak") else "time"), b[4] * (1 - c["exit_slip"])
