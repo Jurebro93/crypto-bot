@@ -76,7 +76,7 @@ RETARGET = (
 )
 KEPT = ("ui", "trade (pravi novac / probni swapovi)", "cpuguard", "uptime", "health", "diskreport", "retencija",
         "rug arhiva", "kalendar", "dugo", "simianx", "veliki (lista, backtest, demo)", "zonewatch", "kol krug (X pozivi)",
-        "tg", "novčanici dokazani / rang / copy (samo baze)", "tržište / BTC", "potrošnja", "web", "events tick",
+        "tg", "novčanici dokazani / rang / copy / kopija (samo baze)", "tržište / BTC", "potrošnja", "web", "events tick",
         "EV izvještaj", "dnevni trošak", "kritičar", "jutarnji izvještaj", "povrat pravila izlaza",
         "stranice tokena (midcap svemir + top 100)")
 # 15.11. (vlasnik: "dio resursa zadrži za ovo, veći dio ide na midcapove"): jobs that run on microcap data WHILE the
@@ -90,6 +90,12 @@ EXCEPTIONS = (
     (("run_makroinf", None), "makroinf",
      "Makro influenceri: pilot 50 računa (twitterapi 5 $ i OpenAI 4 $ jednokratno, zatim 0,50 $ / 0,25 $ dnevno), "
      "makro izjave BTC/ETH/SOL/altovi/memeovi, indeks najtočnijih samo kao DEMO ulaz midcapova; nice, noću ocjene"),
+    # 16.11. (vlasnik: "kako ovdje postoji profitabilni wallet, a mi nemamo profitabilnu strategiju"; wallets/kopija.py,
+    # wallets/kopija_demo.py): the copier's walk-forward reads only the stored databases; the demo copies read the
+    # webhook the proven wallets are already on (no new paid volume) and trade the demo account only
+    (("run_wallets", "kopija"), "kopija",
+     "Kopija dokazanih novčanika: povijesni test kopiranja (samo baze, noću) i demo kopije njihovih kupnji i ispod 5M "
+     "(samo demo račun: 0,1 SOL, 10 otvorenih, 30 dnevno; bez novog plaćenog prometa)"),
 )
 _OFF_KEYS = {key for _m, key, _w in OFF}
 # what each OFF / RETARGET job cost, from its own caps in the code and start.sh (Pretpostavka: the caps, not a measured

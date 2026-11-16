@@ -445,6 +445,11 @@ def ingest(payload, hype_db=None, _spool=True, timeout=None):
     goes to the spool and the count comes back, so the dashboard answers 200 and the event is written later."""
     rows = parse(payload)
     transfers = parse_transfers(payload)
+    try:   # 16.11. (wallets/kopija_demo.py): each swap's SOL per token, in memory, for the demo copy's "his price"
+        from wallets import kopija_demo as _kd
+        _kd.note_fills(payload, rows)
+    except Exception:  # noqa: BLE001 - never the webhook's problem
+        pass
     if not rows and not transfers:
         ensure_tables(hype_db)   # 9.11. (review izvori): a fresh install gets the tables before the first real swap
         return 0

@@ -23,6 +23,9 @@ the MIDCAP strategy, read-only from the databases the loops already fill (no net
   research    Insajderi 2.0 (insajderi.db summary, league.db insajderi2_trades), the holders / listing signals
               (holderi.db signals and their 1 h / 24 h / 7 d measurement against the control)
   costs       usage.db daily_cost: yesterday's (UTC) row per source (usage/daily.py saves it at 23:59 UTC)
+  kopija      the copier's walk-forward of the proven wallets (wallets/kopija.py, wallets.db copy_rank_kv "kopija"):
+              the verdict, a small table, the gap between the wallet's own return and ours, what is stale under the
+              midcap focus; and the demo copies (league.db kopija_trades, wallets/kopija_demo.py)
   strategies  one row per midcap strategy for /strategije and the report: demo / real / measurement / backtest with
               n, EV, CI, hit rate, 24 h and 7 d
 Every part degrades on its own to None / {} / [] (a fresh deploy still gets a report). Database paths: the modules'
@@ -61,7 +64,8 @@ def paths():
                           ("midcap", "midcap.db", lambda: __import__("veliki.midcap", fromlist=["x"]).db_path()),
                           ("holderi", "holderi.db", lambda: __import__("holderi.store", fromlist=["x"]).db_path()),
                           ("insajderi", "insajderi.db", lambda: __import__("insajderi.store", fromlist=["x"]).db_path()),
-                          ("usage", "usage.db", lambda: __import__("usage.meter", fromlist=["DB"]).DB)):
+                          ("usage", "usage.db", lambda: __import__("usage.meter", fromlist=["DB"]).DB),
+                          ("wallets", "wallets.db", lambda: __import__("wallets.store", fromlist=["DB"]).DB)):
         try:
             default = fn()
         except Exception:  # noqa: BLE001 - a module that does not import: its file next to the code
@@ -568,6 +572,28 @@ def demo_insajderi(now, p=None):
             "d7": {"n": len(w(now - 7 * DAY)), "pnl_usd": round(sum(x[0] or 0 for x in w(now - 7 * DAY)), 2)}}
 
 
+def kopija(now, p=None):
+    """16.11. (vlasnik: "kako ovdje postoji profitabilni wallet, a mi nemamo profitabilnu strategiju"): what WE would
+    have earned copying the proven wallets (wallets/kopija.summary of wallets.db copy_rank_kv "kopija": the verdict, the
+    small table, the decomposition, what is stale) and the demo copies so far (wallets/kopija_demo.stats, league.db
+    kopija_trades); None before the first run and without a demo copy table."""
+    p = p or paths()
+    try:
+        from wallets import kopija as wk
+        out = wk.summary(wk.latest(p.get("wallets")), now)
+    except Exception:  # noqa: BLE001
+        out = None
+    try:
+        from wallets import kopija_demo
+        demo = kopija_demo.stats(now=now, path=p["league"])
+    except Exception:  # noqa: BLE001
+        demo = None
+    if out is None and demo is None:
+        return None
+    return {**(out or {}), "demo": demo}
+
+
+KOPIJA_NAME = "Kopija dokazanih novčanika"
 KIND_HR = {"pre_listing": "prije listinga", "deposit_sell": "depozit na burzu (prodaja)"}
 
 
@@ -671,7 +697,7 @@ def _wnd(rows, t0):
     return {"n": len(cl), "pnl_usd": round(sum(r.get("pnl_usd") or 0 for r in cl), 2)}
 
 
-def strategies(now=None, p=None, rinfo=None, hd=None, rp=None):
+def strategies(now=None, p=None, rinfo=None, hd=None, rp=None, kp=None):
     """[row] of every midcap strategy measured so far: the veliki demo and the real account by rule (closed trades at
     the real cost), the Insajderi 2.0 demo, the listing signals (measurement, no money), the 7-day rule's holdout at
     the real size, the intraday rule's replay (the veliki list, and veliki/replay.py's over every collector member:
@@ -706,6 +732,22 @@ def strategies(now=None, p=None, rinfo=None, hd=None, rp=None):
     if di is not None:
         out.append(_row("Insajderi 2.0 (kopija grupa)", "demo", di["n"], di["ev_pct"], di["ci"], di["pogodak"],
                         di["d24"], di["d7"], f"otvoreno {di['otvoreno']}; pravi novac nikad iz ovog alata"))
+    kp = kopija(now, p) if kp is None else kp
+    kd = (kp or {}).get("demo")
+    if kd is not None:   # 16.11. (wallets/kopija_demo.py): the prospective copies of the proven wallets, demo only
+        late = (f"; kašnjenje tipično {kd['kasnjenje_med_s']:.0f} s" if kd.get("kasnjenje_med_s") is not None else "")
+        out.append(_row(f"{KOPIJA_NAME} (i ispod 5M)", "demo", kd["n"], kd["ev_pct"], kd["ci"], kd["pogodak"], kd["d24"],
+                        kd["d7"], f"otvoreno {kd['otvoreno']}{late}; pravi novac nikad iz ovog alata"))
+    if kp and kp.get("redovi"):   # the copier's walk-forward (wallets/kopija.py): the pre-declared primary rule
+        x = kp["redovi"][0]
+        if x.get("malo"):
+            out.append(_row(f"{KOPIJA_NAME}: povijesni test", "backtest", x.get("n") or 0, None, None, None,
+                            opis="premalo podataka (manje od 30 kopija s poznatom cijenom)"))
+        else:
+            out.append(_row(f"{KOPIJA_NAME}: povijesni test", "backtest", x["n"], x.get("ev_pct"), x.get("ci"),
+                            x.get("pogodak"), opis=f"izvan uzorka (zadnjih {kp.get('dana_izvan')} d): ulaz 60 s nakon "
+                            f"novčanika, njegov izlaz ili stop −20 %, {str(kp.get('ulog_sol')).replace('.', ',')} SOL, nakon "
+                            f"troška; nekopirano {(x.get('nekopirano') or 0):.0%} njegovih kupnji"))
     hd = holderi(now, p) if hd is None else hd
     for k, x in ((hd or {}).get("mjerenje") or {}).items():
         out.append(_row(f"Signal holdera: {KIND_HR[k]}", "mjerenje", x["n"], x["ev_pct"], x["ci"], x["pogodak"],
@@ -769,8 +811,9 @@ def collect(now):
                     ("trziste", lambda: market(now, p)), ("insajderi2", lambda: insajderi2(now, p)),
                     ("holderi", lambda: holderi(now, p)), ("troskovi", lambda: costs(now, p)),
                     ("replay", lambda: replay(now, p)),
+                    ("kopija", lambda: kopija(now, p)),
                     ("strategije", lambda: strategies(now, p, out.get("pravila") or {}, out.get("holderi") or {},
-                                                      out.get("replay") or {})),
+                                                      out.get("replay") or {}, out.get("kopija") or {})),
                     ("mikrokap", lambda: mikrokap(now))):
         try:
             out[key] = fn()

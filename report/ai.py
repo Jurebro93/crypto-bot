@@ -69,6 +69,10 @@ def compact(data):
     t = (d.get("midcap") or {}).get("trgovanje") or {}
     if t.get("otvoreno"):
         t["otvoreno"] = t["otvoreno"][:15]
+    k = (d.get("midcap") or {}).get("kopija")
+    if k:   # 16.11. (wallets/kopija.py): the verdict, the small table, the gap and the demo; not the 36-row grid, the
+        for key in ("mreza", "skupine", "napomene", "pristranosti"):   # notes and the biases (the prompt stays small)
+            k.pop(key, None)
     if d.get("fokus"):
         for k in MIKRO_KEYS:
             d.pop(k, None)

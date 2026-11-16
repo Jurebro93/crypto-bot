@@ -290,6 +290,59 @@ def replay_block(rp):
     return body
 
 
+def kopija_block(k):
+    """16.11. (wallets/kopija.py): what WE would have earned copying the proven wallets: the verdict in one sentence, a
+    small table, the gap between the wallet's own return and ours, the demo copies, what is stale. "" before its first
+    run."""
+    if not k or not (k.get("presuda") or k.get("demo")):
+        return ""
+
+    def trow(r):
+        if r.get("malo"):
+            return [e(r["naziv"]), str(r.get("n") or 0), small("premalo podataka"), "–", "–", "–"]
+        return [e(r["naziv"]), str(r["n"]), colored(r.get("ev_pct"), pp(r.get("ev_pct"), 2)), ci_txt(r.get("ci")),
+                pct(r.get("pogodak")), colored(r.get("zbroj_sol"), sol(r.get("zbroj_sol"), 2))]
+    body = sub("Kopiranje dokazanih novčanika: koliko bismo zaradili mi")
+    if k.get("presuda"):
+        body += para(k["presuda"])
+        if k.get("redovi"):
+            body += ctable(["", "Kopija", "Prosjek po tradeu", "90 % interval", "Pogodak", "Zbroj"],
+                           [trow(r) for r in k["redovi"]])
+            body += small(f"Novčanici su odabrani na starijem dijelu podataka, a mjereno je samo na zadnjih "
+                          f"{k.get('dana_izvan')} dana koje odabir nije vidio. Ulog {hr(k.get('ulog_sol'))} SOL, sve nakon "
+                          "kašnjenja i troška kupnje i prodaje.")
+        if k.get("razlika"):
+            body += sub("Zašto je novčanik u plusu, a kopija nije ista") + bullets(k["razlika"])
+        if k.get("skupine"):
+            body += sub("Po veličini tokena, likvidnosti i načinu trgovanja novčanika (glavno pravilo)")
+            body += ctable(["", "Kopija", "Prosjek po tradeu", "90 % interval", "Pogodak", "Zbroj"],
+                           [trow(r) for r in k["skupine"]])
+    d = k.get("demo")
+    if d:
+        items = [f"Demo kopije (od 16.11., i ispod 5M $): zatvoreno {d['n']}, otvoreno {d['otvoreno']}"
+                 + (f", prosjek po kopiji {pp(d['ev_pct'], 2)} nakon troška" if d.get("ev_pct") is not None else "")
+                 + (f" (interval 90 %: {ci_txt(d['ci'])})" if d.get("ci") else "") + "."]
+        if d.get("kasnjenje_med_s") is not None:
+            items.append(f"Naš ulaz tipično {d['kasnjenje_med_s']:.0f} s nakon njegove kupnje"
+                         + (f"; naša cijena tipično {pp(d['ulaz_med_pct'], 1)} prema njegovoj (poznato za "
+                            f"{d['ulaz_n']} kopija)" if d.get("ulaz_n") else "; njegova cijena još nije poznata ni za "
+                            "jednu kopiju") + ".")
+        if d.get("usporedba_n"):
+            items.append(f"Na {d['usporedba_n']} zatvorenih kopija s poznatim njegovim cijenama: on {pp(d['njegov_pct'], 1)}, "
+                         f"mi {pp(d['nas_pct'], 1)}.")
+        if d.get("zastavica") != "paper":
+            items.append("Zastavica kopija_dokazani nije u paper modu: demo ne otvara nove kopije.")
+        body += sub("Demo kopije (mjerenje unaprijed)") + bullets(items)
+        body += small(f"Samo demo račun: {hr(d.get('ulog_sol'))} SOL po kopiji, najviše {d.get('max_otvorenih')} otvorenih i "
+                      f"{d.get('dnevno')} dnevno, jedna pozicija po tokenu, izlaz: {e(k.get('demo_izlaz') or 'njegov izlaz ili stop −20 %')}. "
+                      "Pravi novac i njegova pravila nisu dirani.")
+    if k.get("svjezina"):
+        body += sub("Što je zastarjelo i što bi koštalo osvježavanje") + bullets(k["svjezina"])
+    if k.get("napomene") or k.get("pristranosti"):
+        body += sub("Kako čitati i gdje test griješi") + bullets((k.get("napomene") or []) + (k.get("pristranosti") or []))
+    return body
+
+
 def wallet_items(w):
     out = []
     if w.get("value_sol") is not None:
@@ -522,6 +575,7 @@ def midcap_sections(data, ai):
             "oznaka, ne uvjet.")
     body += sub("Pravila: dokaz izvan uzorka i pravi novac") + bullets(rules_items(m.get("pravila")))
     body += replay_block(m.get("replay"))
+    body += kopija_block(m.get("kopija"))
     body += sub("Novčanik i stropovi") + bullets(wallet_items(m.get("novcanik") or {}))
     out.append(section("Midcap trgovanje", body, ("/strategije", "Usporedba midcap strategija")))
     body = para(ai.get("trziste")) + bullets(market_items(m.get("trziste"), data.get("makroinf")))

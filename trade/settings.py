@@ -443,6 +443,22 @@ FLAG_DEFAULTS[INSAJDERI_KOL] = "shadow"
 NEVER_LIVE[INSAJDERI_KOL] = "insajderi_kol samo mjeri (nijedan račun ne kupuje); nikad ne trguje pravim novcem"
 PROFILE_FLAGS = PROFILE_FLAGS | {INSAJDERI_KOL}   # its paper mode never makes the paper account follow anybody
 
+# 16.11. (vlasnik: "Objasni mi kako ovdje postoji profitabilni wallet, a mi nemamo profitabilnu strategiju ... Nađi mi
+# profitabilnu strategiju"; wallets/kopija.py, wallets/kopija_demo.py): FLAG "kopija_dokazani": paper = the DEMO account
+# PAPER_USER copies every fresh buy of a wallet that is "dokazan dvaput" and "kopirljiv" (0.1 SOL, 10 open, 30 a day,
+# one position a token; exit when he sells, else stop -20 %), also under 5M MC (a demo-only exception to trade/capgate:
+# the module never asks it and never trades another account), and stores his price, ours and the delay. Never live
+# (NEVER_LIVE), no owner switch: real money stays exactly where it is. Default paper (FLAG_DEFAULTS): it reads the
+# webhook the proven wallets are already on, so it adds no paid volume.
+KOPIJA = "kopija_dokazani"
+FLAGS[KOPIJA] = ("P25", "Kopija dokazanih novčanika (demo): demo račun kopira svaku svježu kupnju novčanika koji je "
+                        "dokazan dvaput i kopirljiv (0,1 SOL, najviše 10 otvorenih, 30 dnevno, jedna pozicija po tokenu; "
+                        "izlaz kad on proda ili stop −20 %), i ispod 5M $ (iznimka samo za demo), i bilježi njegovu cijenu, "
+                        "našu i kašnjenje; mjeri koliko bismo zaradili kopirajući ih")
+NEVER_LIVE[KOPIJA] = "kopija_dokazani nikad ne trguje pravim novcem (samo demo račun); to je mjerenje kopiranja"
+PROFILE_FLAGS = PROFILE_FLAGS | {KOPIJA}   # its paper mode never makes the paper account follow anybody
+FLAG_DEFAULTS[KOPIJA] = "paper"
+
 
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""

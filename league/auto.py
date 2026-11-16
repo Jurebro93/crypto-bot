@@ -589,6 +589,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"insajderi2 ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 16.11. (flag kopija_dokazani, wallets/kopija_demo.py): the proven-twice copyable wallets' buys ->
+                from wallets import kopija_demo   # demo copies with his price, ours and the delay; NEVER_LIVE (the demo
+                for user, what in kopija_demo.run_once(con):   # account only); not behind fokus_midcap (a measurement)
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"kopija dokazanih: {type(e).__name__}: {e}", file=sys.stderr)
             try:
                 for user, name, what in run_once(con, market):
                     print(f"natjecanje {user} {name}: {what}", flush=True)

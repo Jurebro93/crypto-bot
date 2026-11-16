@@ -277,8 +277,11 @@ def _wallet_hero(ws, marks, now=None):
                f"{_pl(n, 'zatvorenoj', 'zatvorene', 'zatvorenih')}, {rd.pct(s.get('win_rate'), sign=False, frac=True)} u plusu"
                + (", prije i poslije reza" if proven else "") + f". Drži oko {_hold(s.get('median_hold_min'))}.")
     c = r.get("copy")
-    if c and c[0]:   # the only real test of copying him: what the demo's copies earned (strat.db)
-        why += f" Naše demo kopije: {rd.num(c[0])}, {rd.pct(c[1], sign=True, frac=True)} po tradeu."
+    if c and c[0]:   # what the demo's copies of him earned (strat.db, the old "Top novčanici" account, frozen 9.11.)
+        # 16.11. (owner: "kako ovdje postoji profitabilni wallet, a mi nemamo profitabilnu strategiju"): 2 copies at
+        # +35 % read like a proof; under 10 it is said to be too few. The real answer is wallets/kopija.py (/strategije).
+        why += (f" Naše demo kopije: {rd.num(c[0])}, {rd.pct(c[1], sign=True, frac=True)} po tradeu"
+                + (" (premalo za zaključak)" if c[0] < 10 else "") + ".")
     foot = None
     lb = _last_buy(addr, now)
     if lb:
