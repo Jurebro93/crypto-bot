@@ -35,6 +35,7 @@ GONE = score.GONE
 LEAN = 0.25            # |index| from which the consensus reads bullish / bearish (the smallest locked threshold)
 STAMP_S = 20           # the UI process looks at makroinf.db at most this often
 APP = "/kol-makro"     # in-app routes: /kol-makro/lista (the tab), /kol-makro/<handle> (one account)
+TAB_PAGE = 100         # accounts in one view of the app list (16.11.: up to 800 accounts): the rest is /kol-makro?str=N
 
 CAT_HR = {"ta": "Trader / TA", "makro": "Makro / on-chain", "edukacija": "YouTube / edukacija",
           "memecoin": "Memecoin KOL", "vijesti": "Vijesti / agregator"}
@@ -174,8 +175,8 @@ def stamp(force=False):
 
 
 def _is_ours(path):
-    return bool(re.fullmatch(r"/macro-influencers|/hr/makro-influenceri|/macro-influencer/.*|/hr/makro-influencer/.*",
-                             path or ""))
+    return bool(re.fullmatch(r"/macro-influencers(/\d+)?|/hr/makro-influenceri(/\d+)?|/macro-influencer/.*|"
+                             r"/hr/makro-influencer/.*", path or ""))
 
 
 def drop(everything=False):
@@ -326,6 +327,9 @@ background:var(--soft);color:var(--fg);border:1px solid var(--line);white-space:
 .mi-r .chev{width:8px;height:8px;border-right:2px solid var(--line2);border-top:2px solid var(--line2);transform:rotate(45deg)}
 .mi-r.few .t b{font-weight:500}.mi-r.few .e b{font-weight:400;color:var(--mut)}
 .mi-foot{font-size:13px;color:var(--mut);margin:14px 0 0;line-height:1.5}.mi-foot a{color:var(--acc);text-decoration:none}
+.mi-pg{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin:14px 0 0;font-size:14px;
+color:var(--mut)}.mi-pg a{border:1px solid var(--line);border-radius:999px;padding:8px 14px;color:var(--fg);
+text-decoration:none;font-weight:600;background:var(--card)}
 .mi-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:16px 0 0}
 @media(max-width:640px){.mi-3{grid-template-columns:1fr}}
 .mi-c{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
@@ -405,12 +409,29 @@ def _how(public_link):
             f"izmjerenih epizoda nema ranga.{link}</p></div>")
 
 
-def tab_html(now=None):
-    """The "Makro" tab of /kol (Croatian; the app's English layer translates it), cached until the next scoring."""
-    return _cached(("tab",), lambda: _tab_html(now))
+def tab_html(now=None, page=1):
+    """The "Makro" tab of /kol (Croatian; the app's English layer translates it), cached until the next scoring.
+    page: which TAB_PAGE accounts of the list (the tab itself is page 1; the next ones are /kol-makro?str=N)."""
+    try:
+        page = min(999, max(1, int(page or 1)))
+    except (TypeError, ValueError):
+        page = 1
+    return _cached(("tab", page), lambda: _tab_html(now, page))
 
 
-def _tab_html(now=None):
+def _pager(page, pages, total, lo, hi):
+    """"Show more" of the app list: the next / previous TAB_PAGE accounts as their own view."""
+    if pages <= 1:
+        return ""
+    href = lambda p: APP + (f"?str={p}" if p > 1 else "")  # noqa: E731
+    prev = f"<a href='{href(page - 1)}'>← Prethodnih {TAB_PAGE}</a>" if page > 1 else "<span></span>"
+    nxt = (f"<a href='{href(page + 1)}'>Sljedećih {min(TAB_PAGE, total - hi)} →</a>" if page < pages else
+           "<span></span>")
+    return (f"<nav class=mi-pg aria-label='Još računa'>{prev}<span>Računi {lo + 1}–{min(hi, total)} od {total} · "
+            f"stranica {page} od {pages}</span>{nxt}</nav>")
+
+
+def _tab_html(now=None, page=1):
     from makroinf import appviews
     from ui import redak as R
     v = view(fresh=True, now=now)
@@ -419,17 +440,27 @@ def _tab_html(now=None):
         return (f"<style>{CSS}{appviews.CSS}</style>" + appviews.subnav("/kol#makro")
                 + str(R.hero("Još nema ocjena", "Makro influencere tek mjerimo: objave se razvrstavaju, a prve ocjene "
                              "stižu nakon prvog izračuna.", label="Makro influenceri")) + _how(pub))
-    out = [f"<style>{CSS}</style>", appviews.overview_html(), str(R.section("Konsenzus i rang", sid="makro-konsenzus")),
-           str(_index_hero(v, now)), _how(pub)]
-    out.append(str(R.section(f"Najtočniji · {len(v['ranked'])}", sid="makro-rang")))
-    if v["ranked"]:
-        out.append("<div class=mi-list>" + "".join(_row(r, i) for i, r in enumerate(v["ranked"], 1)) + "</div>")
-    else:
+    total = len(v["ranked"]) + len(v["few"])
+    pages = max(1, -(-total // TAB_PAGE))
+    page = min(page, pages)
+    lo, hi = (page - 1) * TAB_PAGE, page * TAB_PAGE
+    ranked = list(enumerate(v["ranked"], 1))[lo:hi]
+    few = v["few"][max(0, lo - len(v["ranked"])):max(0, hi - len(v["ranked"]))]
+    out = [f"<style>{CSS}</style>"]
+    if page == 1:
+        out += [appviews.overview_html(), str(R.section("Konsenzus i rang", sid="makro-konsenzus")),
+                str(_index_hero(v, now)), _how(pub)]
+    if ranked or page == 1:
+        out.append(str(R.section(f"Najtočniji · {len(v['ranked'])}", sid="makro-rang")))
+    if ranked:
+        out.append("<div class=mi-list>" + "".join(_row(r, i) for i, r in ranked) + "</div>")
+    elif page == 1:
         out.append(str(R.hint(f"Još nijedan račun nema {MIN_EP} izmjerenih epizoda; poredak se pojavi čim ih skupe.")))
-    if v["few"]:
+    if few:
         out.append(str(R.section(f"Skupljaju dokaze · {len(v['few'])}", sid="makro-malo")))
         out.append(str(R.hint(f"Manje od {MIN_EP} izmjerenih epizoda: bez ranga i bez presude, samo ono što su rekli.")))
-        out.append("<div class='mi-list mi-few'>" + "".join(_row(r) for r in v["few"]) + "</div>")
+        out.append("<div class='mi-list mi-few'>" + "".join(_row(r) for r in few) + "</div>")
+    out.append(_pager(page, pages, total, lo, hi))
     foot = (f"Ocjene od {zg(v.get('ts'), '%d.%m.%Y. %H:%M')} · {v['n']} računa · "
             f"{v['episodes']} epizoda, izmjereno {v['measured']}. Stav o BTC-u je svjež (javne stranice ga pokazuju s "
             "odgodom od 7 dana).")
@@ -544,10 +575,11 @@ def library(qs, now=None):
     return _cached(key, lambda: appviews.library_page(qs, now))
 
 
-def list_page(now=None):
-    """(title, body) of /kol-makro: the tab's list as its own page (search, a direct link, no JS)."""
+def list_page(now=None, qs=None):
+    """(title, body) of /kol-makro: the tab's list as its own page (search, a direct link, no JS); ?str=N: the N-th
+    TAB_PAGE accounts of the list."""
     from ui import kol, redak as R
     body = kol._calm(f'<div class="ms-page kl"><style>{kol.KL_CSS}</style>{kol._back("/kol#makro", "Influenceri")}'
                      f'{R.top("Makro influenceri", "Izjave o BTC-u i tržištu, izmjerene pravilima zadanima unaprijed")}'
-                     f'{tab_html(now)}</div>')
+                     f'{tab_html(now, (qs or {}).get("str"))}</div>')
     return "Makro influenceri", body

@@ -327,7 +327,7 @@ class EmptySections(Env):
         html = apterm.lazy("ostalo", "Jure")
         self.assertNotIn("class=apx-dim", html)
         self.assertNotIn("Bez sadržaja", html)
-        for k in (">Pravila<", ">Uredi praćenja<", ">Grok (MCP)<", "Tko vidi stranicu", "Kako je zaštićeno"):
+        for k in (">Limiti<", ">Izlazi<", ">Koga bot kopira<", ">Grok (MCP)<", "Tko vidi stranicu", "Kako je zaštićeno"):
             self.assertIn(k, html, k)
         self.assertNotIn(">Koga prati<", html)                              # one list ("Koga pratimo"), not two
         self.assertNotIn("id=ev-znacajke", html)                           # no report: the section is left out
@@ -674,9 +674,10 @@ class BrandAndTooltip(Env):
         self.assertIn("TradingView Lightweight Charts™</a> · Copyright (c) 2025 TradingView, Inc.", body)   # attribution
         # PnL by day lives in the "Portfelj" card (one place, not also in "Povijest")
         port = body[body.index("id=apx-port"):body.index("id=kupiti")]   # 14.11.: under Pozicije
-        for k in ("data-pm=live class=on", "data-pm=paper", "data-pv=val class=on", "data-pv=days", "data-pu=sol class=on",
+        for k in ("data-pv=val class=on", "data-pv=days", "data-pu=sol class=on",
                   "data-pu=usd", "data-pd=7", "data-pd=30 class=on", "data-pd=90", "id=apx-pchart tabindex=0"):
             self.assertIn(k, port)
+        self.assertNotIn("data-pm=", body)                     # 16.11.: no Uživo / Paper switch on the live page
         self.assertNotIn("data-pm=", body[body.index("id=povijest"):body.index("id=dnevnik")])
         self.assertIn("<div id=apx-hist data-x-src=/pravi-trade/l/povijest>", body)
         js = apterm.static_asset("ap.js")[0].decode("utf-8")

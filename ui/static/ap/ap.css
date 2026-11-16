@@ -211,6 +211,22 @@ a.apx-state:hover{border-color:var(--line2)}
 .apx-pchart>.apx-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
  padding:12px}
 .apx-pnote{font-size:12px;color:var(--mut);margin:6px 0 4px}.apx-pnote:empty{display:none}
+/* 16.11.: "Brojevi se slažu" (a green dot, no tick) under the Portfelj numbers; a tap opens "Kako se zbraja" (ui/apterm.uskl_inner) */
+.apx-uskl{margin:0 0 12px}.apx-uskl:empty{display:none}
+.apx-uskd{border:1px solid var(--line);border-radius:12px;background:var(--soft)}
+.apx-uskd>summary{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;min-height:44px;padding:4px 12px;cursor:pointer;
+ list-style:none;font-size:13.5px}.apx-uskd>summary::-webkit-details-marker{display:none}
+.apx-uskd>summary b{font-weight:650}.apx-uskd.ok>summary b{color:var(--good,#15803d)}.apx-uskd.warn>summary b{color:var(--fg)}
+.apx-uskd>summary b::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;
+ background:var(--good,#16a34a);vertical-align:1px}.apx-uskd.warn>summary b::before{background:var(--warn,#d97706)}
+.apx-uskd>summary .apx-lnkb{margin-left:auto;min-height:0;padding:0}
+.apx-uski{padding:2px 12px 10px;font-size:13px;line-height:1.5}.apx-uski p{margin:6px 0}.apx-uski ul{margin:6px 0;padding-left:18px;color:var(--mut)}
+.apx-uskt{width:100%;border-collapse:collapse;margin:6px 0;font-size:13px;table-layout:auto}
+.apx .apx-uskt td{padding:5px 0;border-top:1px solid var(--line);white-space:normal;vertical-align:top}
+.apx .apx-uskt td:first-child{width:16px;color:var(--mut)}.apx .apx-uskt td.n{padding-left:10px}.apx-uskt td.n{text-align:right;white-space:nowrap;font-family:var(--ap-mono);
+ font-variant-numeric:tabular-nums}.apx-uskt tr.tot td{font-weight:700;border-top:2px solid var(--fg)}
+.apx-rent{font-size:12.5px;color:var(--mut);margin:8px 2px 0}
+.apx-demolink{margin:8px 0 0;font-size:13.5px}.apx-demolink a{color:var(--acc);font-weight:600;text-decoration:none;display:inline-block;padding:10px 0}
 /* order panel */
 .apx-side{padding:14px 16px}
 .apx-sheet-h{display:flex;align-items:center;justify-content:space-between;margin:0 0 10px}
@@ -525,6 +541,43 @@ a.apx-mkchip{font-weight:600;color:var(--acc)}
 .apx-cd[open]>summary::after{transform:rotate(-90deg)}
 .apx-cd>summary .apx-cdsum{order:3;flex:1 1 100%;font-size:13px}
 .apx-cd-in{margin-top:10px}
+/* 16.11. (owner: "15 kartica ... kao da na kineskom piše"): the plain Prekidači (ui/apjed.py): five rows at most, each a
+ name, one sentence and its state; the big switch of the real money, the red stop, "Napredno" as a searchable list */
+.apx-jed{padding-top:2px}.apx-sws[open]>summary .apx-swsum{display:none}
+.apx-jr{padding:14px 0;border-bottom:1px solid var(--line)}
+.apx-jh{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
+.apx-jh form,.apx-jf{margin:0;flex:none}
+.apx-jt{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;min-width:0}.apx-jt>b{font-size:17px;font-weight:700}
+.apx-jd{display:block;font-size:13.5px;color:var(--mut);line-height:1.4;margin:2px 0 0}
+.apx p.apx-jd{margin:2px 0 6px}
+.apx p.apx-js{font-size:13.5px;line-height:1.45;margin:4px 0 0}.apx p.apx-js.warn{color:var(--ap-warn-t);font-weight:600}
+.apx-jst{flex:none;font-size:12.5px;font-weight:650;border-radius:999px;padding:3px 10px;color:var(--mut);background:var(--soft);
+ box-shadow:inset 0 0 0 1px var(--line);white-space:nowrap}
+.apx-jst.on{color:var(--good,#15803d);background:color-mix(in srgb,var(--good,#16a34a) 12%,transparent);box-shadow:none}
+.apx-jst.bad{color:#fff;background:var(--bad,#dc2626);box-shadow:none}
+.ap button.ap-sw.apx-jbig{width:64px;height:38px}.ap button.ap-sw.apx-jbig::after{width:34px;height:34px}
+.apx-jg{padding:12px 0 2px;border-bottom:1px solid var(--line)}
+.apx h3.apx-jh3{font-size:13px;font-weight:650;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:0 0 2px}
+.apx-jr2{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;min-height:48px;
+ border-top:1px solid var(--line)}.apx-jg .apx-jr2:first-of-type,.apx .in>p+.apx-jr2{border-top:0}
+.apx-jr2>div{min-width:0}.apx-jr2>div>b{font-size:15px;font-weight:600;display:block}
+.ap button.apx-jstop{background:var(--bad,#dc2626);border-color:var(--bad,#dc2626);color:#fff;font-weight:700;min-height:44px;
+ padding:0 18px;border-radius:12px}.ap button.apx-jstop:hover{background:#b91c1c}
+.ap button.apx-jgo{background:var(--fg);border-color:var(--fg);color:var(--card,#fff);font-weight:700;min-height:44px;padding:0 18px;
+ border-radius:12px}
+.apx-jkill.off{background:color-mix(in srgb,var(--bad,#dc2626) 8%,transparent);margin:0 -16px;padding:14px 16px}
+.apx-jq{display:flex;align-items:center;gap:10px;margin:4px 0 8px;font-size:13px}
+.apx-jq input{flex:1;min-width:0;min-height:44px;border:1px solid var(--line2,var(--line));border-radius:12px;padding:0 12px;
+ font:inherit;font-size:16px;background:var(--card);color:var(--fg)}
+.apx-jmore{margin:6px 0 10px}.apx-jmore>summary{cursor:pointer;color:var(--acc);font-weight:600;font-size:14px;min-height:44px;
+ display:flex;align-items:center;list-style:none}.apx-jmore>summary::-webkit-details-marker{display:none}
+.apx-jmore>summary::after{content:"›";margin-left:6px;transform:rotate(90deg)}.apx-jmore[open]>summary::after{transform:rotate(-90deg)}
+.apx-jul{margin:0 0 10px;padding-left:18px;line-height:1.55}
+/* a plain row says its whole sentence (up to three lines), not a cut one */
+.apx-jn>summary .ms-s,.apx-jtop>summary .ms-s{white-space:normal;font-size:13.5px;line-height:1.4;display:-webkit-box;
+ -webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+.apx-jn>summary .ms-v,.apx-jtop>summary .ms-v{font-size:13.5px}.apx-jn>summary .ms-e{max-width:40%}
+.apx-jn[hidden]{display:none}
 /* the wallet's value and PnL by day at the top (ui/apterm.wallet_html) */
 .apx-wtop{padding:14px 16px;margin:0 0 16px}
 .apx-wv{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 28px}

@@ -479,8 +479,8 @@ class Page(Base):
     def test_the_owner_sets_a_flag_and_live_is_refused_with_the_reason(self):
         from ui import pravitrade
         _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: under Postavke (ui/apterm, lazy)
-        self.assertIn("Zastavice plana", body)
-        self.assertIn("sve isključeno", body)
+        self.assertIn("Pravila u testiranju", body)   # 16.11.: Postavke, under "Napredno" (ui/apjed.flags_block)
+        self.assertIn("pravila, sva isključena", body)
         self.assertIn("action=/pravi-trade/flag", body)
         self.assertIn("Demo naspram pravog izlaza", body)
         loc = pravitrade.post("/pravi-trade/flag", {"name": "dca_guard", "mode": "shadow"}, "Jure")

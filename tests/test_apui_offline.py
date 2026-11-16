@@ -413,8 +413,10 @@ class Page(Base):
         _, full = pravitrade.page({"sve": "1"}, "Jure")
         # 11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): the settings first in "Postavke" (the
         # follow forms, "Uredi praćenja", moved there from "Koga pratimo"), the diagnostics with data after them
-        keys = ("id=kupiti", "id=pratimo", "id=apx-ostalo", "id=pravila", "id=cilj", "id=limiti", "id=pratim>",
-                "id=postavljanje", "id=pozivnice", "id=zastita", "id=preporuke")
+        # 16.11. (owner: "settings, rules ... toliko toga ima"): four blocks, Limiti, Izlazi, Obavijesti, Napredno
+        keys = ("id=kupiti", "id=pratimo", "id=apx-ostalo", "id=limiti-b", "id=limiti>", "id=izlazi-b", "id=cilj",
+                "id=obavijesti", "id=preporuke", "id=napredno", "id=pratim>", "id=postavljanje", "id=pozivnice",
+                "id=zastita")
         at = [full.index(k) for k in keys]
         self.assertEqual(at, sorted(at))
         self.assertRegex(full, r"data-src=/pravi-trade/preporuke data-every=\d+ data-lazy")   # still only once opened

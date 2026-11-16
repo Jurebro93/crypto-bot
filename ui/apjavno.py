@@ -590,6 +590,17 @@ def _stats(tcon, live):
             r = tcon.execute(f"SELECT symbol, {_PNL} FROM positions WHERE mode=? AND status='closed' ORDER BY 2 {order} "
                              "LIMIT 1", (mode,)).fetchone()
             out[key] = {"symbol": str(r[0] or "")[:20], "pnl": r[1]}
+    # 16.11. (owner: "brojevi se ne poklapaju": the page said "Ukupni rezultat +0.188" and "Najbolji trade Hope +0.211"
+    # beside a wallet up +0.327, and Hope's 21 buys made far more than one of them): the same closed positions per
+    # TOKEN (every lot of a token summed) and how the trades add up to the wallet's result (trade/uskladi.py)
+    if mode == "live":
+        try:
+            from trade import uskladi
+            r = uskladi.safe_report(tcon)
+            if r.get("have"):
+                out["usk"] = {k: r[k] for k in ("ok", "lines", "by_token", "wallet", "diff_sol")}
+        except Exception as e:  # noqa: BLE001 - the tiles stay without it
+            _warn("usklađenje", e)
     return out
 
 
@@ -897,7 +908,8 @@ CSS = """<style>
 .apj-seg button{border:0;background:none;color:var(--mut);border-radius:999px;padding:6px 14px;font:inherit;font-size:13.5px;
  font-weight:600;cursor:pointer;box-shadow:none}.apj-seg button:hover{background:none;color:var(--fg);box-shadow:none}
 .apj-seg button.on{background:#fff;color:var(--fg);box-shadow:0 1px 2px rgba(11,18,32,.12)}
-.apj-day{color:var(--mut);font-size:13.5px;margin:10px 2px 0}
+.apj-day{color:var(--mut);font-size:13.5px;margin:10px 2px 0}.apj-day b{color:var(--fg);font-variant-numeric:tabular-nums}
+.apj-sub{font-size:13.5px;font-weight:700;margin:14px 2px 8px}.apj-sub span{font-weight:400;color:var(--mut);margin-left:6px}
 .apj-form{margin:0 0 14px}.apj-form textarea{display:block;width:100%;min-height:84px;resize:vertical;padding:12px 14px;
  border:1px solid var(--line);border-radius:16px;background:var(--soft);color:var(--fg);font:inherit;font-size:16px;line-height:1.45}
 .apj-form textarea:focus{outline:none;border-color:var(--acc,#4f46e5);background:#fff;box-shadow:0 0 0 4px rgba(79,70,229,.12)}
@@ -1052,13 +1064,42 @@ def _stats_html(st):
             return tile("–", label)
         sym = f' · <i translate=no>{esc(r["symbol"])}</i>' if r.get("symbol") else ""
         return tile(f'{r["pnl"]:+.3f} SOL', label + sym, _cls(r["pnl"]))
-    return (head + '<div class=apj-stats>'
+    usk = st.get("usk") or {}
+    bt = usk.get("by_token") or {}
+
+    tok = ""
+    if bt.get("best"):   # 16.11.: per token first (what the owner asks: "koliko je koji token donio")
+        b = bt["best"]
+        name = f' · <i translate=no>{esc(b["symbol"] or b["token"][:6])}</i>'
+        rest = bt.get("rest_sol")
+        tok = ('<p class=apj-sub>Po tokenu <span>sve kupnje istog tokena zbrojene</span></p><div class=apj-stats>'
+               + tile(bt["n"], "Zatvoreni tokeni")
+               + tile(f'{bt["plus"]} <small>({round(100 * bt["plus"] / bt["n"])} %)</small>', "U plusu")
+               + tile(f'{b["pnl_sol"]:+.3f} SOL', f'Najbolji token{name}', _cls(b["pnl_sol"]))
+               + (tile(f'{rest:+.3f} SOL', "Svi ostali zajedno", _cls(rest)) if rest is not None else "")
+               + '</div>')
+        if rest is not None:   # how much of the result is one token, said in a sentence
+            tok += (f'<p class=apj-day>Najbolji token <b translate=no>{esc(b["symbol"] or b["token"][:6])}</b> donio je '
+                    f'<b class="{_cls(b["pnl_sol"])}">{b["pnl_sol"]:+.3f} SOL</b> u {b["buys"]} kupnji; ostali zatvoreni '
+                    f'tokeni ({bt["rest_n"]}) zajedno <b class="{_cls(rest)}">{rest:+.3f} SOL</b>.</p>')
+        tok += '<p class=apj-sub>Po tradeu <span>jedna kupnja i njena prodaja</span></p>'
+    how = ""
+    if usk.get("lines"):
+        *parts, total = usk["lines"]
+        w = usk["wallet"]
+        how = ('<p class=apj-day><b>Kako se zbraja:</b> '
+               + " + ".join(f'{esc(lab[0].lower() + lab[1:])} <b class="{_cls(v)}">{v:+.3f}</b>' for lab, v in parts)
+               + f' = ukupni rezultat novčanika <b class="{_cls(total[1])}">{total[1]:+.3f} SOL</b> (vrijednost '
+               f'{w["value_sol"]:.3f} − uplaćeno {w["deposits_sol"]:.3f}). Mjerodavan je novčanik, izmjeren na lancu'
+               + ("; razlika je u knjizi tradeova (zbroj pojedinih kupnji i prodaja), ne u novcu." if not usk.get("ok")
+                  else ".") + '</p>')
+    return (head + tok + '<div class=apj-stats>'
             + tile(st["n"], "Zatvoreni tradeovi")
             + tile(f'{st["wins"]} <small>({round(100 * st["wins"] / st["n"])} %)</small>', "Dobitni")
-            + tile(f'{st["pnl"]:+.3f} SOL', "Ukupni rezultat", _cls(st["pnl"]))
+            + tile(f'{st["pnl"]:+.3f} SOL', "Zbroj zatvorenih", _cls(st["pnl"]))
             + edge("best", "Najbolji trade") + edge("worst", "Najgori trade")
             + tile(st["open"], "Otvoreno sada") + '</div>'
-            '<p class=apj-day>Rezultat tradea = SOL koji se vratio, minus uloženi SOL, minus mrežne naknade.</p>')
+            '<p class=apj-day>Rezultat tradea = SOL koji se vratio, minus uloženi SOL, minus mrežne naknade.</p>' + how)
 
 
 def _who(f):
@@ -1346,7 +1387,10 @@ def landing_strip(lang="hr"):
         st = s.get("stats")
         if st and st["mode"] == "live" and st["n"]:
             nums.append(f'<span><b>{st["n"]}</b>{l_n}</span>')
-            nums.append(f'<span><b>{st["pnl"]:+.3f} SOL</b>{l_pnl}</span>')
+            # 16.11.: "ukupni rezultat" is the wallet's (value - deposits), not the sum of the closed lots
+            tot = s["eq"].get("pnl_sol")
+            tot = st["pnl"] if tot is None else tot
+            nums.append(f'<span><b>{tot:+.3f} SOL</b>{l_pnl}</span>')
         return (f'{STRIP_CSS}<a class=apj-strip href="{PATH_EN if lang == "en" else PATH}"><span class=a><span class=lv><i></i>{live}</span>'
                 f'<b class=h>{head}</b><span class=s>{sub}</span>'
                 + (f'<span class=n>{"".join(nums)}</span>' if nums else "") + f'</span><span class=go>{go}</span></a>')

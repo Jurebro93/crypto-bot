@@ -17,7 +17,8 @@ konsenzusa najtočnijih kao DEMO ulaz u veliki/makro.
     python3 run_makroinf.py otkrivanje           stanje proširenja po nalogu vlasnika i trošak po fazi
 
 Trošak: pilot twitterapi 5 $ i OpenAI 4 $ jednokratno; proširenje po nalogu vlasnika (15.11. navečer, 300-500 računa)
-twitterapi 40 $ i OpenAI 15 $ jednokratno; zatim 1,50 $ / 0,50 $ dnevno (makroinf/store.py). Pravi novac: nikad
+twitterapi 40 $ i OpenAI 15 $ jednokratno; 2. val po nalogu vlasnika (16.11., 30k+ pratitelja, strop 800 računa)
+vlastiti stropovi twitterapi 25 $ i OpenAI 8 $ jednokratno; dnevno 2,00 $ / 0,60 $ (makroinf/store.py). Pravi novac: nikad
 (zastavica makroinf_indeks je NEVER_LIVE). Radi i dok je fokus_midcap uključen (ops/fokus.EXCEPTIONS).
 """
 import os
@@ -78,6 +79,7 @@ def main(argv=None):
             elif kind == "procjena":
                 from makroinf import discover
                 log(discover.estimate_line(discover.estimate(con)))
+                log(discover.estimate2_line(discover.estimate2(con)))   # 16.11.: the second wave (30k+, strop 800)
             elif kind == "otkrivanje":
                 import json
                 from makroinf import discover

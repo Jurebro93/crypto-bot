@@ -159,7 +159,7 @@ class Page(unittest.TestCase):
         copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "", 25, 5, "tpsl", "15%", "-20%")
         self.lg.commit()
         _, body = pravitrade.page({"sve": "1"}, "Jure")
-        self.assertIn("Cilj izlaza za nove kopije", body)
+        self.assertIn("Tvoje kupnje i kopiranje: cilj", body)   # 16.11.: Postavke, block "Izlazi"
         self.assertIn("sada +10 %", body)
         self.assertIn("Tko sada zove koji token", body)
         self.assertIn("pratiš i dokazani walleti", body)
@@ -172,9 +172,9 @@ class Page(unittest.TestCase):
         # feed, then "Postavke i dijagnostika" with Pravila (exit target + limits) and the recommendations;
         # 14.11.: the order panel (Brza kupnja) right under the chart, before the tabs
         order = [body.index(x) for x in ("id=kupi-odmah", "id=pozicije", "id=dnevnik", "id=kupiti", "id=pratimo", "id=ap-zovu",
-                                         "id=apx-ostalo", "id=cilj", "id=limiti", "id=pratim>", "id=preporuke")]
-        self.assertEqual(order, sorted(order))
-        for sid in ("preporuke", "pravila"):   # closed until tapped
+                                         "id=apx-ostalo", "id=limiti", "id=cilj", "id=preporuke", "id=pratim>")]
+        self.assertEqual(order, sorted(order))   # 16.11.: Limiti, Izlazi, Obavijesti, Napredno
+        for sid in ("preporuke", "limiti-b"):   # closed until tapped
             self.assertIn(f"<details class=ap-sec id={sid}><summary>", body)
 
     def test_follow_all_callers_makes_one_crew_follow(self):
