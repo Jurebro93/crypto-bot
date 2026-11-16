@@ -16,6 +16,11 @@ krug (a bounded round, krug_s seconds of work at most; resumable after every dep
   (twitterapi 40 $, OpenAI 15 $), the rest under the daily caps (1,50 $ / 0,50 $); the daily fetch of every active
   account every round (only the accounts not fetched in 20 h), the topics of the day every 6 h, the market mood after
   every scoring (makroinf/mood.py)
+16.11., the owner's second order (discover.record_order2 / step2: 30k+ followers, the ceiling 800 accounts): recorded
+  once after the first wave's discovery is done, its estimate logged before its first paid call; its discovery (the
+  stored candidates first), the history of its accounts (the last 200 posts + up to 300 market posts over 12 months)
+  and its classification run under ITS caps (twitterapi 25 $, OpenAI 8 $), separate from the first wave's; the daily
+  caps are 2,00 $ / 0,60 $
 noc: the full re-scoring: clusters, the walk-forward of the index (train -> validation -> locked test), the historic
 index series, the quality check when it is missing, output/makroinf.md.
 """
@@ -242,7 +247,7 @@ def _krug(now, log, cfg, get, call, path, budget_s, refresh_prices):
     con = store.connect(path)
     out = {}
     try:
-        racuni.seed(con, now)
+        racuni.seed(con, now, log=log)
         if not xapi.has_key(get) and not store.kv(con, "rekao_kljuc"):
             log(store.PREFIX + "nema TWITTERAPI_IO_KEY: dohvat stoji (računi, cijene i ocjene rade)")
             store.kv(con, "rekao_kljuc", str(now))
@@ -250,9 +255,12 @@ def _krug(now, log, cfg, get, call, path, budget_s, refresh_prices):
         if refresh_prices and _due(con, "prices_ts", c["prices_every_s"], now):
             out["cijene"] = prices.refresh(con, now, log)
         pilot = not store.kv(con, "pilot_twapi_done")
-        normal = [h for h, _c, s in racuni.active(con) if s != "prosirenje"]
+        normal = [h for h, _c, s in racuni.active(con) if not (s or "").startswith("prosirenje")]
         # the owner's order of 15.11. navečer applies once the pilot is classified (its numbers are the baseline)
         order = bool(store.kv(con, "pilot_openai_done")) and discover.record_order(con, c, now, log)
+        # 16.11.: his second order (30k+, the ceiling 800), once the first wave's discovery is done; the estimate is
+        # in the log here, before the wave's first paid call
+        order2 = order and discover.record_order2(con, c, now, log)
         if pilot:
             r = fetch.backfill(con, c, now, get, log, deadline, handles=normal)
             out["pilot"] = r
@@ -275,12 +283,14 @@ def _krug(now, log, cfg, get, call, path, budget_s, refresh_prices):
             if order:
                 if time.time() < deadline:
                     out["otkrivanje"] = discover.step(con, c, now, get, log, deadline)
+                if order2 and time.time() < deadline:
+                    out["otkrivanje2"] = discover.step2(con, c, now, get, log, deadline)
                 if time.time() < deadline:
                     out["povijest"] = _deep(con, c, now, get, log, deadline)
             else:
                 if time.time() < deadline:
                     out["povijest"] = fetch.backfill(con, c, now, get, log, deadline, handles=normal)
-                exp = [h for h, _c, s in racuni.active(con) if s == "prosirenje"]
+                exp = [h for h, _c, s in racuni.active(con) if (s or "").startswith("prosirenje")]
                 if exp and time.time() < deadline:
                     out["prosirenje"] = fetch.backfill(con, c, now, get, log, deadline, ph="prosirenje", handles=exp)
         racuni.circle(con, c, now, get, log)
@@ -330,20 +340,35 @@ def _krug(now, log, cfg, get, call, path, budget_s, refresh_prices):
 def _deep(con, c, now, get, log, deadline):
     """The deep history of every measured account by the owner's order (zadnjih 200 + up to depth_posts market posts
     over 18 months), the most regular first in tiers of 100: under the expansion cap, then (when it is reached) the
-    rest under the daily cap after the day's fetch. kv prosirenje_dubina_gotova once no unit is left."""
+    rest under the daily cap after the day's fetch. kv prosirenje_dubina_gotova once no unit is left. 16.11.: the
+    second wave's accounts (zadnjih 200 + up to 300 market posts over 12 months) after them, under the SECOND wave's
+    cap (then the daily one), kv prosirenje2_*; its result is in the returned dict under "val2"."""
     hs = [h for h, _s in racuni.by_regularity(con, ("aktivan",))]
-    left = store.left(con, "twapi", "prosirenje", now, c)
-    ph = "prosirenje" if left >= twapi_page(c) else None
+    w2 = discover.wave2_handles(con)
+    r = _deep_wave(con, c, now, get, log, deadline, [h for h in hs if h not in w2], "prosirenje", "proširenje",
+                   c["expand_twapi_usd"], discover._state(con).get("step") == "gotovo")
+    if discover.ordered2(con, c) and time.time() < deadline:
+        r["val2"] = _deep_wave(con, c, now, get, log, deadline, [h for h in hs if h in w2], "prosirenje2",
+                               "2. val proširenja", c["expand2_twapi_usd"],
+                               discover._state2(con).get("step") == "gotovo")
+    return r
+
+
+def _deep_wave(con, c, now, get, log, deadline, hs, name, label, cap_usd, discovered):
+    """One wave's history under its own cap `name`, the rest under the daily cap; kv <name>_strop_twapi when the cap
+    is reached, <name>_dubina_gotova when no unit is left and the wave's discovery is done."""
+    left = store.left(con, "twapi", name, now, c)
+    ph = name if left >= twapi_page(c) else None
     r = fetch.backfill(con, c, now, get, log, deadline, ph=ph, handles=hs, tier=100)
-    if ph and r.get("cap") and "strop" in r["cap"] and not store.kv(con, "prosirenje_strop_twapi"):
-        store.kv(con, "prosirenje_strop_twapi", str(now))
-        log(store.PREFIX + f"proširenje: strop twitterapi {c['expand_twapi_usd']:.2f} $ dosegnut; ostatak povijesti "
+    if not store.kv(con, f"{name}_strop_twapi") and ((ph and r.get("cap") and "strop" in r["cap"]) or
+                                                     (ph is None and (r.get("units") or r.get("left")))):
+        store.kv(con, f"{name}_strop_twapi", str(now))
+        log(store.PREFIX + f"{label}: strop twitterapi {float(cap_usd):.2f} $ dosegnut; ostatak povijesti "
                            f"({r['left']} jedinica) ide pod dnevni strop")
         log(discover.phase_line(con, now))
-    if not r.get("cap") and r.get("left") == 0 and (discover._state(con).get("step") == "gotovo") and \
-            not store.kv(con, "prosirenje_dubina_gotova"):
-        store.kv(con, "prosirenje_dubina_gotova", str(now))
-        log(store.PREFIX + "proširenje: povijest svih računa dohvaćena")
+    if not r.get("cap") and r.get("left") == 0 and discovered and not store.kv(con, f"{name}_dubina_gotova"):
+        store.kv(con, f"{name}_dubina_gotova", str(now))
+        log(store.PREFIX + f"{label}: povijest svih računa dohvaćena")
         log(discover.phase_line(con, now))
     return r
 
@@ -355,19 +380,25 @@ def twapi_page(c):
 
 def _classify_order(con, c, now, log, deadline, call):
     """By the owner's order: the day's new posts first under the daily cap, then the history under the expansion
-    cap, and once that is reached the history under what is left of the daily cap."""
+    cap, and once that is reached the history under what is left of the daily cap. 16.11.: the history of the second
+    wave's accounts the same way under the SECOND wave's cap ("povijest2", "povijest2_dan")."""
     out = {"dnevno": classify.run(con, c, now, log, deadline, call, ph="dan", expansion=None, which="dnevno")}
-    if time.time() < deadline:
-        r = classify.run(con, c, now, log, deadline, call, ph="prosirenje", expansion=None, which="povijest")
-        out["povijest"] = r
+    waves = [("prosirenje", "proširenje", "expand_openai_usd", 1, "povijest")]
+    if discover.ordered2(con, c):
+        waves.append(("prosirenje2", "2. val proširenja", "expand2_openai_usd", 2, "povijest2"))
+    for name, label, cap_key, wave, key in waves:
+        if time.time() >= deadline:
+            break
+        r = classify.run(con, c, now, log, deadline, call, ph=name, expansion=None, which="povijest", wave=wave)
+        out[key] = r
         if r.get("cap") and "strop" in r["cap"]:
-            if not store.kv(con, "prosirenje_strop_openai"):
-                store.kv(con, "prosirenje_strop_openai", str(now))
-                log(store.PREFIX + f"proširenje: strop OpenAI {c['expand_openai_usd']:.2f} $ dosegnut; ostatak "
+            if not store.kv(con, f"{name}_strop_openai"):
+                store.kv(con, f"{name}_strop_openai", str(now))
+                log(store.PREFIX + f"{label}: strop OpenAI {c[cap_key]:.2f} $ dosegnut; ostatak "
                                    "povijesti se razvrstava pod dnevnim stropom")
             if time.time() < deadline:
-                out["povijest_dan"] = classify.run(con, c, now, log, deadline, call, ph="dan", expansion=None,
-                                                   which="povijest")
+                out[f"{key}_dan"] = classify.run(con, c, now, log, deadline, call, ph="dan", expansion=None,
+                                                 which="povijest", wave=wave)
     return out
 
 

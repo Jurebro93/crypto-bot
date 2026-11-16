@@ -7,7 +7,7 @@ not sent ("ne makro", cls_v predfiltar). Every answer stores the model that answ
 (the audit trail); a post the model skipped is asked again (cls_max_tries), then marked missed.
 
 Budget: before each request the most it can cost (openai_api.max_cost of the input and max output) must fit what is
-left of the phase's cap (store.left "openai": pilot 4 $, then 0,25 $ a day; the expansion its own cap). At the cap
+left of the phase's cap (store.left "openai": pilot 4 $, then the daily cap; each wave of the expansion its own cap). At the cap
 the pass stops cleanly.
 """
 import json
@@ -70,16 +70,21 @@ def prefilter(con):
     return n
 
 
-def pending(con, limit=2000, expansion=None, which=None):
+def pending(con, limit=2000, expansion=None, which=None, wave=None):
     """[(id, handle, ts, text, quoted_text)] still to classify, interleaved over the accounts (newest first within
     each), so a cap leaves every account partly covered. expansion True / False: only / no posts of expansion accounts.
     which "dnevno": only the daily fetch's posts; "povijest": only the backfill's (15.11. navečer: the history of the
-    owner-ordered expansion goes under its own cap, the day's new posts under the daily one)."""
+    owner-ordered expansion goes under its own cap, the day's new posts under the daily one). wave 2 / 1: only / no
+    posts of the second wave's accounts (16.11.: their history goes under the second wave's own cap)."""
     cond = ""
     if expansion is True:
-        cond = " AND a.source = 'prosirenje'"
+        cond = " AND a.source LIKE 'prosirenje%'"
     elif expansion is False:
-        cond = " AND COALESCE(a.source, '') <> 'prosirenje'"
+        cond = " AND COALESCE(a.source, '') NOT LIKE 'prosirenje%'"
+    if wave == 2:
+        cond += " AND a.source = 'prosirenje2'"
+    elif wave == 1:
+        cond += " AND COALESCE(a.source, '') <> 'prosirenje2'"
     if which == "dnevno":
         cond += " AND t.src = 'dnevno'"
     elif which == "povijest":
@@ -169,7 +174,7 @@ def apply(con, batch, data, model, now, max_tries=2):
 
 
 def run(con, c, now=None, log=print, deadline=None, call=None, ph=None, expansion=False, max_batches=None,
-        which=None):
+        which=None, wave=None):
     """Classify pending posts within the cap and the deadline, cls_workers requests at a time (the pilot's ~1000
     requests in about an hour instead of four). A group is sent only when the most ALL its requests can cost fits what
     is left of the cap. call(model, instructions, text, schema, name, max_out, effort) -> {"data", "usage", "model",
@@ -185,7 +190,7 @@ def run(con, c, now=None, log=print, deadline=None, call=None, ph=None, expansio
     call = call or (lambda *a, **k: openai_api.call_json(*a, **k))
     model = c["cls_model"]
     size = int(c["cls_batch"])
-    rows = pending(con, size * (max_batches or 200), expansion=expansion, which=which)
+    rows = pending(con, size * (max_batches or 200), expansion=expansion, which=which, wave=wave)
     batches = [rows[k:k + size] for k in range(0, len(rows), size)][:max_batches or None]
     workers = max(1, int(c.get("cls_workers") or 1))
     p = ph or ("prosirenje" if expansion else store.phase(con, "openai"))

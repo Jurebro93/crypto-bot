@@ -24,6 +24,20 @@ Discovery (kv "otkrivanje" holds the step, every step resumes after a deploy; tw
                regular first, until expand_n (500) accounts are measured
 estimate() is the cost before anything is spent (logged with the order and stored in kv procjena); phase_spend() is
 what each phase really cost (the hourly line and the owner's card).
+
+THE SECOND WAVE (16.11.2026., the owner in the chat: "možeš pratiti influencere od 30k+ followera i dodaj ih na
+listu"): the follower threshold 100k -> 30k, the ceiling 500 -> 800 accounts (the most regular first; the other filters
+as before). record_order2() writes it once (kv nalog_prosirenje2, runs, a log line with his words) after the first
+wave's discovery is done, with its OWN one-off caps on top of the first wave's (twitterapi 25 $, OpenAI 8 $, store.left
+"prosirenje2") and estimate2() (accounts x posts x price) in the log before the first paid call. step2() (kv
+"otkrivanje2"):
+  ponovno      the candidates the first wave refused ONLY for "ispod 100k pratitelja" go back through the free filter
+               with the new threshold (what is stored; no discovery is paid again)
+  ocjena, proba, odabir   as above, under the second wave's cap; the passing ones the first wave had no room for too
+  (only while still under the ceiling) pratitelji: one followings page of every account whose followings the first
+               wave did not read; spominjanja; profili; ocjena; proba; odabir
+Its accounts (source prosirenje2) get the last 200 posts + up to 300 market posts over 12 months (fetch.cfg_for).
+config expand2_by_order = False stops it.
 """
 import json
 import math
@@ -42,6 +56,10 @@ SEARCHES = ("crypto macro analyst", "bitcoin macro", "crypto analyst", "bitcoin 
             "on-chain analyst", "bitcoin on-chain", "crypto market data", "crypto statistics", "bitcoin charts",
             "altcoin analyst", "crypto economist", "macro investor bitcoin", "crypto research", "ethereum analyst",
             "solana trader", "crypto technical analysis", "bitcoin cycle")
+PH2 = "prosirenje2"
+ORDER2 = {"id": "prosirenje2-1611-30k", "kada": "16.11.2026.", "tko": "vlasnik (nalog u chatu)",
+          "citat": "možeš pratiti influencere od 30k+ followera i dodaj ih na listu"}
+WHY_WAVE1 = "ispod 100k pratitelja"   # the first wave's refusal the second wave reconsiders (nothing else)
 ADAM = "Adam (statistike)"
 # Pretpostavka (no request made from the sandbox): the best known accounts of an "Adam" who posts market statistics
 ADAM_PRIOR = (("KobeissiLetter", 3.0, "The Kobeissi Letter (Adam Kobeissi): svakodnevne statistike i grafovi tržišta"),
@@ -70,10 +88,17 @@ def ordered(con, c=None):
     return bool(c.get("expand_by_order")) and bool(store.kv(con, "nalog_prosirenje"))
 
 
+def _w1(c):
+    """The configuration of the FIRST wave: never past what it was ordered with (500 accounts, 100k+ followers), also
+    after the second wave's order lowered the threshold and raised the ceiling."""
+    return {**c, "expand_n": min(int(c["expand_n"]), int(c.get("wave1_n") or c["expand_n"])),
+            "min_followers": max(int(c["min_followers"]), int(c.get("wave1_min_followers") or 0))}
+
+
 def record_order(con, c=None, now=None, log=print):
     """Once: the owner's order is recorded, the quality gate overridden by it, the expansion caps set, the estimate
     logged. True while the order is in force."""
-    c = c or store.config()
+    c = _w1(c or store.config())
     now = int(now or time.time())
     if not c.get("expand_by_order"):
         return False
@@ -104,17 +129,24 @@ def record_order(con, c=None, now=None, log=print):
 
 # ---------- the estimate (before the money) and the spend per phase ----------------------------------------------------
 
-def _measured(con, c):
+def _measured(con, c, since=None):
     """(fill of depth_posts, OpenAI $ a classified post, new market posts per account a day) from what is stored,
-    the defaults (Pretpostavka) where nothing is measured yet."""
+    the defaults (Pretpostavka) where nothing is measured yet. since: only the market posts newer than it count for
+    the fill (the second wave: 12 months)."""
     cap = int(c.get("depth_posts") or 500)
-    full = [fetch.depth(con, h) for (h,) in store.q(con, """SELECT handle FROM accounts a WHERE status = 'aktivan' AND
+    hs = [h for (h,) in store.q(con, """SELECT handle FROM accounts a WHERE status = 'aktivan' AND
         EXISTS (SELECT 1 FROM fetch_log f WHERE f.handle = a.handle AND f.unit LIKE 'mj:%')""")]
+    if since is None:
+        full = [fetch.depth(con, h) for h in hs]
+    else:
+        n = dict(store.q(con, "SELECT handle, COUNT(*) FROM tweets WHERE kw = 1 AND src <> 'dnevno' AND ts >= ? "
+                              "GROUP BY handle", (int(since),)))
+        full = [int(n.get(h) or 0) for h in hs]
     fill = min(1.0, (sum(min(x, cap) for x in full) / len(full)) / cap) if len(full) >= 5 else DEFAULT_FILL
     n_cls = (store.q(con, "SELECT COUNT(*) FROM tweets WHERE cls_ts IS NOT NULL AND cls_v NOT IN ('predfiltar', "
                           "'propusteno')") or [[0]])[0][0]
-    usd = sum(store.spent(con, "openai", ph) for ph in ("pilot", "dan", PH)) - store.spent(con, "openai", "dan",
-                                                                                           what="teme")
+    usd = sum(store.spent(con, "openai", ph) for ph in ("pilot", "dan", PH, PH2)) - store.spent(con, "openai", "dan",
+                                                                                                what="teme")
     per = (usd / n_cls) if n_cls >= 500 and usd > 0 else DEFAULT_CLS_POST
     r = store.q(con, "SELECT COUNT(*), COUNT(DISTINCT handle) FROM tweets WHERE src = 'dnevno' AND ts >= ?",
                 (int(time.time()) - 7 * D,))
@@ -125,7 +157,7 @@ def _measured(con, c):
 def estimate(con, c=None, now=None, n_new=None):
     """The expected cost of the order before anything is spent: {"twapi": {...}, "openai": {...}, "dan": {...},
     "pretpostavke": [...]} in USD (prices of kol/twapi and the measured rates of this database)."""
-    c = c or store.config()
+    c = _w1(c or store.config())
     have = len(racuni.active(con, include_new=True))
     target = int(c["expand_n"])
     n_new = max(0, target - have) if n_new is None else int(n_new)
@@ -142,10 +174,11 @@ def estimate(con, c=None, now=None, n_new=None):
     old_rows = store.q(con, "SELECT handle FROM accounts WHERE status = 'aktivan'")
     deep_old = 0.0
     for (h,) in old_rows:
-        left_mj = len([u for u in fetch.units_left(con, c, h, now or time.time()) if u[0].startswith("mj:")])
-        room = max(0, int(c["depth_posts"]) - fetch.depth(con, h))
+        ch = fetch.cfg_for(con, c, h)
+        left_mj = len([u for u in fetch.units_left(con, ch, h, now or time.time()) if u[0].startswith("mj:")])
+        room = max(0, int(ch["depth_posts"]) - fetch.depth(con, h))
         deep_old += min(room, left_mj * pp) * PRICE["post"]
-        if fetch.units_left(con, c, h, now or time.time())[:1] == [("zadnjih+", None, None)]:
+        if fetch.units_left(con, ch, h, now or time.time())[:1] == [("zadnjih+", None, None)]:
             deep_old += 100 * PRICE["post"]
     tw = {"otkrivanje": round(disc, 2), "proba": round(probe, 2), "dubina_novi": round(deep_new, 2),
           "dubina_postojeci": round(deep_old, 2)}
@@ -195,9 +228,148 @@ def estimate_line(e, c=None):
             + (f"; {'; '.join(over)}" if over else "") + f" (Pretpostavka: {', '.join(e['pretpostavke'][:3])})")
 
 
+def _n(con, sql, args=()):
+    return int((store.q(con, sql, args) or [[0]])[0][0] or 0)
+
+
+def _followings_read(con):
+    """Handles whose followings the first wave already read (at least one page)."""
+    return {h for h, v in (_state(con).get("pratitelji") or {}).items() if v and v[0]}
+
+
+def estimate2(con, c=None, now=None):
+    """The expected cost of the SECOND wave before anything is spent (accounts x posts x price): the probes of the
+    stored candidates, discovery (only if they do not fill the ceiling), the history of the new accounts (the last
+    200 posts + up to wave2_depth_posts market posts over wave2_months) and its classification; the day with all the
+    accounts. The same shape as estimate()."""
+    c = c or store.config()
+    now = int(now or time.time())
+    have = len(racuni.active(con, include_new=True))
+    target = int(c["expand_n"])
+    n_new = max(0, target - have)
+    c2 = fetch.wave2_cfg(c)
+    fill, per_cls, day_posts = _measured(con, c2, since=now - int(c2["months"]) * 30.5 * D)
+    pp, minf = int(c["page_posts"]), int(c["min_followers"])
+    again = _n(con, "SELECT COUNT(*) FROM disc WHERE status = 'odbijen' AND why LIKE ? AND probe_ts IS NULL AND "
+                    "followers >= ?", (WHY_WAVE1 + "%", minf))
+    ready = _n(con, "SELECT COUNT(*) FROM disc WHERE status = 'spreman' AND probe_ts IS NULL")
+    passed = _n(con, "SELECT COUNT(*) FROM disc WHERE status = 'probano'")
+    probes = min(int(c["wave2_probe_max"]), max(0, 2 * n_new - passed))
+    unread = len([h for h, _s in racuni.by_regularity(con, ("aktivan", "novo")) if h not in _followings_read(con)])
+    disc = ((unread + n_new) * int(c["wave2_follow_pages"]) * PRICE["follow_page"]
+            + int(c["disc_mention_lookups"]) * PRICE["user"]) if n_new else 0.0
+    last_new = (int(c2["last_pages"]) - 1) * pp            # the probe page is the first of the last 200
+    last_mkt = int(c2["last_pages"]) * pp * 0.5            # the last 200: about half are market posts (pilot)
+    mkt = int(c2["depth_posts"]) * fill                    # market posts an account ends with
+    months_new = max(0.0, mkt - last_mkt)                  # ... of them bought by the monthly windows
+    tw = {"proba": round(probes * pp * PRICE["post"], 2), "otkrivanje": round(disc, 2),
+          "dubina_novi": round(n_new * (last_new + months_new) * PRICE["post"], 2)}
+    tw["ukupno"] = round(sum(tw.values()), 2)
+    cls_posts = max(mkt, last_mkt)
+    oa = {"klasifikacija": round(n_new * cls_posts * per_cls, 2)}
+    oa["ukupno"] = oa["klasifikacija"]
+    n_day = have + n_new
+    dan = {"twapi_dnevno": round(n_day * max(PRICE["min_req"], day_posts * PRICE["post"]), 2),
+           "twapi_brisanja": round(min(2000, n_day * day_posts * 0.4) * PRICE["post"], 2),
+           "twapi_profili": round(n_day / max(1, int(c["profile_every_d"])) * PRICE["user"], 2),
+           "openai_klasifikacija": round(n_day * day_posts * per_cls, 2),
+           "openai_teme": float(c["narr_openai_usd"])}
+    dan["twapi_ukupno"] = round(dan["twapi_dnevno"] + dan["twapi_brisanja"] + dan["twapi_profili"], 2)
+    dan["openai_ukupno"] = round(dan["openai_klasifikacija"] + dan["openai_teme"], 2)
+    return {"ts": now, "val": 2, "racuna_sada": have, "novih": n_new, "cilj": target, "prag_pratitelja": minf,
+            "spremljeno": {"ponovno": again, "spremni": ready, "prosli_probu": passed},
+            "racun": {"proba_racuna": probes, "objava_po_probi": pp, "otkrivanje_stranica": (unread + n_new) if n_new
+                      else 0, "dubina_zadnjih": last_new, "dubina_mjesecnih": round(months_new),
+                      "objava_za_klasifikaciju": round(cls_posts), "cijena_objave": PRICE["post"]},
+            "twapi": tw, "openai": oa, "dan": dan,
+            "stropovi": {"twapi": float(c["expand2_twapi_usd"]), "openai": float(c["expand2_openai_usd"]),
+                         "dan_twapi": float(c["day_twapi_usd"]), "dan_openai": float(c["day_openai_usd"])},
+            "mjereno": {"popunjenost_dubine": round(fill, 3), "openai_po_objavi": round(per_cls, 7),
+                        "dnevnih_objava_po_racunu": round(day_posts, 2)},
+            "pretpostavke": [f"popunjenost dubine {fill:.0%} od {c2['depth_posts']} tržišnih objava u {c2['months']} "
+                             "mjeseci (po dosadašnjim, većim računima; 75 % dok nije izmjereno)",
+                             f"OpenAI {per_cls * 1000:.3f} $ na 1000 objava",
+                             f"{day_posts:.1f} novih tržišnih objava po računu dnevno",
+                             "pola zadnjih 200 objava su tržišne",
+                             "cijene twitterapi.io: 0,15 $ / 1000 objava, 0,18 $ / 1000 profila, 0,002 $ stranica praćenih"]}
+
+
+def estimate2_line(e):
+    tw, oa, dn, cap, r, sp = e["twapi"], e["openai"], e["dan"], e["stropovi"], e["racun"], e["spremljeno"]
+    k = f"{PRICE['post'] * 1000:.2f}".replace(".", ",") + " $/1000"
+    over = []
+    if tw["ukupno"] > cap["twapi"]:
+        over.append("twitterapi iznad stropa: dubina ide redom (najredovitiji prvi), ostatak pod dnevnim stropom")
+    if oa["ukupno"] > cap["openai"]:
+        over.append("OpenAI iznad stropa: povijest se razvrstava redom, ostatak pod dnevnim stropom")
+    return (store.PREFIX + f"procjena 2. vala (prije troška; računi × objave × cijena): {e['racuna_sada']} → {e['cilj']} "
+            f"računa (+{e['novih']}), prag {e['prag_pratitelja'] // 1000}k; spremljeno iz 1. vala: {sp['ponovno']} "
+            f"odbijenih samo zbog „{WHY_WAVE1}”, {sp['spremni']} neprobanih, {sp['prosli_probu']} već prošlo probu; "
+            f"proba do {r['proba_racuna']} × {r['objava_po_probi']} objava × {k} = {_usd(tw['proba'])}; otkrivanje "
+            f"(samo ako spremljeni ne popune strop) do {r['otkrivanje_stranica']} stranica praćenih = "
+            f"{_usd(tw['otkrivanje'])}; dubina {e['novih']} × ({r['dubina_zadnjih']} + {r['dubina_mjesecnih']}) objava × "
+            f"{k} = {_usd(tw['dubina_novi'])}; twitterapi ~{_usd(tw['ukupno'])} uz strop {_usd(cap['twapi'])}; OpenAI "
+            f"{e['novih']} × {r['objava_za_klasifikaciju']} objava × "
+            + f"{e['mjereno']['openai_po_objavi'] * 1000:.3f}".replace(".", ",") + f" $/1000 = ~{_usd(oa['ukupno'])} uz strop "
+            f"{_usd(cap['openai'])}; dnevno ~{_usd(dn['twapi_ukupno'])} / {_usd(cap['dan_twapi'])} twitterapi, "
+            f"~{_usd(dn['openai_ukupno'])} / {_usd(cap['dan_openai'])} OpenAI"
+            + (f"; {'; '.join(over)}" if over else "") + f" (Pretpostavka: {', '.join(e['pretpostavke'][:4])})")
+
+
+def ordered2(con, c=None):
+    """The second wave's order is in force (recorded, the first one in force too, not stopped by config)."""
+    c = c or store.config()
+    return ordered(con, c) and bool(c.get("expand2_by_order")) and bool(store.kv(con, "nalog_prosirenje2"))
+
+
+def record_order2(con, c=None, now=None, log=print):
+    """Once, when the first wave's discovery is done: the owner's order of 16.11. (30k+, the ceiling 800) is recorded
+    like the first one (kv nalog_prosirenje2, runs, a log line with his words), the second wave's own caps set (kv
+    prosirenje2) and the estimate logged, all before its first paid call. True while the order is in force."""
+    c = c or store.config()
+    now = int(now or time.time())
+    if not c.get("expand2_by_order") or not ordered(con, c):
+        return False
+    if store.kv(con, "nalog_prosirenje2"):
+        return True
+    if (_state(con).get("step") or "") != "gotovo":   # the first wave's discovery first
+        return False
+    c2 = fetch.wave2_cfg(c)
+    est = estimate2(con, c, now)
+    rec = {"id": ORDER2["id"], "ts": now, "kada": ORDER2["kada"], "tko": ORDER2["tko"], "citat": ORDER2["citat"],
+           "val": 2, "prag_pratitelja": int(c["min_followers"]), "prag_prije": int(c.get("wave1_min_followers") or 0),
+           "cilj": int(c["expand_n"]), "cilj_prije": int(c.get("wave1_n") or 0), "racuna_prije": est["racuna_sada"],
+           "strop_twapi_usd": float(c["expand2_twapi_usd"]), "strop_openai_usd": float(c["expand2_openai_usd"]),
+           "dan_twapi_usd": float(c["day_twapi_usd"]), "dan_openai_usd": float(c["day_openai_usd"]),
+           "dubina": {"zadnjih": int(c2["last_pages"]) * int(c["page_posts"]), "trzisnih": int(c2["depth_posts"]),
+                      "mjeseci": int(c2["months"])}}
+    store.kv(con, "nalog_prosirenje2", rec)
+    store.kv(con, PH2, {"ts": now, "twapi_usd": rec["strop_twapi_usd"], "openai_usd": rec["strop_openai_usd"],
+                        "who": ORDER2["tko"], "nalog": ORDER2["id"]})
+    con.execute("INSERT INTO runs VALUES (?,?,?)", (now, "nalog_prosirenje2", json.dumps(rec, ensure_ascii=False)))
+    store.kv(con, "procjena2", est)
+    con.commit()
+    d = rec["dubina"]
+    log(store.PREFIX + f"2. val proširenja po nalogu vlasnika ({ORDER2['kada']}: „{ORDER2['citat']}”): prag "
+                       f"{rec['prag_pratitelja'] // 1000}k pratitelja (prije {rec['prag_prije'] // 1000}k), strop "
+                       f"{rec['cilj']} računa (prije {rec['cilj_prije']}; sada {rec['racuna_prije']}), ostali filtri isti; "
+                       f"vlastiti stropovi uz one 1. vala: twitterapi {_usd(rec['strop_twapi_usd'])}, OpenAI "
+                       f"{_usd(rec['strop_openai_usd'])}; dnevni stropovi {_usd(rec['dan_twapi_usd'])} / "
+                       f"{_usd(rec['dan_openai_usd'])}; dubina novih: zadnjih {d['zadnjih']} + do {d['trzisnih']} "
+                       f"tržišnih objava u {d['mjeseci']} mjeseci")
+    log(estimate2_line(est))
+    return True
+
+
+W2 = "2. val: "
 WORK = {("twitterapi", PH): {"praćeni": "otkrivanje", "pretraga računa": "otkrivanje", "profil": "otkrivanje",
                              "proba": "proba", "zadnjih": "dubina", "zadnjih+": "dubina", "mj": "dubina"},
         ("openai", PH): {"klasifikacija": "klasifikacija", "klasifikacija (neupotrebljivo)": "klasifikacija"},
+        ("twitterapi", PH2): {"praćeni": W2 + "otkrivanje", "pretraga računa": W2 + "otkrivanje",
+                              "profil": W2 + "otkrivanje", "proba": W2 + "proba", "zadnjih": W2 + "dubina",
+                              "zadnjih+": W2 + "dubina", "mj": W2 + "dubina"},
+        ("openai", PH2): {"klasifikacija": W2 + "klasifikacija",
+                          "klasifikacija (neupotrebljivo)": W2 + "klasifikacija"},
         ("twitterapi", "dan"): {"dnevno": "dnevni dohvat", "provjera brisanja": "brisanja", "profil": "profili",
                                 "zadnjih": "dubina (dnevni strop)", "zadnjih+": "dubina (dnevni strop)",
                                 "mj": "dubina (dnevni strop)"},
@@ -207,9 +379,9 @@ WORK = {("twitterapi", PH): {"praćeni": "otkrivanje", "pretraga računa": "otkr
 def phase_spend(con, day_=None):
     """{phase of the work: usd} of the expansion (all time) and of the day (day_, default all days)."""
     out = {}
-    for src, ph, what, usd in store.q(con, "SELECT src, phase, what, SUM(usd) FROM spend WHERE phase IN (?, 'dan')"
-                                           + (" AND (phase = ? OR day = ?)" if day_ else "") + " GROUP BY src, phase, what",
-                                      (PH, PH, day_) if day_ else (PH,)):
+    for src, ph, what, usd in store.q(con, "SELECT src, phase, what, SUM(usd) FROM spend WHERE phase IN (?, ?, 'dan')"
+                                           + (" AND (phase <> 'dan' OR day = ?)" if day_ else "")
+                                           + " GROUP BY src, phase, what", (PH, PH2, day_) if day_ else (PH, PH2)):
         k = WORK.get((src, ph), {}).get(what) or f"{ph}: {what}"
         out[k] = round(out.get(k, 0.0) + float(usd or 0), 4)
     return out
@@ -220,8 +392,9 @@ def phase_line(con, now=None):
     sp = phase_spend(con, store.day(now))
     if not sp:
         return store.PREFIX + "trošak po fazi: još ništa"
-    order = ("otkrivanje", "proba", "dubina", "klasifikacija", "dnevni dohvat", "brisanja", "profili",
-             "dubina (dnevni strop)", "razvrstavanje (dnevno)", "teme dana")
+    order = ("otkrivanje", "proba", "dubina", "klasifikacija", W2 + "otkrivanje", W2 + "proba", W2 + "dubina",
+             W2 + "klasifikacija", "dnevni dohvat", "brisanja", "profili", "dubina (dnevni strop)",
+             "razvrstavanje (dnevno)", "teme dana")
     keys = [k for k in order if k in sp] + sorted(k for k in sp if k not in order)
     return store.PREFIX + "trošak po fazi (proširenje ukupno, dnevno danas): " + ", ".join(
         f"{k} {_usd(sp[k])}" for k in keys)
@@ -257,11 +430,14 @@ def _known(con):
     return {h.lower() for (h,) in store.q(con, "SELECT handle FROM accounts")}
 
 
-def _followings(con, c, now, get, log, deadline, st):
+def _followings(con, c, now, get, log, deadline, st, ph=PH, key="otkrivanje", srcs=None, pages=1):
     """Round 1: every measured account (the most regular first), disc_follow_pages pages; round 2: the accounts round 1
-    added, one page. True when done (False: the deadline)."""
+    added, one page. The second wave gives its own sources and pages (srcs, pages), its phase and state key. True when
+    done (False: the deadline)."""
     prog = st.setdefault("pratitelji", {})
-    if st.get("krug", 1) == 1:
+    if srcs is not None:
+        pages = int(pages)
+    elif st.get("krug", 1) == 1:
         srcs = [h for h, _s in racuni.by_regularity(con, ("aktivan",))]
         pages = int(c["disc_follow_pages"])
     else:
@@ -275,7 +451,7 @@ def _followings(con, c, now, get, log, deadline, st):
                 st["pratitelji"] = prog
                 return False
             try:
-                users, cur = xapi.followings_page(con, h, PH, c, now, get, cursor=cur or "")
+                users, cur = xapi.followings_page(con, h, ph, c, now, get, cursor=cur or "")
             except xapi.CapReached:
                 st["pratitelji"] = prog
                 raise
@@ -290,7 +466,7 @@ def _followings(con, c, now, get, log, deadline, st):
             done += 1
             prog[h] = [done, cur]
             st["pratitelji"] = prog
-            store.kv(con, "otkrivanje", st)
+            store.kv(con, key, st)
             con.commit()
         prog[h] = [pages, None]
     st["pratitelji"] = prog
@@ -340,7 +516,7 @@ def _search(con, c, now, get, log, deadline, st):
     return True
 
 
-def _lookups(con, c, now, get, log, deadline):
+def _lookups(con, c, now, get, log, deadline, ph=PH):
     """Profiles of the most mentioned name-only candidates (user info)."""
     rows = store.q(con, """SELECT d.handle, COUNT(e.src) n FROM disc d JOIN disc_edge e ON lower(e.dst) = lower(d.handle)
         AND e.kind = 'mention' WHERE d.followers IS NULL AND d.status = 'kandidat' GROUP BY d.handle
@@ -349,7 +525,7 @@ def _lookups(con, c, now, get, log, deadline):
         if deadline and time.time() > deadline:
             return False
         try:
-            u = xapi.user(con, h, PH, c, now, get)
+            u = xapi.user(con, h, ph, c, now, get)
         except xapi.CapReached:
             raise
         except Exception:  # noqa: BLE001
@@ -424,20 +600,22 @@ def _verdict(p, c, now):
     return None
 
 
-def _probe(con, c, now, get, log, deadline, need):
-    """Probe the best-scored ready candidates until enough pass (2x the need, at most disc_probe_max probes)."""
-    probed = (store.q(con, "SELECT COUNT(*) FROM disc WHERE probe_ts IS NOT NULL AND COALESCE(seed, '') <> 'adam'")
-              or [[0]])[0][0]
+def _probe(con, c, now, get, log, deadline, need, ph=PH, since=None, max_n=None):
+    """Probe the best-scored ready candidates until enough pass (2x the need, at most disc_probe_max probes; the
+    second wave: its own phase, at most max_n probes of its own, the ones since `since`)."""
+    max_n = int(c["disc_probe_max"] if max_n is None else max_n)
+    probed = (store.q(con, "SELECT COUNT(*) FROM disc WHERE probe_ts IS NOT NULL AND COALESCE(seed, '') <> 'adam' AND "
+                           "probe_ts >= ?", (int(since or 0),)) or [[0]])[0][0]
     passing = (store.q(con, "SELECT COUNT(*) FROM disc WHERE status = 'probano'") or [[0]])[0][0]
     rows = store.q(con, """SELECT handle FROM disc WHERE status = 'spreman' AND probe_ts IS NULL AND (n_follow >= ? OR
         n_mention >= 2 OR n_search >= 1) ORDER BY score DESC, followers DESC""", (int(c["disc_probe_min_followed"]),))
     for (h,) in rows:
-        if probed >= int(c["disc_probe_max"]) or passing >= 2 * need:
+        if probed >= max_n or passing >= 2 * need:
             break
         if deadline and time.time() > deadline:
             return False
         try:
-            p = probe_one(con, c, h, now, get)
+            p = probe_one(con, c, h, now, get, ph)
         except xapi.CapReached:
             raise
         except Exception as e:  # noqa: BLE001
@@ -474,7 +652,7 @@ def _add(con, c, h, now, source, note):
     con.execute("UPDATE disc SET status = 'dodan' WHERE handle = ?", (h,))
 
 
-def _select(con, c, now, log):
+def _select(con, c, now, log, source="prosirenje", tag=""):
     """Add the most regular passing candidates until expand_n accounts are measured. Returns the handles added."""
     have = len(racuni.active(con, include_new=True))
     need = max(0, int(c["expand_n"]) - have)
@@ -483,12 +661,45 @@ def _select(con, c, now, log):
     added = []
     for h, nf, nm, ns, pd, ms, reg in rows:
         src = ", ".join(x for x in (f"prati ga {nf} naših" if nf else "", f"spominje ga {nm} naših" if nm else "",
-                                    "pretraga" if ns else "") if x)
-        _add(con, c, h, now, "prosirenje", f"otkriven ({src}); {reg:.1f} tržišnih objava dnevno, {ms:.0%} objava o "
-                                           "tržištu; kategorija iz opisa (Pretpostavka)")
+                                    "pretraga" if ns else "") if x) or "pretraga po imenu"
+        _add(con, c, h, now, source, f"otkriven{tag} ({src}); {reg:.1f} tržišnih objava dnevno, {ms:.0%} objava o "
+                                     "tržištu; kategorija iz opisa (Pretpostavka)")
         added.append(h)
     con.commit()
     return added
+
+
+def normal_verdict(con, c, h, now=None):
+    """None when the account passes the NORMAL filters of the expansion on its own (the follower threshold, no promo /
+    bot bio, not an exchange or a project, a crypto / macro bio or followed by ours, active in active_days, >=
+    min_market_share market posts, <= max_promo_share promo posts), else the reason. From what is stored (its profile
+    and probe in disc, its posts): no request. 16.11.: the candidate that was measured for an owner's name until he
+    answered stays as a normal account only if this says None (racuni.seed)."""
+    now = int(now or time.time())
+    r = store.q(con, "SELECT followers, bio, n_probe, last_ts, market_share, promo_share FROM disc WHERE lower(handle) = "
+                     "lower(?)", (h,))
+    if not r:
+        return "nema spremljene probe"
+    fol, bio, n_probe, last_ts, share, promo = r[0]
+    a = store.q(con, "SELECT followers FROM accounts WHERE lower(handle) = lower(?)", (h,))
+    fol = a[0][0] if a and a[0][0] is not None else fol
+    bio = bio or ""
+    ed = dict(store.q(con, "SELECT kind, COUNT(*) FROM disc_edge WHERE lower(dst) = lower(?) GROUP BY kind", (h,)))
+    nf, nm = ed.get("follow", 0), ed.get("mention", 0)
+    if fol is None:
+        return "bez profila"
+    if fol < int(c["min_followers"]):
+        return f"ispod {int(c['min_followers']) // 1000}k pratitelja"
+    if PROMO_BIO.search(bio):
+        return "promo / bot opis"
+    if NOT_PERSON.search(bio) and nf < 5:
+        return "projekt / burza, ne analitičar"
+    if not (racuni.CRYPTO_BIO.search(bio) or STATS_BIO.search(bio)) and nf < 3 and nm < 3:
+        return "opis nije kripto / makro"
+    newest = store.q(con, "SELECT MAX(ts) FROM tweets WHERE lower(handle) = lower(?)", (h,))
+    last = max(int(last_ts or 0), int((newest[0][0] if newest else 0) or 0))
+    return _verdict({"n": int(n_probe or 0), "last_ts": last, "market_share": float(share or 0),
+                     "promo_share": float(promo or 0)}, c, now)
 
 
 # ---------- the owner's "Adam" ------------------------------------------------------------------------------------------
@@ -580,7 +791,7 @@ def _adam(con, c, now, get, log):
 
 def step(con, c=None, now=None, get=None, log=print, deadline=None):
     """Advance discovery as far as the deadline and the expansion cap allow. Returns {"step", "dodano", "cap"}."""
-    c = c or store.config()
+    c = _w1(c or store.config())
     now = int(now or time.time())
     st = _state(con)
     out = {"step": st.get("step") or "pratitelji", "dodano": 0, "cap": None}
@@ -655,6 +866,156 @@ def step(con, c=None, now=None, get=None, log=print, deadline=None):
     return out
 
 
+# ---------- the second wave (16.11.: 30k+, the ceiling 800) --------------------------------------------------------------
+
+def _state2(con):
+    return store.kv_json(con, "otkrivanje2", {}) or {}
+
+
+def wave2_handles(con):
+    """Handles of the second wave's accounts (their own depth and caps)."""
+    return {h for (h,) in store.q(con, "SELECT handle FROM accounts WHERE source = ?", (PH2,))}
+
+
+def _reconsider(con, c, now):
+    """The candidates the first wave refused ONLY for the old follower threshold go back to the free filter (_score
+    with the new threshold decides; nothing is asked from X). Returns how many. Once the owner named his Adam, the
+    other candidates for that name (probed then, never measured) are ordinary candidates too: passing or refused by
+    the normal filters on what is stored."""
+    n = con.execute("UPDATE disc SET status = 'kandidat', why = NULL WHERE status = 'odbijen' AND why LIKE ? AND "
+                    "probe_ts IS NULL", (WHY_WAVE1 + "%",)).rowcount
+    if (racuni.owner_file().get("potvrdi") or {}).get(ADAM):
+        for (h,) in store.q(con, "SELECT handle FROM disc WHERE status = 'adam'"):
+            why = normal_verdict(con, c, h, now)
+            con.execute("UPDATE disc SET status = ?, why = ? WHERE handle = ?", ("odbijen" if why else "probano", why, h))
+    con.commit()
+    return n
+
+
+def _reactivate(con, c):
+    """Accounts already in the base (the seed) the profile check refused ONLY for the old follower threshold and
+    that have the new one: measured from now on, as accounts of the second wave (its depth and caps), from the stored
+    profile (no request), as far as the ceiling leaves room. Returns their handles."""
+    room = max(0, int(c["expand_n"]) - len(racuni.active(con, include_new=True)))
+    hs = [h for (h,) in store.q(con, """SELECT handle FROM accounts WHERE status = 'odbijen' AND why LIKE ? AND
+        followers >= ? AND COALESCE(protected, 0) = 0 AND handle NOT LIKE '?%' ORDER BY followers DESC LIMIT ?""",
+                                (WHY_WAVE1 + " (%", int(c["min_followers"]), room))]
+    for h in hs:
+        con.execute("UPDATE accounts SET status = 'aktivan', why = NULL, note = COALESCE(note || '; ', '') || ? || "
+                    "COALESCE(source, '') || ')', source = ? WHERE handle = ?",
+                    (f"odbijen samo zbog praga 100k, od 16.11. prag {int(c['min_followers']) // 1000}k (prije: ", PH2, h))
+    con.commit()
+    return hs
+
+
+def step2(con, c=None, now=None, get=None, log=print, deadline=None):
+    """Advance the second wave's discovery as far as the deadline and ITS cap allow: the stored candidates first
+    (krug 1: no discovery is paid again), normal discovery only while still under the ceiling (krug 2). Returns
+    {"step", "dodano", "cap"}."""
+    c = c or store.config()
+    now = int(now or time.time())
+    st = _state2(con)
+    out = {"step": st.get("step") or "ponovno", "dodano": 0, "cap": None}
+    if st.get("step") == "gotovo":
+        return out
+    if not xapi.has_key(get):
+        out["cap"] = "nema ključa"
+        return out
+    st.setdefault("step", "ponovno")
+    st.setdefault("krug", 1)
+    if not st.get("t0"):
+        st["t0"] = now
+        log(store.PREFIX + f"2. val: počinje od spremljenih kandidata 1. vala (odbijeni samo zbog „{WHY_WAVE1}”, "
+                           "neprobani, oni koji su prošli probu); otkrivanje se ne plaća ponovno; novo otkrivanje tek "
+                           f"ako ostane mjesta do {c['expand_n']} računa")
+
+    def select():
+        added = _select(con, c, now, log, source=PH2, tag=f", 2. val {int(c['min_followers']) // 1000}k+")
+        out["dodano"] += len(added)
+        st.setdefault("dodano", []).extend(added)
+        return added
+    try:
+        while st["step"] != "gotovo":
+            if deadline and time.time() > deadline:
+                break
+            s = st["step"]
+            if s == "ponovno":
+                st["ponovno"] = _reconsider(con, c, now)
+                back = _reactivate(con, c)
+                if back:
+                    st["vraceni"] = back
+                    log(store.PREFIX + f"2. val: {len(back)} računa iz baze odbijenih samo zbog „{WHY_WAVE1}” opet se "
+                                       f"mjeri: {', '.join('@' + h for h in back[:20])}")
+                st["step"] = "ocjena"
+            elif s == "pratitelji":
+                read = _followings_read(con)
+                srcs = [h for h, _s in racuni.by_regularity(con, ("aktivan",)) if h not in read]
+                if not _followings(con, c, now, get, log, deadline, st, ph=PH2, key="otkrivanje2", srcs=srcs,
+                                   pages=c["wave2_follow_pages"]):
+                    break
+                st["step"] = "spominjanja"
+            elif s == "spominjanja":
+                _mentions(con)
+                # the mentioned accounts the first wave had no profile lookups left for: the next best of them
+                con.execute("UPDATE disc SET status = 'kandidat', why = NULL WHERE status = 'odbijen' AND why = "
+                            "'bez profila' AND followers IS NULL")
+                # refused for too few of ours following them: ten times as many accounts were read since (free)
+                con.execute("UPDATE disc SET status = 'kandidat', why = NULL WHERE status = 'odbijen' AND probe_ts IS "
+                            "NULL AND why IN ('opis nije kripto / makro', 'projekt / burza, ne analitičar')")
+                st["step"] = "profili"
+            elif s == "profili":
+                if not _lookups(con, c, now, get, log, deadline, ph=PH2):
+                    break
+                st["step"] = "ocjena"
+            elif s == "ocjena":
+                _score(con, c)
+                st["step"] = "proba"
+            elif s == "proba":
+                need = max(0, int(c["expand_n"]) - len(racuni.active(con, include_new=True)))
+                if not _probe(con, c, now, get, log, deadline, need, ph=PH2, since=st["t0"],
+                              max_n=c["wave2_probe_max"]):
+                    break
+                st["step"] = "odabir"
+            elif s == "odabir":
+                added = select()
+                total = len(racuni.active(con, include_new=True))
+                if total < int(c["expand_n"]) and st["krug"] < 2:
+                    st.update(krug=2, step="pratitelji")
+                    log(store.PREFIX + f"2. val: iz spremljenih kandidata dodano {len(added)}, mjeri se {total} računa (< "
+                                       f"{c['expand_n']}): novo otkrivanje (praćeni računa koje 1. val nije čitao, "
+                                       "spominjanja, profili)")
+                else:
+                    st["step"] = "gotovo"
+                    st["kraj"] = now
+                    log(done2_line(con, c, st))
+            store.kv(con, "otkrivanje2", st)
+            con.commit()
+    except xapi.CapReached as e:
+        out["cap"] = str(e)
+        log(store.PREFIX + f"2. val: {e}; odabir iz onoga što je probano")
+        select()
+        st.update(step="gotovo", kraj=now, strop=str(e))
+        log(done2_line(con, c, st))
+    store.kv(con, "otkrivanje2", st)
+    con.commit()
+    out["step"] = st["step"]
+    return out
+
+
+def done2_line(con, c, st):
+    probed = _n(con, "SELECT COUNT(*) FROM disc WHERE probe_ts >= ? AND COALESCE(seed, '') <> 'adam'",
+                (int(st.get("t0") or 0),))
+    total = len(racuni.active(con, include_new=True))
+    return (store.PREFIX + f"otkrivanje 2. vala gotovo: ponovno razmotreno {st.get('ponovno', 0)} kandidata (odbijeni "
+            f"samo zbog „{WHY_WAVE1}”" + (f"; {len(st['vraceni'])} računa iz baze vraćeno" if st.get("vraceni") else "")
+            + f"), probano {probed}, dodano {len(st.get('dodano') or [])} ("
+            + ("spremljeni kandidati i novo otkrivanje" if st.get("krug", 1) > 1 else "samo spremljeni kandidati, bez novog "
+               "otkrivanja") + f"); mjeri se {total} računa (strop {c['expand_n']}); twitterapi 2. vala "
+            f"{_usd(store.spent(con, 'twitterapi', PH2))} / "
+            f"{_usd((store.kv_json(con, PH2, {}) or {}).get('twapi_usd') or c['expand2_twapi_usd'])}"
+            + (f"; {st['strop']}" if st.get("strop") else ""))
+
+
 def done_line(con, c, st):
     n = dict(store.q(con, "SELECT status, COUNT(*) FROM disc GROUP BY status"))
     probed = (store.q(con, "SELECT COUNT(*) FROM disc WHERE probe_ts IS NOT NULL") or [[0]])[0][0]
@@ -681,15 +1042,35 @@ def in_progress(con, c=None):
         return True
     if not store.kv(con, "prosirenje_dubina_gotova") and not store.kv(con, "prosirenje_strop_twapi"):
         return True
-    return bool(not store.kv(con, "prosirenje_strop_openai") and
-                classify.pending(con, 1, expansion=None, which="povijest"))
+    if not store.kv(con, "prosirenje_strop_openai") and classify.pending(con, 1, expansion=None, which="povijest",
+                                                                          wave=1):
+        return True
+    if not ordered2(con, c):   # the second wave: the same three, under its own caps
+        return False
+    if (_state2(con).get("step") or "") != "gotovo":
+        return True
+    if not store.kv(con, "prosirenje2_dubina_gotova") and not store.kv(con, "prosirenje2_strop_twapi"):
+        return True
+    return bool(not store.kv(con, "prosirenje2_strop_openai") and
+                classify.pending(con, 1, expansion=None, which="povijest", wave=2))
 
 
 def summary(con):
     """For the owner's card and MCP: the order, the discovery state, the estimate and the spend per phase."""
-    st = _state(con)
+    st, s2 = _state(con), _state2(con)
     n = dict(store.q(con, "SELECT status, COUNT(*) FROM disc GROUP BY status"))
+    n2 = store.kv_json(con, "nalog_prosirenje2")
     return {"nalog": store.kv_json(con, "nalog_prosirenje"), "korak": st.get("step"), "krug": st.get("krug"),
             "kandidata": sum(n.values()), "po_stanju": n, "dodano": len(st.get("dodano") or []),
-            "adam": st.get("adam"), "procjena": store.kv_json(con, "procjena"), "trosak_po_fazi": phase_spend(con),
-            "dubina_gotova": store.kv(con, "prosirenje_dubina_gotova")}
+            "adam": st.get("adam"), "adam_potvrden": (racuni.owner_file().get("potvrdi") or {}).get(ADAM),
+            "procjena": store.kv_json(con, "procjena"), "trosak_po_fazi": phase_spend(con),
+            "dubina_gotova": store.kv(con, "prosirenje_dubina_gotova"),
+            "val2": ({"nalog": n2, "korak": s2.get("step"), "krug": s2.get("krug"), "ponovno": s2.get("ponovno"),
+                      "dodano": len(s2.get("dodano") or []), "vraceni": s2.get("vraceni") or [],
+                      "strop": s2.get("strop"),
+                      "racuna": len(racuni.active(con, include_new=True)),
+                      "potroseno": {"twapi": round(store.spent(con, "twitterapi", PH2), 4),
+                                    "openai": round(store.spent(con, "openai", PH2), 4)},
+                      "stropovi": {"twapi": n2.get("strop_twapi_usd"), "openai": n2.get("strop_openai_usd")},
+                      "procjena": store.kv_json(con, "procjena2"),
+                      "dubina_gotova": store.kv(con, "prosirenje2_dubina_gotova")} if n2 else None)}

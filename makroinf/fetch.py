@@ -11,6 +11,8 @@ Backfill, per account, units in fetch_log so a deploy resumes where it stopped:
                    (500) market posts an account the rest is not bought (fetch_log phase "dubina_puna"). A window the
                    zadnjih posts already cover is not bought either ("pokriveno"); a partly covered one ends where they
                    start.
+16.11. (the owner's second wave, 30k+ accounts: "smaller accounts; keep cost down"): an account of that wave (source
+prosirenje2) gets the last 200 posts + up to wave2_depth_posts (300) market posts over wave2_months (12) (cfg_for).
 Daily (15.11. navečer, the owner: "svaki dan skrepat njihove nove postove"): every active account once in incr_every_s,
 the macro query since its newest stored post (<= incr_pages pages), the most regular accounts first, per account in
 daily_fetch so a round that runs out of time leaves the rest for the next round (not for the next day). Inactive
@@ -122,9 +124,28 @@ def market_units(now, months):
     return [u for u in us if u[0].endswith(":a")] + [u for u in us if u[0].endswith(":b")]
 
 
+WAVE2 = "prosirenje2"   # accounts.source of the second wave (discover.step2)
+
+
+def wave2_cfg(c):
+    """The configuration with the second wave's depth (the last 200 posts + 300 market posts over 12 months)."""
+    return {**c, "months": int(c.get("wave2_months") or c["months"]),
+            "depth_posts": int(c.get("wave2_depth_posts") or c["depth_posts"]),
+            "last_pages": int(c.get("wave2_last_pages") or c["last_pages"])}
+
+
+def cfg_for(con, c, handle, wave2=None):
+    """The configuration the account's backfill runs with: the second wave's accounts their own depth (wave2: the set
+    of their handles when the caller already has it)."""
+    if wave2 is None:
+        wave2 = {h for (h,) in store.q(con, "SELECT handle FROM accounts WHERE handle = ? AND source = ?",
+                                       (handle, WAVE2))}
+    return wave2_cfg(c) if handle in wave2 else c
+
+
 def units_left(con, c, handle, now):
-    """The backfill units not done yet. A month that starts after the account's backfill began is not a unit: the
-    daily macro query covers it (no second, paid read of the same posts)."""
+    """The backfill units not done yet (c: the account's own configuration, cfg_for). A month that starts after the
+    account's backfill began is not a unit: the daily macro query covers it (no second, paid read of the same posts)."""
     rows = store.q(con, "SELECT unit, done_ts, n FROM fetch_log WHERE handle = ?", (handle,))
     done = {u for u, _t, _n in rows}
     first = min((t for _u, t, _n in rows if t), default=None)
@@ -168,19 +189,22 @@ def backfill(con, c, now=None, get=None, log=print, deadline=None, ph=None, hand
         return out
     accs = list(handles if handles is not None else [h for h, _c, _s in racuni.active(con)])
     groups = [accs[k:k + int(tier)] for k in range(0, len(accs), int(tier))] if tier else [accs]
-    cap_posts = int(c.get("depth_posts") or 0)
+    w2 = {h for (h,) in store.q(con, "SELECT handle FROM accounts WHERE source = ?", (WAVE2,))}
+    c0, c2 = c, (wave2_cfg(c) if w2 else c)   # the second wave's accounts: their own depth
     for gi, grp in enumerate(groups):
-        queues = {h: units_left(con, c, h, now) for h in grp}
+        queues = {h: units_left(con, c2 if h in w2 else c0, h, now) for h in grp}
         while any(queues.values()):
             for h in list(queues):
                 if not queues[h]:
                     continue
                 if deadline and time.time() > deadline:
                     out["left"] = sum(len(v) for v in queues.values()) + sum(
-                        len(units_left(con, c, x, now)) for g in groups[gi + 1:] for x in g)
+                        len(units_left(con, c2 if x in w2 else c0, x, now)) for g in groups[gi + 1:] for x in g)
                     return out
                 unit, a, b = queues[h].pop(0)
                 p = ph or store.phase(con, "twapi")
+                c = c2 if h in w2 else c0
+                cap_posts = int(c.get("depth_posts") or 0)
                 if unit.startswith("mj:"):
                     if cap_posts and depth(con, h) >= cap_posts:   # deep enough: the rest is not bought
                         for u, _a, _b in [(unit, a, b)] + queues[h]:

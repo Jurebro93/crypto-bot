@@ -4,13 +4,17 @@ disk), the configuration and the spend caps.
 Spend (CLAUDE.md: "prije svakog novog troška izmjeri"): every paid call is booked here (table spend: ts, day, src,
 phase, what, usd) and in usage.db (usage/meter: service "twitterapi" / "openai", method "makroinf"). The caps, per phase:
   pilot       twitterapi one-off PILOT (5 $) for the 50-account backfill; OpenAI one-off (4 $) for its classification
-  dan         after the pilot: twitterapi 1,50 $ a UTC day (the daily fetch of every active account, deletion checks,
-              profiles, the rest of the backfill), OpenAI 0,50 $ a UTC day (the new posts; the day's topics inside it,
-              at most narr_openai_usd)
+  dan         after the pilot: twitterapi 2,00 $ a UTC day (the daily fetch of every active account, deletion checks,
+              profiles, the rest of the backfill), OpenAI 0,60 $ a UTC day (the new posts; the day's topics inside it,
+              at most narr_openai_usd); 1,50 $ / 0,50 $ until the owner's second order of 16.11. (more accounts)
   provjera    the quality check's critic pass (OPENAI_MODEL_DEEP), 1 $ a check
   prosirenje  the expansion to 300-500 accounts (15.11. navečer: by the owner's order, makroinf/discover.py; else only
               after a passed check): one-off caps twitterapi 40 $ (discovery, probes, the deep history of every account),
               OpenAI 15 $ (the history's classification); what is left after them goes on under the daily caps
+  prosirenje2 the second wave (16.11., the owner: "možeš pratiti influencere od 30k+ followera i dodaj ih na listu"):
+              30k+ followers, the ceiling 800 accounts; its OWN one-off caps on top of the first wave's: twitterapi 25 $
+              (probes, discovery, the history of the wave's accounts: the last 200 posts + up to 300 market posts over
+              12 months), OpenAI 8 $ (their history's classification); the daily caps are 2,00 $ / 0,60 $ since then
 A call is made only when the most it can cost fits the cap left (twitterapi: a full page; OpenAI: openai_api.max_cost),
 so a cap is never crossed; at the cap the job stops cleanly and says so in the log.
 """
@@ -26,10 +30,15 @@ SWITCH = "makroinf_javno"    # owner switch: the public pages (default off: rout
 
 DEFAULT = {
     # caps (USD)
-    "pilot_twapi_usd": 5.0, "day_twapi_usd": 1.50, "pilot_openai_usd": 4.0, "day_openai_usd": 0.50,
+    # (16.11., the owner's second wave: the daily caps 1,50 -> 2,00 $ and 0,50 -> 0,60 $, "more accounts")
+    "pilot_twapi_usd": 5.0, "day_twapi_usd": 2.00, "pilot_openai_usd": 4.0, "day_openai_usd": 0.60,
     "quality_openai_usd": 1.0, "expand_twapi_usd": 40.0, "expand_openai_usd": 15.0,
-    # accounts (15.11. navečer, the owner: "pratiti ih 300, 400, 500 ovih najredovitijih")
-    "pilot_n": 50, "expand_n": 500, "expand_min": 300, "min_followers": 100_000, "seed_min_followers": 50_000,
+    "expand2_twapi_usd": 25.0, "expand2_openai_usd": 8.0,
+    # accounts (15.11. navečer, the owner: "pratiti ih 300, 400, 500 ovih najredovitijih"; 16.11., the owner: "možeš
+    # pratiti influencere od 30k+ followera i dodaj ih na listu": the threshold 100k -> 30k, the ceiling 500 -> 800).
+    # wave1_*: what the first wave was ordered with (its discovery never goes past them, discover._w1)
+    "pilot_n": 50, "expand_n": 800, "expand_min": 300, "min_followers": 30_000, "seed_min_followers": 30_000,
+    "wave1_n": 500, "wave1_min_followers": 100_000,
     "active_days": 30, "circle_max": 4, "circle_min_mentions": 3, "min_market_share": 0.20, "max_promo_share": 0.5,
     "profile_every_d": 7,
     # discovery (makroinf/discover.py): followings pages of every measured account, user searches, one probe page each
@@ -47,6 +56,12 @@ DEFAULT = {
     "narr_model": "gpt-5-mini", "narr_openai_usd": 0.05, "narr_every_s": 6 * 3600, "narr_max_posts": 300,
     # the owner's order of 15.11. navečer (makroinf/discover.py): False stops it (nothing new is added or fetched deep)
     "expand_by_order": True,
+    # the owner's order of 16.11. (the second wave, discover.step2): False stops it. Its accounts' depth: the last 200
+    # posts (wave2_last_pages) + up to wave2_depth_posts market posts over wave2_months ("smaller accounts; keep cost
+    # down"); the stored candidates first (wave2_probe_max probes at most), then one followings page of every account
+    # whose followings the first wave did not read
+    "expand2_by_order": True, "wave2_months": 12, "wave2_depth_posts": 300, "wave2_last_pages": 10,
+    "wave2_probe_max": 900, "wave2_follow_pages": 1,
 }
 
 SCHEMA = """
@@ -228,9 +243,10 @@ def left(con, kind, ph=None, now=None, c=None):
     src = "twitterapi" if kind == "twapi" else "openai"
     if ph == "pilot":
         return max(0.0, float(c[f"pilot_{kind}_usd"]) - spent(con, src, "pilot"))
-    if ph == "prosirenje":
-        cap = float((kv_json(con, "prosirenje", {}) or {}).get(f"{kind}_usd") or c[f"expand_{kind}_usd"])
-        return max(0.0, cap - spent(con, src, "prosirenje"))
+    if ph in ("prosirenje", "prosirenje2"):   # each wave of the expansion has its own one-off caps
+        key = "expand" if ph == "prosirenje" else "expand2"
+        cap = float((kv_json(con, ph, {}) or {}).get(f"{kind}_usd") or c[f"{key}_{kind}_usd"])
+        return max(0.0, cap - spent(con, src, ph))
     if ph == "provjera":
         return max(0.0, float(c["quality_openai_usd"]) - spent(con, "openai_deep", "provjera",
                                                                kv(con, "provjera_dan") or day(now)))

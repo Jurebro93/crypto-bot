@@ -156,7 +156,12 @@ T = {
         ep_h="Calls (older than 7 days)", ep_cols=("Date", "Call", "Horizon", "Result", "Post"),
         post="post", gone="later unavailable", stance="Stance on BTC 7 days ago: {s}.", no_stance="no current view",
         method="How we measure →", crumb_home="Home",
-        foot_note="Not financial advice. These are measurements of past public posts, not accusations or endorsements."),
+        foot_note="Not financial advice. These are measurements of past public posts, not accusations or endorsements.",
+        pg="Page {p} of {n}", pg_range="Accounts {a}–{b} of {n}", pg_prev="← Previous {k}", pg_next="Next {k} accounts →",
+        pg_first="← Mood, topics and method", pg_nav="More accounts",
+        pg_title="Crypto macro influencer scorecard: page {p} | MemeSonar",
+        pg_desc="Accounts {a}–{b} of {n} on the crypto macro influencer scorecard: their calls on BTC and the market "
+                "measured against what happened, with hit rate, intervals and baselines."),
     "hr": dict(
         hub="/hr/makro-influenceri", prof="/hr/makro-influencer/", other="/macro-influencers", how_id="kako-mjerimo",
         nav=("Makro influenceri", "Izjave o BTC-u i tržištu izmjerene"),
@@ -242,7 +247,12 @@ T = {
         ep_h="Izjave (starije od 7 dana)", ep_cols=("Datum", "Izjava", "Horizont", "Ishod", "Objava"),
         post="objava", gone="naknadno nedostupno", stance="Stav o BTC-u prije 7 dana: {s}.", no_stance="bez stava",
         method="Kako mjerimo →", crumb_home="Naslovnica",
-        foot_note="Nije financijski savjet. Ovo su mjerenja prošlih javnih objava, a ne optužbe ili preporuke."),
+        foot_note="Nije financijski savjet. Ovo su mjerenja prošlih javnih objava, a ne optužbe ili preporuke.",
+        pg="Stranica {p} od {n}", pg_range="Računi {a}–{b} od {n}", pg_prev="← Prethodnih {k}",
+        pg_next="Sljedećih {k} računa →", pg_first="← Raspoloženje, teme i metoda", pg_nav="Još računa",
+        pg_title="Ocjene kripto makro influencera: stranica {p} | MemeSonar",
+        pg_desc="Računi {a}–{b} od {n} na ljestvici kripto makro influencera: njihove izjave o BTC-u i tržištu "
+                "izmjerene prema onome što se dogodilo, s pogotkom, intervalima i osnovama."),
 }
 
 CSS = """<style>
@@ -293,6 +303,9 @@ ol.mtp>li{counter-increment:t;padding:14px 16px 14px 46px;position:relative;bord
 ol.mtp>li:last-child{border-bottom:0}ol.mtp>li:before{content:counter(t);position:absolute;left:18px;top:14px;color:var(--mut);font-weight:600}
 ol.mtp .mt-t{font-weight:650;font-size:16.5px}ol.mtp .mt-s{margin:3px 0 0}
 ol.mtp .mt-m{color:var(--mut);font-size:13.5px;margin:4px 0 0}ol.mtp .mt-m a{color:var(--acc)}
+.mpg{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between;margin:18px 0 6px}
+.mpg span{color:var(--mut);font-size:14.5px}.mpg a{border:1px solid var(--line);border-radius:999px;padding:9px 16px;
+background:#fff;color:var(--fg);text-decoration:none;font-weight:600;font-size:15px}.mpg a:hover{border-color:var(--acc)}
 </style>"""
 
 
@@ -466,8 +479,22 @@ def assets_html(lang, m=None):
             f"</p><div class=tw><table class=coins><thead><tr>{head}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>")
 
 
-def hub(lang):
-    """HTML of the hub, or None while the switch is off / before any data."""
+HUB_PAGE = 100   # accounts on one page of the hub (16.11.: up to 800 accounts; a phone never gets them all at once)
+
+
+def hub_pages(v):
+    """How many pages the hub's account list has (the ranked accounts first, then the ones still collecting)."""
+    return max(1, -(-(len(v["ranked"]) + len(v["few"])) // HUB_PAGE))
+
+
+def _hub_path(lang, page):
+    return T[lang]["hub"] + (f"/{page}" if page > 1 else "")
+
+
+def hub(lang, page=1):
+    """HTML of the hub, or None while the switch is off / before any data / past the last page. The account list is
+    paged (HUB_PAGE a page: the ranked accounts in order, then the ones still collecting evidence); page 1 carries the
+    mood, the topics, the index and the method, the next pages only their part of the list."""
     if not on():
         return None
     v = _view()
@@ -476,9 +503,15 @@ def hub(lang):
     from ui import public as P
     t = T[lang]
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    ranked, few = v["ranked"], v["few"]
+    all_ranked, all_few = v["ranked"], v["few"]
+    total, pages = len(all_ranked) + len(all_few), hub_pages(v)
+    if page < 1 or page > pages:
+        return None
+    p0, p1 = (page - 1) * HUB_PAGE, page * HUB_PAGE
+    ranked = all_ranked[p0:p1]
+    few = all_few[max(0, p0 - len(all_ranked)):max(0, p1 - len(all_ranked))]
     trs = []
-    for k, r in enumerate(ranked, 1):
+    for k, r in enumerate(ranked, p0 + 1):
         g, e = r["integritet"], r["ekonomski"]
         lo, hi = r["wilson95"]
         gtxt = f"{g.get('naknadno_nedostupno') or 0} / {g.get('makro_izjava') or 0}"
@@ -494,11 +527,13 @@ def hub(lang):
     rank_html = (f"<p class=mnote>{esc(t['rank_note'].format(m=MIN_EP))}</p><div class=tw><table class=mr><thead>"
                  f"<tr>{head}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>") if trs else \
         f"<p class=mnote>{esc(t['rank_none'].format(m=MIN_EP))}</p>"
+    rank_html = (f"<h2 class=s id=rank>{t['rank_h']} · {len(all_ranked)}</h2>{rank_html}"
+                 if trs or (page == 1 and not all_ranked) else "")
     ftrs = "".join(f"<tr><td><a href=\"{t['prof']}{r['handle']}\">@{esc(r['handle'])}</a><span class=mcat>"
                    f"{esc(CAT[lang].get(r['category'] or '', ''))}</span></td><td class=n>{r['n_epizoda']} / {MIN_EP}</td>"
                    f"<td>{_stance(r, lang)}</td></tr>" for r in few)
     fhead = "".join(f"<th{' class=n' if j == 1 else ''}>{h}</th>" for j, h in enumerate(t["few_cols"]))
-    few_html = (f"<h2 class=s>{t['few_h']} · {len(few)}</h2><p class=mnote>{esc(t['few_note'].format(m=MIN_EP))}</p>"
+    few_html = (f"<h2 class=s>{t['few_h']} · {len(all_few)}</h2><p class=mnote>{esc(t['few_note'].format(m=MIN_EP))}</p>"
                 f"<div class=tw><table class=coins><thead><tr>{fhead}</tr></thead><tbody>{ftrs}</tbody></table></div>"
                 if few else "")
     ix = v["index"]
@@ -511,27 +546,43 @@ def hub(lang):
     how = "".join(f"<li>{esc(x.format(m=MIN_EP))}</li>" for x in t["how"])
     n = v["n"]
     kpi = (f"<div class=mk><span><b>{n}</b>{t['kpi'][0]}</span><span><b>{v['measured']}</b>{t['kpi'][1]}</span>"
-           f"<span><b>{len(ranked)}</b>{t['kpi'][2]}</span><span>{t['kpi'][3]} <b style=margin:0>"
+           f"<span><b>{len(all_ranked)}</b>{t['kpi'][2]}</span><span>{t['kpi'][3]} <b style=margin:0>"
            f"{_date(v.get('ts'), lang)}</b></span></div>")
-    m = mmood.load(public=True)
-    tp = mteme.load()
-    known = {r["handle"].lower() for r in ranked + few}
-    body = (f"{CSS}<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['h1']}</h1><p class=lead>"
-            f"{esc(t['lead'].format(n=n))}</p>{kpi}</section>"
-            f"{mood_html(lang, m)}{topics_html(lang, tp, known)}{assets_html(lang, m)}"
-            f"<h2 class=s>{t['idx_h']}</h2>{idx}<h2 class=s>{t['rank_h']} · {len(ranked)}</h2>{rank_html}{few_html}"
-            f"<h2 class=s id={t['how_id']}>{t['how_h']}</h2><ul class=how>{how}</ul>"
-            f"<div class=lock><p>{t['lock']}</p><a class='btn sm' href={P.L[lang]['home']}#pristup>{t['cta']}</a></div>"
-            f"<p class=mut style='font-size:13px'>{t['foot_note']}</p>")
-    url = f"{base}{t['hub']}"
+    a, b = p0 + 1, min(p1, total)
+    pager = ""
+    if pages > 1:   # "show more": the next HUB_PAGE accounts are one tap away, never in this page's HTML
+        prev = (f"<a rel=prev href=\"{_hub_path(lang, page - 1)}{'#rank' if page == 2 else ''}\">"
+                f"{esc(t['pg_prev'].format(k=HUB_PAGE))}</a>" if page > 1 else "")
+        nxt = (f"<a rel=next href=\"{_hub_path(lang, page + 1)}\">"
+               f"{esc(t['pg_next'].format(k=min(HUB_PAGE, total - p1)))}</a>" if page < pages else "")
+        pager = (f"<nav class=mpg aria-label=\"{esc(t['pg_nav'])}\">{prev}<span>{esc(t['pg_range'].format(a=a, b=b, n=total))}"
+                 f" · {esc(t['pg'].format(p=page, n=pages))}</span>{nxt}</nav>")
+    url = f"{base}{_hub_path(lang, page)}"
     ld = {"@context": "https://schema.org", "@type": "CollectionPage", "name": t["h1"], "url": url,
           "inLanguage": lang, "description": t["desc"].format(n=n), "dateModified": _iso(v.get("ts")),
           "isPartOf": {"@type": "WebSite", "name": "MemeSonar", "url": base + P.L[lang]["home"]}}
-    if ranked or few:   # every account page (ranked first): all of them are indexable
-        ld["mainEntity"] = {"@type": "ItemList", "numberOfItems": len(ranked) + len(few), "itemListElement": [
+    if ranked or few:   # this page's account pages (ranked first): all of them are indexable and in the sitemap
+        ld["mainEntity"] = {"@type": "ItemList", "numberOfItems": total, "itemListElement": [
             {"@type": "ListItem", "position": k, "name": "@" + r["handle"], "url": f"{base}{t['prof']}{r['handle']}"}
-            for k, r in enumerate(ranked + few, 1)]}
+            for k, r in enumerate(ranked + few, a)]}
     lds = _jsonld(ld)
+    if page > 1:   # a light page: the heading, this part of the list, the way back and on
+        body = (f"{CSS}<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['h1']}</h1><p class=lead>"
+                f"{esc(t['pg_range'].format(a=a, b=b, n=total))} · {esc(t['pg'].format(p=page, n=pages))}</p>"
+                f"<p><a href=\"{t['hub']}\">{esc(t['pg_first'])}</a></p></section>{rank_html}{few_html}{pager}"
+                f"<p class=mut style='font-size:13px'>{t['foot_note']}</p>")
+        return P._shell(lang, t["pg_title"].format(p=page), t["pg_desc"].format(a=a, b=b, n=total),
+                        _hub_path("en", page), _hub_path("hr", page), body, jsonld=lds)
+    m = mmood.load(public=True)
+    tp = mteme.load()
+    known = {r["handle"].lower() for r in all_ranked + all_few}
+    body = (f"{CSS}<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['h1']}</h1><p class=lead>"
+            f"{esc(t['lead'].format(n=n))}</p>{kpi}</section>"
+            f"{mood_html(lang, m)}{topics_html(lang, tp, known)}{assets_html(lang, m)}"
+            f"<h2 class=s>{t['idx_h']}</h2>{idx}{rank_html}{few_html}{pager}"
+            f"<h2 class=s id={t['how_id']}>{t['how_h']}</h2><ul class=how>{how}</ul>"
+            f"<div class=lock><p>{t['lock']}</p><a class='btn sm' href={P.L[lang]['home']}#pristup>{t['cta']}</a></div>"
+            f"<p class=mut style='font-size:13px'>{t['foot_note']}</p>")
     if m and (m.get("okviri") or {}).get("24h", {}).get("n"):
         mt = m.get("t") or v.get("ts")
         ds = {"@context": "https://schema.org", "@type": "Dataset", "name": t["ds_name"], "description": t["ds_desc"],
@@ -687,6 +738,10 @@ def match(path):
     if path in ("/macro-influencers", "/hr/makro-influenceri"):
         lang = "en" if path == "/macro-influencers" else "hr"
         return lambda: hub(lang)
+    m = re.fullmatch(r"(/macro-influencers|/hr/makro-influenceri)/([2-9]|[1-9]\d{1,2})", path)
+    if m:   # 16.11.: the next pages of the hub's account list (page 1 is the hub itself)
+        lang, pg = ("en" if m.group(1) == "/macro-influencers" else "hr"), int(m.group(2))
+        return lambda: hub(lang, pg)
     m = re.fullmatch(r"(/hr)?/(macro|makro)-influencer/([^/]+)", path)
     if m and ((m.group(1) is None) == (m.group(2) == "macro")):
         lang, h = ("hr" if m.group(1) else "en"), m.group(3)
@@ -708,6 +763,7 @@ def urls():
     mod = time.strftime("%Y-%m-%d", time.gmtime(ts))
     hub_mod = time.strftime("%Y-%m-%d", time.gmtime(max(ts, (tp or {}).get("ts") or 0)))
     out = [("/macro-influencers", "/hr/makro-influenceri", "0.7", hub_mod)]
+    out += [(f"/macro-influencers/{p}", f"/hr/makro-influenceri/{p}", "0.3", mod) for p in range(2, hub_pages(v) + 1)]
     out += [(f"/macro-influencer/{r['handle']}", f"/hr/makro-influencer/{r['handle']}", "0.5", mod) for r in v["ranked"]]
     out += [(f"/macro-influencer/{r['handle']}", f"/hr/makro-influencer/{r['handle']}", "0.4", mod) for r in v["few"]]
     return out

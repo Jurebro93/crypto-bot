@@ -145,7 +145,8 @@ class Order(Base):
         est = store.kv_json(self.con, "procjena")
         self.assertEqual(est["novih"], 7)
         self.assertGreater(est["twapi"]["ukupno"], 0)
-        self.assertEqual(est["stropovi"], {"twapi": 40.0, "openai": 15.0, "dan_twapi": 1.5, "dan_openai": 0.5})
+        # the daily caps: 2,00 $ / 0,60 $ since the owner's second order (16.11., tests/test_makro30k_offline.py)
+        self.assertEqual(est["stropovi"], {"twapi": 40.0, "openai": 15.0, "dan_twapi": 2.0, "dan_openai": 0.6})
         self.assertTrue(discover.record_order(self.con, c, NOW + 60, logs.append))
         self.assertEqual(len(logs), 2)                                                # once
         self.assertFalse(discover.record_order(self.con, cfg(expand_by_order=False), NOW, logs.append))
@@ -243,7 +244,11 @@ class Discovery(Base):
             json.dump({"potvrdi": {discover.ADAM: "AdamBLiv"}}, f)
         racuni.seed(self.con, NOW, self.own)
         st = dict(self.con.execute("SELECT handle, status FROM accounts").fetchall())
-        self.assertEqual(st["KobeissiLetter"], "uklonjen")
+        # 16.11. (the owner): the candidate measured until his answer stays as a NORMAL account when it passes the
+        # normal filters on its own (here it does; the other case: tests/test_makro30k_offline.py)
+        self.assertEqual(st["KobeissiLetter"], "aktivan")
+        self.assertEqual(self.con.execute("SELECT source, owner_seed FROM accounts WHERE handle = 'KobeissiLetter'")
+                         .fetchone(), ("prosirenje", 0))
         self.assertEqual(st["AdamBLiv"], "novo")
         self.assertNotIn(f"?{discover.ADAM}", st)
         self.assertEqual(self.con.execute("SELECT source, owner_seed FROM accounts WHERE handle = 'AdamBLiv'").fetchone(),
@@ -651,9 +656,11 @@ class History(Base):
 class Wiring2(Base):
     def test_config_caps_and_the_app_route(self):
         c = store.config({})
+        # 16.11. (the owner's second order): the daily caps 2,00 $ / 0,60 $, the ceiling 800; the first wave's own
+        # numbers stay as they were ordered (wave1_n, its caps)
         self.assertEqual((c["expand_twapi_usd"], c["expand_openai_usd"], c["day_twapi_usd"], c["day_openai_usd"]),
-                         (40.0, 15.0, 1.5, 0.5))
-        self.assertEqual((c["expand_n"], c["expand_min"], c["months"], c["last_pages"], c["depth_posts"]),
+                         (40.0, 15.0, 2.0, 0.6))
+        self.assertEqual((c["wave1_n"], c["expand_min"], c["months"], c["last_pages"], c["depth_posts"]),
                          (500, 300, 18, 10, 500))
         self.assertLessEqual(c["narr_openai_usd"], c["day_openai_usd"])
         self.assertEqual(c["narr_model"], "gpt-5-mini")

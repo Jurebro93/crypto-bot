@@ -255,7 +255,7 @@ def route(path, qs):
         h = path[len("/kol-makro/"):]
         if h == "biblioteka":   # 15.11. navečer: the library of every stored post (makroinf/appviews.py)
             return miweb.library(qs)
-        return miweb.profile_page(h) if h else miweb.list_page()
+        return miweb.profile_page(h) if h else miweb.list_page(qs=qs)
     if path.startswith("/kol/"):
         return kol.kol_page(path[len("/kol/"):], qs)
     if path == "/wallets":
