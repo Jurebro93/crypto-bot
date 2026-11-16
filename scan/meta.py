@@ -155,9 +155,9 @@ def track(con, prices, now):
         for col, pcol, secs in WINDOWS:
             if have[col] is None and age >= secs:
                 px, ppx = prices.get(tok), prices.get(parent)
-                if px and p0:
+                if px and p0 and p0 > 0:
                     sets[col] = round(px / p0 - 1, 4)
-                if ppx and pp0:
+                if ppx and pp0 and pp0 > 0:
                     sets[pcol] = round(ppx / pp0 - 1, 4)
         done = age >= 26 * 3600 or (have["r24h"] is not None or "r24h" in sets)
         if sets or done:
@@ -176,18 +176,39 @@ def pending_tokens(con):
     return out
 
 
+# 16.11. (jutarnji izvještaj: "prosjek 608,985,465 %"): one beta whose start price was ~0 (a division by almost
+# nothing) carried the whole mean. A result is capped at BETA_CAP (+1000 %; -100 % is the floor anyway) for the mean,
+# the median is reported next to it, and a row without a usable start price (p0 / parent_p0 zero, None or negative)
+# is not a measurement at all.
+BETA_CAP = 10.0
+
+
+def _median(xs):
+    xs = sorted(xs)
+    k = len(xs) // 2
+    return xs[k] if len(xs) % 2 else (xs[k - 1] + xs[k]) / 2
+
+
 def report_rows(con, since):
-    """Beta results per window and per parent state: [{window, state, n, mean, hit}] where state is 'raste' (the
-    parent was up over the same window) or 'pada' (flat or down); mean = mean result of the beta, hit = share up."""
+    """Beta results per window and per parent state: [{window, state, n, mean, median, hit, capped, dropped}] where
+    state is 'raste' (the parent was up over the same window) or 'pada' (flat or down); mean = the mean result of the
+    beta with each result capped at BETA_CAP (winsorized), median = the median of the raw results, hit = share up,
+    capped = how many results were over the cap, dropped = the window's rows left out for a zero / None start price."""
     out = []
     for col, pcol, _ in WINDOWS:
         groups = {"raste": [], "pada": []}
-        for r, pr in con.execute(f"SELECT {col}, {pcol} FROM beta WHERE found_ts >= ? AND {col} IS NOT NULL "
-                                 f"AND {pcol} IS NOT NULL", (since,)):
+        dropped = 0
+        for r, pr, p0, pp0 in con.execute(f"SELECT {col}, {pcol}, p0, parent_p0 FROM beta WHERE found_ts >= ? AND "
+                                          f"{col} IS NOT NULL AND {pcol} IS NOT NULL", (since,)):
+            if not p0 or p0 <= 0 or not pp0 or pp0 <= 0:
+                dropped += 1
+                continue
             groups["raste" if pr > 0 else "pada"].append(r)
         for state, vals in groups.items():
             if vals:
+                capped = [min(BETA_CAP, max(-1.0, v)) for v in vals]
                 out.append({"window": col[1:], "state": state, "n": len(vals),
-                            "mean": round(sum(vals) / len(vals), 4),
-                            "hit": round(sum(1 for v in vals if v > 0) / len(vals), 3)})
+                            "mean": round(sum(capped) / len(capped), 4), "median": round(_median(vals), 4),
+                            "hit": round(sum(1 for v in vals if v > 0) / len(vals), 3),
+                            "capped": sum(1 for v in vals if v > BETA_CAP), "dropped": dropped})
     return out

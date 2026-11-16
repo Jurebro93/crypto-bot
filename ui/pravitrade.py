@@ -5726,17 +5726,21 @@ def _edit_plan(con, tok, tp, sl, floor):
     return plan
 
 
-def _gate_now(tcon, sol, token, now=None):
+def _gate_now(tcon, sol, token, now=None, src=None):
     """The real-money gate (trade/executor.gate_buy) for an owner's buy, asked before the order is written. A manual
     buy is always "one more lot" (add=True, as run_trade.follow_league_once books it). Without an answer from the RPC
-    for the balance, every other limit is still checked and run_trade checks the balance as before."""
+    for the balance, every other limit is still checked and run_trade checks the balance as before. src (16.11.):
+    Grok autotrade's buy is an automatic one (executor.is_auto): the global cap AUTO_HARD_CAPS answers here already, so
+    no demo position is written that the real swap would refuse."""
     cfg = _cfg(tcon)
     live = executor.is_live(cfg)
     now = now or time.time()
+    auto = executor.is_auto(src, True)
     try:
-        return executor.gate_buy(tcon, cfg, sol, now, live, token=token, add=True, manual=True)
+        return executor.gate_buy(tcon, cfg, sol, now, live, token=token, add=True, manual=True, auto=auto)
     except Exception:  # noqa: BLE001 - the RPC for the balance did not answer
-        return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True, manual=True)
+        return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True, manual=True,
+                                 auto=auto)
 
 
 # ---- 11.11. (owner: "Ako ja ručno prilikom kupovine postavim drugačiji stop loss ... ručno uvijek nadjačava ono što
@@ -6408,7 +6412,7 @@ def _post_buy(con, tcon, form, user, src=None, plan=None, plan_client=None):
         lim = cfg["max_sol_per_trade"]
         if sol > lim:
             raise ValueError(f"ulog {sol:g} SOL je iznad limita {lim:g} SOL po tradeu (promijeni limit u postavkama)")
-        why = _gate_now(tcon, sol, token)
+        why = _gate_now(tcon, sol, token, src=src)
         if why:
             print(f"pravi trade: kupnja {token[:6]} odbijena: {why}", flush=True)
             hint = " Promijeni limit pod Pravila → Limiti." if "otvorenih pozicija" in why else ""

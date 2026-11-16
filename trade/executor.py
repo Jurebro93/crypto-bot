@@ -388,6 +388,51 @@ def switch_line(st):
             + (" | po strategiji: " + "; ".join(parts) if parts else ""))
 
 
+# 16.11. (vlasnik, jutarnji izvještaj; CLAUDE.md "dnevni gubitak 0,5 SOL", "0,1 SOL po tradeu"): ONE global cap over
+# EVERY automatic real buy together, whatever path or switch (LIVE_CAPS, pravi_novac_sve, pravi_novac_izvori,
+# pravi_novac_veliki, oscilator, Grok autotrade): the day's realized result of every live position, fees included
+# (day_pnl), at or under -max_loss_day stops every automatic real buy until the next Zagreb day, and no automatic real
+# stake is above max_sol_per_trade. HARD (no override, no flag, no config raises it); each path's own caps above stay
+# and the strictest wins (buy() cuts the stake to the smallest, buy_checks refuses the rest, and buy() asks
+# final_check once more right before the swap). The owner's own manual buys keep his rules (11.11.: "ručno nadjačava");
+# Grok autotrade's buys reach buy() through his buy path as a manual stake (ui/grokauto -> ui/pravitrade._post_buy ->
+# run_trade manual=True) but no person placed them, so they are automatic here (is_auto).
+AUTO_HARD_CAPS = {"max_sol_per_trade": 0.1, "max_loss_day": 0.5}
+GROK_AUTO_SRC = "grok auto"   # ui/grokauto.SRC "Grok auto (MCP)"; a Grok request the owner approved is his own buy
+
+
+def is_auto(reason, manual):
+    """True for an automatic real buy: every buy that is not the owner's own (manual=False) and Grok autotrade's."""
+    return (not manual) or str(reason or "").strip().lower().startswith(GROK_AUTO_SRC)
+
+
+def auto_hard(con, size_sol, now, tz=None):
+    """The global cap's refusals of one automatic real buy: [(key, text)] (empty = within the cap)."""
+    out = []
+    cap = AUTO_HARD_CAPS["max_sol_per_trade"]
+    if size_sol > cap + 1e-9:
+        out.append(("auto_stake", f"globalni strop automatskih pravih kupnji: ulog {size_sol:g} SOL iznad {cap:g} SOL"))
+    lost = day_pnl(con, now, "live", tz)
+    lim = AUTO_HARD_CAPS["max_loss_day"]
+    if lost <= -lim + 1e-12:
+        out.append(("auto_day_loss", f"globalni dnevni gubitak {lost:+.3f} SOL (sve prave pozicije, s naknadama), "
+                                     f"granica -{lim:g} SOL: sve automatske prave kupnje stoje do sljedećeg dana "
+                                     "(Zagreb), otvorene pozicije zadržavaju izlaze"))
+    return out
+
+
+def final_check(con, size_sol, now, live, auto, tz=None):
+    """16.11.: the last check before the swap is sent (after the gate and the sell check, which may take seconds):
+    the kill switch for every buy, the global cap for every automatic real buy. The refusal text or None."""
+    if os.path.exists(STOP_FILE):
+        return "kill switch (trade/STOP)"
+    if live and auto:
+        refused = auto_hard(con, size_sol, now, tz)
+        if refused:
+            return refused[0][1]
+    return None
+
+
 def live_spent(con, now, tz=None):
     """SOL put into EVERY live buy today (the owner's own included): what LIVE_CAPS max_sol_per_day limits."""
     return con.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE opened_ts>=? AND mode='live' "
@@ -411,14 +456,16 @@ HARD_RULES = frozenset({"rug"})
 
 
 def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, izvori=False,
-               mcap=None, veliki=False):
+               mcap=None, veliki=False, auto=None):
     """Every reason this buy is refused, in gate_buy's order, as (kind, key, text): kind HARD or SOFT (above), key a
     short name of the rule (stop, stake, dup, day_spend, day_loss, max_open, balance, reserve, mikrokap). A generator:
     gate_buy stops at the first reason, the owner's buy (ui/pravitrade) and an overridden one read on, so the wallet's
     RPC is asked only when the checks before it are through. mcap (15.11.): the entry's market cap, for the microcap
-    gate of an automatic buy (trade/capgate)."""
-    if os.path.exists(STOP_FILE):
+    gate of an automatic buy (trade/capgate). auto (16.11.): an automatic buy (default: not manual; Grok autotrade's
+    manual stake passes auto=True, is_auto): the global cap AUTO_HARD_CAPS, HARD, after the path's own caps."""
+    if os.path.exists(STOP_FILE):   # always the first check: no flag, path or override comes before it
         yield HARD, "stop", "kill switch (trade/STOP)"
+    auto = (not manual) if auto is None else bool(auto)
     # 15.11. (vlasnik: "inače sada tradamo samo mid-capove: 5M-150M $"; trade/capgate): an AUTOMATIC real buy under
     # MIN_MC is a HARD reason (no override, no moonshot: the exception is demo only); the owner's own buy is not held
     if not manual and mcap is not None:
@@ -470,6 +517,10 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
                                       "SOL: nove automatske kupnje stoje do sljedećeg dana (Zagreb), otvorene pozicije "
                                       "zadržavaju izlaze") if sw or ve else
                                      f"dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} SOL: stop do ponoći")
+    if live and auto:   # 16.11.: the global cap of every automatic real buy, HARD (never overridden); after the
+        # path's own caps so a refusal both give names the path's cap first (the strictest wins either way)
+        for key, text in auto_hard(con, size_sol, now, tz):
+            yield HARD, key, text
     n_open = con.execute("SELECT COUNT(*) FROM positions WHERE status IN ('open','pending') AND mode=?",
                          (mode,)).fetchone()[0]
     # 10.11. (Jure: dokupnja u istu poziciju): a token bought in two lots is one position against max_open; the
@@ -543,7 +594,7 @@ def equity_value(con, now, balance=None):
 
 
 def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, override=False,
-             izvori=False, mcap=None, veliki=False):
+             izvori=False, mcap=None, veliki=False, auto=None):
     """Reason the buy is blocked, or None. add (10.11.): the owner's manual buy of a token already held: one more
     lot of the same position, so the duplicate check does not apply (every other limit does).
     manual (10.11., Jure: "makni limit"): the owner's own buy (quick buy, a lot added, his DCA order, a Grok request
@@ -551,17 +602,18 @@ def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False,
     stake per trade, the day's loss stop, the number of positions and the wallet balance hold for every buy.
     live (11.11., owner's rule C): LIVE_CAPS on top for every automatic live buy (not for manual).
     override (11.11.): the owner confirmed this manual buy over his limits: only the HARD reasons hold (buy_checks);
-    without manual it is ignored. mcap (15.11.): the microcap gate of an automatic buy (buy_checks)."""
-    return _gate(con, cfg, size_sol, now, live, balance, token, add, manual, override, izvori, mcap, veliki)[0]
+    without manual it is ignored. mcap (15.11.): the microcap gate of an automatic buy (buy_checks). auto (16.11.):
+    an automatic buy (default not manual; Grok autotrade: is_auto), held to the global AUTO_HARD_CAPS."""
+    return _gate(con, cfg, size_sol, now, live, balance, token, add, manual, override, izvori, mcap, veliki, auto)[0]
 
 
 def _gate(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, override=False,
-          izvori=False, mcap=None, veliki=False):
+          izvori=False, mcap=None, veliki=False, auto=None):
     """(reason the buy is blocked or None, the SOFT reasons an override let pass)."""
-    ov = bool(override) and manual
+    ov = bool(override) and manual and not ((not manual) if auto is None else auto)
     passed = []
     for kind, _key, text in buy_checks(con, cfg, size_sol, now, live, balance, token, add, manual, izvori, mcap,
-                                       veliki):
+                                       veliki, auto):
         if kind == HARD or not ov:
             return text, passed
         passed.append(text)
@@ -828,8 +880,21 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
     on the page (the text of what he confirmed; only with manual): the SOFT reasons pass (gate_buy's, sell_check's
     cost and edge lines, the swap's cost cap), the HARD ones hold (kill switch, wallet balance, no route to sell back).
     The text is the lot's positions.override; the result's "overridden" lists the SOFT reasons that were passed.
-    mcap (15.11.): the entry's market cap; an automatic buy under the microcap gate's MIN_MC is HARD (buy_checks)."""
+    mcap (15.11.): the entry's market cap; an automatic buy under the microcap gate's MIN_MC is HARD (buy_checks).
+    16.11.: the kill switch is the FIRST check of every buy (before any path's own switch or cap), and every automatic
+    real buy (is_auto: Grok autotrade's manual stake included) is held to the global AUTO_HARD_CAPS: the stake cut to
+    the smallest cap, the gate's HARD refusal, and final_check once more right before the swap."""
     now, live = now or time.time(), is_live(cfg)
+    auto = is_auto(reason, manual)
+    if os.path.exists(STOP_FILE):   # 16.11.: the kill switch before everything, whatever the path, flag or override
+        size_sol = size_sol or cfg.get("size_sol") or 0
+        res = {"status": "blocked", "error": "kill switch (trade/STOP)", "amount_in": int(size_sol * LAMPORTS)}
+        mode = "live" if live else "dry"
+        cur = con.execute("INSERT INTO positions (paper_id, league_id, token, symbol, opened_ts, mode, status, reason, "
+                          "sol_in, qty_raw, qty_left, sol_back, fees_sol) VALUES (?,?,?,?,?,?,?,?,0,0,0,0,0)",
+                          (paper_id, league_id, token, symbol, int(now), mode, "blocked", res["error"]))
+        con.commit()
+        return {**res, "id": cur.lastrowid, "mode": mode, "swap_status": "blocked", "overridden": []}
     iz = not manual and is_izvori(reason)   # 15.11.: a konsenzus buy: its own caps and switch (never pravi_novac_sve)
     ve = not manual and not iz and is_veliki(reason)   # 15.11.: a midcap buy: veliki/gate.real_caps (never LIVE_CAPS)
     sw = live and not manual and not iz and not ve and switch_on(con)   # 14.11.: the owner's switch pravi_novac_sve
@@ -859,14 +924,18 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
         caps = switch_caps(cfg)
         size_sol = min(size_sol or caps["size_sol"], caps["max_sol_per_trade"])
     mode, size_sol = "live" if live else "dry", size_sol or cfg["size_sol"]
-    ov = bool(override) and manual
+    ov = bool(override) and manual and not auto   # 16.11.: an automatic buy never carries an override
     if live and not manual and not sw and not ve:   # 11.11. (owner's rule C): an automatic stake above the live cap is cut to it;
         size_sol = min(size_sol, LIVE_CAPS["max_sol_per_trade"])   # the owner's own amount is refused by gate_buy instead
+    if live and auto:   # 16.11.: the global cap: no automatic real stake above it (a path's smaller one stays smaller)
+        size_sol = min(size_sol, AUTO_HARD_CAPS["max_sol_per_trade"])
     why, passed = _gate(con, cfg, size_sol, now, live, token=token, add=add, manual=manual, override=ov, izvori=iz,
-                        mcap=mcap, veliki=ve)
+                        mcap=mcap, veliki=ve, auto=auto)
     if not why and cfg.get("sell_check", True):
         why = sell_check(token, size_sol, cfg.get("max_cost_pct"), cfg.get("tp_default") if tp_pct is None else tp_pct,
                          override=passed if ov else None)
+    if not why:   # 16.11.: the last check before the swap (the sell check above may have taken seconds)
+        why = final_check(con, size_sol, now, live, auto, cfg.get("day_tz"))
     mark = (str(override) if isinstance(override, str) else "nadjačano")[:500] if ov else None
     # 9.11. (audit P11): the pending row carries the intended stake, so a buy that a crash leaves half-booked still
     # counts in the day limit and day_pnl (reconcile_pending keeps it); blocked/failed rows go back to 0 below
