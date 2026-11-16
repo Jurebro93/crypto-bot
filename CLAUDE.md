@@ -13,7 +13,8 @@
   unutar stropova: 0,1 SOL po tradeu, najviše 10 otvorenih, 100 tradeova dnevno, dnevni gubitak 0,5 SOL. Bez
   prekidača pravi novac samo uz dokaz u demu. SOLANA_PRIVATE_KEY se nikad ne kopira u sandbox. PumpPortal novčanik
   za podatke drži samo male iznose (strop LIVE_MAX_TRADES_DAY).
-- Midcap dnevni raspon (16.11., vlasnik): 5 pozicija × 0,2 SOL; dok je BTC miran samo široki stop −20 % od ulaza; uži
+- Midcap dnevni raspon (16.11., vlasnik): 5 pozicija × 0,1 SOL (0,2 SOL tek kad povijesni test novog pravila stopa
+  pokaže plus; globalni strop za midcap raspon dopušta do 0,2 SOL); dok je BTC miran samo široki stop −20 % od ulaza; uži
   stop (4 % ispod cijene, ili na ulaz ako je pozicija u plusu) tek kad BTC padne 1,5 % u 4 h ili je u slobodnom padu;
   kad se BTC smiri, vraća se široki stop. Bez vremenskog stopa; na +5 % neto stop ide na ulaz; cijeli profit na cilju.
   Automatske kupnje staju kad vrijednost novčanika padne ispod 1 SOL. Ostale automatske kupnje ostaju na 0,1 SOL.

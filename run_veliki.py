@@ -83,8 +83,8 @@ def main(argv=None):
         from veliki import replay
         last = replay.latest() or {}
         if "--force" not in argv:
-            if "--ako-nema" in argv and last.get("ts"):
-                return 0
+            if "--ako-nema" in argv and last.get("ts") and last.get("novo"):   # 16.11.: a result from before the
+                return 0                                                        # new stop rule is replayed again
             if "--night" in argv and (not in_night(now) or last.get("day") == time.strftime(
                     "%Y-%m-%d", time.gmtime(now + 3600))):
                 return 0

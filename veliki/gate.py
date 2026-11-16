@@ -11,8 +11,8 @@ Real money (LEAGUE_USER, mirrored by run_trade.py) only when ALL of:
      the owner may later accept the demo's own record instead (trade/config.json "pravi_novac_veliki": {"dokaz":
      "demo"}): then >= 40 closed demo trades of this strategy with EV > 0 and the 90 % interval's low > 0;
   3. BTC known and not in a free fall (rule.Crash.regime "slobodan_pad": the same definition the backtest uses).
-Caps (REAL; trade/config.json "pravi_novac_veliki" may LOWER them, and set size_sol up to MAX_SIZE_SOL 0.5): 0.2 SOL a
-trade (16.11., the owner; 0.1 before), at most 5 open, a day's loss of 0.3 SOL stops the entries, one position a token. run_trade asks real_refusal()
+Caps (REAL; trade/config.json "pravi_novac_veliki" may LOWER them, and set size_sol up to MAX_SIZE_SOL 0.5): 0.1 SOL a
+trade (16.11.: 0.2 for an hour, back to 0.1 after the historical test), at most 5 open, a day's loss of 0.3 SOL stops the entries, one position a token. run_trade asks real_refusal()
 again on every real buy and its hard rules hold on top (kill switch trade/STOP, the wallet reserve, the rug archive,
 a stop on the server, the swap's cost cap max_cost_pct 6 %).
 """
@@ -20,7 +20,10 @@ SWITCH = "pravi_novac_veliki"
 PROOF = {"n": 40, "ev_min_pct": 0.0, "ci_lo_min_pct": 0.0, "demo_n": 40, "ev_2x_min_pct": 0.0, "loto_min_pct": 0.0}
 # 16.11. popodne (vlasnik: "treba sada deployat sav kapital moguć"; his answer to "Kapital": "5 pozicija × 0,2 SOL"):
 # the stake 0.1 -> 0.2 SOL, still 5 open; the day's loss cap and the wallet's 1 SOL floor do not move
-REAL = {"size_sol": 0.2, "max_open": 5, "max_buys_day": 20, "max_loss_day_sol": 0.3}
+# 16.11. 15:10 UTC (the historical test of the intraday rule arrived: 1,065 trades out of sample, EV -4.0 % a trade,
+# the old stop; the owner's answer to "Pravi novac": "Nastavi s 0,1 SOL"): back to 0.1 SOL until the test of the NEW
+# stop rule says it works; trade/config.json "pravi_novac_veliki" size_sol may raise it again (up to MAX_SIZE_SOL)
+REAL = {"size_sol": 0.1, "max_open": 5, "max_buys_day": 20, "max_loss_day_sol": 0.3}
 MAX_SIZE_SOL = 0.5
 
 

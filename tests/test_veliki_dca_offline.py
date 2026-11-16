@@ -249,7 +249,7 @@ class Live(SwitchBase):
 
     def test_real_day_cap_counts_the_dca(self):
         cp = live.caps(LU)
-        self.assertEqual((cp["per_day"], cp["max_open"], cp["size_sol"]), (20, 5, 0.2))
+        self.assertEqual((cp["per_day"], cp["max_open"], cp["size_sol"]), (20, 5, 0.1))
         live.ensure(self.lg)
         for i in range(19):
             self.lg.execute("INSERT INTO veliki_trades (user, token, opened_ts, status) VALUES (?,?,?,'closed')",

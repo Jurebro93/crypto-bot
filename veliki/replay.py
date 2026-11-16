@@ -53,6 +53,11 @@ MAX_TOKENS = int(os.environ.get("REPLAY_MAX_TOKENS", "300"))
 LIVE = {**rule.OWNER_EXIT, "full_tp": True, "same_bar": "stop", "reasoned": True}
 GRID = {"bottom": (0.15, 0.25, 0.40), "tp": (6.0, 10.0, 15.0), "stop_cap": (0.08, 0.12)}
 BASE = {k: intra.CFG[k] for k in ("bottom", "tp", "stop_cap")}
+# 16.11. popodne (vlasnik: wide stop -20 %, the tight stop only while BTC falls; rule.OWNER_STOP): the rule live trades
+# NOW, replayed next to the old stop under the zone, at the base entry and three targets (all three are shown: no
+# selection, three looks)
+NOVO_TPS = (10.0, 15.0, 25.0)
+NOVO = "novo:"
 TAGS = ("mc", "sirina", "dubina", "sat", "btc", "btc24", "makro", "oporavak", "odziv", "pravi", "token")
 TAG_HR = {"mc": "tržišna vrijednost", "sirina": "širina zone", "dubina": "dubina ulaza u zoni", "sat": "doba dana",
           "btc": "stanje Bitcoina", "btc24": "Bitcoin u 24 h", "makro": "makro režim dana",
@@ -238,6 +243,9 @@ def simulate_token(b15, h1, rt, usd, crash=None, facts=None, macro_days=None, gr
                                          pit=pit_of(f, macro_days, block_macro=False), zcache=zc, ctx=ctx)
                if macro_days.get(x["ts"] // D) == "risk_off"]
     out["risk_off"] = off
+    for tp in NOVO_TPS:
+        out[f"{NOVO}{tp:g}"] = intra.simulate(b15, h1, rt, usd, {**LIVE, **BASE, "tp": tp, "owner_stop": True}, crash,
+                                             pit=pit, zcache=zc, ctx=ctx)
     return out
 
 
@@ -505,6 +513,7 @@ def compute(con, now, btc_h, macro_days=None, budget_s=BUDGET_S, max_tokens=MAX_
     keys = [key_of(v) for v in variants(grid)]
     per = {k: [] for k in keys}
     off, names, days, rts = [], {}, set(), []
+    novo = {f"{NOVO}{tp:g}": [] for tp in NOVO_TPS}
     used, partial = 0, False
     for row in rows[:int(max_tokens)]:
         if time.time() > t_end:
@@ -524,7 +533,7 @@ def compute(con, now, btc_h, macro_days=None, budget_s=BUDGET_S, max_tokens=MAX_
         for k, trs in sim.items():
             for x in trs:
                 x["token"] = m
-            (off if k == "risk_off" else per[k]).extend(trs)
+            (off if k == "risk_off" else novo[k] if k.startswith(NOVO) else per[k]).extend(trs)
         for x in sim.get(BASE_KEY) or []:
             x["tags"] = tags_of(x, f, crash, macro_days, mk, h1, hts, btc, names[m])
         days |= {b[0] // D for b in b15}
@@ -551,6 +560,12 @@ def compute(con, now, btc_h, macro_days=None, budget_s=BUDGET_S, max_tokens=MAX_
            "holdout": full(hold_of(base, split_ts), len(ho_days), usd, sol, size, names),
            "tags": tags, "untagged": untagged, "variants": wf,
            "risk_off": {"svi": measured(off, MIN_N, size), "izvan": measured(hold_of(off, split_ts), MIN_N, size)}}
+    res["novo"] = {"tekst": (f"široki stop −{rule.OWNER_STOP['wide'] * 100:g} % od ulaza; kad Bitcoin padne "
+                             f"{-rule.OWNER_STOP['btc4h'] * 100:g} % u 4 sata, stop {rule.OWNER_STOP['tight'] * 100:g} % "
+                             "ispod cijene (ili na ulaz ako je pozicija u plusu)"),
+                   "varijante": [{"tp": tp, "svi": full(novo[f"{NOVO}{tp:g}"], len(days), usd, sol, size, names),
+                                  "izvan": full(hold_of(novo[f"{NOVO}{tp:g}"], split_ts), len(ho_days), usd, sol, size,
+                                                names)} for tp in NOVO_TPS]}
     res["buckets_tested"] = sum(1 for rows_ in tags.values() for r in rows_
                                 if _sign(r["izvan"]) is not None and r["k"] not in UNKNOWN)
     res["findings"] = findings(res)
@@ -571,10 +586,14 @@ def line(res):
         ci = m.get("ci90") or ["—", "—"]
         return f"n={m['n']}, EV {m['ev_pct']:+.2f} %, interval 90 % [{ci[0]}; {ci[1]}], pogodak {m['hit']:.0%}"
     top = (res.get("findings") or [{}])[0].get("tekst") or res.get("verdict") or "bez nalaza"
+    nv = "; ".join(f"cilj +{v['tp']:g} %: svi dani {part(v.get('svi') or {})}, izvan uzorka {part(v.get('izvan') or {})}"
+                   for v in (res.get("novo") or {}).get("varijante") or [])
     return (PREFIX + f"{res.get('tokens')} tokena, {res.get('days')} dana" + (" (djelomično: vremenski budžet)"
                                                                                 if res.get("partial") else "")
             + f"; svi dani {part(al)}; izvan uzorka ({res.get('hold_days')} d) {part(ho)}; varijanti isprobano "
-            f"{(res.get('variants') or {}).get('n')}; glavni nalaz: {top} ({res.get('secs')} s)")
+            f"{(res.get('variants') or {}).get('n')}; glavni nalaz: {top}"
+            + (f"; NOVO pravilo stopa (široki −20 %, uži samo kad BTC pada): {nv}" if nv else "")
+            + f" ({res.get('secs')} s)")
 
 
 # ---------- the run, the stored result -----------------------------------------------------------------------------------
@@ -660,8 +679,13 @@ def summary(res, top=6):
         vtxt = (f"Isprobano {var.get('n')} unaprijed zadanih varijanti (dubina ulaza, cilj, stop); odabrana na prvih "
                 f"{res.get('train_days')} dana: {var.get('pick_text')}. U tablici je njezin rezultat samo na kasnijim "
                 "danima.")
+    for v in (res.get("novo") or {}).get("varijante") or []:
+        rows.append(_row(f"Novo pravilo stopa, cilj +{v['tp']:g} % (izvan uzorka)", v.get("izvan")))
     fs = res.get("findings") or []
     notes = [vtxt]
+    if (res.get("novo") or {}).get("varijante"):
+        notes.append("Novo pravilo stopa (od 16.11.): " + res["novo"]["tekst"] + ". Prikazana su sva tri cilja, bez "
+                     "odabira; redovi „Svi dani” i „Izvan uzorka” na vrhu mjere stari stop ispod raspona.")
     if res.get("buckets_tested"):
         notes.append(f"Provjereno skupina s dovoljno tradeova: {res['buckets_tested']}; uz interval od 90 % otprilike "
                      f"svaka deseta ({res['buckets_tested'] / 10:.0f}) može ispasti nalaz pukim slučajem.")
