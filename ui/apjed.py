@@ -97,15 +97,15 @@ def fokus_on(tcon):
 
 
 def flag_toast(name, mode):
-    """The line after a switch was saved, in the page's plain words ("Pravi novac: uključen."); None for a flag
+    """The line after a switch was saved, in the page's plain words ("Uključeno: Pravi novac."); None for a flag
     without a plain name (the caller keeps its own text)."""
     p = PLAIN.get(name)
     if not p:
         return None
     on = mode == p[2] or (mode == "live" and p[2] == "paper")
     if name == settings.MAKROINF and mode == "shadow":
-        return f"{p[0]}: samo mjeri."
-    return f"{p[0]}: {'uključeno' if on else 'isključeno'}."
+        return f"Samo mjeri: {p[0]}."
+    return f"{'Uključeno' if on else 'Isključeno'}: {p[0]}."
 
 
 def _is_on(st, name):
@@ -146,22 +146,21 @@ def novac_state(tcon, cfg, now):
     others = other real-money buyers that are on (they live in Napredno)."""
     caps = executor.veliki_caps(cfg)
     on = executor.veliki_on(tcon)
-    why = ""
+    why, held = "", None
     if on:
+        try:   # what holds the midcap entries now (the proof, BTC); asked once, the rules' rows read it too
+            from veliki import gate
+            held = gate.real_refusal(con=tcon, now=now)
+        except Exception:  # noqa: BLE001 - unreadable: said as unknown, never as "runs"
+            held = "nepoznato"
         if not cfg.get("on"):
             why = "sve je zaustavljeno (dolje „Pokreni ponovno”)"
         elif not executor.armed():
             why = "ključ novčanika nije postavljen, kupnje su samo proba"
-        else:
-            try:
-                from veliki import gate
-                r = gate.real_refusal(con=tcon, now=now)
-            except Exception:  # noqa: BLE001 - unreadable: said as unknown, never as "runs"
-                r = "nepoznato"
-            if r:
-                why = ("BTC naglo pada: bot čeka da se smiri" if "BTC" in r and "pad" in r else
-                       "cijena BTC-a trenutno nije poznata: bot čeka" if "BTC" in r else
-                       "čeka dokaz iz testa na povijesti" if r != "nepoznato" else "stanje se trenutno ne može pročitati")
+        elif held:
+            why = ("BTC naglo pada: bot čeka da se smiri" if "BTC" in held and "pad" in held else
+                   "cijena BTC-a trenutno nije poznata: bot čeka" if "BTC" in held else
+                   "čeka dokaz iz testa na povijesti" if held != "nepoznato" else "stanje se trenutno ne može pročitati")
     tz = cfg.get("day_tz")
     try:
         buys = executor.veliki_buys(tcon, now, "live", tz)
@@ -180,7 +179,7 @@ def novac_state(tcon, cfg, now):
         others += [PLAIN[n][0].split(": ")[-1] for n in (settings.IZVORI, settings.OSC_SWITCH) if _is_on(st, n)]
     except Exception:  # noqa: BLE001
         pass
-    return {"on": on, "running": on and not why, "why": why, "caps": caps, "floor": executor.equity_floor(cfg),
+    return {"on": on, "running": on and not why, "why": why, "held": held, "caps": caps, "floor": executor.equity_floor(cfg),
             "buys": buys, "open": n_open, "pnl": pnl, "others": others, "stopped": not cfg.get("on")}
 
 
@@ -218,14 +217,15 @@ def _novac_row(ns, owner):
             f'</div>{ctl}</div><p class=apx-jd>{esc(what)}</p>{"".join(lines)}</div>')
 
 
-def midcap_state(tcon, now):
+def midcap_state(tcon, ns):
     """{"demo", "intra_real", "range_real"}: is the midcap demo on, and does each rule also buy with real money now
-    (the switch on and nothing holding it; the 7-day rule only once its test on history is in the plus, veliki/live)."""
+    (the switch on and nothing holding it, novac_state; the 7-day rule only once its test on history is in the plus,
+    as veliki/live decides)."""
     out = {"demo": False, "intra_real": False, "range_real": False}
     try:
         out["demo"] = settings.flag(settings.VELIKI, con=tcon) in ("paper", "live")
         from veliki import gate
-        if gate.switch_on(tcon) and gate.real_refusal(con=tcon, now=now) is None:
+        if ns["running"]:
             out["intra_real"] = True
             out["range_real"] = bool(gate.wf_proof(size_sol=gate.real_caps()["size_sol"])[0])
     except Exception as e:  # noqa: BLE001 - the rows still say what the rules are
@@ -277,7 +277,7 @@ def _stop_row(cfg, owner):
         form = ('<form method=post action=/pravi-trade/switch class=apx-jf onsubmit="return confirm(\'Zaustaviti sve? '
                 'Nove kupnje staju odmah, otvorene pozicije se i dalje prodaju po pravilima.\')"><input type=hidden '
                 'name=on value=0><button class=apx-jstop>Zaustavi sve</button></form>')
-        state = '<span class="apx-jst on">radi</span>'
+        state = ""   # the red button says it; the state word only once it is stopped
     else:
         what = "Zaustavljeno: ništa se ne kupuje pravim novcem. Prodaje otvorenih pozicija idu dalje."
         form = ('<form method=post action=/pravi-trade/switch class=apx-jf onsubmit="return confirm(\'Pokrenuti ponovno? '
@@ -369,7 +369,7 @@ def prekidaci(d, tcon, cfg, owner, now=None):
                      value_tone="warn")
         parts.append(f'<details class=ap-it id=sw-mcp><summary>{r}</summary><div class=in>{mcp}</div></details>')
     parts.append(_novac_row(ns, owner))
-    parts.append(_rules_block(midcap_state(tcon, now)))
+    parts.append(_rules_block(midcap_state(tcon, ns)))
     parts.append(pt._safe("istraživanje", _research_row, tcon, owner))
     parts.append(_stop_row(cfg, owner))
     adv = pt._safe("napredno", _advanced, d, tcon, cfg, owner, now, fallback=[])
@@ -412,13 +412,13 @@ def _limits_form(cfg, owner, fokus):
     hidden = "".join(f'<input type=hidden name={k} value="{esc(str(cfg.get(k, "")))}">' for k in IDLE_LIMITS
                      if fokus and cfg.get(k) is not None)
     extra = "".join(field(k, lab) for k, lab in more)
-    extra += (f'<label>Najviše SOL po tokenu (tvoje kupnje) <input name=owner_token_cap '
+    extra += (f'<label>Najviše SOL po tokenu (tvoje kupnje i DCA) <input name=owner_token_cap '
               f'value="{_g(cfg.get("owner_token_cap", settings.DCA_TOKEN_CAP))}" inputmode=decimal></label>'
               f'<label class=ap-chk><input type=checkbox name=dca_cap_owner value=1{" checked" if cfg.get("dca_cap_owner") else ""}> '
               'drži strop po tokenu: kupnja koja bi ga prešla ne prolazi</label>'
               f'<label class=ap-chk><input type=checkbox name=use_pump value=1{" checked" if cfg.get("use_pump", True) else ""}> '
               'ako prva burza ne prođe, probaj preko rezervne (PumpPortal)</label>')
-    return (f'<form method=post action=/pravi-trade/limits class=ap-lim style="display:block">'
+    return ('<form method=post action=/pravi-trade/limits class=ap-lim style="display:block">'
             + "".join(field(k, lab) for k, lab in main) + hidden
             + f'<details class=apx-jmore><summary>Još limita</summary>{extra}</details>'
             '<p class=mut>Kad se dosegne dnevni gubitak, kupnje staju do ponoći; prodaje idu uvijek.</p>'
@@ -498,7 +498,7 @@ def _obavijesti(tcon, owner, parts):
 
 def _short(words, n=58):
     """The first clause of a flag's description as its plain name."""
-    w = re.split(r"[:;(]| - ", str(words), 1)[0].strip()
+    w = re.split(r"[:;(]| - ", str(words), maxsplit=1)[0].strip()
     return w if len(w) <= n else w[:n].rsplit(" ", 1)[0] + "…"
 
 
@@ -531,7 +531,12 @@ def flags_block(tcon, owner, fokus):
         r = pt._srow(_short(words), None, pt.FLAG_WORDS[m].split(" ")[0], None, value_tone=pt.FLAG_TONE[m])
         rows.append(f'<details class="ap-it apx-jn" id=fl-{esc(name)} data-jn><summary>{r}</summary>'
                     f'<div class=in>{"".join(bits)}</div></details>')
-    n_on = sum(1 for off, *_x in shown if not off)
+    slip = pt._safe("demo-pravi", pt._slip_item, tcon)   # how far the real exits were from the demo's (10.11.)
+    if slip:
+        rows.insert(0, slip.replace("<details class=ap-it", '<details class="ap-it apx-jn" data-jn', 1))
+    # a rule still at its default (never set: it only measures) is not counted as one the owner switched on
+    n_on = sum(1 for off, name, _w, m in shown if not off
+               and not (m == settings.FLAG_DEFAULTS.get(name) and not st[name]["since"]))
     meta = f"{n_on} od {len(shown)} uključeno" if n_on else f"{len(shown)} pravila, sva isključena"
     intro = ('<p class=mut>Nova pravila se prvo samo mjere („sjena”), zatim rade na demo računu („paper”), a na pravi novac '
              'idu tek kad se dokažu. Tvoji prekidači su u sekciji <a href="#prekidaci">Prekidači</a>.</p>'

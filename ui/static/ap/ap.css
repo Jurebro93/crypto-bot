@@ -543,7 +543,7 @@ a.apx-mkchip{font-weight:600;color:var(--acc)}
 .apx-cd-in{margin-top:10px}
 /* 16.11. (owner: "15 kartica ... kao da na kineskom piše"): the plain Prekidači (ui/apjed.py): five rows at most, each a
  name, one sentence and its state; the big switch of the real money, the red stop, "Napredno" as a searchable list */
-.apx-jed{padding-top:2px}
+.apx-jed{padding-top:2px}.apx-sws[open]>summary .apx-swsum{display:none}
 .apx-jr{padding:14px 0;border-bottom:1px solid var(--line)}
 .apx-jh{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
 .apx-jh form,.apx-jf{margin:0;flex:none}
