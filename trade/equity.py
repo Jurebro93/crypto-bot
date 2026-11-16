@@ -528,11 +528,21 @@ def _series(con, since, max_points, stamp):
     if con.execute("SELECT COUNT(*) FROM equity WHERE ts >= ?", (first,)).fetchone()[0] <= max_points:
         rows = con.execute(f"SELECT {COLS} FROM equity WHERE ts >= ? ORDER BY ts", (first,))
     else:
-        bucket = -(-(hi - first + 1) // max_points)
+        # 16.11. (owner: "krenuo sam s jednom Solanom ... brojevi se ne poklapaju"): the thinned line used to START at the
+        # last row of its first slice, i.e. after the first trades (1,019 SOL on the real wallet, 9 minutes and -0,026
+        # SOL after the 1,045 deposit), so "the change in the span" read +0,353 beside a total PnL of +0,327. The very
+        # first row of the span is now always the first point (its own deposit on it, the rest of that slice's
+        # deposits on the slice's point), so a line over the whole history starts at the money put in and PnL 0.
+        bucket = -(-(hi - first + 1) // max(1, max_points - 1))
         # one point per `bucket` seconds: the LAST row of the bucket (SQLite gives the bare columns of the row that
         # holds MAX(ts)), with the deposits of the whole bucket summed so that no marker is lost
         rows = con.execute("SELECT MAX(ts), sol, usdc, tokens_sol, sol_usd, usd_eur, SUM(flow_sol), src FROM equity "
-                           "WHERE ts >= ? GROUP BY (ts - ?) / ? ORDER BY 1", (first, first, bucket))
+                           "WHERE ts >= ? GROUP BY (ts - ?) / ? ORDER BY 1", (first, first, bucket)).fetchall()
+        head = con.execute(f"SELECT {COLS} FROM equity WHERE ts >= ? ORDER BY ts LIMIT 1", (first,)).fetchone()
+        if rows and head and head[0] < rows[0][0]:
+            r0 = list(rows[0])
+            r0[6] = (r0[6] or 0.0) - (head[6] or 0.0)
+            rows = [head, tuple(r0)] + rows[1:]
     out = []
     for ts, sol, usdc, tokens, sol_usd, usd_eur, flow, src in rows:
         net += flow or 0.0
@@ -573,6 +583,21 @@ def _summary(con, now, stamp):
             "pnl_24h_sol": round(p["pnl_sol"] - p0["pnl_sol"], 9), "first_ts": lo, "last_ts": hi,
             "sol_usd": p["sol_usd"], "usd_eur": p["usd_eur"],
             "n": con.execute("SELECT COUNT(*) FROM equity").fetchone()[0]}
+
+
+def pnl_before(con, ts):
+    """PnL (value - money put in) of the newest snapshot BEFORE `ts`, 0.0 when the history starts at or after it (then
+    everything since is the whole result). 16.11.: the base of "rezultat u razdoblju" (ui/apterm._port_live): the
+    result of a span is PnL now minus this, so deposits never count as profit and a span that covers the whole
+    history gives exactly the total PnL. 0.0 on any error."""
+    try:
+        r = con.execute(f"SELECT {COLS} FROM equity WHERE ts < ? ORDER BY ts DESC LIMIT 1", (int(ts),)).fetchone()
+        if not r:
+            return 0.0
+        return _point(*r, _net_before(con, r[0], inclusive=True))["pnl_sol"]
+    except Exception as e:  # noqa: BLE001
+        _log_once("pnl_before", f"PnL prije razdoblja: {_err(e)}")
+        return 0.0
 
 
 def summary(con, now=None):
