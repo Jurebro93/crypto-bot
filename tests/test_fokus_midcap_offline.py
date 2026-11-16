@@ -328,6 +328,48 @@ class Universe(Base):
             con.close()
 
 
+class CandlesNeverBlockThePass(Universe):
+    """16.11. (production 09:01-12:10 UTC: GeckoTerminal 429, every refused request waited minutes, a pass took hours,
+    no snapshots / priority / macro line): the candle top-up stops at the first refusal, has a deadline, and a refused
+    token is not marked filled."""
+
+    def test_first_refusal_ends_the_top_up(self):
+        self.switch(True)
+        calls, seen_deadline = [], []
+
+        def fill(con, m, pool, now, budget, tables):
+            calls.append((m, tables[0]))
+            seen_deadline.append(vstore.DEADLINE[0])
+            if len(calls) == 2:
+                vstore.GT_STATS["refused"] += 1     # GeckoTerminal busy on the second token
+            return 1
+        lines = []
+        with mock.patch.dict(midcap.FETCH, dict(self.fetch, rugcheck=lambda m: None), clear=True), \
+                mock.patch.object(midcap, "_archived", lambda: frozenset()), \
+                mock.patch.object(vstore, "fill", fill), mock.patch.object(midcap, "xmom_pass", lambda *a, **k: 0.0), \
+                mock.patch.object(midcap, "config", lambda path=None: dict(midcap.DEFAULTS, **{
+                    "min_mcap": 2e6, "max_mcap": 2e8, "min_liq": 25_000, "max_tokens": 600, "gt_pass": 40,
+                    "gt_day": 4000})):
+            t = NOW // 86400 * 86400 + 23 * 3600 + 5
+            out = midcap.run_pass(t, log=lines.append)
+        self.assertEqual(len(calls), 2, calls)                       # nothing after the refusal
+        self.assertEqual(out["gt"], 2)
+        self.assertTrue(all(d > 0 for d in seen_deadline))           # the top-up runs under a deadline
+        self.assertEqual(vstore.DEADLINE[0], 0.0)                    # and gives it back
+        self.assertTrue(any("GeckoTerminal zauzet (429)" in s for s in lines), lines)
+        self.assertTrue(any(s.startswith("midcap: sat:") for s in lines), lines)   # the pass still reaches its hour line
+        con = midcap.connect(self.mdb)
+        marked = con.execute("SELECT mint, tbl FROM fill_ts").fetchall()
+        con.close()
+        self.assertEqual([tuple(r) for r in marked], [calls[0]])     # the refused token is tried again next pass
+
+
+for _n in [n for n in dir(Universe) if n.startswith("test_")]:   # the base's own tests run in their own class
+    setattr(CandlesNeverBlockThePass, _n, None)
+CandlesNeverBlockThePass.test_first_refusal_ends_the_top_up = CandlesNeverBlockThePass.__dict__[
+    "test_first_refusal_ends_the_top_up"]
+
+
 class Priority(unittest.TestCase):
     def test_classify(self):
         bad = prioritet.classify({"c24": -12, "liq_ratio": 0.5})
