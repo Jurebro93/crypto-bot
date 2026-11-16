@@ -347,6 +347,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 # veliki/live; one "midcap: sat:" line an hour (counts, API use, MB a day). Switch off: the pass ends at once.
 ( sleep "${MIDCAP_FIRST_S:-120}"; while true; do r0=$(date +%s); low python3 run_veliki.py midcap || echo "midcap sakupljač nije uspio"; rs=$(( ${MIDCAP_EVERY_S:-90} - $(date +%s) + r0 )); [ "$rs" -lt 10 ] && rs=10; sleep "$rs"; done ) &
 ( sleep "${VELIKI_FIRST_S:-420}"; python3 -m ops.heavy run_veliki.py once || echo "veliki nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_veliki.py night || echo "veliki (noć) nije uspio"; done ) &
+# 16.11. (vlasnik: "želim više podataka koji će pomoći da postanemo profitabilni"; veliki/replay.py): the intraday rule
+# trades real money without history, so it is replayed over EVERY midcap collector member's 15m candles (midcap.db
+# only: no network, no paid call): the live exits, a small pre-declared grid of variants, walk-forward (60 % / 40 %),
+# each trade tagged (MC, zone, hour, BTC, macro, the token's answer to BTC) -> where the rule makes or loses money.
+# REPLAY_FIRST_S (900 s) after a start only when no result exists yet, then nightly (01-06 Zagreb, once a day), under
+# the heavy-job lock (nice 10), a 5-min budget REPLAY_BUDGET_S; one line "veliki replay: ..." and midcap.db kv replay
+# (the morning report and /strategije show it).
+( sleep "${REPLAY_FIRST_S:-900}"; python3 -m ops.heavy run_veliki.py replay --ako-nema || echo "veliki replay nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_veliki.py replay --night || echo "veliki replay (noć) nije uspio"; done ) &
 # 15.11. (vlasnik: "insajderi drže velik dio ponude? oprez — ali to su često BURZE ... kad dio ponude ode na novčanik
 # burze, a token tamo još nije listan, to je jak signal"; holderi/, run_holderi.py): every HOLDERI_EVERY_S (10 min), a
 # short low-priority process outside the heavy lock, only with the owner switch fokus_midcap: the top 20 holders of the

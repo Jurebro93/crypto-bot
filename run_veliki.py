@@ -13,6 +13,10 @@ list and the live rule from veliki.db.
     python3 run_veliki.py candles  the current list's candles only: own bars from the DexScreener polls + GeckoTerminal
                                    by need, 1h of the top first (start.sh every 15 min, low priority, no heavy lock)
     python3 run_veliki.py midcap   one midcap collector pass (veliki/midcap.py; only with the owner switch fokus_midcap)
+    python3 run_veliki.py replay   the intraday rule replayed over every midcap collector member (veliki/replay.py:
+                                   midcap.db only, no network, ~5 min budget, low priority; the result in midcap.db
+                                   kv "replay", one line "veliki replay: ..."). --ako-nema: only when no result exists
+                                   yet (start.sh after a deploy); --night: only 01-06 Zagreb and once a day
     python3 run_veliki.py report   the markdown of the latest run
     python3 run_veliki.py status   the summary (list, zones, backtest, demo, real-money gate), one screen
 """
@@ -74,6 +78,21 @@ def main(argv=None):
         except OSError:
             pass
         walk.run(now=now, log=log, mode=cmd)
+        return 0
+    if cmd == "replay":    # 16.11.: the intraday rule's historical test on all midcaps (measurement only)
+        from veliki import replay
+        last = replay.latest() or {}
+        if "--force" not in argv:
+            if "--ako-nema" in argv and last.get("ts"):
+                return 0
+            if "--night" in argv and (not in_night(now) or last.get("day") == time.strftime(
+                    "%Y-%m-%d", time.gmtime(now + 3600))):
+                return 0
+        try:
+            os.nice(5)
+        except OSError:
+            pass
+        replay.run(now=now, log=log)
         return 0
     if cmd == "report":
         _ts, data = store.latest()

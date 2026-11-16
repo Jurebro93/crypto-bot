@@ -260,6 +260,36 @@ def rules_items(pr):
     return out
 
 
+def replay_block(rp):
+    """16.11. (veliki/replay.py): the intraday rule's historical test on every midcap: the verdict in one sentence, a
+    small table, what would be worth changing, the known biases. "" before its first run."""
+    if not rp:
+        return ""
+    rows = []
+    for r in rp.get("redovi") or []:
+        if r.get("malo"):
+            rows.append([e(r["naziv"]), str(r.get("n") or 0), small("premalo podataka"), "–", "–", "–"])
+            continue
+        rows.append([e(r["naziv"]), str(r["n"]), colored(r.get("ev_pct"), pp(r.get("ev_pct"), 2)), ci_txt(r.get("ci")),
+                     pct(r.get("pogodak")), colored(r.get("zbroj_sol"), sol(r.get("zbroj_sol"), 2))])
+    body = sub("Dnevni raspon: povijesni test na svim midcapovima") + para(rp.get("presuda"))
+    body += ctable(["", "Tradeova", "Prosjek po tradeu", "90 % interval", "Pogodak", "Zbroj"], rows, nowrap=True)
+    full = next((r for r in rp.get("redovi") or [] if not r.get("malo")), None)
+    body += small(f"{rp.get('tokena')} tokena, {rp.get('dana')} dana svijeća od 15 minuta, ulog {hr(rp.get('ulog_sol'))} "
+                  f"SOL, sve nakon troška kruga od {hr(rp.get('trosak_pct'))} %. Izvan uzorka = zadnjih "
+                  f"{rp.get('dana_izvan')} dana, koje odabir varijante nije vidio."
+                  + (f" Svi dani: pozicija se tipično drži {hr(full.get('drzanje_h'))} h, najdublji pad zbroja "
+                     f"{sol(full.get('max_pad_sol'), 2)}." if full and full["naziv"] == "Svi dani" else ""))
+    if rp.get("nalazi"):
+        more = (rp.get("nalaza") or 0) - len(rp["nalazi"])
+        body += sub("Što bi vrijedilo promijeniti") + bullets(rp["nalazi"] + ([f"I još {more} slabijih nalaza."]
+                                                                             if more > 0 else []))
+    else:
+        body += para("Nijedna skupina tradeova nema dovoljno jasan rezultat za promjenu pravila.")
+    body += sub("Kako čitati i gdje test griješi") + bullets((rp.get("napomene") or []) + (rp.get("pristranosti") or []))
+    return body
+
+
 def wallet_items(w):
     out = []
     if w.get("value_sol") is not None:
@@ -491,6 +521,7 @@ def midcap_sections(data, ai):
             "Režim se bilježi na ulazu od 16.11.; raniji tradeovi su „bez oznake”. Raspoloženje influencera je samo "
             "oznaka, ne uvjet.")
     body += sub("Pravila: dokaz izvan uzorka i pravi novac") + bullets(rules_items(m.get("pravila")))
+    body += replay_block(m.get("replay"))
     body += sub("Novčanik i stropovi") + bullets(wallet_items(m.get("novcanik") or {}))
     out.append(section("Midcap trgovanje", body, ("/strategije", "Usporedba midcap strategija")))
     body = para(ai.get("trziste")) + bullets(market_items(m.get("trziste"), data.get("makroinf")))

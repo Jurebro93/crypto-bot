@@ -19,10 +19,13 @@ računajući velike padove Bitcoina ... sada se stvara novi range, iskoristi ga 
                  collector's 2M-200M members), half at the target + break-even + trailing, the smart DCA lot, the
                  reasoned exits (BTC free fall, macro risk_off, volume collapse, a bad dip reason)
     intra.py     the intraday range rule (48 h zone, bottom 25 %, half at +10 % net, 24 h)
+    replay.py    the intraday rule as live trades it, replayed over every midcap collector member's 15m candles
+                 (midcap.db only): tagged trades, a small pre-declared grid, walk-forward 60 / 40, the findings
     makro.py     the macro regime from the platforms' volumes (DefiLlama via market.db, CoinGecko's Solana meme
                  sector, the collector's midcap volume, BTC): risk_on / neutral / risk_off, hourly in midcap.db
     gate.py      the real-money gate (owner switch pravi_novac_veliki, off; holdout proof at the real size)
     view.py      the card (Ostalo), MCP get_big_ranges, the OpenAI critic's block
 run_veliki.py: list (after a deploy, every 3 h: the list + candles), once (the backtest after a deploy, heavy lock),
-night (01-06 Zagreb, once a day), report, status.
+night (01-06 Zagreb, once a day), replay (the intraday rule's historical test; nightly and once after a deploy),
+report, status.
 """

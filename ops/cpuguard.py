@@ -209,7 +209,7 @@ PROCESSES = (
     # 15.11. (owner, veliki/): the big tokens' list + candles every 3 h and the backtest after a deploy / nightly
     ("veliki", "run_veliki.py", (), JOBS,
      "veliki tokeni: lista svaka 3 h, svijeće svakih 15 min, sakupljač midcapova svakih 90 s (midcap.db), walk-forward "
-     "range pravila nakon deploya i noću"),
+     "range pravila nakon deploya i noću, povijesni test dnevnog raspona na svim midcapovima noću"),
     # 15.11. (owner, holderi/): midcap holder snapshots, transfer traces, listing signals every 10 min; network bound,
     # a short process; may be paused (the signal waits a pass, no money path)
     ("holderi", "run_holderi.py", (), JOBS,

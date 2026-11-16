@@ -18,12 +18,15 @@ CFG = {"look_d": 7, "up_min": 0.003, "win": 0.15, "min_up": 8, "cap": 5.0}
 
 
 def closes(rows):
-    """{hour ts: close} of [(ts, ..., close)] rows or [(ts, close)] pairs (the newest value of an hour wins)."""
+    """{hour ts: price AT that time} of candle rows [(start ts, o, h, l, close, ...)] (the close is the price at start
+    + 1 h) or of point prices [(ts, price)] (BTC hourly: veliki/store.btc_hourly). 16.11.: a candle used to be keyed by
+    its start, one hour before its close, so the token's hour was compared with BTC's hour BEFORE it."""
     out = {}
     for r in rows or ():
-        c = r[4] if len(r) > 4 else r[1]
+        candle = len(r) > 4
+        c = r[4] if candle else r[1]
         if c and c > 0:
-            out[int(r[0]) // H * H] = float(c)
+            out[int(r[0]) // H * H + (H if candle else 0)] = float(c)
     return out
 
 
@@ -67,8 +70,8 @@ def all_of(con, btc_rows, now, cfg=None):
     by = {}
     for tok, ts, cl in con.execute("SELECT token, ts, c FROM c1h WHERE ts >= ? AND token IN (SELECT mint FROM tokens "
                                    "WHERE member=1)", (since,)):
-        if cl and cl > 0:
-            by.setdefault(tok, {})[int(ts) // H * H] = float(cl)
+        if cl and cl > 0 and int(ts) // H * H + H <= now:   # completed candles only; keyed by their close time
+            by.setdefault(tok, {})[int(ts) // H * H + H] = float(cl)
     out = {}
     for tok, d in by.items():
         r = btc_up(d, btc, now, c)
