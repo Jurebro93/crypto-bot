@@ -268,7 +268,8 @@ def enter(con, spec, user, tok, fire_ts, why, mq, now, sol):
     if why_not:
         return None, why_not
     price, liq, _url, mcap = mq[:4]
-    sym = (mq[4] if len(mq) > 4 else None) or tok[:6]
+    from veliki import symbols   # 16.11.: run_ui's quote has no symbol; the mint's prefix only as the last resort
+    sym = symbols.resolve(tok, mq[4] if len(mq) > 4 else None) or tok[:6]
     size_usd = DEMO_SOL * sol
     src = f"{SRC} {spec.get('key')}: {why}"[:200]
     from trade import capgate   # 15.11. (vlasnik): MC >= 5M, below only the demo's moonshot (half, tagged)

@@ -140,6 +140,20 @@ def _strategy(tcon, pid):
     return executor.strategy_of(r[0] if r else "")
 
 
+def _strategy_rule(p):
+    """The stop and the target of a position its strategy sells itself (ui/apterm positions_data "strat", read from
+    veliki_trades): who sells, the levels in percent from the entry and in price, the stop's state in words."""
+    x = p.get("strat")
+    if not x:
+        return None
+    return {"strategija": x.get("name"), "izlaz_vodi": "strategija (program), ne plan iz panela",
+            "sl_pct": x.get("sl_pct"), "sl_cijena": x.get("sl_px"), "stanje_stopa": x.get("words"),
+            "tp_pct": x.get("tp_pct"), "tp_cijena": x.get("tp_px"), "pola_prodano_na_cilju": bool(x.get("half")),
+            "trailing_ostatka": x.get("trail") or None,
+            "napomena": "na +5 % neto stop ide na ulaz; dok je BTC miran vrijedi široki stop, uži samo kad BTC pada"
+                        if x.get("kind") == "intra" else None}
+
+
 def _rug(token, mcap, liq):
     try:
         from ui import apterm
@@ -184,7 +198,10 @@ def build_items(tcon, positions, live, sol, now, last, hist, series_fn=None):
             "ulog_sol": _r(p.get("sol_in"), 4), "drzi_udio": p.get("held"), "lotova": p.get("n_lots"),
             "plan_izlaza": {"tp_pct": p.get("tp_pct"), "tp_mc": _r(p.get("tp_mc"), 0), "sl_pct": p.get("sl_pct"),
                             "sl_mc": _r(p.get("sl_mc"), 0), "trailing": p.get("trail"), "opis": p.get("exit"),
-                            "plan": (p.get("plan") or {}).get("summary") or None},
+                            "plan": (p.get("plan") or {}).get("summary") or None,
+                            # 16.11. (owner: the critic said "Nema TP ni trailing, a plan je prazan" of a midcap
+                            # position): the strategy that sells the position by its own rule, its stop and target
+                            "pravilo_strategije": _strategy_rule(p)},
             "likvidnost_usd": _r(liq, 0), "likvidnost_na_ulazu_usd": liq0,
             "promjena_likvidnosti_pct": _r((liq / liq0 - 1) * 100, 1) if liq and liq0 else None,
             "protok": tok_flow or None, "kretanje": ps, "rug": _rug(tok, p["mc_now"], liq),

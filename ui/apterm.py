@@ -76,14 +76,20 @@ N_MIN = 10
 # 11.11. (Jure: "na sve stupce dodati mali info button s objašnjenjem što koji stupac predstavlja"): one dictionary for
 # every table, the Portfelj numbers and PnL by day (ap.js gets it in the first JSON), so a column says the same
 # everywhere. Key = the column's label (or a label · table key where one word means two things).
+FDV_TIP = "DexScreener u zaglavlju često pokazuje FDV (sva ponuda); mi računamo po ponudi u optjecaju"
+FDV_MIN_DIFF = 0.05      # FDV is shown beside MC only when it differs by more than this
+PRICE_LATE_S = 15        # the positions' price older than this says "cijena kasni N s"
 COL_HELP = {
+    "FDV": FDV_TIP,
     "Token": "Token i oznaka: UŽIVO je pravi novac, PAPER probno bez novca. Dodir na ime prikaže token na grafu.",
     "Veličina": "Koliko je SOL-a uloženo u poziciju (svi ulazi zajedno) i koliko je još drži nakon djelomične prodaje.",
     "Ulaz (MC)": "Prosječni tržišni kapital (MC) pri kupnji, ponderiran uloženim SOL-om.",
     "Sada (MC)": "Tržišni kapital tokena sada (živo).",
     "PnL": "Dobit ili gubitak pozicije: postotak prema ulazu i procjena u SOL-u po cijeni sada (naknade dolaze pri prodaji).",
-    "SL": "Stop loss: postotak ispod ulaza i MC na kojem se pozicija prodaje da se ograniči gubitak.",
-    "TP": "Take profit: postotak iznad ulaza i MC na kojem se prodaje s dobiti (trailing ako ga plan ima).",
+    "SL": "Stop loss: postotak ispod ulaza i MC na kojem se pozicija prodaje da se ograniči gubitak. Oznaka „pravilo”: "
+          "stop postavlja strategija koja je otvorila poziciju (prikazana je cijena, ne MC) i ovdje se samo čita.",
+    "TP": "Take profit: postotak iznad ulaza i MC na kojem se prodaje s dobiti (trailing ako ga plan ima). Oznaka "
+          "„pravilo”: cilj postavlja strategija koja je otvorila poziciju i ovdje se samo čita.",
     "Izvor": "Tko je otvorio poziciju: „program” = bot sam (Grok autotrade, kopiranje influencera ili walleta, "
              "insajderi, brzi put, momentum, range, prijedlozi), uz ime strategije; „ručno” = ti (Kupi, Brza kupnja, "
              "dokup, DCA i nalozi na MC, Kupi na prijedlogu, Grokov zahtjev koji si odobrio dodirom).",
@@ -224,6 +230,44 @@ def age_badge(ts, now=None):
     return (f'<span class="apx-age{" old" if stale else ""}" data-ts="{int(ts) if ts else 0}">{esc(words)}</span>')
 
 
+def price_age(ts, now=None, late_s=PRICE_LATE_S):
+    """("cijena prije 2 s", False) / ("cijena kasni 40 s", True) / ("nema cijene", True): how old the positions' live
+    price is (the time of the DexScreener read, ui/pravitrade's shared cache). 16.11. (owner: "zašto pozicije nisu u
+    real timeu"): the price is read every LIVE_TTL_S (3 s); older than late_s it says so in words."""
+    if not ts:
+        return "nema cijene", True
+    age = max(0, int((now or time.time()) - float(ts)))
+    words = f"{age} s" if age < 60 else f"{age // 60} min" if age < 3600 else f"{age // 3600} h"
+    return (f"cijena kasni {words}", True) if age > late_s else (f"cijena prije {words}", False)
+
+
+def price_badge(ts, now=None):
+    """The badge beside the positions' tabs (ap.js age() keeps it counting: data-price)."""
+    words, late = price_age(ts, now)
+    return (f'<span class="apx-age apx-live-age{" old" if late else ""}" data-ts="{int(ts) if ts else 0}" data-price=1 '
+            f'data-stale={PRICE_LATE_S} title="Kad je cijena zadnji put pročitana s DexScreenera (čita se svake 3 s)">'
+            f'{esc(words)}</span>')
+
+
+def fdv_of(lv):
+    """The token's FDV when it is worth showing beside the market cap: more than FDV_MIN_DIFF away from it; else None."""
+    lv = lv or {}
+    mcap, fdv = lv.get("mcap"), lv.get("fdv")
+    try:
+        if mcap and fdv and abs(float(fdv) / float(mcap) - 1) > FDV_MIN_DIFF:
+            return float(fdv)
+    except (TypeError, ValueError, ZeroDivisionError):
+        pass
+    return None
+
+
+def fdv_html(fdv, hidden_ok=True):
+    """" · FDV $13.40M (i)" after a market cap; an empty hidden holder when there is none (the tick can fill it)."""
+    if not fdv:
+        return '<small class=apx-fdv data-f=fdv hidden></small>' if hidden_ok else ""
+    return f'<small class=apx-fdv data-f=fdv title="{esc(FDV_TIP)}">FDV {mc(fdv)}{_i("FDV")}</small>'
+
+
 def mc(x):
     """Market cap / USD short, as everywhere on this page: $82.0k, $1.25M."""
     return pt._usd_short(x) if x else "–"
@@ -266,7 +310,9 @@ def src_kind(reason):
 # auto") are the lots that keep their own exits; that is a different question (whose exit), not who opened it.
 APPROVED_SRC = "ručno: Grok odobreno (MCP)"   # = league/exitplan.APPROVED_SRC = ui/grokauto.APPROVED_SRC
 PROGRAM_WORDS = {"grok": "Grok", "fast_path": "brzi put", "insider_copy": "insajderi", "kopiranje": "kopiranje",
-                 "momentum_scalp": "momentum", "range_dca": "range", "proposals": "prijedlog", "simianx": "SimianX"}
+                 "momentum_scalp": "momentum", "range_dca": "range", "proposals": "prijedlog", "simianx": "SimianX",
+                 # 16.11.: the strategies whose source starts with their own name (veliki/live.SRC, oscilator, konsenzus)
+                 "veliki": "midcap raspon", "oscilator": "oscilator", "konsenzus": "konsenzus"}
 
 
 def opened_by(source, profile=None):
@@ -553,6 +599,24 @@ def _critic_html(ck, now=None):
             + (f' · {esc(ck["text"])}' if ck.get("text") else "") + f'{esc(age)}</div>')
 
 
+def _strat_exits(lids):
+    """{league trade id: veliki/view.exit_state} of the positions a strategy sells by its own rule (the midcap range
+    rules: veliki_trades; read-only)."""
+    from veliki import view as vview
+    return vview.open_exits(lids)
+
+
+def _names(stored, live=None, now=None):
+    """{mint: (name, is_address)} for the tokens of the open positions (16.11., owner: the rows said "Ce2gx9" and
+    "PRVT6T"): the stored symbol when it is one, else what the midcap collector / the veliki list / the live
+    DexScreener row call the token (veliki/symbols), else the mint's prefix marked as an address ("PRVT6T…")."""
+    from veliki import symbols
+    for tok, lv in (live or {}).items():
+        if lv and lv.get("symbol"):
+            symbols.learn(tok, lv["symbol"])
+    return {tok: symbols.name(tok, sym, now) for tok, sym in stored.items() if tok}
+
+
 def positions_data(tcon, cfg, now=None, live=None):
     """Open positions, one row per token and mode (live and paper apart), live first: lots, stake, how much is
     held, the average entry MC (SOL-weighted, as ui/pravitrade._lot_group), MC now, PnL % and an estimate in SOL,
@@ -576,6 +640,9 @@ def positions_data(tcon, cfg, now=None, live=None):
     notes = _notes(tcon, [r[0] for r in rows], {r[1] for r in rows})
     crit = _critic(tcon, [r[0] for r in rows])
     srcs = pt._safe("izvori", _lot_sources, [r[10] for r in rows], fallback={})
+    # 16.11. (owner: SL and TP of the midcap positions showed "–"): the strategy's own stop and target (read-only)
+    strat = pt._safe("izlazi-strategije", _strat_exits, [r[10] for r in rows], fallback={})
+    names = pt._safe("nazivi", _names, {r[1]: r[2] for r in rows}, live, now, fallback={})
     out = []
     for (tok, mode), lots in groups.items():
         ids = [r[0] for r in lots]
@@ -602,6 +669,16 @@ def positions_data(tcon, cfg, now=None, live=None):
         tp_txt, sl_txt = g.get("tp", tp_txt) or tp_txt, g.get("sl", sl_txt) or sl_txt
         tp_pct, tp_mc = level(tp_txt, avg, "tp")
         sl_pct, sl_mc = level(sl_txt, avg, "sl")
+        # the strategy that sells this position itself (midcap): its stop and target, when the position has no
+        # TP / SL of its own; as a market cap through the average entry MC, so the row and the chart read alike
+        sx = next((strat[r[10]] for r in lots if r[10] in strat), None)
+        sx_cells = bool(sx and not (tp_mc or sl_mc or (rule and rule.get("mode") == "smart")))
+        if sx_cells:   # the owner's own TP / SL on such a position (Uredi SL-TP) stay in the cells; the rule's line stays
+            if sx.get("sl_pct") is not None:
+                sl_pct, sl_mc = sx["sl_pct"], (round(avg * (1 + sx["sl_pct"] / 100), 2) if avg else None)
+            if sx.get("tp_pct") is not None and not sx.get("half"):
+                tp_pct, tp_mc = sx["tp_pct"], (round(avg * (1 + sx["tp_pct"] / 100), 2) if avg else None)
+        sym, sym_addr = names.get(tok) or (lots[0][2] or short(tok or ""), False)
         pend = next((pending.get(str(i)) for i in ids if pending.get(str(i)) is not None), None)
         sin_all = sum(r[6] or 0 for r in lots)
         q_all, ql_all = sum(r[8] or 0 for r in lots), sum(r[9] or 0 for r in lots)
@@ -610,10 +687,12 @@ def positions_data(tcon, cfg, now=None, live=None):
         lot_src = [(srcs.get(r[10]) or (None, None))[0] or r[5] for r in lots]
         bys = [opened_by(x, (srcs.get(r[10]) or (None, None))[1]) for x, r in zip(lot_src, lots)]
         tags = list(dict.fromkeys(b["tag"] for b in bys))
-        out.append({"key": f"{tok}:{mode}", "token": tok, "sym": first[2] or short(tok or ""), "mode": mode,
+        out.append({"key": f"{tok}:{mode}", "token": tok, "sym": sym, "sym_addr": sym_addr, "mode": mode,
+                    # the stop / target are the strategy's own rule ("pravilo"), shown read-only
+                    "strat": sx, "strat_cells": sx_cells,
                     "paper": mode != "live", "ids": ids, "pid": ids[0], "lots": lot_rows, "n_lots": len(lots),
                     "sol_in": round(sin_all, 6), "held": round(ql_all / q_all, 4) if q_all else 1.0,
-                    "avg_mc": round(avg, 2) if avg else None, "mc_now": mc_now,
+                    "avg_mc": round(avg, 2) if avg else None, "mc_now": mc_now, "fdv_now": fdv_of(lv),
                     "pnl_pct": round(pnl_pct, 3) if pnl_pct is not None else None,
                     "pnl_sol": round(pnl_sol, 6) if pnl_sol is not None else None,
                     "exit": pt._exit_words(rule), "smart": bool(rule and rule.get("mode") == "smart"),
@@ -677,12 +756,16 @@ def orders_data(tcon, cfg, positions):
                              + (f" · time stop {o['time']:g} min" if o.get("time") else "") if ex == "tpsl" else ex),
                     "cancel": "/pravi-trade/limitdel"})
     for p in positions:
+        # the strategy's own levels: listed, marked "pravilo", never edited from the page
+        sx = p.get("strat") if p.get("strat_cells") else None
+        st, extra = ("pravilo strategije", {"rule": True, "note": sx["name"]}) if sx else ("aktivan", {})
         if p.get("tp_mc"):
             out.append({"kind": "tp", "word": "TP", "token": p["token"], "sym": p["sym"], "mc": p["tp_mc"],
-                        "pct": p["tp_pct"], "status": "aktivan", "pid": p["pid"], "paper": p["paper"]})
+                        "pct": p["tp_pct"], "status": st, "pid": p["pid"], "paper": p["paper"], **extra})
         if p.get("sl_mc"):
             out.append({"kind": "sl", "word": "SL", "token": p["token"], "sym": p["sym"], "mc": p["sl_mc"],
-                        "pct": p["sl_pct"], "status": "aktivan", "pid": p["pid"], "paper": p["paper"]})
+                        "pct": p["sl_pct"], "status": (sx["words"] if sx else st), "pid": p["pid"], "paper": p["paper"],
+                        **extra})
         if p.get("trail"):
             tr = p["trail"]
             out.append({"kind": "trail", "word": "Trailing", "token": p["token"], "sym": p["sym"], "mc": None,
@@ -706,6 +789,7 @@ def header_data(mint, live_row, now=None, data_ts=None, sym=None):
     w5 = (lv.get("w") or {}).get("m5") or {}
     b, s = w5.get("buys"), w5.get("sells")
     return {"mint": mint, "sym": lv.get("symbol") or sym or short(mint), "mcap": lv.get("mcap"), "price": lv.get("price"),
+            "fdv": fdv_of(lv),
             "ch_m5": lv.get("ch_m5"), "ch_h1": lv.get("ch_h1"), "ch_h24": lv.get("ch_h24"), "liq": lv.get("liq"),
             "vol_h1": lv.get("vol_h1"), "buys_m5": b, "sells_m5": s,
             "bs_m5": round(b / s, 2) if b is not None and s else None,
@@ -773,7 +857,9 @@ def _pick(positions, qs_m):
 def _sig(positions, orders):
     """What the tables show, in one short string: a tick whose sig differs makes the browser fetch the tables again."""
     a = ",".join(f'{p["key"]}:{"-".join(map(str, p["ids"]))}:{p["pending"]}:{p["tp"]}:{p["sl"]}:'
-                 f'{(p.get("plan") or {}).get("plan_mode")}:{(p.get("plan") or {}).get("plan_id")}' for p in positions)
+                 f'{(p.get("plan") or {}).get("plan_mode")}:{(p.get("plan") or {}).get("plan_id")}:'
+                 f'{(p.get("strat") or {}).get("sl_pct")}:{(p.get("strat") or {}).get("state")}:{p.get("sym")}'
+                 for p in positions)
     b = ",".join(f'{o["kind"]}:{o.get("id") or o.get("pid")}' for o in orders)
     return hashlib.sha1(f"{a}|{b}".encode()).hexdigest()[:12]
 
@@ -804,7 +890,7 @@ def first_view(user, mint="", now=None, fresh=False):
             live.update(more)
             live_ts = mts if live_ts is None else (min(live_ts, mts) if mts else live_ts)
         orders = pt._safe("nalozi", orders_data, tcon, cfg, positions, fallback=[])
-        sym = next((p["sym"] for p in positions if p["token"] == sel), None)
+        sym = next((p["sym"] for p in positions if p["token"] == sel and not p.get("sym_addr")), None)
         d = {"v": 1, "ts": int(now), "owner": owner, "on": bool(cfg.get("on")), "live": executor.is_live(cfg),
              "m": sel, "data_ts": int(live_ts) if live_ts else None,
              "positions": [{k: v for k, v in p.items() if k != "rule"} for p in positions], "orders": orders,
@@ -829,6 +915,9 @@ def first_json(user, mint="", with_html=False, sym="", fresh=False):
     if d is None:
         return None
     sym = re.sub(r"[^\w$.\-]", "", str(sym or ""))[:20]
+    from veliki import symbols
+    if symbols.is_prefix(sym, mint):   # 16.11.: the start of the address is not a name
+        sym = ""
     h = d.get("header")
     if sym and h and h.get("sym") == short(h.get("mint") or ""):
         d = {**d, "header": {**h, "sym": sym}}   # a copy: the cached view stays as it was
@@ -936,6 +1025,7 @@ def tick(mint="", now=None):
             hit = pt._LIVE_CACHE.get(tuple(toks))
         data_ts = hit[0] if hit and live else None
     keep = ("mcap", "price", "liq", "vol_h1", "ch_m5", "ch_h1", "ch_h24")
+    fdvs = {t: fdv_of(live.get(t)) for t in toks}
     tok = {}
     for t in toks:
         lv = live.get(t)
@@ -943,6 +1033,8 @@ def tick(mint="", now=None):
             continue
         w5 = (lv.get("w") or {}).get("m5") or {}
         tok[t] = {**{k: lv.get(k) for k in keep}, "buys_m5": w5.get("buys"), "sells_m5": w5.get("sells")}
+        if fdvs.get(t):
+            tok[t]["fdv"] = fdvs[t]
     sig_src = (",".join(str(r[0]) for r in rows) + "|" + json.dumps(st.get("sell_req") or {}, sort_keys=True) + "|"
                + str(len(st.get("dca_orders") or [])) + "|" + str(len(st.get("buy_orders") or [])))
     val = {"ts": int(now), "data_ts": int(data_ts) if data_ts else None, "tok": tok,
@@ -1246,10 +1338,11 @@ def candles_data(user, mint, tf="5m", unit="mc", now=None):
         tag = " (paper)" if p["paper"] else ""
         if p.get("avg_mc"):
             lines.append({"kind": "entry", "value": conv(p["avg_mc"]), "label": "Ulaz" + tag})
+        rl = " (pravilo)" if p.get("strat_cells") else ""
         if p.get("sl_mc"):
-            lines.append({"kind": "sl", "value": conv(p["sl_mc"]), "label": "SL" + tag})
+            lines.append({"kind": "sl", "value": conv(p["sl_mc"]), "label": "SL" + rl + tag})
         if p.get("tp_mc"):
-            lines.append({"kind": "tp", "value": conv(p["tp_mc"]), "label": "TP" + tag})
+            lines.append({"kind": "tp", "value": conv(p["tp_mc"]), "label": "TP" + rl + tag})
     for o in fv["orders"]:
         if o.get("token") == mint and o["kind"] in ("dca", "limit") and o.get("mc"):
             lines.append({"kind": "dca" if o["kind"] == "dca" else "limit", "value": conv(o["mc"]),
@@ -1919,9 +2012,32 @@ def _tone(x):
     return "up" if (x or 0) > 0 else "dn" if (x or 0) < 0 else ""
 
 
-def _sel_btn(tok, sym, cls="apx-tok"):
-    return (f'<button type=button class={cls} data-sel="{esc(tok)}" title="Prikaži na grafu" translate=no>'
-            f'{esc(sym)}</button>')
+def _sel_btn(tok, sym, cls="apx-tok", addr=None):
+    """A token's name as the button that loads it into the chart, the header and the panel above (by its mint,
+    data-sel). addr: the text is the mint's prefix, not a name (nobody knows the symbol): written as an address and
+    never sent on as a name (data-sym empty). None = decided from the text (veliki/symbols.is_prefix)."""
+    from veliki import symbols
+    if addr is None and symbols.is_prefix(sym, tok):
+        sym, addr = (tok or "")[:symbols.PREFIX_N] + "…", True
+    if addr:
+        return (f'<button type=button class="{cls} apx-addr" data-sel="{esc(tok)}" data-sym="" translate=no '
+                f'title="Simbol tokena nije poznat: ovo je početak njegove adrese. Prikaži na grafu">{esc(sym)}</button>')
+    return (f'<button type=button class={cls} data-sel="{esc(tok)}" data-sym="{esc(sym)}" title="Prikaži na grafu" '
+            f'translate=no>{esc(sym)}</button>')
+
+
+def lvl_html(pct, mc_v, sx=None, key="sl"):
+    """One SL / TP cell: the percent from the entry and the level. A position a strategy sells by its own rule (sx:
+    veliki/view.exit_state) shows the rule's level with its PRICE (the rule is set in price, not market cap) and the
+    mark "pravilo"; the stop also its state in plain words ("široki stop −20 %", "uži stop (BTC pada)", "stop na
+    ulazu")."""
+    if not sx:
+        return f'{_pct(pct, 0)}<small>{mc(mc_v)}</small>'
+    from veliki import view as vview
+    px = sx.get(f"{key}_px")
+    words = f'<small class=apx-rw>{esc(sx["words"])}</small>' if key == "sl" and sx.get("words") else ""
+    return (f'{esc(vview._hr_pct(pct or 0, 1))}<small>{esc(vview._hr_px(px))}</small>{words}'
+            '<small class=apx-rule title="Razinu postavlja pravilo strategije; ovdje se samo čita">pravilo</small>')
 
 
 def positions_html(d):
@@ -1950,9 +2066,12 @@ def positions_html(d):
         if p["paper"] and not paper_seen:
             paper_seen = True
             out.append('<div class=apx-div>Probno (paper): bez pravog novca</div>')
-        out.append(_pos_row(p, owner, cfg, rules.get(p["key"]), gx.get(p["key"]), now))
+        out.append(_pos_row(p, owner, cfg, rules.get(p["key"]), gx.get(p["key"]), now, sel=p["token"] == d.get("m")))
     tail = pt.SELL_ALL if owner and (cfg.get("on") or rows) else ""
-    return f'<div class="apx-tbl apx-prl" data-n={len(rows)}>{head}{"".join(out)}</div>{tail}'
+    # 16.11. (owner: "zašto pozicije nisu u real timeu"): how old the rows' price is, on a phone right above them
+    # (the tabs' badge is out of sight there); ap.js keeps both counting and the tick renews their time
+    age = f'<div class=apx-pxage>{price_badge(d.get("data_ts"), now)}</div>'
+    return f'{age}<div class="apx-tbl apx-prl" data-n={len(rows)}>{head}{"".join(out)}</div>{tail}'
 
 
 def grok_details(d, now=None):
@@ -1998,22 +2117,43 @@ def by_html(p):
             f'title="{esc(title)}">{esc(b["tag"])}</span>{more}')
 
 
-def plan_html(pl):
+def plan_html(pl, p=None):
     """11.11. (owner: "U kartici pozicije jasno prikaži 'plan aktivan (live)' ili 'samo paper'"): the position's exit
-    plan in one line: green "plan aktivan (live) · TP1 +15 % pola · trailing 8 % · SL −10 % · time stop 45 min", or
-    grey "samo paper · <why>" (a demo position, the Autopilot not live, exit_plan_live not live, the plans paused, a
-    plan in the shadow because it is not from the panel, no plan)."""
+    in one line: green "plan aktivan (live) · TP1 +15 % pola · trailing 8 % · SL −10 % · time stop 45 min", or grey
+    "samo paper · <why>" for a DEMO position.
+    16.11. (owner: a real-money row marked "UŽIVO" said "samo paper · pozicija nema plan izlaza iz panela"): p is
+    the position. One a strategy sells by its own rule (p["strat"], the midcap range) says who sells it and by which
+    rule (veliki/view.exit_sentence), for real money and for a demo one; any other REAL position without a live plan
+    says "plan izlaza nije aktivan" with the reason (never "samo paper": the money is real)."""
+    p = p or {}
+    sx = p.get("strat")
+    live_plan = bool(pl and pl.get("plan_mode") == "live")
+    if sx and not live_plan:
+        from veliki import view as vview
+        own = ""
+        if not p.get("strat_cells"):   # the owner's own TP / SL on top of the rule (Uredi SL-TP)
+            own = " Uz to vrijedi i tvoj TP/SL iz stupaca: prodaje ono što se prvo dogodi."
+        return (f'<div class="apx-plan strat{"" if p.get("paper") else " live"}" data-plan=strategija>'
+                f'{esc(vview.exit_sentence(sx, live=not p.get("paper")))}{esc(own)}</div>')
     if not pl:
         return ""
     summ = esc(pl.get("summary") or "")
-    if pl.get("plan_mode") == "live":
+    if live_plan:
         return (f'<div class="apx-plan live up" data-plan=live><b>plan aktivan (live)</b>{" · " + summ if summ else ""}'
                 '</div>')
-    return (f'<div class="apx-plan paper" data-plan={esc(pl.get("plan_mode") or "paper")}><b>samo paper</b> · '
+    mode = esc(pl.get("plan_mode") or "paper")
+    if p and not p.get("paper"):
+        has = p.get("tp_mc") or p.get("sl_mc") or p.get("smart")
+        why = pl.get("reason") or ""
+        if not pl.get("plan_id") and not has and "pozicija nema plan" in why:
+            why = "pozicija nema ni plan izlaza ni TP/SL: prodaje se samo ručno, dok ih ne postaviš na „Uredi SL-TP”"
+        return (f'<div class="apx-plan paper" data-plan={mode}><b>pravi novac · plan izlaza nije aktivan</b> · '
+                f'{esc(why)}{" · plan: " + summ if summ else ""}</div>')
+    return (f'<div class="apx-plan paper" data-plan={mode}><b>samo paper</b> · '
             f'{esc(pl.get("reason") or "")}{" · plan: " + summ if summ else ""}</div>')
 
 
-def _pos_row(p, owner, cfg, rule, gx=None, now=None):
+def _pos_row(p, owner, cfg, rule, gx=None, now=None, sel=False):
     from ui import grokpoz
     tok, ids = p["token"], ",".join(map(str, p["ids"]))
     badge = ('<span class="apx-badge paper">paper</span>' if p["paper"] else '<span class="apx-badge live">uživo</span>')
@@ -2022,9 +2162,11 @@ def _pos_row(p, owner, cfg, rule, gx=None, now=None):
         size += f" · drži {redak.pct(p['held'], sign=False, frac=True)}"
     pnl = (f'{_pct(p["pnl_pct"])}<small>{redak.sol(p["pnl_sol"], 4, sign=True) if p["pnl_sol"] is not None else ""}</small>'
            if p["pnl_pct"] is not None else '<span class=apx-sk>čekam cijenu</span>')
-    sl = (f'{_pct(p["sl_pct"], 0)}<small>{mc(p["sl_mc"])}</small>' if p["sl_mc"]
+    sx = p.get("strat") if p.get("strat_cells") else None   # the strategy's own stop / target ("pravilo", read-only)
+    sl = (lvl_html(p["sl_pct"], p["sl_mc"], sx, "sl") if p["sl_mc"] or (sx and p["sl_pct"] is not None)
           else ('<span class=apx-mut title="Smart sell: alat sam bira izlaz">Smart</span>' if p["smart"] else "–"))
-    tp = (f'{_pct(p["tp_pct"], 0)}<small>{mc(p["tp_mc"])}</small>' if p["tp_mc"] else "–")
+    tp = (lvl_html(p["tp_pct"], p["tp_mc"], sx, "tp") if p["tp_mc"] or (sx and p["tp_pct"] is not None)
+          else ('<small class=apx-rw>pola prodano, ostatak prati vrh</small>' if sx and sx.get("half") else "–"))
     if p.get("trail"):
         tp += f'<small>trailing {esc(str(p["trail"].get("trail_pct")))} %</small>'
     b = p.get("by") or opened_by(None)
@@ -2032,7 +2174,8 @@ def _pos_row(p, owner, cfg, rule, gx=None, now=None):
     who_txt = who if who and who not in ("ručno", "Grok auto") else ""
     tag = by_html(p) + (f'<small class=apx-who>{esc(who_txt)}</small>' if who_txt else "")
     # the exit in a few words for the phone's line: Grok's plan in force, else the position's plan, else its TP / SL
-    xs = (gx or {}).get("exit") or ((p.get("plan") or {}).get("summary") or "") or grokpoz.exit_short(p)
+    xs = ((gx or {}).get("exit") or ((p.get("plan") or {}).get("summary") or "")
+          or (f'pravilo: {sx["summary"]}' if sx else "") or grokpoz.exit_short(p))
     act = ""
     edit = ""
     if owner:
@@ -2053,7 +2196,8 @@ def _pos_row(p, owner, cfg, rule, gx=None, now=None):
     pnl_cls = _tone(p["pnl_pct"])
     # the line (summary): a table row on a desktop; on a phone token + tag, entry MC, PnL and the exit in words
     summ = (f'<summary class="apx-tr apx-prs">'
-            f'<span class=apx-c-tok data-l="Token">{_sel_btn(tok, p["sym"])}{badge}{tag}</span>'
+            f'<span class=apx-c-tok data-l="Token">{_sel_btn(tok, p["sym"], addr=bool(p.get("sym_addr")))}{badge}{tag}'
+            '<span class=apx-onchart>na grafu</span></span>'
             f'<span class=n data-l="Veličina">{size}</span>'
             f'<span class="n apx-pin" data-l="Ulaz (MC)"><i class=apx-pw>ulaz </i>{mc(p["avg_mc"])}</span>'
             f'<span class=n data-l="Sada (MC)" data-f=mc>{mc(p["mc_now"])}</span>'
@@ -2062,7 +2206,7 @@ def _pos_row(p, owner, cfg, rule, gx=None, now=None):
             f'<span class=apx-px>{esc(xs)}</span></summary>')
     # opened: every number (the phone's line had only three), who and when, the plan, the actions, Grok's why
     cells = [("Veličina", size, "n", 1), ("Ulaz (MC)", mc(p["avg_mc"]), "n", 1),
-             ("Sada (MC)", f'<span data-f=mc>{mc(p["mc_now"])}</span>', "n", 1),
+             ("Sada (MC)", f'<span data-f=mc>{mc(p["mc_now"])}</span>{fdv_html(p.get("fdv_now"))}', "n", 1),
              ("PnL", f'<span class="n apx-pnl {pnl_cls}" data-f=pnl>{pnl}</span>', "n", 1),
              ("SL", sl, "n dn", 1), ("TP", tp, "n up", 1),
              ("Izvor", esc(b["tag"]) + (f'<small>{esc(who_txt)}</small>' if who_txt else ""), "t", 0),
@@ -2072,10 +2216,14 @@ def _pos_row(p, owner, cfg, rule, gx=None, now=None):
     grid = "".join(f'<div{" class=apx-dup" if dup else ""}><span>{esc(k)}{_i(k)}</span><b class="{c}">{v}</b></div>'
                    for k, v, c, dup in cells)
     grok = (f'<div class="apx-gpd apx-pgrok">{gx["html"]}</div>' if gx and gx.get("html") else "")
+    # 16.11.: a tap on the row loads its token above (ap.js); this button also brings the chart into view
+    graf = (f'<button type=button class="apx-b apx-tograf" data-sel="{esc(tok)}" '
+            f'data-sym="{"" if p.get("sym_addr") else esc(p["sym"])}">Prikaži graf ↑</button>')
     body = (f'<div class=apx-prd><div class=apx-prg data-key="{esc(p["key"])}">{grid}</div>'
-            f'{plan_html(p.get("plan"))}{_note_html(p.get("note"))}{_critic_html(p.get("critic"), now)}'
-            + (f'<span class=apx-act>{act}</span>' if act else "") + f'{edit}{grok}</div>')
-    return (f'<details class="apx-pos apx-pr{" is-paper" if p["paper"] else ""}{" is-grok" if p.get("grok") else ""}" '
+            f'{plan_html(p.get("plan"), p)}{_note_html(p.get("note"))}{_critic_html(p.get("critic"), now)}'
+            f'<span class=apx-act>{graf}{act}</span>{edit}{grok}</div>')
+    return (f'<details class="apx-pos apx-pr{" is-paper" if p["paper"] else ""}{" is-grok" if p.get("grok") else ""}'
+            f'{" is-sel" if sel else ""}" '
             f'id=poz-{p["pid"]} data-key="{esc(p["key"])}" data-tok="{esc(tok)}" data-by="{esc(b["kind"])}">'
             f'{summ}{body}</details>')
 
@@ -2112,6 +2260,10 @@ def sltp_html(p, cfg):
     tpc = "".join(f'<button type=button class="apx-chip up" data-etp="{v}%">+{v} %</button>' for v in pt.EXIT_TP_QUICK)
     slc = "".join(f'<button type=button class="apx-chip dn" data-esl="-{v}%">−{v} %</button>' for v in sl_chips(sl0))
     now = "Smart sell (alat sam bira izlaz)" if p.get("smart") else (p.get("exit") or "bez TP/SL-a")
+    sx = p.get("strat")
+    if sx:   # 16.11.: the strategy sells this position by its own rule; what is saved here is added to it
+        now = (f'{now}; poziciju već prodaje pravilo strategije {sx["name"]} ({sx["summary"]}), a ono što ovdje spremiš '
+               'vrijedi uz njega (prodaje što se prvo dogodi)')
     return (f'<form method=post action=/pravi-trade/exit class="apx-f apx-sltp" data-sltp data-base="{p.get("avg_mc") or ""}" '
             f'aria-label="SL i TP pozicije {esc(p["sym"])}"><input type=hidden name=id value={int(p["pid"])}>'
             f'<div class=apx-two><label class="apx-fl up">TP<input name=tp value="{esc(p.get("tp") or "")}" '
@@ -2137,11 +2289,14 @@ def _mypos_html(p, cfg):
         return '<div class=apx-mypos id=apx-mypos hidden></div>'
     pnl = (f'{_pct(p["pnl_pct"])}<small>{redak.sol(p["pnl_sol"], 4, sign=True) if p["pnl_sol"] is not None else ""}</small>'
            if p["pnl_pct"] is not None else "čekam cijenu")
-    sl = (f'{_pct(p["sl_pct"], 0)}<small>{mc(p["sl_mc"])}</small>' if p["sl_mc"] else "Smart" if p["smart"] else "–")
-    tp = (f'{_pct(p["tp_pct"], 0)}<small>{mc(p["tp_mc"])}</small>' if p["tp_mc"] else "–")
+    sx = p.get("strat") if p.get("strat_cells") else None
+    sl = (lvl_html(p["sl_pct"], p["sl_mc"], sx, "sl") if p["sl_mc"] or (sx and p["sl_pct"] is not None)
+          else "Smart" if p["smart"] else "–")
+    tp = lvl_html(p["tp_pct"], p["tp_mc"], sx, "tp") if p["tp_mc"] or (sx and p["tp_pct"] is not None) else "–"
     if p.get("trail"):
         tp += f'<small>trailing {esc(str(p["trail"].get("trail_pct")))} %</small>'
-    cells = [("Ulaz (MC)", f'<b>{mc(p["avg_mc"])}</b>'), ("Sada (MC)", f'<b data-f=mc>{mc(p["mc_now"])}</b>'),
+    cells = [("Ulaz (MC)", f'<b>{mc(p["avg_mc"])}</b>'),
+             ("Sada (MC)", f'<b data-f=mc>{mc(p["mc_now"])}</b>{fdv_html(p.get("fdv_now"))}'),
              ("PnL", f'<b class="n apx-pnl {_tone(p["pnl_pct"])}" data-f=pnl>{pnl}</b>'),
              ("SL", f'<b class=dn>{sl}</b>'), ("TP", f'<b class=up>{tp}</b>')]
     grid = "".join(f'<div><span>{k}</span>{v}</div>' for k, v in cells)
@@ -2156,7 +2311,7 @@ def _mypos_html(p, cfg):
     badge = BADGE_PAPER if p["paper"] else BADGE_LIVE
     return (f'<div class=apx-mypos id=apx-mypos data-key="{esc(p["key"])}"><div class=apx-myh><b>Tvoja pozicija</b>{badge}'
             f'<span class=apx-mut translate=no>{esc(p["sym"])} · {redak.sol(p["sol_in"], 3)}</span></div>'
-            f'<div class=apx-myg>{grid}</div>{plan_html(p.get("plan"))}{act}</div>')
+            f'<div class=apx-myg>{grid}</div>{plan_html(p.get("plan"), p)}{act}</div>')
 
 
 def orders_html(d):
@@ -2172,7 +2327,8 @@ def orders_html(d):
         cls = {"tp": "up", "sl": "dn", "dca": "", "limit": "", "trail": "up", "sell": "dn"}.get(o["kind"], "")
         lvl = mc(o.get("mc")) if o.get("mc") else "–"
         if o.get("pct") is not None and o["kind"] in ("tp", "sl"):
-            lvl = f'{_pct(o["pct"], 0)}<small>{lvl}</small>'
+            # a strategy's level keeps its decimal (−6,6 %, +11,2 %), as in Pozicije
+            lvl = f'{_pct(o["pct"], 1 if o.get("rule") and o["pct"] != int(o["pct"]) else 0)}<small>{lvl}</small>'
         elif o["kind"] == "trail":
             lvl = f'−{esc(str(o.get("pct")))} %'
         elif o["kind"] == "sell":
@@ -2182,7 +2338,7 @@ def orders_html(d):
         if owner and o.get("cancel"):
             act = (f'<form method=post action={o["cancel"]} onsubmit="return confirm(\'Otkazati ovaj nalog?\')">'
                    f'<input type=hidden name=id value="{esc(o["id"])}"><button class=apx-b>Otkaži</button></form>')
-        elif owner and o["kind"] in ("tp", "sl", "trail") and o.get("pid"):
+        elif owner and o["kind"] in ("tp", "sl", "trail") and o.get("pid") and not o.get("rule"):
             act = f'<button type=button class=apx-b data-edit="ed-{o["pid"]}" data-goto="poz-{o["pid"]}">Uredi</button>'
         note = f'<small>{esc(o["note"])}</small>' if o.get("note") else ""
         paper = '<span class="apx-badge paper">paper</span>' if o.get("paper") else ""
@@ -2202,7 +2358,7 @@ def _hdr_html(h, now):
     rug = h.get("rug") or {}
     bs = h.get("bs_m5")
     bs_txt = f"{h.get('buys_m5')}/{h.get('sells_m5')} ({redak.num(bs, 2)})" if bs is not None else "–"
-    cells = [("MC", f'<b data-f=mcap>{mc(h.get("mcap"))}</b>'),
+    cells = [("MC", f'<b data-f=mcap>{mc(h.get("mcap"))}</b>{fdv_html(h.get("fdv"))}'),
              ("5 min", f'<b data-f=ch_m5 class={_tone(h.get("ch_m5"))}>{_pct(h.get("ch_m5"))}</b>'),
              ("1 h", f'<b data-f=ch_h1 class={_tone(h.get("ch_h1"))}>{_pct(h.get("ch_h1"))}</b>'),
              ("24 h", f'<b data-f=ch_h24 class={_tone(h.get("ch_h24"))}>{_pct(h.get("ch_h24"))}</b>'),
@@ -2607,7 +2763,7 @@ def page(qs, user, full=False):
                 f'<button type=button data-tab=nalozi role=tab>Otvoreni nalozi <b id=apx-nord>{nord}</b></button>'
                 '<button type=button data-tab=povijest role=tab>Povijest</button>'
                 '<button type=button data-tab=dnevnik role=tab>Dnevnik</button>'
-                f'<span class=apx-sp></span>{age_badge(d.get("data_ts"), now).replace("apx-age", "apx-age apx-live-age", 1)}</div>')
+                f'<span class=apx-sp></span>{price_badge(d.get("data_ts"), now)}</div>')
         hist = lazy("povijest", user, qs) if full else _skel(4)
         dn = pt._safe("dnevnik", pt.dnevnik_fragment, user) if full else _skel(4)
         # 14.11.: the exit plans' kill switch moved from Otvoreni nalozi to "Prekidači" (every switch at the bottom)
@@ -3142,7 +3298,8 @@ def povijest_html(tcon, cfg, owner, now, page_no=1):
                    f'<span class=n data-l="Zatvoreno">{esc(_dmhm(cts or ots or 0))}</span>'
                    f'<span class=n data-l="Uloženo">{redak.sol(sin, 3)}</span><span class=n data-l="Vraćeno">{redak.sol(sback, 4)}</span>'
                    f'<span class="n {_tone(pnl)}" data-l="PnL">{redak.sol(pnl, 4, sign=True)}<small>{_pct(pp)}</small></span>'
-                   f'<span data-l="Izvor">{esc(src_kind(why))}<small>{esc(pt._who(why) or "")}</small>{ov}</span>'
+                   # 16.11.: who opened it in the words of Pozicije ("program · midcap raspon", "ručno"), not "auto"
+                   f'<span data-l="Izvor">{esc(opened_by(why)["tag"])}<small>{esc(pt._who(why) or "")}</small>{ov}</span>'
                    f'<span class=apx-act>{link}</span>{_note_html(_slim(notes.get(("p", pid))))}'
                    f'{_critic_html(_critic_slim(crit.get(pid)))}</div>')
     head = ('<div class="apx-tr apx-th apx-hist">' + _th("Token") + _th("Zatvoreno", cls="n") + _th("Uloženo", cls="n")

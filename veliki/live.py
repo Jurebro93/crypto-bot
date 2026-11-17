@@ -294,6 +294,17 @@ def guards(tok, mq):
     return None
 
 
+def _sym(tok, mq=None):
+    """The token's symbol for a trade and its log lines: the quote's when it has one, else what the midcap collector /
+    the veliki list call it (veliki/symbols.resolve); the mint's first six characters only as the last resort."""
+    try:
+        from veliki import symbols
+        got = symbols.resolve(tok, mq[4] if mq and len(mq) > 4 else None)
+    except Exception:  # noqa: BLE001 - a name never stops an entry
+        got = (mq[4] if mq and len(mq) > 4 else None)
+    return got or tok[:6]
+
+
 def open_rows(con, user=None):
     sql = "SELECT * FROM veliki_trades WHERE status='open'" + (" AND user=?" if user else "")
     cur = con.execute(sql, (user,) if user else ())
@@ -405,7 +416,9 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
         return None, f"likvidnost ${(liq or 0) / 1e3:,.0f}k ispod ${universe.REAL_MIN_LIQ / 1e3:,.0f}k za pravi novac", None
     if not real and kind == "intra" and (liq or 0) < DEMO_MIN_LIQ:
         return None, f"likvidnost ${(liq or 0) / 1e3:,.0f}k ispod ${DEMO_MIN_LIQ / 1e3:,.0f}k", None
-    sym = (mq[4] if len(mq) > 4 else None) or tok[:6]
+    # 16.11. (owner: the positions were listed as "Ce2gx9" / "PRVT6T"): run_ui's market (ui/paper.market) carries no
+    # symbol, so the name comes from the collectors' own tables (veliki/symbols); the prefix only when nobody knows it
+    sym = _sym(tok, mq)
     if real and (meta is None or meta[0] is None):   # 15.11. popodne: no priority row = holder / safety facts unknown
         return None, "prioritet (holderi, sigurnost) još nije izračunat", None
     size_usd = cp["size_sol"] * sol
@@ -1230,6 +1243,11 @@ def tick(con, market_fn, now=None, force=False, toks=None):
     ensure(con)
     owner_once(con, now)
     owner_wide_once(con, now)
+    try:   # 16.11.: trades stored under their mint's prefix get their real symbol (league.db and trade.db; hourly)
+        from veliki import symbols
+        symbols.fix_once(con, now)
+    except Exception:  # noqa: BLE001
+        pass
     opened = open_rows(con)
     if m not in ("paper", "live") and not opened:
         return []
@@ -1435,7 +1453,7 @@ def _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, l
         held.add((user, tok))
     elif no and now - _ST["said"].get((user, tok), 0) > 3600:
         _ST["said"][(user, tok)] = now
-        out.append(f"veliki {(q[4] if len(q) > 4 else None) or tok[:6]}: signal bez ulaza ({no})")
+        out.append(f"veliki {_sym(tok, q)}: signal bez ulaza ({no})")
     return vid
 
 
@@ -1500,7 +1518,7 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
                 _refused("dnevni ulaz: " + no)
                 if now - _ST["said"].get((user, tok, "i"), 0) > 3600:
                     _ST["said"][(user, tok, "i")] = now
-                    out.append(f"veliki {(q[4] if len(q) > 4 else None) or tok[:6]}: dnevni signal bez ulaza ({no})")
+                    out.append(f"veliki {_sym(tok, q)}: dnevni signal bez ulaza ({no})")
     return out
 
 

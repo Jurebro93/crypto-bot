@@ -2241,7 +2241,7 @@ def _switch_box(tcon, cfg, owner):
             'i u Renderu stoje TRADE_LIVE=1 i ključ'
             + ("" if live else " (sada nije: kupnje bi bile samo proba)") + '.</p>',
             f'<p>Danas: kupnji {st["buys"]}/{st["max_buys_day"]}, otvoreno {st["open"]}/{st["max_open"]}, ostvareno '
-            f'{redak.sol(st["pnl"], 3)} SOL (stop −{_g(st["max_loss_day"])})'
+            f'{redak.sol(st["pnl"], 3)} (stop −{_g(st["max_loss_day"])} SOL)'   # 16.11.: it read "0,004 SOL SOL"
             + (", <b>dnevni stop dosegnut</b>" if st["stopped"] else "") + '.</p>']
     if owner:
         mode, label = ("off", "Isključi pravi novac za sve") if on else ("live", "Uključi pravi novac za sve strategije")
@@ -4272,6 +4272,8 @@ def _skip_src(s):
     label starts with the kind again ("ekipa ekipa: @murad + …" -> "ekipa @murad + …")."""
     s = " ".join(str(s or "").split())
     s = re.sub(r"^(\w+) \1:?\s*", r"\1 ", s)
+    if s.startswith("veliki:"):   # 16.11.: the strategy's name on the page ("Midcap raspon"), not its module's
+        s = "midcap raspon:" + s[len("veliki:"):]
     m = re.fullmatch(r"wallet ([1-9A-HJ-NP-Za-km-z]{20,})", s)
     return f"wallet {short(m.group(1))}" if m else s
 
@@ -5224,7 +5226,14 @@ def _warnings(tcon, cfg, con):
     if cfg["size_sol"] < 0.03:
         w.append(("warn", f"Ulog {_g(cfg['size_sol'])} SOL je malen: mrežne naknade i depozit (~0,003 SOL po kupnji, "
                           "depozit se vrati) su velik dio uloga."))
-    if not copy.follows(con, settings.LEAGUE_USER) and not cfg.get("follow_paper") and not cfg.get("simianx"):
+    # 16.11.: not while a strategy buys by itself (the midcap range, or every strategy under pravi_novac_sve): "neće
+    # ništa kupiti" stood above three positions the bot had just bought
+    try:
+        own = settings.pravi_novac_sve(con=tcon) or executor.veliki_on(tcon)
+    except Exception:  # noqa: BLE001
+        own = False
+    if (not own and not copy.follows(con, settings.LEAGUE_USER) and not cfg.get("follow_paper")
+            and not cfg.get("simianx")):
         w.append(("warn", "Bot nikoga ne prati: neće ništa kupiti dok ne dodaš influencera ili wallet."))
     # nothing to say = nothing shown (the page stays clean); otherwise one short line per problem. 10.11. (Jure: "čista,
     # minimalistička"): the line's colour says how bad it is, no emoji in front

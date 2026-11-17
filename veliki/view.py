@@ -180,3 +180,127 @@ def midcaps(args=None):
                             "confidence, interpretation}. Your verdicts are archived with their time (veliki.db "
                             "grok_sig) and compared later with / without you; the demo account trades the rule, real "
                             "money only by the owner's switch.")}
+
+
+# ---------- the strategy's own exit of an open position (the Autopilot page, read-only) ------------------------------
+# 16.11. (owner, on /pravi-trade: SL and TP of the midcap positions showed "–", the row said "samo paper" and the
+# critic "Nema TP ni trailing"): the midcap rules sell their positions themselves (veliki/live.manage: the league trade
+# has no auto rule), so the page and the critic never saw the stop and the target. They are read from veliki_trades
+# here, never written.
+
+RULE_NAMES = {"intra": "midcap dnevni raspon", "range": "midcap raspon 7 d"}
+
+
+def _hr_pct(x, dec=0):
+    """-20.0 -> "−20 %", 11.24 -> "+11,2 %" (dec=1): the page's own way of writing a percent."""
+    s = f"{abs(x):.{dec}f}"
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return ("−" if x < 0 else "+") + s.replace(".", ",") + " %"
+
+
+def _hr_px(x):
+    """A token price in dollars with the page's decimal comma: $0,9412, $0,01204, $0,0000612."""
+    if not x:
+        return "–"
+    s = f"{x:.4g}" if x < 1 else f"{x:,.4f}".rstrip("0").rstrip(".")
+    if "e" in s:
+        s = f"{x:.10f}".rstrip("0")
+    return "$" + s.replace(",", " ").replace(".", ",")
+
+
+def exit_state(r):
+    """The stop and the target of one open veliki_trades row, as the page shows them: percent from the (average)
+    entry and the price, whose rule it is, and the stop's state in plain words:
+      "stop na ulazu"            the +5 % rule (or a BTC episode above break-even) moved the stop to break-even
+      "uži stop (BTC pada)"      the tight stop of a BTC episode (rule.OWNER_STOP), intraday positions
+      "široki stop −20 %"        only the wide safety stop under the first entry, intraday positions
+      "stop −20 %"               the 7-day rule's stop
+    None for a row without an entry price."""
+    entry = r.get("entry_px")
+    if not entry:
+        return None
+    kind = "intra" if (r.get("kind") or "") == "intra" else "range"
+    first = r.get("first_px") or entry
+    stop, tp, be = r.get("stop_px"), r.get("tp_px"), r.get("be_px")
+    out = {"kind": kind, "name": RULE_NAMES[kind], "entry_px": entry,
+           "sl_px": stop, "sl_pct": round((stop / entry - 1) * 100, 2) if stop else None,
+           "tp_px": tp, "tp_pct": round((tp / entry - 1) * 100, 2) if tp else None,
+           "half": bool(r.get("half_px")), "trail": r.get("trail") or 0.0, "lots": r.get("lots") or 1}
+    if not stop:
+        out.update(state="", words="bez stopa")
+    elif be and stop >= be * 0.999:
+        out.update(state="be", words="stop na ulazu")
+    elif kind == "intra" and r.get("tight_ts"):
+        out.update(state="tight", words="uži stop (BTC pada)")
+    elif kind == "intra":
+        out.update(state="wide", words="široki stop " + _hr_pct((stop / first - 1) * 100))
+    else:
+        out.update(state="stop", words="stop " + _hr_pct((stop / first - 1) * 100))
+    out["sl_text"] = f"{out['words']}" + (f" ({_hr_px(stop)})" if stop else "")
+    out["tp_text"] = (f"cilj {_hr_pct(out['tp_pct'], 1)} ({_hr_px(tp)})" if tp else "bez cilja")
+    out["summary"] = f"{out['words']} · {out['tp_text'].split(' (')[0]}"
+    return out
+
+
+def exit_sentence(x, live=True):
+    """Who sells the position and by which rule, in plain words (one short paragraph under the opened row)."""
+    if not x:
+        return ""
+    head = (f"Izlaz vodi strategija {x['name']} (program), pravim novcem" if live
+            else f"Demo pozicija, bez pravog novca. Izlaz vodi strategija {x['name']} (program)")
+    if x.get("half"):
+        sale = (f"pola je prodano na cilju, ostatak se prodaje kad cijena padne {x['trail']:.0%} od vrha".replace("%", " %")
+                + (f" ili na stopu {_hr_px(x['sl_px'])}" if x.get("sl_px") else ""))
+    else:
+        sale = (f"prodaje na cilju {_hr_pct(x['tp_pct'], 1)} ({_hr_px(x['tp_px'])})" if x.get("tp_px") else "bez cilja")
+        if x.get("tp_px") and x.get("trail"):   # veliki/live.full_tp: half + trailing only while the whole market rises
+            sale += " cijelu poziciju (kad cijelo tržište raste samo pola, ostatak prati vrh)"
+        if x.get("sl_px") and x.get("state") == "be":
+            sale += f" ili na stopu na ulazu ({_hr_px(x['sl_px'])})"
+        elif x.get("sl_px"):
+            sale += f" ili na stopu {_hr_pct(x['sl_pct'], 1)} ({_hr_px(x['sl_px'])})"
+    now = {"be": "stop je na ulazu (pozicija je bila u plusu 5 % ili više), pa ne može završiti u minusu",
+           "tight": "BTC pada, pa je stop uži (4 % ispod cijene u tom trenutku); kad se BTC smiri, vraća se široki",
+           "wide": "BTC je miran, pa vrijedi samo široki stop; ako BTC padne 1,5 % u 4 h, stop ide 4 % ispod cijene, "
+                   "a na +5 % neto ide na ulaz",
+           "stop": "na +5 % neto stop ide na ulaz"}.get(x.get("state"), "")
+    return (f"{head}: {sale}. " + (f"Sada: {now}. " if now else "")
+            + "Razine postavlja pravilo strategije; ovdje se samo čitaju.")
+
+
+def open_exits(trade_ids, path=None):
+    """{league trade id: exit_state} of the open midcap positions behind the listed league trades (the first lot's
+    id and the DCA lot's id both lead to their row). league.db read-only; {} when it cannot be read."""
+    import os
+    import sqlite3
+    ids = [int(x) for x in trade_ids or () if x]
+    if not ids:
+        return {}
+    if path is None:
+        from league import store as lstore
+        path = lstore.DB
+    if not os.path.exists(path):
+        return {}
+    out = {}
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return {}
+    try:
+        con.row_factory = sqlite3.Row
+        q = ",".join("?" * len(ids))
+        for r in con.execute(f"SELECT * FROM veliki_trades WHERE status='open' AND (trade_id IN ({q}) OR "
+                             f"dca_trade_id IN ({q}))", ids + ids):
+            d = dict(r)
+            x = exit_state(d)
+            if not x:
+                continue
+            for k in (d.get("trade_id"), d.get("dca_trade_id")):
+                if k in ids:
+                    out[k] = x
+    except sqlite3.Error:   # no veliki_trades (the strategy never ran here) or an older schema
+        return out
+    finally:
+        con.close()
+    return out

@@ -105,7 +105,8 @@ class Layout(Card):
         body = self.page()
         pos = body[body.index("id=pozicije"):body.index("id=nalozi")]
         row = self.row(pos, MINT)
-        self.assertTrue(row.startswith('<details class="apx-pos apx-pr is-grok" id=poz-'), row[:80])   # closed till tapped
+        # closed till tapped; 16.11.: the row of the token on the chart is marked (is-sel, "na grafu")
+        self.assertTrue(row.startswith('<details class="apx-pos apx-pr is-grok is-sel" id=poz-'), row[:80])
         summ = row[:row.index("</summary>")]
         self.assertIn('<span class="apx-by prog" data-by="program" title="Otvorio program sam (automatska strategija)">'
                       'program · Grok</span>', summ)
