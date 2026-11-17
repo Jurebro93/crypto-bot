@@ -956,7 +956,7 @@ def close(con, r, price, liq, mcap, reason, now, why=None):
     ret = rule.blend_ret(pos, price, r["rt"], {"tx_frac": tx, "exit_slip": 0.0}, lots)
     rd = rule.blend_ret(pos, price, r["drt"], {"tx_frac": tx, "exit_slip": 0.0}, lots)
     con.execute("UPDATE veliki_trades SET status='closed', closed_ts=?, exit_px=?, reason=?, ret=?, pnl_usd=?, "
-                "ret_demo=?, pnl_booked=?, exit_why=? WHERE id=?",
+                "ret_demo=?, pnl_booked=?, exit_why=? WHERE id=? AND status='open'",   # 17.11.: a closed row is never re-closed
                 (int(now), price, reason, ret, ret * r["size_usd"], rd, booked, why, r["id"]))
     if reason != "nestalo":   # 16.11.: the planned stop against this exit, and why they differ (trade/stopgap)
         from trade import stopgap

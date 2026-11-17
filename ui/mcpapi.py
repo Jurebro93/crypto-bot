@@ -690,11 +690,16 @@ def cleanup_requests_once(tcon, now=None):
     return n
 
 
-def decide(tcon, rid, status, note=""):
+def decide(tcon, rid, status, note="", only_from=None):
+    """Store the outcome of a request. only_from (17.11., stanja/registar "mcp_request"): the stored statuses the move
+    is allowed from; a request in any other one is left as it is and None is returned (the owner's "Odbij" on a
+    request already approved, failed or expired no longer rewrites what happened)."""
     reqs = list(settings.raw(tcon).get("mcp_requests") or [])
     hit = None
     for r in reqs:
         if r.get("id") == rid:
+            if only_from is not None and r.get("status") not in only_from:
+                return None
             r["status"], r["decided"], r["note"] = status, int(time.time()), note[:300]
             hit = r
     if hit is not None:
@@ -1951,6 +1956,33 @@ def _retry_hint(d, token):
     return dict(d, autotrade_retry=h) if h else d
 
 
+# 17.11. (owner: "Find all of the implicit state machines in my app ... elevate UX, DX and AX"; stanja/): what state
+# the app is in NOW and what every status word means, in one read
+TOOLS.append(
+    {"name": "get_system_state", "annotations": _READ,
+     "description": ("START HERE when you need to know what is switched on. The state NOW of the app's global "
+                     "switches and regimes, one row each: the Autopilot (live / dry / off), the kill switch, 'Prodaj "
+                     "sve', the real-money switch of each strategy, the day-loss stop with today's numbers, Grok "
+                     "autotrade (off / on / paused, with the limits the owner set), the owner's pause of exit plans, "
+                     "MCP access (only whether a key is set and when it was made, never the key), the trading "
+                     "process's heartbeat, the midcap proof mode, the BTC regime, the macro regime with 'oporavak', "
+                     "the midcap focus and the flags by mode. Every row: state (the literal the code stores; <...> = "
+                     "derived from several fields), label (the Croatian word the owner sees for it), since and who "
+                     "(when and by whom it was last set, when stored), detail, changes (what moves it and who may) "
+                     "and caveats (what the state does NOT mean). A row that cannot be read says '?' and why; it "
+                     "never fails the call. With definitions=true (or area / key) also the registry of the app's "
+                     "state machines (positions, orders, requests, notes, proposals, each strategy's trades, jobs, "
+                     "data collectors): the exact status literals with their meaning, the allowed moves, where the "
+                     "state is stored, and one shared vocabulary for exit reasons across strategies (exit_words). "
+                     "Use the labels when you write to the owner, the literals when you filter another tool's "
+                     "output. Read-only; you cannot change any switch with a tool."),
+     "inputSchema": {"type": "object", "properties": {
+         "definitions": {"type": "boolean", "default": False,
+                         "description": "also return the registry of state machines (all of it unless area / key)"},
+         "area": {"type": "string", "enum": ["novac", "strategije", "odobrenja", "podaci", "posao", "racuni", "sucelje"]},
+         "key": {"type": "string", "description": "one machine by its key, e.g. position, mcp_request, grok_autotrade"}}}})
+
+
 def _tool(name, args, kid="local"):
     """(result dict, is_error) of one tool call."""
     args = args if isinstance(args, dict) else {}
@@ -2022,6 +2054,9 @@ def _tool(name, args, kid="local"):
         from insajderi import report as i2report
         d = i2report.mcp(args)
         return d, "error" in d
+    if name == "get_system_state":   # 17.11. stanja/: the global state now + the registry, read-only
+        from stanja import ploca
+        return ploca.mcp(args), False
     if name == "get_kol_insider_wallets":   # 16.11. insajderi/kolwallets.py, read-only
         from insajderi import kolwallets
         d = kolwallets.mcp(args)

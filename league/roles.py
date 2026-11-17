@@ -35,6 +35,7 @@ WHAT = {
 # pages (exact path or path + "/...") and the lowest role that may open them
 PAGES = {
     "/usage": "admin", "/analitika": "admin", "/zahtjevi": "admin", "/outputs": "admin", "/korisnici": "admin",
+    "/stanje": "admin",          # 17.11.: and of the admins only the OWNER (run_ui.py): the real account's switches
     "/kol-insajderi": "admin",   # 16.11.: and of the admins only the OWNER (run_ui.py): inferences about named people
     "/learn": "prijatelj", "/criteria": "prijatelj", "/izvjestaj": "prijatelj", "/nas-token": "prijatelj",
     "/whatsapp": "prijatelj",
