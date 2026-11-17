@@ -178,7 +178,8 @@ def enter(con, user, tok, mq, now, sol, why):
     if g:
         return None, g
     price, liq, url, mcap = mq[:4]
-    sym = (mq[4] if len(mq) > 4 else None) or tok[:6]
+    from veliki import symbols   # 16.11.: run_ui's quote has no symbol; the mint's prefix only as the last resort
+    sym = symbols.resolve(tok, mq[4] if len(mq) > 4 else None) or tok[:6]
     from trade import capgate   # 15.11. (vlasnik): MC >= 5M; a price scalp takes no moonshot exception
     g = capgate.refusal(tok, mcap, f"{SRC}: {why}", user, now, liq=liq, symbol=sym)
     if g:

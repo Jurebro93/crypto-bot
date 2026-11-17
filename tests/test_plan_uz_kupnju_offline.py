@@ -362,8 +362,10 @@ class KillSwitchAndLabels(PlanBase):
         # the row and the panel's "Tvoja pozicija" carry it
         _, body = pravitrade.page({"m": MINT}, "Jure")
         card = body.split("id=apx-mypos", 1)[1].split("<div class=apx-wal>", 1)[0]
-        self.assertIn("data-plan=shadow><b>samo paper</b>", card)
-        self.assertIn("data-plan=shadow><b>samo paper</b>", body.split("id=poz-", 1)[1])
+        # 16.11. (owner: a row marked UŽIVO said "samo paper"): a real position never says "samo paper"
+        self.assertIn("data-plan=shadow><b>pravi novac · plan izlaza nije aktivan</b> · plan u sjeni", card)
+        self.assertIn("data-plan=shadow><b>pravi novac · plan izlaza nije aktivan</b>", body.split("id=poz-", 1)[1])
+        self.assertNotIn("samo paper", body.split("id=poz-", 1)[1].split("</details>", 1)[0])
 
     def test_get_portfolio_status_says_plan_mode_and_why(self):
         self.assertIn("ok=", self.buy(tp="15%", sl="-10%"))

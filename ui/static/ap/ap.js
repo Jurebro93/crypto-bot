@@ -78,8 +78,11 @@
       if (!ts) continue;
       const a = Math.max(0, Math.floor(now - ts));
       const w = a < 60 ? a + ' s' : a < 3600 ? Math.floor(a / 60) + ' min' : Math.floor(a / 3600) + ' h';
-      el.textContent = (el.dataset.short && innerWidth < 480 ? 'prije ' : 'ažurirano prije ') + w;   // one row on a phone
-      el.classList.toggle('old', a > (+el.dataset.stale || 60));   // data-stale: a source with its own cadence
+      const late = a > (+el.dataset.stale || 60);   // data-stale: a source with its own cadence
+      // data-price (16.11.): the positions' live price says how old it is, and "kasni" in words once it is late
+      if (el.dataset.price) el.textContent = (late ? 'cijena kasni ' : 'cijena prije ') + w;
+      else el.textContent = (el.dataset.short && innerWidth < 480 ? 'prije ' : 'ažurirano prije ') + w;   // one row on a phone
+      el.classList.toggle('old', late);
     }
   }
   setInterval(age, 1000);
@@ -938,11 +941,18 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && FS.el) { e.preventDefault(); fsClose(); } });
 
   // ---- the live tick: header, positions' MC / PnL, the last candle; a changed set of positions reloads the tables ----
+  // FDV beside the market cap, only while it differs by more than 5 % (DexScreener's page shows the FDV)
+  function setFdv(box, lv) {
+    const el = $('[data-f="fdv"]', box);
+    if (!el || !lv) return;
+    if (lv.fdv) { const t = el.firstChild; if (t && t.nodeType === 3) t.nodeValue = 'FDV ' + fMc(lv.fdv); else if (!el.childNodes.length) el.textContent = 'FDV ' + fMc(lv.fdv); el.hidden = false; }
+    else if (el.childNodes.length) el.hidden = true;
+  }
   function setHeader(lv, ts) {
     const h = $('#apx-hdr');
     if (!h || h.dataset.mint !== S.m) return;
     const set = (k, txt, t) => { const el = $(`[data-f="${k}"]`, h); if (!el) return; el.textContent = txt; if (t !== undefined) el.className = t; };
-    set('mcap', fMc(lv.mcap));
+    set('mcap', fMc(lv.mcap)); setFdv(h, lv);
     set('ch_m5', fPct(lv.ch_m5), tone(lv.ch_m5)); set('ch_h1', fPct(lv.ch_h1), tone(lv.ch_h1)); set('ch_h24', fPct(lv.ch_h24), tone(lv.ch_h24));
     set('liq', fMc(lv.liq)); set('vol_h1', fMc(lv.vol_h1));
     if (lv.buys_m5 != null && lv.sells_m5) set('bs', `${lv.buys_m5}/${lv.sells_m5} (${fNum(lv.buys_m5 / lv.sells_m5, 2)})`);
@@ -954,6 +964,7 @@
     for (const row of $$(`[data-key="${CSS.escape(p.key)}"]`)) {
       const mcEl = $('[data-f="mc"]', row), pnEl = $('[data-f="pnl"]', row);
       if (mcEl) mcEl.textContent = fMc(lv.mcap);
+      setFdv(row, lv);
       if (!p.avg_mc || !pnEl) continue;
       const pp = (lv.mcap / p.avg_mc - 1) * 100;
       let ps = 0;
@@ -1029,8 +1040,13 @@
   async function refreshFirst(fresh) {
     if (refreshing) { S.again = fresh ? 2 : (S.again || 1); return; }   // asked during a refresh: once more right after it
     refreshing = true;
+    // 16.11. (owner: "kliknem na poziciju GTA V6 ... otvori graf nekog tokena Umbra"): the refresh asks for the token
+    // picked when it starts; when another one is picked while it is on its way, its answer (the other token's sale
+    // form, "Tvoja pozicija", header data) is dropped and the refresh runs once more for the token on the chart
+    const m0 = S.m;
     try {
-      const j = await getFirst(S.m, true, '', fresh);
+      const j = await getFirst(m0, true, '', fresh);
+      if (S.m !== m0) { S.again = S.again || 1; return; }
       j.urls = URLS; F = j;
       const pos = $('#pozicije'), ord = $('#nalozi');
       if (pos && !busy(pos)) { keepOpen(pos, () => { pos.innerHTML = j.html.pos; }); S.stale = 0; }
@@ -1053,7 +1069,8 @@
         S.flash = 0;
       }
       for (const p of F.positions || []) posRow(p, S.live[p.token]);
-      label();
+      markSel(); label();
+      if (!S.m && j.m) { selectToken(j.m); return; }   // the first position opened while the page showed no token
       if (series) loadCandles();
     } catch (e) { /* the next tick tries again */ } finally {
       refreshing = false;
@@ -1062,14 +1079,41 @@
   }
   setInterval(() => { if (document.visibilityState === 'visible') refreshFirst(); }, 30000);
 
-  async function selectToken(m, sym) {
-    if (!m || m === S.m) return;
+  // the row of the token on the chart carries .is-sel ("na grafu"): by its mint (data-tok), never by name or place
+  function markSel() {
+    for (const d of $$('#pozicije details.apx-pos')) d.classList.toggle('is-sel', !!S.m && d.dataset.tok === S.m);
+  }
+  // the answer for the picked token did not come (a weak phone line): the header must not keep naming the token picked
+  // before over the new token's chart. It names the new one (its symbol when the row gave one, else the address), the
+  // DexScreener link and the Token field follow, the numbers wait; the pick is asked for again in 2 s (twice at most)
+  function selFallback(m, sym) {
+    const h = $('#apx-hdr');
+    if (h && h.dataset.mint !== m) {
+      h.dataset.mint = m;
+      const n = $('[data-f="sym"]', h), a = $('a[href*="dexscreener.com"]', h);
+      if (n) n.textContent = sym || shortM(m);
+      if (a) a.href = 'https://dexscreener.com/solana/' + encodeURIComponent(m);
+      for (const el of $$('.apx-stats [data-f]', h)) { el.textContent = '–'; el.className = ''; }
+      const r = $('[data-f="rug"]', h); if (r) { r.textContent = 'čekam podatke'; r.className = 'apx-rug'; }
+    }
+    const f = form();
+    if (f && f.elements.token) { f.elements.token.value = m; if (f.elements.chart_mint) f.elements.chart_mint.value = m; }
+    if (F.m !== m) {   // the other token's sale form and position must not stay under this token's name (real money)
+      const s = $('#apx-sell'), p = $('#apx-mypos');
+      if (s) s.outerHTML = '<div class=apx-f id=apx-sell hidden><p class=apx-mut>Podaci odabranog tokena još nisu stigli. Pokušavam ponovno…</p></div>';
+      if (p) p.outerHTML = '<div class=apx-mypos id=apx-mypos hidden></div>';
+      setSide(S.side);
+    }
+  }
+  async function selectToken(m, sym, again) {
+    if (!m || (m === S.m && !again)) return;
     const f = form(), sol = f && f.elements.sol.value, foc = f && f.contains(document.activeElement) ? document.activeElement.name : '';
     S.m = m; S.fit = true;
     S.tf = S.tfFor[m] || S.tfPref; tfButtons();
     lastBar = null;   // the tick must not draw the new token's MC onto the old token's last candle
     try { history.replaceState(null, '', '?m=' + encodeURIComponent(m)); } catch (e) { /* file:// */ }
     const box = $('#apx-chart'); if (box) box.dataset.m = m;
+    markSel();
     try {
       const j = await getFirst(m, true, sym || tokSym(m));
       if (S.m !== m) return;   // another token was picked meanwhile: its answer is the one shown
@@ -1084,7 +1128,11 @@
       const f2 = form(); if (f2 && sol) f2.elements.sol.value = sol;
       if (f2 && foc && f2.elements[foc]) f2.elements[foc].focus({ preventScroll: true });   // typing / pasting goes on
       setSide(S.side);
-    } catch (e) { /* the header stays as it was */ }
+    } catch (e) {
+      if (S.m !== m) return;
+      selFallback(m, sym);
+      if ((again || 0) < 2) setTimeout(() => { if (S.m === m) selectToken(m, sym, (again || 0) + 1); }, 2000);
+    }
     if (chart) loadCandles(); else chartInit();
     startLive();
     hints(); costEst(); label(); tokCheck(true);
@@ -1113,9 +1161,11 @@
     const v = ((f && f.elements.token && f.elements.token.value) || '').trim();
     if (!v) return { st: 'empty' };
     const t = S.tok;
-    if (t && (t.q === v || t.mint === v)) return { st: t.found ? 'ok' : t.found === false ? 'bad' : 'down', sym: t.sym, t };
     const p = (F.positions || []).find(x => x.token === v), h = F.header;
-    if (p && p.sym) return { st: 'ok', sym: p.sym };   // an open position's token: its name is ours already
+    // DexScreener found the token but sent no symbol: our own name of it (a position's, the header's), else the address
+    const ours = (p && !p.sym_addr && p.sym) || (h && h.mint === v && h.sym && h.sym !== shortM(v) ? h.sym : '');
+    if (t && (t.q === v || t.mint === v)) return { st: t.found ? 'ok' : t.found === false ? 'bad' : 'down', sym: t.sym || ours || shortM(t.mint || v), t };
+    if (p && p.sym && !p.sym_addr) return { st: 'ok', sym: p.sym };   // an open position's token: its name is ours already
     if (h && h.mint === v && h.sym && h.sym !== shortM(v)) return { st: 'ok', sym: h.sym };
     return { st: 'wait' };
   }
@@ -1186,7 +1236,8 @@
       S.tok = t; t.at = Date.now();
       if (t.found && t.mint && cur !== t.mint) f2.elements.token.value = t.mint;   // a link: the mint it is, in sight
       const named = !!(t.found && t.sym);   // DexScreener's symbol; without one the name we already show, else the address
-      if (t.found && !t.sym) t.sym = (F.header && F.header.mint === t.mint && F.header.sym) || shortM(t.mint);
+      // (tokState names it at the time it is asked: the header may still be the token picked before)
+      if (t.found && !t.sym) t.sym = (F.header && F.header.mint === t.mint && F.header.sym !== shortM(t.mint) && F.header.sym) || '';
       if (t.found && t.mint && t.mint !== S.m) { selectToken(t.mint, t.sym); return; }   // chart, header, panel: that token
       const hs = $('#apx-hdr [data-f=sym]');
       if (named && F.header && F.header.mint === t.mint && F.header.sym !== t.sym) { F.header.sym = t.sym; if (hs) hs.textContent = t.sym; }
@@ -1497,7 +1548,8 @@
     e.preventDefault(); e.stopImmediatePropagation();
     const d = document.getElementById('ap-pop'), wasOpen = !!(d && d.open);
     if (wasOpen) d.close();   // its history entry goes back (POP_JS): the token's address is written after that
-    const name = el.dataset.sym || ((el.querySelector('b') || el).textContent || '').trim().split(/\s+/)[0].slice(0, 24);
+    // data-sym: the token's symbol ('' when the text is only the start of its address: no name is sent on)
+    const name = el.dataset.sym != null ? el.dataset.sym : ((el.querySelector('b') || el).textContent || '').trim().split(/\s+/)[0].slice(0, 24);
     const pick = () => {
       selectToken(m, name);
       const hd = $('#apx-hdr'); if (hd && hd.getBoundingClientRect().top < 0) hd.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1535,9 +1587,19 @@
       return;
     }
     if ((b = g('[data-fill]'))) { e.preventDefault(); try { fillFrom(JSON.parse(b.dataset.fill), true); } catch (x) { /* bad data */ } return; }
+    // 16.11. (owner: "Kliknem na ovu otvorenu poziciju GTA V6 da mi otvori gore graf. On mi otvori graf nekog tokena
+    // koji se zove Umbra"): only the small name in a row loaded its token; a tap anywhere else on the row just opened
+    // it and the chart, the header and Kupi / Prodaj above stayed on the token picked before. Now a tap on the row (its
+    // line, not a button or a link in it) also loads ITS token above, by the row's mint (data-tok); the row opens and
+    // closes as before, and "Prikaži graf ↑" in the opened row brings the chart into view.
+    if ((b = g('details.apx-pos > summary')) && !g('button,a,input,select,textarea,label,.apx-i')) {
+      const row = b.parentElement, nm = $('[data-sel]', b);
+      if (MINT_RE.test(row.dataset.tok || '')) selectToken(row.dataset.tok, nm ? (nm.dataset.sym || '') : '');
+      return;   // no preventDefault: the row opens / closes
+    }
     if ((b = g('[data-sel]'))) {
       e.preventDefault();
-      selectToken(b.dataset.sel, b.textContent.trim());
+      selectToken(b.dataset.sel, b.dataset.sym != null ? b.dataset.sym : b.textContent.trim());
       const hd = $('#apx-hdr'); if (hd && hd.getBoundingClientRect().top < 0) hd.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
@@ -1644,7 +1706,7 @@
   try { const t = sessionStorage.getItem('apx.tab'); if (t && t !== 'pozicije' && !S.hash) showTab(t); } catch (e) { /* no storage */ }
   tfButtons();
   for (const b of $$('[data-unit]')) b.classList.toggle('on', b.dataset.unit === S.unit);
-  setSide('buy'); hints(); costEst(); age(); tokCheck(true);
+  setSide('buy'); hints(); costEst(); age(); tokCheck(true); markSel();
   scrollHash();
   window.addEventListener('hashchange', () => {   // a link to an anchor on the page: used once as well
     S.hash = decodeURIComponent(location.hash.slice(1)); S.hashDone = null; S.hashTried = null; scrollHash(); dropHash();
