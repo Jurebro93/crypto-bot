@@ -5344,8 +5344,8 @@ def post(path, form, user):
             return f"{BACK}?ok={qq('Pristup za Groka je ugašen.')}#mcp"
         if path == "/pravi-trade/mcpno":   # 10.11.: the owner turns down a request of the MCP server
             from ui import mcpapi
-            if not mcpapi.decide(tcon, str(form.get("id") or ""), "rejected", "vlasnik odbio"):
-                raise ValueError("taj zahtjev više ne postoji")
+            if not mcpapi.decide(tcon, str(form.get("id") or ""), "rejected", "vlasnik odbio", only_from=("pending",)):
+                raise ValueError("taj zahtjev više ne čeka odobrenje (već je odobren, odbijen ili ga nema)")
             return f"{BACK}?ok={qq('Zahtjev odbijen.')}"
         if path == "/pravi-trade/reviewback":   # 10.11.: "Vrati" a follow the hourly review paused
             from league import followreview

@@ -242,7 +242,7 @@ def close(con, r, price, liq, mcap, reason, now):
     ret = rule.net_ret(r["entry_px"], price, r["rt"])
     rd = rule.net_ret(r["entry_px"], price, r["drt"])
     con.execute("UPDATE oscilator_trades SET status='closed', closed_ts=?, exit_px=?, reason=?, ret=?, pnl_usd=?, "
-                "ret_demo=?, pnl_demo=?, pnl_booked=? WHERE id=?",
+                "ret_demo=?, pnl_demo=?, pnl_booked=? WHERE id=? AND status='open'",   # 17.11.: never re-close a closed row
                 (int(now), price, reason, ret, ret * r["size_usd"], rd, rd * r["size_usd"], booked, r["id"]))
     con.commit()
     return (f"oscilator {r['symbol']}: {rule.REASON_HR.get(reason, reason)}, {ret * r['size_usd']:+.2f} $ pravim "
