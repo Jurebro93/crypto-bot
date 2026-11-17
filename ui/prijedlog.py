@@ -135,6 +135,12 @@ def live_market(tokens, fetch=None):
         # 11.11. (Jure: "da nisam krivo pastao adresu"): the name the buy panel shows for an address (ui/apterm.token_info)
         bt = pr.get("baseToken") or {}
         out[t].update(symbol=bt.get("symbol"), name=bt.get("name"), created_ms=pr.get("pairCreatedAt"))
+        # 16.11. (owner: "piše da je Umbra 7 miliona, na DexScreeneru 13 milijuna"): DexScreener's page shows the
+        # FDV (the whole supply) where we count the supply in circulation; both are in the answer we already read
+        try:
+            out[t]["fdv"] = float(pr.get("fdv") or 0) or None
+        except (TypeError, ValueError):
+            out[t]["fdv"] = None
         # 14.11. (ui/apgraf.py): the pair = GeckoTerminal's pool, for the chart's history without another lookup
         out[t]["pair"] = pr.get("pairAddress")
     return out

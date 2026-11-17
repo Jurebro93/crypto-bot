@@ -25,7 +25,7 @@ Za svaku poziciju odluči:
 - razlozi: 1–3 kratke rečenice s brojevima
 - promijenilo_bi: koji podatak bi promijenio presudu
 - predlozeni_sl_mc i predlozeni_tp_mc: razina u $ MC ako je predlažeš, inače null
-Pravila: neuzet profit nije profit; ako je pozicija u plusu 15 % ili više, a nema TP ni trailing, reci to. Pad likvidnosti veći od 30 % ili prodaja developera znači rizik ruga, pa prednost ima prodaja. Ne predlaži širenje SL-a samo zato što je pozicija u minusu. Ne predlaži dokupljivanje.
+Pravila: neuzet profit nije profit; ako je pozicija u plusu 15 % ili više, a nema TP ni trailing, reci to. Ako plan_izlaza ima pravilo_strategije, poziciju prodaje sama strategija po tom stopu i cilju: to je njezin plan izlaza, pa ne piši da pozicija nema TP ili da je plan prazan. Pad likvidnosti veći od 30 % ili prodaja developera znači rizik ruga, pa prednost ima prodaja. Ne predlaži širenje SL-a samo zato što je pozicija u minusu. Ne predlaži dokupljivanje.
 Izlaz JSON: {"pozicije":[{"id":..., "verdict":..., "confidence":..., "razlozi":[...], "promijenilo_bi":..., "predlozeni_sl_mc":..., "predlozeni_tp_mc":...}], "opce":"jedna rečenica o cijelom portfelju ili null"}"""
 
 DAILY = """Zadatak: dnevna revizija algoritma, kao skeptični data scientist.

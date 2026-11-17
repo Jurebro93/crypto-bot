@@ -380,6 +380,9 @@ def prekidaci(d, tcon, cfg, owner, now=None):
         parts.append(f'<details class="ap-it apx-jtop apx-jadv" id=sw-napredno><summary>{r}</summary><div class=in>'
                      f'{SEARCH}<div class=apx-jlist>{"".join(h for h, _on in adv)}</div>'
                      '<p class="apx-mut apx-jnone" hidden>Nema prekidača s tim riječima.</p></div></details>')
+    if owner:   # 17.11. (stanja/): one read of what is on, who set it and since when; nothing is changed there
+        parts.append('<p class="apx-mut apx-jstanje"><a href="/stanje">Stanje sustava: što je uključeno, tko je to '
+                     'postavio i otkad ›</a></p>')
     if ns["stopped"]:
         summ = "Zaustavljeno: ništa se ne kupuje pravim novcem"
     else:

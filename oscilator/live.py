@@ -178,7 +178,8 @@ def enter(con, user, tok, mq, now, sol, why):
     if g:
         return None, g
     price, liq, url, mcap = mq[:4]
-    sym = (mq[4] if len(mq) > 4 else None) or tok[:6]
+    from veliki import symbols   # 16.11.: run_ui's quote has no symbol; the mint's prefix only as the last resort
+    sym = symbols.resolve(tok, mq[4] if len(mq) > 4 else None) or tok[:6]
     from trade import capgate   # 15.11. (vlasnik): MC >= 5M; a price scalp takes no moonshot exception
     g = capgate.refusal(tok, mcap, f"{SRC}: {why}", user, now, liq=liq, symbol=sym)
     if g:
@@ -242,7 +243,7 @@ def close(con, r, price, liq, mcap, reason, now):
     ret = rule.net_ret(r["entry_px"], price, r["rt"])
     rd = rule.net_ret(r["entry_px"], price, r["drt"])
     con.execute("UPDATE oscilator_trades SET status='closed', closed_ts=?, exit_px=?, reason=?, ret=?, pnl_usd=?, "
-                "ret_demo=?, pnl_demo=?, pnl_booked=? WHERE id=?",
+                "ret_demo=?, pnl_demo=?, pnl_booked=? WHERE id=? AND status='open'",   # 17.11.: never re-close a closed row
                 (int(now), price, reason, ret, ret * r["size_usd"], rd, rd * r["size_usd"], booked, r["id"]))
     con.commit()
     return (f"oscilator {r['symbol']}: {rule.REASON_HR.get(reason, reason)}, {ret * r['size_usd']:+.2f} $ pravim "

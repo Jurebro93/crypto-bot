@@ -430,7 +430,7 @@ def row_html(tcon, lcon, p, now, rounds=None, round_cap=None, tables=None):
     html = g["html"]
     i = html.index("</p>") + 4   # the plan's line right under "Izlaz:", as before
     body = (f'<div class=apx-gpd><div class=apx-gpg data-key="{esc(p["key"])}">{grid}</div>'
-            f'{html[:i]}{apterm.plan_html(p.get("plan"))}{html[i:]}<div class=apx-gpa>{act}</div></div>')
+            f'{html[:i]}{apterm.plan_html(p.get("plan"), p)}{html[i:]}<div class=apx-gpa>{act}</div></div>')
     return (f'<details class="apx-gp{" is-paper" if p["paper"] else ""}" id=gp-{p["pid"]} data-key="{esc(p["key"])}" '
             f'data-tok="{esc(tok)}">{summ}{body}</details>')
 

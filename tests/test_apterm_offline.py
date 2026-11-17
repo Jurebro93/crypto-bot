@@ -464,7 +464,8 @@ class Freshness(unittest.TestCase):
         self.assertIn('class="apx-age old"', apterm.age_badge(1000, now=1100))
         js = apterm.static_asset("ap.js")[0].decode("utf-8")
         # the browser counts the same way (11.11.: a block with its own cadence, the wallet's 5-min snapshots, sets its own)
-        self.assertIn("el.classList.toggle('old', a > (+el.dataset.stale || 60))", js)
+        self.assertIn("const late = a > (+el.dataset.stale || 60);", js)
+        self.assertIn("el.classList.toggle('old', late);", js)
 
     def test_cost_estimate_is_trade_cost(self):
         from trade import cost

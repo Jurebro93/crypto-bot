@@ -666,6 +666,21 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/stanje":
+            # 17.11. (vlasnik: "Find all of the implicit state machines in my app", stanja/): what is switched on, who
+            # set it and since when + the dictionary of every status word. The OWNER only (the switches of the real
+            # account), checked here on the server; built per request from a few small read-only reads, never cached.
+            from trade import settings as tsettings
+            from ui import stanje
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/>← Na početnu</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+            try:
+                html = page(*stanje.page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
         if path == "/kol-makro" or path.startswith("/kol-makro/"):
             # 15.11. (vlasnik: "... staviti ih za sve korisnike aplikacije pod influencere, makroinfluencer i tab ...
             # osvježavati i stranice koje vide korisnici"): every logged-in user. After a macro scoring the cached

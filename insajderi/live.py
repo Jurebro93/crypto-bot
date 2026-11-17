@@ -116,7 +116,8 @@ def enter(con, user, tok, owner, wallet, buy_ts, mq, now, sol, c):
     if why:
         return None, why
     price, liq, _url, mcap = mq[:4]
-    sym = (mq[4] if len(mq) > 4 else None) or tok[:6]
+    from veliki import symbols   # 16.11.: run_ui's quote has no symbol; the mint's prefix only as the last resort
+    sym = symbols.resolve(tok, mq[4] if len(mq) > 4 else None) or tok[:6]
     size_usd = float(c["demo_sol"]) * sol
     src = f"{SRC}: grupa {owner[:6]} ({wallet[:4]}… kupio prije {int(now - buy_ts)} s)"[:200]
     gw, src, size_usd = capgate.check(tok, mcap, src, user, size_usd, now, sol=sol, liq=liq, symbol=sym)
