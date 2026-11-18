@@ -2013,6 +2013,26 @@ TOOLS.append(
          "profile": {"type": "string", "enum": ["skalp", "kratko", "uski", "pravilo", "siroko"]},
          "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 60}}}})
 
+# 18.11. (owner: "velike influencere koji imaju veliku moć poziva ... ako oni zovu nekog malog meme coina";
+# veliki/moc.py): call power on the midcaps, read-only
+TOOLS.append(
+    {"name": "get_call_power", "annotations": _READ,
+     "description": ("Which X accounts push our midcap memecoins and what the price did after their posts "
+                     "(veliki/moc.py). Sources: the posts MemeSonar already holds plus one capped X search per midcap "
+                     "a week (posts with reach only). A mention = a post naming a midcap by cashtag or mint; the same "
+                     "account + token within 6 h counts once. Per account: followers, posts, how many of our midcaps "
+                     "it named, push (the most posts on one token within 7 days), x1h / x4h / x24h = the token's move "
+                     "after the post MINUS that token's average move over the same horizon, lo / hi = the 90 % "
+                     "interval of x24h over token-days; ranked only from 8 token-days, by lo. top = the strongest, "
+                     "bottom = the weakest ranked, pushers = who posts hardest, tokens = which midcaps are named by "
+                     "the most accounts and by whom. YOUR part as the X analyst: say which of the top accounts you "
+                     "know to post AFTER the move (they only look powerful), which are paid shills or bots, and "
+                     "which large accounts are missing; send it with submit_suggestion. It is a hypothesis being "
+                     "measured (the owner's: a big account that moves big caps will move a small coin it calls); "
+                     "statements about named accounts are statistics, never accusations."),
+     "inputSchema": {"type": "object", "properties": {
+         "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20}}}})
+
 SEEN_KEY = "mcp_seen"
 SEEN_EVERY_S = 60
 _SEEN = {"saved": 0.0, "day": None, "n": 0}
@@ -2115,6 +2135,9 @@ def _tool(name, args, kid="local"):
         from insajderi import report as i2report
         d = i2report.mcp(args)
         return d, "error" in d
+    if name == "get_call_power":   # 18.11. veliki/moc.py, read-only
+        from veliki import moc
+        return moc.mcp(args), False
     if name == "get_shadow_book":   # 18.11. veliki/sjena.py, read-only
         from veliki import sjena
         d = sjena.mcp(args)

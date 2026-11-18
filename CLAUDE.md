@@ -26,6 +26,9 @@
   vrijedi tek uz 20 token-dana i potvrdu na kasnijim danima; ništa što odlučuje o trgovanju je ne čita.
   Broj tradeova nije cilj (18.11.): cilj je da program nauči koje kombinacije (mjesto u zoni, svijeće, BTC, makro,
   Grok, izlaz) zarađuju na danima koje nije vidio, uz stvarni trošak (nikad ispod 3 %), i da demo bude u plusu.
+- Twitter API krediti (18.11., vlasnik): za midcapove koje pratimo: tko ih zove i gura, izmjerena moć poziva (kretanje
+  nakon objave iznad prosjeka tokena), pa praćenje najjačih kad pozovu mali token (demo). Makro influenceri: dohvat
+  zaustavljen dok vlasnik ne odobri. Pretraga po midcapu: strop 4 $ dnevno, oko 2,50 $ po tjednom prolazu.
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.
