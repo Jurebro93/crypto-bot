@@ -159,7 +159,8 @@ def hour_line(con, now=None, c=None):
         f"{_usd(tp)} / {_usd(c['pilot_twapi_usd'])} ({pilot}), danas {_usd(td)} / {_usd(c['day_twapi_usd'])}; OpenAI "
         f"pilot {_usd(op)} / {_usd(c['pilot_openai_usd'])}, danas {_usd(od)} / {_usd(c['day_openai_usd'])}; indeks "
         f"najtočnijih BTC {_idx(r[0][0] if r else None)} ({r[0][1] if r else 0} računa); ulaz u demo: "
-        f"{STATE_HR.get(ul.get('state'), ul.get('state') or 'na čekanju')}{exp}{md}")
+        f"{STATE_HR.get(ul.get('state'), ul.get('state') or 'na čekanju')}{exp}{md}"
+        + ("; twitterapi dohvat zaustavljen dok vlasnik ne odobri novi trošak (18.11.)" if c.get("twapi_stop") else ""))
 
 
 def lines(con, now=None):

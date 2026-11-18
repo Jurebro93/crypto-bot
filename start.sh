@@ -359,6 +359,11 @@ low keep zonewatch python3 run_zonewatch.py loop
 # the heavy-job lock (nice 10), a 5-min budget REPLAY_BUDGET_S; one line "veliki replay: ..." and midcap.db kv replay
 # (the morning report and /strategije show it).
 ( sleep "${REPLAY_FIRST_S:-900}"; python3 -m ops.heavy run_veliki.py replay --ako-nema || echo "veliki replay nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_veliki.py replay --night || echo "veliki replay (noć) nije uspio"; done ) &
+# 18.11. (vlasnik: "da program što više nauči iz tih mid-capova ... da nauči kombinirati te faktore ... želim da demo
+# što prije bude profitabilan"; veliki/nauceno.py): the shadow book replayed over the midcaps' candles and the
+# walk-forward of what it has learned (history + the live book). Local databases only, ~1 min, under the heavy-job
+# lock: 20 min after a start, then every 6 h. One line "veliki naučeno: ...", its own file nauceno.db.
+( sleep "${NAUCENO_FIRST_S:-1200}"; while true; do python3 -m ops.heavy run_veliki.py nauceno || echo "veliki naučeno nije uspio"; sleep "${NAUCENO_EVERY_S:-21600}"; done ) &
 # 16.11. (vlasnik: "Objasni mi kako ovdje postoji profitabilni wallet, a mi nemamo profitabilnu strategiju"; wallets/
 # kopija.py): what WE would have earned copying the "dokazan dvaput" wallets: picked on the older 60 % of the stored
 # days, their buys of the newer 40 % taken 30 / 60 / 180 s later at the stored prices, sold after their sale / at a stop

@@ -2000,7 +2000,12 @@ TOOLS.append(
                      "interval over token-days), enough (>= 20 token-days). Use it to say which entries and exits "
                      "the data supports and which it refutes; a cell is evidence only when enough is true and it "
                      "holds on later days, and with ~45 cells a few look good by chance. by=grok shows how your own "
-                     "'kupi' and 'preskoči' did. Nothing here changes a rule: propose changes as notes."),
+                     "'kupi' and 'preskoči' did. `learned` is what the program itself has concluded so far (veliki/nauceno): "
+                     "the book replayed over ~45 days of candles plus the live rows, a simple additive model of the "
+                     "facts per exit profile, tested day by day on days it had not seen: verdict (kandidat / premalo / "
+                     "nema_plusa), the chosen trades against all trades of the same days, and which facts help or "
+                     "hurt most. Argue with it: say which fact you think is missing or misread. Nothing here "
+                     "changes a rule: propose changes as notes."),
      "inputSchema": {"type": "object", "properties": {
          "by": {"type": "string", "enum": ["band", "calm", "zone_ok", "btc", "makro", "dip", "oprez", "grok", "hour6"],
                 "default": "band"},
