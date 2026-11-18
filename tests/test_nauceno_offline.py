@@ -5,7 +5,11 @@
     close, the time limit), the same facts as a live row; nothing from after the entry
   - the learner: the walk-forward never sees the day it predicts; a fact that wins is chosen on later days and the
     verdict needs enough token-days and an interval above zero; no signal = no verdict of a plus
+  - the purge (18.11., the audit's look-ahead leak): a row's result enters the model only once the row is closed
+    before the scored day began; the live model holds closed rows only; the history's point-in-time filter
   - run(): midcap.db veliki_sjena_h rebuilt, kv "nauceno", the line; the MCP block; the live book's cost floor
+  - the stored model (kv "model"): trained on ALL rows, reloaded read-only it predicts exactly what the in-memory one
+    does; missing or older than a day = None; the best profile of a candidate; live facts come from sjena.known()
 
     python3 -m unittest tests.test_nauceno_offline
 """
@@ -27,9 +31,11 @@ RT = 0.03
 
 
 def row(tok, day, k, prof, ret, band="dno", calm=1, btc="normalno", **kw):
+    """A closed book row; closed 15 min after it opened (the same day) unless closed_ts says otherwise."""
     d = {"token": tok, "opened_ts": day * D + 600 + k * M15, "profil": prof, "ret": ret, "band": band, "calm": calm,
          "zone_ok": 1, "zone_why": None, "width": 0.25, "btc": btc, "makro": "neutral", "dip": None, "oprez": 0,
          "grok": None}
+    d["closed_ts"] = d["opened_ts"] + 900
     d.update(kw)
     return d
 
@@ -75,6 +81,20 @@ class History(unittest.TestCase):
         self.assertTrue(early)
         for k in early:                                           # entries of the first days are the same with or
             self.assertEqual(a.get(k), b[k])                      # without the last day's bars
+
+    def test_point_in_time_filter_no_row_while_the_token_was_outside_the_universe(self):
+        bars = _rp.ou_bars(7, 6)
+        every = self.sim(bars)
+        cut = bars[len(bars) // 2][0]
+        late = self.sim(bars, pit=lambda t, px: t >= cut)          # outside the 2M-200M range in the first half
+        self.assertTrue(late)
+        self.assertLess(len(late), len(every))
+        self.assertGreaterEqual(min(r["opened_ts"] for r in late), cut)
+        self.assertEqual(self.sim(bars, pit=lambda t, px: False), [])
+        asked = []
+        self.sim(bars[:300], pit=lambda t, px: asked.append((t, px)) or True)
+        self.assertTrue(all(t == b + M15 and px == c for (t, px), (b, c) in zip(
+            asked, [(x[0], x[4]) for x in bars if (x[0] + M15, x[4]) in set(asked)])))   # the bar's close, at its end
 
     def test_time_limit(self):
         rows = self.sim(_rp.ou_bars(5, 6, sigma=0.0005), max_h=2)  # almost flat: nothing reaches a level
@@ -151,6 +171,77 @@ class Learner(unittest.TestCase):
         self.assertAlmostEqual(res2["variants"]["rt"]["0.020"]["ev"], res2["picked"]["ev"], places=9)
         self.assertIn("variants", nauceno.summary({**res, "ts": 1}))
 
+    def leak_book(self, close_next_day, days=30, per_day=6):
+        """Rows opened on day d get their result from the market of day d+1 (they close there). The market's sign holds
+        for two days (d+1, d+2) and the regime fact for the two days (d, d+1) whose rows it decides, so the rows opened
+        yesterday tell today's result exactly, IF their result is already known when today is predicted. It is not:
+        they are still open. close_next_day False = the same book as the leaky version read it (every result known
+        at once)."""
+        rows = []
+        for i in range(days):
+            k = i // 2                                            # the regime block (days 2k, 2k+1)
+            sigma = 1 if k % 2 else -1                            # the market of the days that decide this block
+            day = 20000 + i
+            for j in range(per_day):
+                r = row(f"T{j}", day, j, "siroko", 0.05 * sigma - 0.01, makro=f"r{k}")
+                if close_next_day:
+                    r["closed_ts"] = (day + 1) * D + 3600
+                rows.append(r)
+        return rows
+
+    def test_purge_yesterdays_open_trades_do_not_teach_today(self):
+        leaky = nauceno.learn(self.leak_book(False), shrink=1)    # results known the moment the trade opened
+        purged = nauceno.learn(self.leak_book(True), shrink=1)    # results known when the trade closed, a day later
+        self.assertEqual(leaky["picked"]["n"], 6 * 6)             # it "knows" every good second day of a block
+        self.assertAlmostEqual(leaky["picked"]["ev"], 0.04)
+        self.assertEqual(leaky["picked"]["hit"], 1.0)
+        self.assertEqual(leaky["verdict"], "kandidat")            # what the leak looked like: a proven plus
+        self.assertEqual(purged["picked"]["n"], 0)                # the same market, nothing to pick: it was the leak
+        self.assertEqual(purged["verdict"], "premalo")
+        self.assertEqual(purged["variants"]["thr"]["0.01"]["n"], 0)
+        self.assertEqual(purged["all"]["n"], leaky["all"]["n"])   # the same unseen days were scored
+        self.assertAlmostEqual(purged["all"]["ev_trade"], leaky["all"]["ev_trade"])
+        self.assertTrue(purged["purge"] and leaky["purge"])
+        self.assertEqual((purged["test_days"], leaky["test_days"]), (23, 23))   # the first 7 days only teach, as before
+
+    def test_purge_a_row_closed_on_or_after_the_scored_days_start_is_not_in_the_model(self):
+        def book(closed):
+            rows = [row(f"T{k}", 20000 + d, k, "skalp", -0.03, band="vrh") for d in range(7) for k in range(6)]
+            rows += [row(f"T{k}", 20006, 10 + k, "skalp", 0.20, band="dno", closed_ts=closed) for k in range(6)]
+            rows += [row(f"T{k}", 20007, k, "skalp", 0.20, band="dno") for k in range(6)]     # the scored day
+            return sorted(rows, key=lambda r: r["opened_ts"])
+        start = 20007 * D
+        on = nauceno.learn(book(start), shrink=1)                 # closed exactly at the day's start: not before it
+        self.assertEqual(on["picked"]["n"], 0)                    # "dno" was never seen to win: nothing is chosen
+        after = nauceno.learn(book(start + 5 * 3600), shrink=1)   # closed during the scored day
+        self.assertEqual(after["picked"]["n"], 0)
+        before = nauceno.learn(book(start - 1), shrink=1)         # closed a second before the day began: known
+        self.assertEqual(before["picked"]["n"], 6)
+        self.assertAlmostEqual(before["picked"]["ev"], 0.20)
+
+        class Spy(nauceno.Model):                                 # what the model holds whenever it predicts
+            seen = []
+
+            def predict(self, p, f):
+                Spy.seen.append(sum(t[0] for t in self.tot.values()))
+                return super().predict(p, f)
+        nauceno.learn(book(start), shrink=1, model=Spy(1))
+        self.assertEqual(set(Spy.seen), {42})                     # the 7 x 6 rows closed before; never the 6 still open
+
+    def test_purge_the_live_model_holds_closed_rows_only(self):
+        rows = [row(f"T{k}", 20000 + d, k, "skalp", 0.01) for d in range(9) for k in range(4)]
+        t_now = 20008 * D + 7200
+        rows[-1]["closed_ts"] = t_now + 1                         # still open at `now`
+        rows[-2]["closed_ts"] = None                              # a row without a close: never
+        rows[-3]["closed_ts"] = t_now                             # closed exactly now: in
+        m = nauceno.Model()
+        res = nauceno.learn(rows, model=m, now=t_now)
+        self.assertEqual(sum(t[0] for t in m.tot.values()), len(rows) - 2)
+        self.assertEqual((res["model_rows"], res["closed_later"], res["not_closed"]), (len(rows) - 2, 1, 1))
+        every = nauceno.Model()
+        nauceno.learn(rows, model=every)                          # no `now`: every closed row, still not the open one
+        self.assertEqual(sum(t[0] for t in every.tot.values()), len(rows) - 1)
+
     def test_shrinkage_and_unknown_facts(self):
         m = nauceno.Model(shrink=150)
         for i in range(10):
@@ -190,6 +281,13 @@ class Run(unittest.TestCase):
         self.assertIn(r["verdict"], ("kandidat", "premalo", "nema_plusa"))
         self.assertTrue(self.lines[-2].startswith("veliki naučeno: "), self.lines)
         self.assertIn("provjera na zadnjih", self.lines[-2])
+        self.assertRegex(self.lines[-2], r"provjera na zadnjih \d+ neviđenih, rezultat ulazi u učenje tek kad je trade "
+                                         r"zatvoren; presuda: ")
+        self.assertIs(r["purge"], True)                           # the marker the owner's order waits for
+        self.assertIs(nauceno.latest(self.hpath)["purge"], True)
+        self.assertTrue(r["backfill"]["pit"])
+        self.assertEqual((r["model_rows"], r["closed_later"], r["not_closed"]), (r["rows"], 0, 0))   # all closed by now
+        self.assertNotIn("rezultat ulazi u učenje", nauceno.line({**r, "purge": None}))   # an old stored result
         self.assertTrue(self.lines[-1].startswith("veliki naučeno: varijante"), self.lines)   # the second line
         import sqlite3
         self.assertNotIn(nauceno.TABLE_H, {r[0] for r in midcap.ro(self.path).execute(
@@ -207,6 +305,19 @@ class Run(unittest.TestCase):
         self.assertEqual(set(s["by_profile"]), set(sjena.PROFILES))
         self.assertIn("never under 3 %", s["how"])
 
+    def test_the_history_uses_the_replays_point_in_time_filter_without_its_macro_block(self):
+        calls = []
+
+        def pit_of(f, macro_days=None, block_macro=True):
+            calls.append(block_macro)
+            return lambda t, px: False                            # every token outside the range, always
+        with mock.patch.object(replay, "pit_of", pit_of):
+            res = nauceno.run(NOW, lambda *a: None, self.path, os.path.join(self.tmp.name, "nema-league.db"),
+                              btc=_rp.btc_rows(), save=False, hpath=os.path.join(self.tmp.name, "pit.db"))
+        self.assertEqual(res["backfill"]["rows"], 0)              # no history row for a token outside the universe
+        self.assertEqual(set(calls), {False})                     # MC and liquidity at the open; macro stays a fact
+        self.assertEqual(len(calls), res["backfill"]["tokens"])
+
     def test_a_second_run_replaces_the_history_and_a_missing_db_is_a_line(self):
         lines = []
         again = nauceno.run(NOW, lines.append, self.path, os.path.join(self.tmp.name, "nema-league.db"),
@@ -214,6 +325,85 @@ class Run(unittest.TestCase):
         self.assertEqual(again["backfill"]["rows"], self.res["backfill"]["rows"])      # rebuilt, not doubled
         self.assertEqual(nauceno.run(NOW, lines.append, os.path.join(self.tmp.name, "nema.db")), {})
         self.assertIn("nema podataka", lines[-1])
+
+    def rows(self):
+        import sqlite3
+        con = sqlite3.connect(nauceno.db_path(self.hpath))
+        try:
+            return nauceno.load(con, None, NOW)
+        finally:
+            con.close()
+
+    def test_the_stored_model_is_all_rows_and_reloads_to_the_same_predictions(self):
+        import json
+        import sqlite3
+        nauceno._MODEL.clear()
+        m = nauceno.load_model(self.hpath, now=NOW + 60)
+        self.assertIsNotNone(m)
+        rows = self.rows()
+        self.assertEqual((m.ts, m.rows, m.days, m.shrink), (NOW, len(rows), self.res["days"], nauceno.SHRINK))
+        mem = nauceno.Model()                                     # the in-memory model of the same run
+        nauceno.learn(rows, model=mem, now=NOW)
+        plain = nauceno.Model()                                   # every row, no walk-forward: what "all rows" means
+        for r in rows:
+            self.assertLessEqual(r["closed_ts"], NOW)             # never a row that is still open
+            plain.add(r)
+        self.assertEqual(sum(t[0] for t in m.tot.values()), len(rows))
+        self.assertEqual(set(m.cell), set(mem.cell))
+        self.assertEqual(set(m.cell), set(plain.cell))
+        n = 0
+        for r in rows[::37]:
+            f = nauceno.facts(r)
+            for p in sjena.PROFILES:
+                self.assertEqual(m.predict(p, f), mem.predict(p, f))          # stored and reloaded: exactly the same
+                self.assertAlmostEqual(m.predict(p, f), plain.predict(p, f), places=12)   # and it is all the rows
+                n += 1
+            self.assertEqual(nauceno.predict_best(m, f), nauceno.predict_best(mem, f))
+        self.assertGreater(n, 50)
+        prof, pred = nauceno.predict_best(m, nauceno.facts(rows[0]))
+        self.assertIn(prof, sjena.PROFILES)
+        self.assertEqual(pred, max(m.predict(p, nauceno.facts(rows[0])) for p in sjena.PROFILES))
+        con = sqlite3.connect(nauceno.db_path(self.hpath))
+        try:
+            d = json.loads(con.execute("SELECT v FROM kv WHERE k='model'").fetchone()[0])
+            keys = {r[0] for r in con.execute("SELECT k FROM kv")}
+        finally:
+            con.close()
+        self.assertEqual(set(d), {"ts", "shrink", "tot", "cell", "rows", "days"})
+        self.assertEqual(len(d["cell"][0]), 5)                    # [profile, fact, value, n, sum]
+        self.assertEqual(keys, {"nauceno", "model"})
+        self.assertNotIn("model", nauceno.latest(self.hpath))     # the result key is what it was
+        self.assertIs(nauceno.load_model(self.hpath, now=NOW + 61), m)        # kept in memory by its ts
+
+    def test_a_missing_or_stale_model_is_none(self):
+        nauceno._MODEL.clear()
+        self.assertIsNone(nauceno.load_model(os.path.join(self.tmp.name, "nema.db"), now=NOW))
+        self.assertIsNone(nauceno.model_ts(os.path.join(self.tmp.name, "nema.db"), now=NOW))
+        self.assertIsNotNone(nauceno.load_model(self.hpath, now=NOW + nauceno.MODEL_MAX_AGE_S))
+        self.assertIsNone(nauceno.load_model(self.hpath, now=NOW + nauceno.MODEL_MAX_AGE_S + 1))
+        self.assertEqual(nauceno.model_ts(self.hpath, now=NOW + 2 * nauceno.MODEL_MAX_AGE_S), NOW)   # why nobody enters
+        self.assertEqual(nauceno.predict_best(nauceno.Model(), {"band": "dno"}), (None, None))       # nothing learned
+        nauceno._MODEL.clear()
+
+    def test_live_facts_come_from_the_book_rows_own_code_path(self):
+        from veliki import live
+        z = {"ok": False, "why": "raspon preuzak (4.1%)", "lo": 0.9e-4, "hi": 1.2e-4, "width": 0.33}
+        q = (1.0e-4, 2_000_000.0, "https://dexscreener.com/solana/raydium", 5e7, "MID")
+        prow = {"grok": {"verdict": "Kupi", "ts": NOW - 60}, "dip": {"kind": "trzisni"}, "block": "tim prodaje"}
+        bars = [(NOW - 3 * M15, 1.0e-4, 1.0e-4, 0.99e-4, 1.0e-4, 0.0)] * 4
+        with mock.patch.object(live, "_sym", lambda t, q=None: "MID"), \
+                mock.patch.dict(live._ST, {"makro_tag": "oporavak/blago_bik"}):
+            k = sjena.known("TOK", q, NOW, z, bars, prow, {"state": "dno_se_potvrduje"}, None, 150.0)
+        f = nauceno.facts({**k, "opened_ts": NOW})
+        self.assertEqual(set(f), set(nauceno.FEATS))
+        self.assertEqual((f["band"], f["zone_ok"], f["btc"], f["makro"], f["dip"], f["oprez"], f["grok"], f["sirina"]),
+                         ("donja", "uzak", "dno_se_potvrduje", "oporavak", "trzisni", "oprez", "kupi", "20-35 %"))
+        self.assertGreaterEqual(k["rt"], replay.RT_FLOOR)
+        tp, stop = sjena.levels(k["px"], "skalp", k["rt"])
+        self.assertAlmostEqual(rule.net_ret(k["px"], tp, k["rt"]), 0.03)
+        self.assertAlmostEqual(stop / k["px"], 0.96)
+        self.assertIsNone(sjena.known("TOK", q, NOW, {"ok": False, "why": "premalo satnih svijeća"}, bars))   # no edges
+        self.assertIsNone(sjena.known("TOK", (1.0e-4, 0.0, None, 5e7), NOW, z, bars))                          # no pool
 
     def test_the_live_book_books_the_real_cost(self):
         with open(os.path.join(ROOT, "veliki", "sjena.py"), encoding="utf-8") as f:

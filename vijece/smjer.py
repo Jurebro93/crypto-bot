@@ -14,8 +14,13 @@ otvori()     asks OpenAI and Claude (their council day budgets) for ONE directio
 zakljuci()   once every proposal of the session is decided (or 24 h passed): the "vijeće: smjer: ..." lines and the
              result in vijece_kv "smjer_zadnji" (get_council, the report).
 
-A session is due once after the deploy (trade settings vijece_smjer_1811), then once in every week that starts on
-Monday (Zagreb), and when the learner's verdict changed since the last session (at most one session a day).
+A session is due once after the deploy (trade settings vijece_smjer_1811), once more after the learner's CORRECTED
+result by prediction threshold arrived (vijece_smjer_1811b; it waits for the purged result of veliki/nauceno and for
+an open session to close), then once in every week that
+starts on Monday (Zagreb), and when the learner's verdict changed since the last session (at most one session a day).
+
+ODLUKE_VLASNIKA: the owner's standing decisions, dated, as the first block of every brief and of every review's
+context. The members are told to reject or rework a proposal that contradicts one. Only the owner changes this list.
 """
 import datetime as dt
 import json
@@ -28,10 +33,20 @@ from trade import settings
 from ui import assistnotes
 from vijece import kriticari, store
 
-BRIEF_MAX = 8000
+BRIEF_MAX = 9500     # 18.11.: +1500 for the owner's decisions, the learner's variants and the real result by strategy
 PART_MAX = 900
 BOARD_MAX = 2200
 ONCE_KEY = "vijece_smjer_1811"
+ONCE_KEY_B = "vijece_smjer_1811b"     # 18.11.: one more session once the learner's result by threshold is in the brief
+RAZLOG_B = "nova sjednica: stigao rezultat učenja po pragu prognoze"
+# The owner's standing decisions (dated; only the owner changes them). Every brief and every review starts with them.
+ODLUKE_NASLOV = "ODLUKE VLASNIKA (vrijede dok ih vlasnik ne promijeni; prijedlog protivan njima se odbija ili dorađuje)"
+ODLUKE_VLASNIKA = (
+    "18.11.: pravi novac se NE pauzira; cilj svih resursa je da tradeovi pravim novcem budu profitabilni. Prijedlozi "
+    "'pauzirati pravi novac' nisu prihvatljivi; prihvatljivi su prijedlozi koji mijenjaju ŠTO pravi novac kupuje i kako "
+    "izlazi, uz dokaz.",
+    "18.11.: vlasnik je odobrio jednokratno mjerenje troška jednim stvarnim krugom pri 0,3 i 0,5 SOL.",
+)
 SESSION_S = 24 * 3600
 VERDICT_GAP_S = 24 * 3600
 MAX_PRIJEDLOGA = 3
@@ -60,7 +75,9 @@ ocjenjuju i prihvaća se samo ako se slože. Za svaki prijedlog:
   "from": 0.15, "to": 0.10}); inače null.
 
 Pravila: ne izmišljaj podatke; ne predlaži ništa za mikrokapove (ispod 2M $); pravi novac (ulog, broj pozicija, TP,
-SL, prekidači, autotrade) mijenja samo vlasnik, to vijeće ne primjenjuje. Piši hrvatski, jednostavno i kratko."""
+SL, prekidači, autotrade) mijenja samo vlasnik, to vijeće ne primjenjuje. Stanje počinje blokom ODLUKE VLASNIKA: to su
+njegove trajne odluke; prijedlog koji im proturječi ne predlaži, a tuđi takav odbij ili doradi tako da ih poštuje.
+Piši hrvatski, jednostavno i kratko."""
 
 _NT = {"anyOf": [{"type": "string"}, {"type": "null"}]}
 SCHEMA = {
@@ -92,15 +109,51 @@ def ocisti(text, extra=()):
 
 # ---------- the brief ------------------------------------------------------------------------------------------------
 
+def odluke_vlasnika():
+    """The owner's standing decisions as one block (the top of the brief and of every review's context)."""
+    return ODLUKE_NASLOV + ":\n" + "\n".join("- " + x for x in ODLUKE_VLASNIKA)
+
+
+def _kratko(st):
+    """One stat of the learner in a few words: the mean per token-day, its 90 % interval, the counts."""
+    if not st or not st.get("n"):
+        return "nema tradeova"
+    ci = f" [{st['lo']:+.1%}; {st['hi']:+.1%}]" if st.get("lo") is not None else ""
+    return f"{st['ev']:+.1%}{ci}, n={st['n']} ({st['clusters']} token-dana)"
+
+
 def _ucenje(now, con):
+    """The learner's block: the walk-forward result, its variants by prediction threshold and by a cheaper round trip
+    (looked at on the same days: hypotheses), and the demo account that tests the +1 % threshold forward
+    (veliki/ucenik). Several lines, so the brief gives it the long cap."""
     from veliki import nauceno
     s = nauceno.summary()
-    if not s:
-        return None
-    return (f"presuda: {s.get('verdict_text') or s.get('verdict')}; {s.get('rows')} zamišljenih tradeova, {s.get('days')} "
-            f"dana, provjera na zadnjih {s.get('test_days')} neviđenih; odabrani: {nauceno._s(s.get('picked'))}; svi tih "
+    lines = []
+    if s:
+        lines.append(
+            f"presuda: {s.get('verdict_text') or s.get('verdict')}; {s.get('rows')} zamišljenih tradeova, {s.get('days')} "
+            f"dana, provjera na zadnjih {s.get('test_days')} neviđenih"
+            + (" (ispravljeno 18.11.: rezultat tradea ulazi u učenje tek kad je trade zatvoren)" if s.get("purge") else
+               " (STARI izračun s curenjem budućnosti: brojevi su preoptimistični, čeka se ispravljeni)")
+            + f"; odabrani: {nauceno._s(s.get('picked'))}; svi tih "
             f"dana: {nauceno._s(s.get('all'))}; najviše pomaže: {'; '.join((s.get('helps') or [])[:3]) or '—'}; najviše "
             f"šteti: {'; '.join((s.get('hurts') or [])[:3]) or '—'}")
+        v = s.get("variants") or {}
+        thr = "; ".join(f"prognoza iznad {float(t):+.0%}: {_kratko(st)}" for t, st in (v.get("thr") or {}).items())
+        rt = "; ".join(f"uz trošak runde {float(a):.1%}: {_kratko(st)}" for a, st in (v.get("rt") or {}).items())
+        if thr or rt:
+            lines.append("- varijante (pragovi i troškovi gledani su na ISTIM neviđenim danima kao i rezultat: to su "
+                         "hipoteze za nove dane, nisu dokaz): stroži prag prognoze: " + (thr or "nema")
+                         + "; isti odabir uz niži trošak (približno, razine izlaza iste): " + (rt or "nema"))
+    try:
+        from veliki import ucenik
+        demo = ucenik.line_ro(now)
+    except Exception:  # noqa: BLE001 - the forward test's line never costs the learner's block
+        demo = None
+    if demo:
+        lines.append("- provjera unaprijed (demo račun, pravilo zapisano prije prvog tradea, ne dorađuje se): "
+                     + demo[len(ucenik.PREFIX):])
+    return "\n".join(lines) or None
 
 
 def presuda_ucenja():
@@ -110,6 +163,16 @@ def presuda_ucenja():
         return (nauceno.latest() or {}).get("verdict") or None
     except Exception:  # noqa: BLE001 - no result is not an error
         return None
+
+
+def ucenje_ispravljeno():
+    """True when the learner's stored result is the corrected one (veliki/nauceno "purge": true, 18.11.): the extra
+    session waits for it, so the council never deliberates on the number that had the look-ahead leak."""
+    try:
+        from veliki import nauceno
+        return (nauceno.latest() or {}).get("purge") is True
+    except Exception:  # noqa: BLE001 - no result is not a corrected result
+        return False
 
 
 def _moc(now, con):
@@ -191,6 +254,20 @@ def _insajderi(now, con):
     return _compact(d) if d else None
 
 
+def _pravi(now, con):
+    """The real-money result by strategy since 15.11. (trade/executor.strategy_result: trade.db positions, read-only)."""
+    if con is None:
+        return None
+    from trade import executor
+    try:
+        res = executor.strategy_result(con)
+    except sqlite3.Error:     # a database without the positions table yet: nothing to say
+        return None
+    if not res["by"]:
+        return None
+    return executor.strategy_line(res)[len(executor.STRATEGY_PREFIX):]
+
+
 def _ulog(now, con):
     from veliki import replay
     bits = [f"povratni trošak jednog tradea (kupnja + prodaja): nikad ispod {replay.RT_FLOOR * 100:.1f} % pri ulogu "
@@ -218,6 +295,7 @@ IZVORI = (   # (the name the brief uses, the reader): a reader returns text or N
     ("Moć poziva (X računi na midcapovima)", _moc),
     ("Trošak po izvoru, zadnjih 7 dana", _trosak),
     ("Trošak i veličina tradea", _ulog),
+    ("Pravi novac po strategiji od 15.11. (zatvoreno n, zbroj SOL, prosjek po tradeu, otvoreno)", _pravi),
     ("Test: povijesna simulacija dnevnog raspona", _replay),
     ("Test: kopiranje dokazanih novčanika", _kopija),
     ("Test: konsenzus izvora", _konsenzus),
@@ -229,7 +307,8 @@ IZVORI = (   # (the name the brief uses, the reader): a reader returns text or N
 def brief(now=None, con=None, izvori=None):
     """The state block (see the module text). izvori: the test seam, ((name, fn(now, con)), ...)."""
     now = int(now or time.time())
-    parts = [f"STANJE ALATA, izmjereno do {time.strftime('%d.%m.%Y %H:%M', time.gmtime(now))} UTC (svi rezultati neto, "
+    parts = [odluke_vlasnika(),
+             f"STANJE ALATA, izmjereno do {time.strftime('%d.%m.%Y %H:%M', time.gmtime(now))} UTC (svi rezultati neto, "
              "nakon troška)"]
     missing = []
     for name, fn in (izvori if izvori is not None else IZVORI):
@@ -273,9 +352,12 @@ def na_redu(con, now=None):
     s = sjednica(con)
     if s and not s.get("zakljuceno"):
         return None                                   # one at a time
-    first = settings.raw(con).get(ONCE_KEY)
+    raw = settings.raw(con)
+    first = raw.get(ONCE_KEY)
     if not first:
         return "prva sjednica nakon deploya"
+    if not raw.get(ONCE_KEY_B) and ucenje_ispravljeno():   # 18.11.: once, after the learner's CORRECTED result by
+        return RAZLOG_B                                    # threshold arrived (never on the leaky one)
     last_ts = int((s or {}).get("ts") or first)
     if tjedan(now) > tjedan(last_ts):
         return "tjedna sjednica (ponedjeljak)"
@@ -382,8 +464,10 @@ def otvori(con, now=None, log=print, razlog="ručno"):
                 f"{store.IME[m]} {v.removeprefix('ceka: ')}" for m, v in s["clanovi"].items()))
         return None
     store.kv_put(con, "sjednica", s)
-    if not settings.raw(con).get(ONCE_KEY):
-        settings.put(con, ONCE_KEY, now, "vijeće")
+    # any session opened with the corrected learner result in its brief has done what the second one was for
+    for key in (ONCE_KEY, ONCE_KEY_B) if ucenje_ispravljeno() else (ONCE_KEY,):
+        if not settings.raw(con).get(key):
+            settings.put(con, key, now, "vijeće")
     return s
 
 

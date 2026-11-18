@@ -459,6 +459,33 @@ NEVER_LIVE[KOPIJA] = "kopija_dokazani nikad ne trguje pravim novcem (samo demo r
 PROFILE_FLAGS = PROFILE_FLAGS | {KOPIJA}   # its paper mode never makes the paper account follow anybody
 FLAG_DEFAULTS[KOPIJA] = "paper"
 
+# 18.11. (vlasnik: "Ne želim da se pravi novac pauzira, nego želim da se da sve od sebe da tradeovi s pravim novcem
+# postanu profitabilni"; veliki/ucenik.py): the owner switch of the LEARNED rule. Off by default; set_flag accepts
+# "live" only from the owner (his tap under Prekidači, or his own order in the chat applied once in his name:
+# ui/assistnotes.owner_nauceno_real, 18.11.: "Odmah želim da pravi novac krene raditi", executed ONLY if the learner's
+# corrected, purged walk-forward confirms the +1 % threshold, else parked for him); no applied suggestion and no
+# council decision turns it on. "uživo" = an entry of the demo account autopilot-nauceno (the stored model predicts
+# its best exit profile above +1 % net) ALSO gets a real twin when every check of a real midcap entry passes
+# (veliki/ucenik._enter_real -> veliki/live.enter): through the same mirror and executor.buy as the midcap range and
+# inside the same caps (veliki/gate.real_caps: max open, buys a day, a day's loss; the global automatic caps; the
+# wallet floor; the kill switch), at 0.1 SOL and never more, sold at the same fixed target / stop / 72 h as its demo
+# twin (plus a rug or a liquidity collapse). It does not read or change pravi_novac_veliki: the two are decided apart.
+NAUCENO_SWITCH = "pravi_novac_nauceno"
+FLAGS[NAUCENO_SWITCH] = ("P26", "Pravi novac za naučeno pravilo: ulaz demo računa „naučeno” (model učenja predviđa "
+                                "najbolji izlaz iznad +1 % neto) kupuje i pravim novcem kad prođe sve provjere pravog "
+                                "midcap ulaza (velika lista, MC 5-150M $, likvidnost 500k+ $, bez opreza holdera), 0,1 SOL "
+                                "po tradeu i nikad više, unutar istih stropova kao midcap raspon (najviše 5 otvorenih, 20 "
+                                "kupnji dnevno, dnevni gubitak 0,3 SOL); izlaz na cilju, stopu ili nakon 72 h tog profila")
+OWNER_SWITCHES = OWNER_SWITCHES | {NAUCENO_SWITCH}
+OWNER_SWITCH_NOTES[NAUCENO_SWITCH] = ("Tvoj prekidač: „uživo” = ulaz demo računa „naučeno” kupuje i pravim novcem kad "
+                                      "prođe provjere pravog midcap ulaza (0,1 SOL, nikad više; stropovi midcap raspona "
+                                      "vrijede za oba pravila zajedno: 5 otvorenih, 20 kupnji dnevno, dnevni gubitak 0,3 "
+                                      "SOL; pod novčanika 1 SOL, kill switch, arhiva rugova, velika lista, MC 5-150M $, "
+                                      "likvidnost 500k+ $, trošak do 6 %). Pravilo još NIJE dokazano na novim danima: demo "
+                                      "ga tek mjeri (presuda nakon 21 dana ili 60 token-dana). Izlazi: cilj, stop ili 72 h "
+                                      "profila, uz rug i pad likvidnosti. Ne ovisi o prekidaču pravi_novac_veliki. Svaki "
+                                      "drugi mod = samo demo.")
+
 
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""
@@ -765,7 +792,8 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     cur = flag_state(con)[name]
     if mode == cur["mode"]:
         return cur
-    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH, VEL_SWITCH, MAKROINF_JAVNO) and not is_owner(who):
+    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH, VEL_SWITCH, NAUCENO_SWITCH, MAKROINF_JAVNO) \
+            and not is_owner(who):
         # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
         # chat order, an applied suggestion or any other code path
         raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")

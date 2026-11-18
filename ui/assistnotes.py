@@ -1019,6 +1019,96 @@ def owner_grok_analyst(con, now=None):
     return done
 
 
+# 18.11. (the owner, asked "Želiš li da pravi novac prijeđe na naučeno pravilo čim bude objavljeno, ili tek nakon prvih
+# demo tradeova?": "Odmah želim da pravi novac krene raditi"; earlier the same day: "Ne želim da se pravi novac pauzira,
+# nego želim da se da sve od sebe da tradeovi s pravim novcem postanu profitabilni"): ONCE, in his name, his switch of
+# the learned rule (veliki/ucenik) goes on and his switch of the midcap day rule goes off. Nothing else is touched: no
+# cap, no stake, no kill switch, not Grok autotrade, no other strategy. Off for the day rule only stops its NEW real
+# entries (veliki/live.tick asks veliki/gate.real_refusal before every real entry; run_trade and executor.buy ask it
+# again): its open real positions stay open and keep their exits (live.manage runs for every open row, run_trade
+# mirrors every sale). The day rule keeps trading its DEMO account. A later tap of the owner on either switch is his:
+# the key below is set, so this never runs again.
+#
+# CONDITIONAL (the same day, after the audit): he gave the order on the strength of "+4.9 % [+1.7; +8.2] above +1 %",
+# and that number came from a walk-forward with a look-ahead leak (veliki/nauceno: the purge). So the order acts only
+# on the CORRECTED result (nauceno.db kv "nauceno" with "purge": true; a result of the old code can never satisfy it):
+#   no purged result yet                  nothing happens; asked again every minute (ui/pravitrade.dca_loop)
+#   purged, threshold +1 %: at least NAUCENO_REAL_MIN token-days AND the interval's low above zero
+#                                         the order is executed as written above
+#   purged, anything less                 NOTHING is switched; the order is parked as "čeka vlasnika" and never fires
+#                                         by itself later; real money stays where it is; the owner can still turn the
+#                                         switch on with his own tap
+NAUCENO_REAL_KEY = "owner_once:pravi_novac_nauceno_1811"
+NAUCENO_REAL_WHY = "vlasnik u chatu 18.11.: pravi novac odmah na naučeno pravilo"
+NAUCENO_REAL_THR = "0.01"      # the learner's variant the order was given on: predictions above +1 %
+NAUCENO_REAL_MIN = 30          # token-days (veliki/nauceno.MIN_CLUSTERS)
+_NAUCENO_SAID = {"ceka": False}
+
+
+def nauceno_real_test(res):
+    """(None | True | False, the numbers in words) of the learner's stored result for the order of 18.11.: None = no
+    PURGED result yet, True = the corrected test confirms the +1 % threshold, False = it does not."""
+    if not isinstance(res, dict) or not res.get("ts") or res.get("purge") is not True:
+        return None, ""
+    st = ((res.get("variants") or {}).get("thr") or {}).get(NAUCENO_REAL_THR) or {}
+    n, k, lo, hi, ev = st.get("n") or 0, st.get("clusters") or 0, st.get("lo"), st.get("hi"), st.get("ev")
+    txt = (f"prognoza iznad +1 %: n={n} ({k} token-dana)"
+           + (f", prosjek po token-danu {ev * 100:+.1f} %" if ev is not None else "")
+           + (f", raspon 90 % [{lo * 100:+.1f}; {hi * 100:+.1f}]" if lo is not None and hi is not None else ", bez raspona")
+           + f"; uvjet: najmanje {NAUCENO_REAL_MIN} token-dana i donja granica iznad nule")
+    return bool(k >= NAUCENO_REAL_MIN and lo is not None and lo > 0), txt
+
+
+def owner_nauceno_real(con, now=None, result=None):
+    """One pass of the conditional order of 18.11. (see above). True when no further pass is needed: it was executed,
+    parked for the owner, or decided on an earlier pass; False while it waits for the purged learner result (or a
+    change was refused: tried again). result: the learner's stored result (default veliki/nauceno.latest())."""
+    if settings.raw(con).get(NAUCENO_REAL_KEY):
+        return True
+    if result is None:
+        try:
+            from veliki import nauceno
+            result = nauceno.latest()
+        except Exception:  # noqa: BLE001 - no readable result is no result
+            result = None
+    ok, numbers = nauceno_real_test(result)
+    stamp = int(now or time.time())
+    if ok is None:
+        if not _NAUCENO_SAID["ceka"]:
+            _NAUCENO_SAID["ceka"] = True
+            print("pravi trade: nalog vlasnika (pravi novac na naučeno pravilo) čeka ispravljeni rezultat učenja", flush=True)
+        return False
+    if not ok:
+        settings.put(con, NAUCENO_REAL_KEY, {"ts": stamp, "ishod": "ceka_vlasnika", "brojevi": numbers,
+                                             "rezultat_ts": result.get("ts")}, "Jure")
+        print(f"pravi trade: nalog vlasnika NIJE izvršen: ispravljeni test ne potvrđuje plus uz prag +1 % ({numbers}); "
+              "pravi novac ostaje na dosadašnjem pravilu dok vlasnik ne odluči", flush=True)
+        return True
+    done = []
+    for name, mode in ((settings.NAUCENO_SWITCH, "live"), (settings.VEL_SWITCH, "off")):
+        old = settings.flag_state(con)[name]["mode"]
+        if old == mode:
+            done.append(f"{name}: već {old}")
+            continue
+        try:
+            settings.set_flag(con, name, mode, settings.owner(), now=now)   # his own order: set in his name
+        except ValueError as e:
+            print(f"pravi trade: nalog vlasnika 18.11. ({name} → {mode}) nije primijenjen: {e}", flush=True)
+            return False
+        record_applied(con, 0, f"flag:{name}", old, mode, NAUCENO_REAL_WHY)
+        done.append(f"{name}: {old} → {mode}")
+        print(f"pravi trade: nalog vlasnika 18.11.: {name}: {old} → {mode} ({NAUCENO_REAL_WHY})", flush=True)
+    old_order = f"owner_flag_once:{settings.VEL_SWITCH}:live"   # the order of 15.11. on a database that never ran it:
+    if not settings.raw(con).get(old_order):                    # this newer one stands, the older is not replayed over it
+        settings.put(con, old_order, stamp, "Jure")
+    settings.put(con, NAUCENO_REAL_KEY, {"ts": stamp, "ishod": "izvrseno", "brojevi": numbers, "promjene": done,
+                                         "rezultat_ts": result.get("ts")}, "Jure")
+    print(f"pravi trade: nalog vlasnika izvršen: ispravljeni test potvrđuje ({numbers}); " + "; ".join(done)
+          + "; stropovi, ulog, kill switch, Grok autotrade i ostale strategije nisu dirani; otvorene prave pozicije "
+            "dnevnog pravila ostaju otvorene i zadržavaju izlaze", flush=True)
+    return True
+
+
 def owner_once_b(con, lcon=None, market=None, now=None):
     """Both parts once; the Hope part is retried (HOPE_TRIES times, by dca_loop once a minute) while a price is
     missing. Returns True when nothing is left to do."""

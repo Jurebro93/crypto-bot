@@ -344,6 +344,13 @@ def _veliki_refusal():
         return f"veliki: dokaz se ne može pročitati ({type(e).__name__})"
 
 
+def _nauceno_refusal(con):
+    """18.11. (veliki/ucenik): None when a learned-rule trade of the real account may become a real buy: the owner's
+    switch pravi_novac_nauceno is on (read now from this trade.db connection; unreadable = off). It never asks
+    pravi_novac_veliki; executor.buy asks this switch once more."""
+    return None if executor.nauceno_on(con) else f"prekidač {settings.NAUCENO_SWITCH} je isključen"
+
+
 def _veliki_dca(con, lg, t):
     """15.11. (vlasnik: "uključi DCA", veliki/live.dca): (why, add) of a big-token DCA lot's real buy: one more lot of the
     first lot's real position (add) and only while that one is open (a DCA lot never lands on a position the strategy
@@ -483,6 +490,27 @@ def _switch_summary(con, cfg, now=None, force=False):
             print(f"pravi trade: {executor.switch_line(executor.switch_status(con, now, cfg))}", flush=True)
     except Exception as e:  # noqa: BLE001 - a log line never stops the loop
         print(f"pravi trade: sažetak pravi_novac_sve nije ispisan: {type(e).__name__}: {e}", flush=True)
+
+
+_strategy_log = {"day": None, "hour": None}
+
+
+def _strategy_summary(con, cfg, now=None):
+    """18.11. (vijeće: "the real trades since 15.11. per strategy"): executor.strategy_line at the start of the loop and
+    once a Zagreb day (asked once an hour whether the day changed). Read-only; never raises."""
+    now = now or time.time()
+    try:
+        hour = int(now) // 3600
+        if _strategy_log["hour"] == hour:
+            return
+        _strategy_log["hour"] = hour
+        day = executor._day_start(now, cfg.get("day_tz"))
+        if _strategy_log["day"] == day:
+            return
+        _strategy_log["day"] = day
+        print(executor.strategy_line(executor.strategy_result(con)), flush=True)
+    except Exception as e:  # noqa: BLE001 - a log line never stops the loop
+        print(f"pravi novac po strategiji: red nije ispisan: {type(e).__name__}: {e}", flush=True)
 
 
 def _mirrored(con, league_id):
@@ -719,12 +747,14 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                     if why and wait:
                         continue
             if not why and (t["source"] or "").startswith("veliki:"):   # 15.11. (veliki/): its own switch + the
-                why = _veliki_refusal()                                  # holdout proof; pravi_novac_sve never routes it
+                nau = executor.is_nauceno(t["source"])                   # holdout proof; pravi_novac_sve never routes it
+                # 18.11.: the learned rule's real twin (veliki/ucenik) has its OWN switch pravi_novac_nauceno
+                why = _nauceno_refusal(con) if nau else _veliki_refusal()
                 if not why:
                     why, wait = _switch_hard(lg, t, now)
                     if why and wait:
                         continue
-                    rng_sol = rng_sol or _veliki_size()
+                    rng_sol = rng_sol or (min(_veliki_size(), executor.NAUCENO_SOL) if nau else _veliki_size())
                     if not why:
                         why, dca_add = _veliki_dca(con, lg, t)
                         rng_add = rng_add or dca_add
@@ -879,6 +909,7 @@ def cmd_follow(a):
                 except Exception as e:  # noqa: BLE001 - a log line never stops the loop
                     print(f"pravi trade: limiti nisu ispisani: {type(e).__name__}: {e}", flush=True)
                 beat["live"] = live_now
+            _strategy_summary(con, cfg)   # 18.11.: the real result by strategy since 15.11., at the start and daily
             sw_now = settings.pravi_novac_sve(con=con)   # 14.11.: the owner's switch, in the log when it changes
             if sw_now != beat.get("sw"):
                 if sw_now or beat.get("sw") is not None:

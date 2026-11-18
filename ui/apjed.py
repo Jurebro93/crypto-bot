@@ -33,6 +33,9 @@ PLAIN = {
     settings.SWITCH_ALL: ("Pravi novac: kopiranje",
                           "Kopiranje influencera i novčanika i stare strategije kupuju pravim novcem bez dokaza u demu.", "live"),
     settings.VEL_SWITCH: ("Pravi novac", "Bot sam kupuje i prodaje pravim SOL-om, unutar stropova.", "live"),
+    settings.NAUCENO_SWITCH: ("Pravi novac: naučeno pravilo",
+                              "Pravim novcem kupuje što demo „naučeno” kupi (prognoza iznad +1 %), 0,1 SOL, isti stropovi.",
+                              "live"),
     settings.VELIKI: ("Midcap u demu",
                       "Demo račun trguje oba midcap pravila (dnevni raspon i 7 dana), bez pravog novca.", "paper"),
     "exit_plan_live": ("Posebni izlazi uživo",
@@ -70,10 +73,11 @@ PLAIN = {
                         "Demo ne ulazi u nove pozicije dok najtočniji makro influenceri očekuju pad.", "paper"),
 }
 # Napredno of Prekidači, in this order (the owner's switches that are not one of the four rows above it)
-NAPREDNO = (settings.SWITCH_ALL, settings.VELIKI, settings.FOKUS, settings.MIKROKAP, settings.MIKROKAP_MOON,
+NAPREDNO = (settings.NAUCENO_SWITCH, settings.SWITCH_ALL, settings.VELIKI, settings.FOKUS, settings.MIKROKAP, settings.MIKROKAP_MOON,
             "exit_plan_live", settings.KRITICAR, "rug_labels_v2_ok", settings.ZADNJIH5, settings.IZVORI,
             settings.OSC_SWITCH, settings.MAKROINF_JAVNO, settings.ARHIVA, "live_trades_retention", "tg_text_retention")
-REAL_MONEY = frozenset({settings.SWITCH_ALL, settings.VEL_SWITCH, settings.IZVORI, settings.OSC_SWITCH})
+REAL_MONEY = frozenset({settings.SWITCH_ALL, settings.VEL_SWITCH, settings.NAUCENO_SWITCH, settings.IZVORI,
+                        settings.OSC_SWITCH})
 # what does nothing while the bot trades midcaps only (ops/fokus.py OFF / RETARGET: their runners do not run or are
 # pointed at the midcap list). Hidden from Postavke while fokus_midcap is on and the flag itself is off; never deleted.
 IDLE_FLAGS = {
@@ -176,7 +180,8 @@ def novac_state(tcon, cfg, now):
         if grokauto.state(tcon, now)["on"]:
             others.append("Grok autotrade")
         st = settings.flag_state(tcon)
-        others += [PLAIN[n][0].split(": ")[-1] for n in (settings.IZVORI, settings.OSC_SWITCH) if _is_on(st, n)]
+        others += [PLAIN[n][0].split(": ")[-1] for n in (settings.NAUCENO_SWITCH, settings.IZVORI, settings.OSC_SWITCH)
+                   if _is_on(st, n)]
     except Exception:  # noqa: BLE001
         pass
     return {"on": on, "running": on and not why, "why": why, "held": held, "caps": caps, "floor": executor.equity_floor(cfg),

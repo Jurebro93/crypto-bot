@@ -18,7 +18,8 @@ from stanja import registar
 UNKNOWN = "?"
 CLIENT_S = 3600        # an MCP client that called within the hour is "active" (ui/mcpapi.note_call)
 HEART_S = 180          # the same threshold ui/pravitrade._warnings uses for "ne radi"
-REAL_SWITCHES = (("pravi_novac_veliki", "midcap raspon"), ("pravi_novac_sve", "sve strategije"),
+REAL_SWITCHES = (("pravi_novac_veliki", "midcap raspon"), ("pravi_novac_nauceno", "naučeno pravilo (model učenja)"),
+                 ("pravi_novac_sve", "sve strategije"),
                  ("pravi_novac_izvori", "konsenzus izvora"), ("pravi_novac_oscilator", "oscilator"))
 
 

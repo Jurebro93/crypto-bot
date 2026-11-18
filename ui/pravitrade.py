@@ -3952,6 +3952,7 @@ def dca_loop(every=DCA_EVERY_S):
     once = False
     b_left, b_next = True, 0.0
     g_next = 0.0
+    n_left, n_next = True, time.time() + 60   # 18.11.: the owner's conditional order (assistnotes.owner_nauceno_real)
     while True:
         try:
             if con is None:
@@ -3962,6 +3963,9 @@ def dca_loop(every=DCA_EVERY_S):
                 assistnotes.owner_once_1111(con)   # 11.11.: waiting caller weights applied, stale Grok requests tidied
                 try:   # 18.11.: Grok's analyst inputs on (once) and the state of every switch in the log at each start
                     assistnotes.owner_grok_analyst(con)
+                    # 18.11.: his order "real money onto the learned rule", conditional on the CORRECTED learner
+                    # result: decided here when that result is already stored, else asked again every minute below
+                    n_left = not assistnotes.owner_nauceno_real(con)
                     from stanja import ploca
                     for line in ploca.text(ploca.now()):
                         print("stanje: " + line[:600], flush=True)
@@ -3972,6 +3976,18 @@ def dca_loop(every=DCA_EVERY_S):
                 from ui import grokauto
                 g_next = time.time() + 60
                 grokauto.maybe_pause(con)
+            if n_left and time.time() >= n_next:   # 18.11.: the order waits for the purged learner result (it comes
+                from ui import assistnotes         # minutes after a deploy); once it acted, the switches' new state
+                n_next = time.time() + 60
+                n_left = not assistnotes.owner_nauceno_real(con)
+                if not n_left:
+                    try:
+                        from stanja import ploca
+                        for line in ploca.text(ploca.now()):
+                            if "pravog novca" in line:
+                                print("stanje: " + line[:600], flush=True)
+                    except Exception as e:  # noqa: BLE001 - a line in the log never costs the loop
+                        print(f"stanje: nije ispisano ({type(e).__name__}: {e})", flush=True)
             if b_left and time.time() >= b_next:   # 10.11. ~19:40 (Jure): flags + the Hope stop, once (owner_once_b)
                 from ui import assistnotes
                 b_next = time.time() + 60

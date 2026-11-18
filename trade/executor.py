@@ -266,6 +266,26 @@ def veliki_on(con):
         return False
 
 
+# 18.11. (vlasnik: "da tradeovi s pravim novcem postanu profitabilni"; veliki/ucenik.py, owner switch
+# pravi_novac_nauceno, default off): the real twin of a learned-rule demo entry is a league.db trade of LEAGUE_USER whose
+# source starts with NAUCENO_SRC. It IS a midcap buy (is_veliki: the same caps, the same day count and spend as the
+# midcap range, shared by both), with two differences: its switch is pravi_novac_nauceno, never pravi_novac_veliki
+# (each is decided apart), and its stake is never above NAUCENO_SOL (0.1 SOL), whatever the midcap range's own stake is.
+NAUCENO_SRC = "veliki: naučeno"
+NAUCENO_SOL = 0.1
+
+
+def is_nauceno(reason):
+    return str(reason or "").strip().lower().startswith(NAUCENO_SRC)
+
+
+def nauceno_on(con):
+    try:
+        return settings.flag(settings.NAUCENO_SWITCH, con) == "live"
+    except Exception:  # noqa: BLE001 - unreadable = off
+        return False
+
+
 def veliki_buys(con, now, mode="live", tz=None):
     """The midcap buys of the Zagreb day in this mode (open, closed or in flight), DCA lots included."""
     return con.execute("SELECT COUNT(*) FROM positions WHERE opened_ts>=? AND mode=? AND status IN "
@@ -386,6 +406,82 @@ def switch_line(st):
             + (", DOSEGNUT: nove automatske kupnje stoje do sljedećeg dana" if st["stopped"] else "")
             + f"), potrošeno {st['spent']:.2f}/{g(st['max_sol_per_day'])} SOL".replace(".", ",")
             + (" | po strategiji: " + "; ".join(parts) if parts else ""))
+
+
+# 18.11. (vijeće: "separate the real trades since 15.11., realised and open PnL, per strategy"): the real-money result
+# by strategy since 15.11.2026 00:00 UTC, read-only (SELECTs on positions; no schema change). The strategy of a real
+# position is its `reason`: for a mirrored buy that is the demo trade's source (run_trade passes league.db
+# trades.source), for the owner's and Grok's own buys "ručno ..." / "Grok auto ...", so strategy_of() names it without
+# a guess. The midcap range is split by its rule only where the reason itself says it (veliki/live.enter writes
+# "veliki: dnevna zona ..." for the intraday rule, "veliki: podrška ..." / "veliki: bez raspona" for the 7-day rule,
+# "veliki: DCA ..." for a DCA lot, "veliki: naučeno ..." for the learned rule's real twin, veliki/ucenik). A reason
+# that names no strategy stays under its own first word.
+# What it does NOT say: the unrealised result of the open positions (that needs live quotes; only their count and the
+# SOL in them), and positions opened before 15.11. that closed after it.
+STRATEGY_SINCE = 1794700800     # 2026-11-15 00:00:00 UTC
+STRATEGY_PREFIX = "pravi novac po strategiji od 15.11.: "
+
+
+def strategy_label(reason):
+    """strategy_of(reason), the midcap range split by its rule where the reason says which one it was."""
+    k = strategy_of(reason)
+    if k != "veliki":
+        return k
+    low = str(reason or "").lower()
+    if is_nauceno(reason):
+        return "naučeno"
+    if low.startswith("veliki: dca"):
+        return "veliki DCA lot"
+    if "dnevna zona" in low:
+        return "veliki dnevni raspon"
+    if "podrška" in low or "bez raspona" in low:
+        return "veliki raspon 7 d"
+    return "veliki"
+
+
+def strategy_result(con, since=STRATEGY_SINCE):
+    """{"since", "by": {strategy: {"closed", "sol", "ret" (mean net return per closed trade, None without one),
+    "wins", "open", "open_sol"}}, "total": the same over all} of the LIVE positions opened at or after `since`
+    (trade.db positions; read-only). sol = SOL back minus SOL in minus the position's network fees, as day_pnl and
+    switch_status count it; ret per trade = that over its SOL in. Refused and failed buys are not positions."""
+    by = {}
+    tot = {"closed": 0, "sol": 0.0, "rets": [], "wins": 0, "open": 0, "open_sol": 0.0}
+    for reason, st, sin, sback, fees in con.execute(
+            "SELECT reason, status, sol_in, sol_back, fees_sol FROM positions WHERE mode='live' AND opened_ts>=? "
+            "AND status IN ('open','closed','pending') ORDER BY id", (int(since),)).fetchall():
+        # a buy in flight carries the intent's text, not its source yet: said as that, never as a strategy
+        name = "kupnja u tijeku" if st == "pending" else strategy_label(reason)
+        d = by.setdefault(name, {"closed": 0, "sol": 0.0, "rets": [], "wins": 0, "open": 0, "open_sol": 0.0})
+        sin, sback, fees = sin or 0.0, sback or 0.0, fees or 0.0
+        for x in (d, tot):
+            if st == "closed":
+                pnl = sback - sin - fees
+                x["closed"] += 1
+                x["sol"] += pnl
+                x["wins"] += 1 if pnl > 0 else 0
+                if sin > 0:
+                    x["rets"].append(pnl / sin)
+            else:
+                x["open"] += 1
+                x["open_sol"] += sin
+    for x in list(by.values()) + [tot]:
+        rets = x.pop("rets")
+        x["ret"] = sum(rets) / len(rets) if rets else None
+    return {"since": int(since), "by": by, "total": tot}
+
+
+def strategy_line(res):
+    """One Croatian line of strategy_result (run_trade prints it at the start and once a day; the council's brief)."""
+    def one(name, d):
+        avg = f"{d['ret'] * 100:+.1f}%" if d["ret"] is not None else "—"
+        return (f"{name} n={d['closed']}, zbroj {d['sol']:+.3f} SOL, prosjek {avg}, otvoreno {d['open']}"
+                + (f" ({d['open_sol']:.2f} SOL)" if d["open"] else ""))
+    by = (res or {}).get("by") or {}
+    if not by:
+        return STRATEGY_PREFIX + "još nema pravih pozicija"
+    parts = [one(k, v) for k, v in sorted(by.items(), key=lambda kv: (-(kv[1]["closed"] + kv[1]["open"]), kv[0]))]
+    return (STRATEGY_PREFIX + "; ".join(parts) + "; " + one("UKUPNO", res["total"])
+            + " (zatvorene: SOL natrag − SOL unutra − mrežne naknade; nerealizirano otvorenih nije uračunato)")
 
 
 # 16.11. (vlasnik, jutarnji izvještaj; CLAUDE.md "dnevni gubitak 0,5 SOL", "0,1 SOL po tradeu"): ONE global cap over
@@ -907,12 +1003,17 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
     iz = not manual and is_izvori(reason)   # 15.11.: a konsenzus buy: its own caps and switch (never pravi_novac_sve)
     ve = not manual and not iz and is_veliki(reason)   # 15.11.: a midcap buy: veliki/gate.real_caps (never LIVE_CAPS)
     sw = live and not manual and not iz and not ve and switch_on(con)   # 14.11.: the owner's switch pravi_novac_sve
+    nau = ve and is_nauceno(reason)   # 18.11.: the learned rule's real twin: the midcap caps, its OWN switch, 0.1 SOL
     if ve:
         caps = veliki_caps(cfg)
         size_sol = min(size_sol or caps["size_sol"], caps["max_sol_per_trade"])
+        if nau:
+            size_sol = min(size_sol, NAUCENO_SOL)
         cfg = dict(cfg, max_cost_pct=veliki_capped(cfg)["max_cost_pct"])
-        if live and not veliki_on(con):   # the switch is checked here again: off = no real midcap buy at all
-            res = {"status": "blocked", "error": "pravi_novac_veliki je isključen", "amount_in": int(size_sol * LAMPORTS)}
+        # the switch is checked here again: off = no real midcap buy at all (each rule its own switch)
+        if live and not (nauceno_on(con) if nau else veliki_on(con)):
+            res = {"status": "blocked", "error": f"{settings.NAUCENO_SWITCH if nau else 'pravi_novac_veliki'} je isključen",
+                   "amount_in": int(size_sol * LAMPORTS)}
             cur = con.execute("INSERT INTO positions (paper_id, league_id, token, symbol, opened_ts, mode, status, "
                               "reason, sol_in, qty_raw, qty_left, sol_back, fees_sol) VALUES (?,?,?,?,?,?,?,?,0,0,0,0,0)",
                               (paper_id, league_id, token, symbol, int(now), "live", "blocked", res["error"]))
@@ -937,7 +1038,7 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
     if live and not manual and not sw and not ve:   # 11.11. (owner's rule C): an automatic stake above the live cap is cut to it;
         size_sol = min(size_sol, LIVE_CAPS["max_sol_per_trade"])   # the owner's own amount is refused by gate_buy instead
     if live and auto:   # 16.11.: the global cap: no automatic real stake above it (a path's smaller one stays smaller)
-        size_sol = min(size_sol, auto_cap(ve))
+        size_sol = min(size_sol, auto_cap(ve and not nau))
     why, passed = _gate(con, cfg, size_sol, now, live, token=token, add=add, manual=manual, override=ov, izvori=iz,
                         mcap=mcap, veliki=ve, auto=auto)
     if not why and cfg.get("sell_check", True):

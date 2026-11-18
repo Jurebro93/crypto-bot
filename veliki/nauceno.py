@@ -18,17 +18,36 @@ adjustment per fact (how much rows with that fact did better or worse than the p
 while the fact has few rows: n / (n + SHRINK)). A candidate's prediction under a profile is that sum; the choice is
 the profile with the highest prediction, taken only when it is above THR.
 
-The proof is walk-forward, day by day: a day's candidates are predicted from the days BEFORE it only, then the day
-is added to what is known. The first MIN_TRAIN_DAYS are learning only. What counts is the result of the chosen
-trades on those unseen days (mean net return, hit, 90 % interval over token-days) next to all trades of the same
-days. "kandidat" needs at least MIN_CLUSTERS token-days and the interval's low above zero. Anything less is said as
-it is: no proven plus yet.
+The proof is walk-forward, day by day: a day's candidates are predicted from what was KNOWN before that day began.
+The first MIN_TRAIN_DAYS are learning only. What counts is the result of the chosen trades on those unseen days (mean
+net return, hit, 90 % interval over token-days) next to all trades of the same days. "kandidat" needs at least
+MIN_CLUSTERS token-days and the interval's low above zero. Anything less is said as it is: no proven plus yet.
+
+The purge (18.11., found by the audit): a row's result is fixed only at its closed_ts, up to sjena.MAX_H (72 h) after
+it opened. The first version added a day's rows to the model right after scoring that day, with their FINAL result, so
+the model that predicted day d+1 already held outcomes decided by the prices of days d+1..d+3: a look-ahead leak that
+flatters every number. Now a row enters the model only once it is CLOSED before the START of the day being scored
+(closed_ts < d * 86400); a row without closed_ts never enters it. The result carries "purge": true, so nothing can
+mistake a number of the leaky version for this one. The stored live model (below) holds only rows closed by the time
+it is stored.
+
+Survivorship (18.11.): the history is replayed over TODAY's token list with candles ~45 days back, so a token that was
+outside the collector's 2M-200M range then (or has left it since for the better) would be counted as if it had been a
+candidate. backfill() applies replay.pit_of (the point-in-time filter of the historical replay: market cap from the
+price and today's supply inside 2M-200M, liquidity at least the demo's floor, at the row's open; the macro block of
+that filter is NOT applied, the macro regime stays a fact). Tokens that left the list and were dropped by the
+collector are still missing: that part of the bias cannot be measured from midcap.db.
 
 Costs are the real account's: the round trip is never under replay.RT_FLOOR (3 %), as measured on real swaps at
 0.1 SOL. A demo that is profitable at an imagined cost would teach the wrong thing.
 
 Nothing here trades or changes a rule. The result is nauceno.db kv "nauceno", the line "veliki naučeno: ..." and the
 `learned` block of the MCP tool get_shadow_book, so the critic and Grok can argue with it.
+
+The model itself (18.11.): after the walk-forward, the same sums over ALL rows (history + live) are stored as
+nauceno.db kv "model", so a live candidate can be predicted with what the test measured: load_model() (read-only,
+None when missing or older than MODEL_MAX_AGE_S) and predict_best(model, facts(row)). The only reader that acts on it
+is the demo account veliki/ucenik (never the rule's account, never real money).
 """
 import bisect
 import json
@@ -39,6 +58,9 @@ import time
 H, D, M15 = 3600, 86400, 900
 PREFIX = "veliki naučeno: "
 KV = "nauceno"
+KV_MODEL = "model"
+MODEL_MAX_AGE_S = 24 * H    # the learner runs every 6 h: a model older than a day means it stopped, and nobody trades on it
+MODEL_RELOAD_S = 60         # the stored model is looked at again at most this often (a process keeps it by its ts)
 TABLE_H = "veliki_sjena_h"
 SHRINK = 150
 THR = 0.0
@@ -94,8 +116,9 @@ def facts(r):
 
 # ---------- history: the shadow book over candles ---------------------------------------------------------------------
 
-def simulate(b15, h1, rt, token, symbol, liq, crash=None, macro_days=None, cfg=None, max_h=None, rounds=None):
-    """The closed shadow rows of one token from its 15m bars (start ts, o, h, l, c, ...) and 1h candles."""
+def simulate(b15, h1, rt, token, symbol, liq, crash=None, macro_days=None, cfg=None, max_h=None, rounds=None, pit=None):
+    """The closed shadow rows of one token from its 15m bars (start ts, o, h, l, c, ...) and 1h candles.
+    pit(t, px) False = no shadow opens at that close (replay.pit_of: the token was outside the universe then)."""
     from veliki import intra, rule, sjena
     c = intra.cfg_of(cfg)
     max_s = (max_h or sjena.MAX_H) * H
@@ -124,6 +147,8 @@ def simulate(b15, h1, rt, token, symbol, liq, crash=None, macro_days=None, cfg=N
         z = zc[hk]
         band, pos = sjena.band_of(cl, z)
         if band is None or i < 2:
+            continue
+        if pit is not None and not pit(t, cl):               # 18.11.: outside the 2M-200M universe at that time
             continue
         free = [p for p in sjena.PROFILES if p not in open_]
         if not free:
@@ -175,14 +200,15 @@ def backfill(mcon, wcon, now, btc_h, budget_s=BUDGET_S, max_tokens=300, sol=None
         liqs = [v for v in list(f["liq_day"].values()) + [f.get("liq")] if v]
         liq = min(liqs) if liqs else None
         rt = replay.round_trip(liq, row.get("dex"), sol, tx)
-        rows = simulate(b15, h1, rt, row["mint"], row.get("symbol") or row["mint"][:6], liq, crash, macro_days)
+        rows = simulate(b15, h1, rt, row["mint"], row.get("symbol") or row["mint"][:6], liq, crash, macro_days,
+                        pit=replay.pit_of(f, macro_days, block_macro=False))
         wcon.executemany(q, [tuple(r.get(k) for k in COLS) for r in rows])
         n += len(rows)
         used += 1
         days |= {r["opened_ts"] // D for r in rows}
     wcon.execute(f"CREATE INDEX IF NOT EXISTS {TABLE_H}_t ON {TABLE_H} (opened_ts)")
     wcon.commit()
-    return {"rows": n, "tokens": used, "tokens_all": len(toks), "days": len(days), "partial": partial}
+    return {"rows": n, "tokens": used, "tokens_all": len(toks), "days": len(days), "partial": partial, "pit": True}
 
 
 # ---------- the learner -----------------------------------------------------------------------------------------------
@@ -232,6 +258,7 @@ class Model:
 
     def __init__(self, shrink=SHRINK):
         self.tot, self.cell, self.shrink = {}, {}, shrink
+        self.ts = self.rows = self.days = None    # set on a stored model (dump / from_dict)
 
     def add(self, r, f=None):
         p, x = r["profil"], r["ret"]
@@ -257,11 +284,40 @@ class Model:
         b = self.base(p)
         return None if b is None else b + sum(self.effect(p, k, v) for k, v in f.items() if v != "?")
 
+    def dump(self, ts, rows=None, days=None):
+        """The stored form (kv "model"): the sums, not the predictions, so a reader computes exactly what this does."""
+        return {"ts": int(ts), "shrink": self.shrink, "tot": {p: [t[0], t[1]] for p, t in self.tot.items()},
+                "cell": [[p, k, v, c[0], c[1]] for (p, k, v), c in self.cell.items()], "rows": rows, "days": days}
 
-def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK):
-    """The walk-forward result (see the module text) of book rows sorted by opened_ts."""
+    @classmethod
+    def from_dict(cls, d):
+        m = cls(d.get("shrink", SHRINK))
+        m.tot = {p: [int(t[0]), float(t[1])] for p, t in (d.get("tot") or {}).items()}
+        m.cell = {(p, k, v): [int(n), float(x)] for p, k, v, n, x in d.get("cell") or []}
+        m.ts, m.rows, m.days = int(d["ts"]), d.get("rows"), d.get("days")
+        return m
+
+
+def predict_best(model, f):
+    """(profile, prediction) of the exit profile the model predicts best for a candidate's facts (facts() of the row
+    veliki/sjena.known builds), over sjena.PROFILES; (None, None) when no profile has a base yet."""
     from veliki import sjena
-    m = Model(shrink)
+    best = (None, None)
+    for p in sjena.PROFILES:
+        pr = model.predict(p, f)
+        if pr is not None and (best[1] is None or pr > best[1]):
+            best = (p, pr)
+    return best
+
+
+def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK, model=None, now=None):
+    """The walk-forward result (see the module text) of book rows sorted by opened_ts, with the purge of 18.11.: a row
+    enters the model only when its closed_ts is before the start of the day being scored. model: an empty Model to
+    fill; after the last day it also takes every row that is closed by `now` (default: every closed row), which is the
+    model run() stores for live predictions; a row without closed_ts is in neither."""
+    import heapq
+    from veliki import sjena
+    m = model if model is not None else Model(shrink)
     by_day = {}
     for r in rows:
         by_day.setdefault(r["opened_ts"] // D, []).append(r)
@@ -269,7 +325,11 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK):
     picks, every, prof_all, prof_pick = [], [], {}, {}
     detail, fixed = [], {k: [] for k in VAR_FIXED}   # detail: (token-day, ret, prediction, rt) of every choice above thr
     seen = 0
+    pending, seq = [], 0      # (closed_ts, seq, row, facts): scored already, their result not yet known to the model
     for d in days:
+        while pending and pending[0][0] < d * D:      # the purge: only what was closed before this day began
+            _c, _s, r0, f0 = heapq.heappop(pending)
+            m.add(r0, f0)
         batch = [(r, facts(r)) for r in by_day[d]]
         if seen >= min_train_days:
             cand = {}
@@ -291,8 +351,17 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK):
                     prof_pick.setdefault(r["profil"], []).append((key, r["ret"]))
                     detail.append((key, r["ret"], pr, r.get("rt")))
         for r, f in batch:
-            m.add(r, f)
+            if r.get("closed_ts") is not None:
+                heapq.heappush(pending, (r["closed_ts"], seq, r, f))
+                seq += 1
         seen += 1
+    late = 0
+    for c_ts, _s, r0, f0 in sorted(pending, key=lambda x: x[:2]):   # after the last scored day: the live model's rows
+        if now is None or c_ts <= now:
+            m.add(r0, f0)
+        else:
+            late += 1                                                # not closed by `now`: never in a model
+    in_model = sum(t[0] for t in m.tot.values())
     eff = []
     for (p, k, v), c in m.cell.items():
         if v != "?" and c[0] >= 100:
@@ -300,7 +369,8 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK):
                         "mean": c[1] / c[0]})
     eff.sort(key=lambda e: e["effect"])
     res = {"rows": len(rows), "live_rows": sum(1 for r in rows if r.get("src") == "uzivo"), "days": len(days),
-           "test_days": max(0, len(days) - min_train_days), "thr": thr,
+           "test_days": max(0, len(days) - min_train_days), "thr": thr, "purge": True, "model_rows": in_model,
+           "not_closed": len(rows) - in_model - late, "closed_later": late,
            "picked": _stat(picks), "all": _stat(every),
            "by_profile": {p: {"all": _stat(prof_all.get(p, [])), "picked": _stat(prof_pick.get(p, [])),
                               "base": m.base(p)} for p in sjena.PROFILES},
@@ -358,7 +428,9 @@ def line(res):
     worst = "; ".join(_e(e) for e in (res.get("worst") or [])[:3]) or "—"
     return (f"{PREFIX}{res['rows']} zamišljenih tradeova ({bf.get('rows', 0)} iz povijesti {bf.get('tokens', 0)} tokena"
             f"{' (djelomično)' if bf.get('partial') else ''}, {res.get('live_rows', 0)} uživo), {res['days']} dana, "
-            f"provjera na zadnjih {res['test_days']} neviđenih; presuda: {VERDICT_HR.get(res.get('verdict'), '?')}; "
+            f"provjera na zadnjih {res['test_days']} neviđenih"
+            f"{', rezultat ulazi u učenje tek kad je trade zatvoren' if res.get('purge') else ''}; presuda: "
+            f"{VERDICT_HR.get(res.get('verdict'), '?')}; "
             f"odabrani: {_s(res.get('picked'))}; svi tih dana: {_s(res.get('all'))}; najviše pomaže: {best}; "
             f"najviše šteti: {worst} ({res.get('secs', 0)} s)")
 
@@ -384,7 +456,8 @@ def line_variants(res):
             f"jednostavna pravila bez modela: {fx}")
 
 
-def latest(path=None):
+def _kv(path, key):
+    """One stored value of nauceno.db, read-only; {} when the file, the table or the key is missing."""
     p = db_path(path)
     if not os.path.exists(p):
         return {}
@@ -393,12 +466,53 @@ def latest(path=None):
     except sqlite3.Error:
         return {}
     try:
-        r = con.execute("SELECT v FROM kv WHERE k=?", (KV,)).fetchone()
+        r = con.execute("SELECT v FROM kv WHERE k=?", (key,)).fetchone()
         return json.loads(r[0]) if r else {}
     except (sqlite3.Error, ValueError, TypeError):
         return {}
     finally:
         con.close()
+
+
+def latest(path=None):
+    return _kv(path, KV)
+
+
+_MODEL = {}     # nauceno.db path -> {"at": when it was last read, "m": the Model or None}
+
+
+def _stored_model(path=None, now=None):
+    """The stored model whatever its age (None when there is none), re-read at most every MODEL_RELOAD_S and rebuilt
+    only when the stored ts changed."""
+    now = time.time() if now is None else now
+    p = db_path(path)
+    hit = _MODEL.get(p)
+    if hit is None or abs(now - hit["at"]) >= MODEL_RELOAD_S:
+        d = _kv(p, KV_MODEL)
+        m = hit["m"] if hit else None
+        try:
+            if not d or not d.get("ts"):
+                m = None
+            elif m is None or m.ts != int(d["ts"]):
+                m = Model.from_dict(d)
+        except (KeyError, TypeError, ValueError):   # a stored value this code cannot read is no model
+            m = None
+        hit = _MODEL[p] = {"at": now, "m": m}
+    return hit["m"]
+
+
+def load_model(path=None, now=None):
+    """The model run() stored (read-only, kept in memory by its ts), or None when there is none or it is older than
+    MODEL_MAX_AGE_S: nothing may trade on a learner that stopped running."""
+    now = time.time() if now is None else now
+    m = _stored_model(path, now)
+    return m if m is not None and now - m.ts <= MODEL_MAX_AGE_S else None
+
+
+def model_ts(path=None, now=None):
+    """When the stored model was trained (None: no model), whatever its age: for the line that says why nobody enters."""
+    m = _stored_model(path, now)
+    return m.ts if m is not None else None
 
 
 def summary(res=None):
@@ -410,6 +524,7 @@ def summary(res=None):
     def rnd(st):
         return {k: (round(v, 4) if isinstance(v, float) else v) for k, v in (st or {}).items()}
     return {"ts": res["ts"], "verdict": res.get("verdict"), "verdict_text": VERDICT_HR.get(res.get("verdict")),
+            "purge": bool(res.get("purge")), "history_point_in_time": bool((res.get("backfill") or {}).get("pit")),
             "rows": res.get("rows"), "live_rows": res.get("live_rows"), "days": res.get("days"),
             "test_days": res.get("test_days"), "picked": rnd(res.get("picked")), "all": rnd(res.get("all")),
             "by_profile": {p: {"all": rnd(v.get("all")), "picked": rnd(v.get("picked"))}
@@ -420,7 +535,11 @@ def summary(res=None):
                               "not proof. rt variants are approximate (saved cost added, exit levels unchanged)."),
             "how": ("Per exit profile: the profile's mean net return plus one shrunken adjustment per fact known before "
                     "the entry; a candidate takes its best-predicted profile when the prediction is above zero. Tested "
-                    "day by day on days the model had not seen. Costs: the real round trip, never under 3 %.")}
+                    "day by day on days the model had not seen. Costs: the real round trip, never under 3 %. purge = "
+                    "true: a trade's result enters the model only once the trade is closed before the scored day "
+                    "began (a result computed before 18.11. had a look-ahead leak and reads too well). "
+                    "history_point_in_time: a history row exists only when the token was inside the 2M-200M universe "
+                    "at its open (by price x today's supply).")}
 
 
 def run(now=None, log=print, path=None, lpath=None, budget_s=BUDGET_S, btc=None, save=True, hpath=None):
@@ -444,10 +563,16 @@ def run(now=None, log=print, path=None, lpath=None, budget_s=BUDGET_S, btc=None,
                 lcon = sqlite3.connect(f"file:{lp}?mode=ro", uri=True, timeout=10) if os.path.exists(lp) else None
             except sqlite3.Error:
                 lcon = None
-            res = learn(load(wcon, lcon, now))
+            rows = load(wcon, lcon, now)
+            m = Model()
+            # the walk-forward (purged: a row enters once it is closed before the scored day); after the last day m
+            # takes every row closed by now: the live model never holds a result that is not final yet
+            res = learn(rows, model=m, now=now)
             res.update(ts=now, backfill=bf, secs=round(time.time() - t0, 1))
             if save:
                 wcon.execute("INSERT OR REPLACE INTO kv VALUES (?, ?)", (KV, json.dumps(res, ensure_ascii=False, default=str)))
+                wcon.execute("INSERT OR REPLACE INTO kv VALUES (?, ?)",
+                             (KV_MODEL, json.dumps(m.dump(now, res["model_rows"], res["days"]), ensure_ascii=False)))
                 wcon.commit()
         finally:
             for c in (mcon, wcon, lcon):

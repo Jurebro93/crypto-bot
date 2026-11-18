@@ -2009,8 +2009,16 @@ TOOLS.append(
                      "the book replayed over ~45 days of candles plus the live rows, a simple additive model of the "
                      "facts per exit profile, tested day by day on days it had not seen: verdict (kandidat / premalo / "
                      "nema_plusa), the chosen trades against all trades of the same days, and which facts help or "
-                     "hurt most. Argue with it: say which fact you think is missing or misread. Nothing here "
-                     "changes a rule: propose changes as notes."),
+                     "hurt most. learned.purge = true means the corrected walk-forward of 18.11. (a trade's result "
+                     "enters the model only once the trade is closed; an earlier result had a look-ahead leak and read "
+                     "too well). Argue with it: say which fact you think is missing or misread. `learned.variants` are "
+                     "the same unseen days read at stricter prediction thresholds and cheaper round trips "
+                     "(hypotheses, not proof). `learned.demo` is the forward test of the +1 % threshold: a separate "
+                     "DEMO account (rule written down on 18.11.2026, never tuned) that enters a candidate only when "
+                     "the stored model predicts its best exit profile above +1 % net and exits at that profile's "
+                     "target, stop or 72 h: open, closed (per token-day, 90 % interval), by_profile, "
+                     "by_predicted_band, verdict (mjeri until 21 days or 60 token-days, then kandidat / nema_plusa). "
+                     "Nothing here changes a rule: propose changes as notes."),
      "inputSchema": {"type": "object", "properties": {
          "by": {"type": "string", "enum": ["band", "calm", "zone_ok", "btc", "makro", "dip", "oprez", "grok", "hour6"],
                 "default": "band"},
