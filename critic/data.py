@@ -162,6 +162,8 @@ def strategy_stats(tcon=None, now=None, days=30, lpath=None, detail=True):
             for ots, sin, sback, fees, why in tcon.execute(
                     "SELECT opened_ts, sol_in, sol_back, COALESCE(fees_sol, 0), reason FROM positions WHERE mode='live' "
                     "AND status='closed' AND closed_ts >= ? AND sol_in > 0 ORDER BY closed_ts", (since,)):
+                if executor.is_mjerenje(why):   # 18.11.: the owner's cost measurement is no strategy's result
+                    continue
                 raw.setdefault(executor.strategy_of(why), {}).setdefault("pravi_novac", []).append(
                     (ots or 0, ((sback or 0) - sin - (fees or 0)) / sin, None))
         except sqlite3.Error:

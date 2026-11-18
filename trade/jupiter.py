@@ -106,5 +106,16 @@ def fee_lamports(o):
     return total
 
 
+def impact_pct(o):
+    """18.11. (trade/mjerenje.py): the price impact Jupiter quotes for this order, in percent (>= 0), or None when the
+    answer carries none. priceImpactPct is a fraction as text ("0.0004" = 0.04 %), read the way topcheck/safety.sell_test
+    reads it; the sign Jupiter gives (negative = worse for the taker) is dropped. Reporting only: no swap reads it."""
+    try:
+        v = o.get("priceImpactPct")
+        return round(abs(float(v)) * 100, 4) if v not in (None, "") else None
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
 def explain(code, error=None):
     return ERRORS_HR.get(code) or error or (f"greška {code}" if code is not None else "nepoznata greška")

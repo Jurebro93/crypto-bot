@@ -213,11 +213,20 @@ def _ulog(now, con):
     return "; ".join(bits)
 
 
+def _mjerenje(now, con):
+    """18.11. (trade/mjerenje.py): the one real round trip at 0.1 / 0.3 / 0.5 SOL, as stored in trade.db settings."""
+    if con is None:
+        return None
+    from trade import mjerenje
+    return mjerenje.tekst(con)
+
+
 IZVORI = (   # (the name the brief uses, the reader): a reader returns text or None (nothing stored yet)
     ("Učenje (knjiga sjene, neviđeni dani)", _ucenje),
     ("Moć poziva (X računi na midcapovima)", _moc),
     ("Trošak po izvoru, zadnjih 7 dana", _trosak),
     ("Trošak i veličina tradea", _ulog),
+    ("Izmjeren trošak kruga po ulogu", _mjerenje),
     ("Test: povijesna simulacija dnevnog raspona", _replay),
     ("Test: kopiranje dokazanih novčanika", _kopija),
     ("Test: konsenzus izvora", _konsenzus),

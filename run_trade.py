@@ -813,6 +813,19 @@ def sell_all_once(con, cfg, now=None, quiet=False):
         settings.put(con, "sell_all", 0, "bot")
 
 
+def _mjerenje_once(con, cfg):
+    """18.11. (vlasnik: „Smiješ.”; trade/mjerenje.py): one step of the one-time cost measurement (a real round trip at
+    0.1, 0.3 and 0.5 SOL on the deepest midcap of the list veliki), through executor.buy / executor.sell like the
+    owner's manual buy. At most one swap a pass; nothing once its record says "gotovo" or "odustalo"; MJERENJE_TROSKA=0
+    switches it off. While the loop is stopping no new buy starts (a sale still goes out). Never raises."""
+    try:
+        from trade import mjerenje
+        return mjerenje.korak_sigurno(con, cfg, stani=STOPPING["flag"])
+    except Exception as e:  # noqa: BLE001 - the measurement never stops the trade loop
+        print(f"mjerenje troška: nije pokrenuto ({type(e).__name__}: {e})", flush=True)
+        return []
+
+
 STOPPING = {"flag": False}
 
 
@@ -904,6 +917,7 @@ def cmd_follow(a):
             if cfg.get("follow_paper"):
                 follow_once(con, cfg, since)
             _exit_recon_once(con)             # 10.11. (plan 1.5): demo vs real exit price of positions just closed
+            _mjerenje_once(con, cfg)          # 18.11.: the owner's one-time cost measurement, last: exits and buys first
             con.close()
         except Exception as e:
             print(f"greška: {type(e).__name__}: {e}", file=sys.stderr)
