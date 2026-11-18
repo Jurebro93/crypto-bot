@@ -151,7 +151,8 @@ def vrows(lcon, since=None, closed_only=False):
                "OR half_ts>=?" if "half_ts" in have else
                f"SELECT {', '.join(cols)} FROM veliki_trades WHERE status='open' OR opened_ts>=? OR closed_ts>=?")
         args = (since, since, since) if "half_ts" in have else (since, since)
-    return [dict(zip(cols, r)) for r in lcon.execute(sql, args)]
+    from veliki import istrazivac   # 18.11.: the explorer's demo trades are not the rule's (its own hourly line)
+    return [d for d in (dict(zip(cols, r)) for r in lcon.execute(sql, args)) if d.get("user") != istrazivac.USER]
 
 
 def window(rows, t0, t1):

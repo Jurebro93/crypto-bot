@@ -123,7 +123,8 @@ def ensure(con):
                      ("half_frac", "REAL"), ("half_px", "REAL"), ("half_ts", "INTEGER"), ("be_px", "REAL"),
                      ("first_px", "REAL"), ("lots", "INTEGER"), ("dca_trade_id", "INTEGER"), ("dca_px", "REAL"),
                      ("dca_ts", "INTEGER"), ("dca_why", "TEXT"), ("exit_why", "TEXT"), ("makro", "TEXT"),
-                     ("wide_px", "REAL"), ("tight_ts", "INTEGER")):
+                     ("wide_px", "REAL"), ("tight_ts", "INTEGER"),
+                     ("varijanta", "TEXT")):   # 18.11.: the explorer's tag (veliki/istrazivac), NULL for the rule's rows
         if col not in have:
             con.execute(f"ALTER TABLE veliki_trades ADD COLUMN {col} {typ}")
 
@@ -1305,6 +1306,11 @@ def tick(con, market_fn, now=None, force=False, toks=None):
     if users and _ST.get("rep_h") != hour:
         if _ST.get("rep_h") is not None:
             out.append(report_line(con, now))
+            try:   # 18.11.: the explorer's own line (its trades are in no other line)
+                from veliki import istrazivac
+                out.append(istrazivac.line(con, now))
+            except Exception as e:  # noqa: BLE001
+                out.append(f"veliki istraživač: red nije složen ({type(e).__name__})")
             out.append(refusal_line())
         _ST["rep_h"] = hour
     if not users or not poll_all:
@@ -1463,7 +1469,7 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
     enter); one position a token, cooldown intra.COOLDOWN_S after an exit, at most intra.MAX_ROUNDS rounds a token a
     Zagreb day. [text]."""
     from trade import settings
-    from veliki import intra
+    from veliki import intra, istrazivac
     out = []
     m15 = int(now) - int(now) % M15
     icfg = intra.cfg_of()
@@ -1491,8 +1497,13 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
         why = intra.signal(q[0], z, b15, icfg, btc["state"])
         if why:
             _refused("dnevni: " + why)
+            # 18.11. (owner: "što više demo tradeova"): what the rule refuses goes to the explorer's own DEMO account,
+            # tagged with why (veliki/istrazivac); never the rule's demo account, never real money
+            istrazivac.try_enter(con, out, held, tok, q, now, sol, z, b15, icfg, btc, pr, prioritet)
             continue
-        last = con.execute("SELECT MAX(closed_ts) FROM veliki_trades WHERE token=?", (tok,)).fetchone()[0]
+        # the explorer's exits are not the rule's: its cooldown is its own (veliki/istrazivac.try_enter)
+        last = con.execute("SELECT MAX(closed_ts) FROM veliki_trades WHERE token=? AND user<>?",
+                           (tok, istrazivac.USER)).fetchone()[0]
         if last and now - last < intra.COOLDOWN_S:
             _refused("dnevni: pauza 30 min nakon izlaza")
             continue

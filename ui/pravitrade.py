@@ -3952,6 +3952,13 @@ def dca_loop(every=DCA_EVERY_S):
                 from ui import assistnotes
                 assistnotes.owner_once(con)
                 assistnotes.owner_once_1111(con)   # 11.11.: waiting caller weights applied, stale Grok requests tidied
+                try:   # 18.11.: Grok's analyst inputs on (once) and the state of every switch in the log at each start
+                    assistnotes.owner_grok_analyst(con)
+                    from stanja import ploca
+                    for line in ploca.text(ploca.now()):
+                        print("stanje: " + line[:600], flush=True)
+                except Exception as e:  # noqa: BLE001 - a line in the log never costs the loop
+                    print(f"stanje: nije ispisano ({type(e).__name__}: {e})", flush=True)
                 once = True
             if time.time() >= g_next:   # 10.11. (Grok autotrade): the day-loss pause even without a new Grok buy
                 from ui import grokauto
