@@ -166,6 +166,68 @@ class SwapNeverRaisesOnSigning(unittest.TestCase):
         self.assertEqual(res["status"], "ok")
 
 
+class Token2022Deposit(unittest.TestCase):
+    """The deposit of a Token-2022 token account comes back too (the program id in the list was a typo)."""
+
+    def test_the_program_ids_are_the_real_ones(self):
+        import re
+        self.assertEqual(wallet.TOKEN_PROGRAMS, {"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                                                 "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"})
+        # the same id the rest of the tool uses for Token-2022: no second spelling anywhere in the code
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        seen = set()
+        for d, _dirs, files in os.walk(root):
+            if "/tests" in d or "/." in d or "__pycache__" in d:
+                continue
+            for f in files:
+                if f.endswith(".py"):
+                    with open(os.path.join(d, f), encoding="utf-8") as fh:
+                        seen |= set(re.findall(r"Tokenz[1-9A-HJ-NP-Za-km-z]{30,44}", fh.read()))
+        self.assertEqual(seen, {wallet.TOKEN_2022_PROGRAM})
+
+    def test_an_empty_token_2022_account_is_closed(self):
+        try:
+            from solders.hash import Hash
+            from solders.keypair import Keypair
+            from solders.transaction import VersionedTransaction
+        except ImportError:
+            self.skipTest("solders nije instaliran")
+        kp, acc = Keypair(), str(Keypair().pubkey())
+        sent = []
+
+        def rpc(method, params):
+            if method == "getBalance":
+                return {"value": 2_074_080}
+            if method == "getLatestBlockhash":
+                return {"value": {"blockhash": str(Hash.default())}}
+            raise AssertionError(method)
+        for prog, expect in ((wallet.TOKEN_2022_PROGRAM, 2_074_080), (wallet.TOKEN_PROGRAM, 2_074_080),
+                             ("NekiDrugiProgram1111111111111111111111111111", 0)):
+            sent.clear()
+            info = {}
+            with mock.patch.object(wallet, "token_accounts", return_value=[(acc, 0, 6, prog)]), \
+                    mock.patch.object(wallet, "rpc", side_effect=rpc), \
+                    mock.patch.object(wallet, "send", side_effect=lambda tx: sent.append(tx) or "SIG"), \
+                    mock.patch.object(wallet, "confirmed", return_value=True):
+                self.assertEqual(wallet.close_empty(kp, "MINT", wait_s=1, info=info), expect, prog)
+            self.assertEqual(len(sent), 1 if expect else 0)
+            if expect:
+                tx = VersionedTransaction.from_bytes(base64.b64decode(sent[0]))
+                ix = tx.message.instructions[0]
+                self.assertEqual(str(tx.message.account_keys[ix.program_id_index]), prog)   # sent to the account's program
+                self.assertEqual(bytes(ix.data), bytes([9]))                                 # CloseAccount
+                self.assertEqual(info, {"lamports": expect, "sig": "SIG"})
+
+    def test_an_account_with_tokens_is_never_closed(self):
+        with mock.patch.object(wallet, "token_accounts", return_value=[("ACC", 5, 6, wallet.TOKEN_2022_PROGRAM)]), \
+                mock.patch.object(wallet, "send", side_effect=AssertionError("ništa se ne šalje")):
+            try:
+                from solders.keypair import Keypair
+            except ImportError:
+                self.skipTest("solders nije instaliran")
+            self.assertEqual(wallet.close_empty(Keypair(), "MINT"), 0)
+
+
 class RentSweep(unittest.TestCase):
     """The token-account deposit that did not come back after a sale is asked for again by the trade loop."""
     NOW = 1_800_000_000

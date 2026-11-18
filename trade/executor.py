@@ -1373,7 +1373,7 @@ def rent_sweep(con, now, wait_s=RENT_SWEEP_WAIT_S):
         return None
     _RENT["ts"] = now
     try:
-        tries = dict(settings.raw(con).get("rent_tries_v2") or {})
+        tries = dict(settings.raw(con).get("rent_tries_v3") or {})
         rows = con.execute(
             "SELECT p.id, p.token, p.symbol FROM positions p WHERE p.mode='live' AND p.status='closed' "
             "AND p.closed_ts>=? AND p.closed_ts<=? AND COALESCE(p.sol_in, 0)>0 AND COALESCE(p.qty_raw, 0)>0 "
@@ -1391,13 +1391,13 @@ def rent_sweep(con, now, wait_s=RENT_SWEEP_WAIT_S):
             if n >= RENT_SWEEP_TRIES:
                 continue
             tries[str(pid)] = n + 1
-            settings.put(con, "rent_tries_v2", dict(sorted(tries.items(), key=lambda kv: int(kv[0]))[-300:]), "alat")
+            settings.put(con, "rent_tries_v3", dict(sorted(tries.items(), key=lambda kv: int(kv[0]))[-300:]), "alat")
             name = symbol or token[:6]
             sent = dict(settings.raw(con).get("rent_sent") or {})
 
             def done():   # nothing more to try for this position
                 tries[str(pid)] = RENT_SWEEP_TRIES
-                settings.put(con, "rent_tries_v2", dict(sorted(tries.items(), key=lambda kv: int(kv[0]))[-300:]), "alat")
+                settings.put(con, "rent_tries_v3", dict(sorted(tries.items(), key=lambda kv: int(kv[0]))[-300:]), "alat")
 
             def book(got, how):
                 con.execute("UPDATE positions SET fees_sol=COALESCE(fees_sol,0)-? WHERE id=?", (got / LAMPORTS, pid))
