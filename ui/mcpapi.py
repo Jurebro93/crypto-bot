@@ -1983,6 +1983,37 @@ TOOLS.append(
          "key": {"type": "string", "description": "one machine by its key, e.g. position, mcp_request, grok_autotrade"}}}})
 
 
+SEEN_KEY = "mcp_seen"
+SEEN_EVERY_S = 60
+_SEEN = {"saved": 0.0, "day": None, "n": 0}
+
+
+def note_call(name, kid, now=None):
+    """18.11. (owner: "Aktiviraj opet grok bota"; nobody could say whether he was calling): remember that an MCP client
+    called a tool: trade settings "mcp_seen" {"ts", "tool", "day", "n_day"} (n_day counted in this process), written
+    at most every SEEN_EVERY_S so a busy client costs one small write a minute. The in-app callers (kid "local": the
+    page, the critic, tests) are not a client. Never raises: a missed mark must not fail the call."""
+    if not kid or kid == "local":
+        return
+    try:
+        now = now or time.time()
+        day = time.strftime("%Y-%m-%d", time.gmtime(now))
+        if _SEEN["day"] != day:
+            _SEEN.update(day=day, n=0)
+        _SEEN["n"] += 1
+        if now - _SEEN["saved"] < SEEN_EVERY_S:
+            return
+        _SEEN["saved"] = now
+        tcon = settings.connect()
+        try:
+            settings.put(tcon, SEEN_KEY, {"ts": int(now), "tool": str(name)[:60], "day": day, "n_day": _SEEN["n"]},
+                         f"mcp:{kid}")
+        finally:
+            tcon.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _tool(name, args, kid="local"):
     """(result dict, is_error) of one tool call."""
     args = args if isinstance(args, dict) else {}
@@ -2173,6 +2204,7 @@ def _one(msg, kid="local"):
         elif method == "tools/list":
             result = {"tools": TOOLS}
         elif method == "tools/call":
+            note_call(params.get("name"), kid)
             data, err = _tool(params.get("name"), params.get("arguments"), kid)
             result = {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
                       "structuredContent": data, "isError": bool(err)}

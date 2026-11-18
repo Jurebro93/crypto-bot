@@ -18,6 +18,9 @@
   stop (4 % ispod cijene, ili na ulaz ako je pozicija u plusu) tek kad BTC padne 1,5 % u 4 h ili je u slobodnom padu;
   kad se BTC smiri, vraća se široki stop. Bez vremenskog stopa; na +5 % neto stop ide na ulaz; cijeli profit na cilju.
   Automatske kupnje staju kad vrijednost novčanika padne ispod 1 SOL. Ostale automatske kupnje ostaju na 0,1 SOL.
+- Demo istraživač (18.11., vlasnik: „što više demo tradeova”): drugi demo račun kupuje kandidate koje dnevno pravilo
+  odbije (šira zona, svijeće još padaju, Grokov „kupi” s X-a), svaki s oznakom; nikad pravi novac, ne ulazi u dokaz.
+  Grok bot je analitičar (X, objave, hype) i drugi kritičar uz OpenAI; Grok autotrade pravim novcem pali samo vlasnik.
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.

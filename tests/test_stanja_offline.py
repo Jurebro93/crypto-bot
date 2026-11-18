@@ -260,5 +260,60 @@ class Guards(unittest.TestCase):
             self.assertIn("WHERE id=? AND status='open'", src[i:i + 400], path)
 
 
+class GrokBack(unittest.TestCase):
+    """18.11. (owner: "Aktiviraj opet grok bota kao drugog kritičara i ... informacije s Twittera")."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.db = os.path.join(self.tmp.name, "trade.db")
+        p = mock.patch.object(settings, "DB", self.db)
+        p.start()
+        self.addCleanup(p.stop)
+        self.con = executor.connect(self.db)
+        self.con.execute(settings.SCHEMA)
+        self.addCleanup(self.con.close)
+
+    def test_a_clients_call_is_remembered_at_most_once_a_minute(self):
+        from ui import mcpapi
+        mcpapi._SEEN.update(saved=0.0, day=None, n=0)
+        mcpapi.note_call("get_grok_tasks", "local", now=1_800_000_000)             # the app's own callers: not a client
+        self.assertIsNone(settings.raw(self.con).get("mcp_seen"))
+        mcpapi.note_call("get_grok_tasks", "ab12", now=1_800_000_000)
+        mcpapi.note_call("submit_signal_opinion", "ab12", now=1_800_000_030)       # inside the minute: counted, not written
+        self.assertEqual(settings.raw(self.con)["mcp_seen"]["tool"], "get_grok_tasks")
+        mcpapi.note_call("submit_signal_opinion", "ab12", now=1_800_000_061)
+        v = settings.raw(self.con)["mcp_seen"]
+        self.assertEqual((v["ts"], v["tool"], v["n_day"]), (1_800_000_061, "submit_signal_opinion", 3))
+        with mock.patch.object(settings, "connect", side_effect=RuntimeError("x")):
+            mcpapi.note_call("x", "ab12", now=1_800_000_200)                       # never raises
+
+    def test_the_board_says_whether_grok_is_calling(self):
+        with mock.patch("veliki.makro.current", return_value=None):
+            b = {r["key"]: r for r in ploca.now(1_800_000_000, trade_db=self.db, env={})}
+            self.assertEqual(b["mcp_client"]["state"], "<never>")
+            settings.put(self.con, "mcp_seen", {"ts": 1_800_000_000 - 600, "tool": "get_grok_tasks", "day": "d", "n_day": 7}, "m")
+            r = {x["key"]: x for x in ploca.now(1_800_000_000, trade_db=self.db, env={})}["mcp_client"]
+            self.assertEqual((r["state"], r["since"]), ("<active>", 1_800_000_000 - 600))
+            self.assertIn("get_grok_tasks", r["detail"])
+            self.assertIn("7", r["detail"])
+            r = {x["key"]: x for x in ploca.now(1_800_000_000 + 7200, trade_db=self.db, env={})}["mcp_client"]
+            self.assertEqual(r["state"], "<quiet>")
+
+    def test_the_order_switches_on_his_inputs_once_and_never_his_real_money(self):
+        from ui import assistnotes, grokauto
+        settings.set_flag(self.con, "zonewatch", "paper", "Jure")
+        grokauto.set_on(self.con, False, "Jure")
+        done = assistnotes.owner_grok_analyst(self.con)
+        st = settings.flag_state(self.con)
+        self.assertEqual((st["x_features_ingest"]["mode"], st["grok_predictions"]["mode"], st["zonewatch"]["mode"]),
+                         ("shadow", "shadow", "paper"))                           # off -> shadow; what was on stays
+        self.assertIn("zonewatch: već paper", done)
+        self.assertFalse(grokauto.state(self.con)["on"])                           # real money: not this order
+        settings.set_flag(self.con, "x_features_ingest", "off", "Jure")           # the owner turns it off later
+        self.assertEqual(assistnotes.owner_grok_analyst(self.con), [])            # once: his later choice is kept
+        self.assertEqual(settings.flag_state(self.con)["x_features_ingest"]["mode"], "off")
+
+
 if __name__ == "__main__":
     unittest.main()

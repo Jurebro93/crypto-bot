@@ -14,10 +14,10 @@ from ui.html import esc
 
 PATH = "/stanje"
 TZ = ZoneInfo("Europe/Zagreb")
-GOOD = {"<live>", "<on>", "live", "<alive>", "<allowed>", "<clear>", "normalno", "risk_on", "<idle>"}
-WARN = {"<dry>", "<paused>", "<stopped>", "dno_se_potvrduje", "<silent>", "?", "<never>", "nalog_vlasnika"}
-BAD = {"<active>", "slobodan_pad", "risk_off"}
-TONE = {"exit_plans_pause": {"<running>": "good"}, "sell_all": {"<running>": "bad"}}
+GOOD = {"<live>", "<on>", "live", "<alive>", "<active>", "<allowed>", "<clear>", "normalno", "risk_on", "<idle>"}
+WARN = {"<dry>", "<paused>", "<quiet>", "<stopped>", "dno_se_potvrduje", "<silent>", "?", "<never>", "nalog_vlasnika"}
+BAD = {"slobodan_pad", "risk_off"}
+TONE = {"exit_plans_pause": {"<running>": "good"}, "sell_all": {"<running>": "bad"}, "kill_switch": {"<active>": "bad"}}
 CSS = """
 .st .st-row{border-bottom:1px solid var(--line);padding:12px 0}
 .st .st-h{display:flex;justify-content:space-between;gap:12px;align-items:baseline}

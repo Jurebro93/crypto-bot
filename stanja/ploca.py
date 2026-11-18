@@ -16,6 +16,7 @@ import time
 from stanja import registar
 
 UNKNOWN = "?"
+CLIENT_S = 3600        # an MCP client that called within the hour is "active" (ui/mcpapi.note_call)
 HEART_S = 180          # the same threshold ui/pravitrade._warnings uses for "ne radi"
 REAL_SWITCHES = (("pravi_novac_veliki", "midcap raspon"), ("pravi_novac_sve", "sve strategije"),
                  ("pravi_novac_izvori", "konsenzus izvora"), ("pravi_novac_oscilator", "oscilator"))
@@ -157,6 +158,15 @@ def now(now_ts=None, trade_db=None, env=None):
         return _row("mcp_access", "<on>" if v else "<off>", ts or None, who,
                     "ključ sa stranice Autopilot; „od” je trenutak kad je zadnji put napravljen ili ugašen" if ts else None)
 
+    def client():
+        v, _ts, who = need().get("mcp_seen") or ({}, 0, "")
+        v = v if isinstance(v, dict) else {}
+        if not v.get("ts"):
+            return _row("mcp_client", "<never>")
+        age = t - int(v["ts"])
+        return _row("mcp_client", "<active>" if age <= CLIENT_S else "<quiet>", int(v["ts"]), None,
+                    f"zadnji alat {v.get('tool') or '?'}; poziva na dan {v.get('day') or '?'}: {v.get('n_day') or 0}")
+
     def heart():
         v, _ts, _who = need().get("heartbeat") or (0, 0, "")
         if not v:
@@ -186,7 +196,8 @@ def now(now_ts=None, trade_db=None, env=None):
     try:
         for key, fn in (("autopilot_switch", autopilot), ("kill_switch", kill), ("sell_all", sell_all),
                         ("real_money_switch", switches), ("day_loss_stop", day_loss), ("grok_autotrade", grok),
-                        ("exit_plans_pause", plans), ("mcp_access", mcp), ("bot_heartbeat", heart),
+                        ("exit_plans_pause", plans), ("mcp_access", mcp), ("mcp_client", client),
+                        ("bot_heartbeat", heart),
                         ("veliki_proof", proof), ("btc_regime", btc), ("macro_regime", macro), ("fokus_midcap", fokus),
                         ("flag", flags)):
             _try(rows, key, fn)

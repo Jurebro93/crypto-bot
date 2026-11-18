@@ -976,6 +976,41 @@ def owner_note_orders(con, now=None):
     return done
 
 
+# 18.11. (vlasnik: "Aktiviraj opet grok bota kao drugog kritičara i kao nekoga ko raspolaže informacijama sa Twittera,
+# postovima, hajpu ... Tako da sada rade kritičar OpenAI i analitičar grok bot"): Grok's inputs as an analyst. A data
+# flag that is off goes to shadow (for a data flag any mode but off = on; nothing is raised above shadow and nothing
+# that is already on is touched), once. Grok autotrade (real money) is NOT part of this order: he asked for an analyst
+# and a critic; that switch stays where the owner left it.
+GROK_ANALYST_KEY = "owner_once:grok_analiticar_1811"
+GROK_ANALYST_FLAGS = ("x_features_ingest", "grok_predictions", "zonewatch")
+
+
+def owner_grok_analyst(con, now=None):
+    """[text] of what the order of 18.11. did (see above); [] once it has run."""
+    if settings.raw(con).get(GROK_ANALYST_KEY):
+        return []
+    done = []
+    for name in GROK_ANALYST_FLAGS:
+        if name not in settings.FLAGS:
+            continue
+        old = settings.flag_state(con)[name]["mode"]
+        if old != "off":
+            done.append(f"{name}: već {old}")
+            continue
+        try:
+            settings.set_flag(con, name, "shadow", "Jure (chat 18.11.)", now=now)
+        except ValueError as e:
+            done.append(f"{name}: nije uključeno ({e})")
+            continue
+        record_applied(con, 0, f"flag:{name}", old, "shadow", "vlasnik u chatu 18.11.: Grok bot natrag kao analitičar "
+                                                              "(X, objave, hype) i drugi kritičar")
+        done.append(f"{name}: off → shadow")
+    settings.put(con, GROK_ANALYST_KEY, int(now or time.time()), "Jure")
+    print("pravi trade: nalog vlasnika 18.11. (Grok bot analitičar): " + "; ".join(done)
+          + "; Grok autotrade (pravi novac) nije diran", flush=True)
+    return done
+
+
 def owner_once_b(con, lcon=None, market=None, now=None):
     """Both parts once; the Hope part is retried (HOPE_TRIES times, by dca_loop once a minute) while a price is
     missing. Returns True when nothing is left to do."""
