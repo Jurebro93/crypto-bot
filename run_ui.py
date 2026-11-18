@@ -159,6 +159,8 @@ def cookie_user(value):
     if player:
         return (True, player) if ppw or profiles.has_password(player) else (False, None)
     from league import members   # registered through an invite link
+    if members.reserved(name):   # 18.11. (audit): never a session as one of the tool's own accounts (real-money mirror)
+        return False, None
     member = members.exists(name)
     return (True, member) if member else (False, None)
 
