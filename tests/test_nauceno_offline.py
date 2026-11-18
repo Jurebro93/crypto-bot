@@ -123,6 +123,34 @@ class Learner(unittest.TestCase):
         few = nauceno.learn(self.book(days=9))
         self.assertEqual(few["verdict"], "premalo")               # 2 test days x 6 tokens = 12 token-days < 30
 
+    def test_variants_look_at_the_same_unseen_days_and_say_so(self):
+        rows = self.book()
+        for r in rows:
+            r["rt"] = RT
+        rows += [row(f"T{k}", 20000 + d, k + 12, "siroko", 0.02, band="ispod", rt=RT) for d in range(20) for k in range(3)]
+        rows.sort(key=lambda r: r["opened_ts"])
+        res = nauceno.learn(rows)
+        v = res["variants"]
+        self.assertLessEqual(v["thr"]["0.01"]["n"], res["picked"]["n"])          # a stricter choice is a subset
+        self.assertLessEqual(v["thr"]["0.03"]["n"], v["thr"]["0.02"]["n"])
+        # a cheaper round trip: the saved cost is added to every chosen trade, the choice itself does not change
+        self.assertEqual(v["rt"]["0.020"]["n"], res["picked"]["n"])
+        self.assertAlmostEqual(v["rt"]["0.020"]["ev"], res["picked"]["ev"] + 0.01, places=6)
+        self.assertAlmostEqual(v["rt"]["0.015"]["ev"], res["picked"]["ev"] + 0.015, places=6)
+        # the plain rule: every "ispod" row under the wide exit on the unseen days only (13 days x 3 tokens)
+        self.assertEqual(v["fixed"]["ispod × siroko"]["n"], 13 * 3)
+        self.assertAlmostEqual(v["fixed"]["ispod × siroko"]["ev"], 0.02, places=6)
+        self.assertEqual(v["fixed"]["ispod × pravilo"]["n"], 0)
+        ln = nauceno.line_variants({**res, "ts": 1})
+        self.assertIn("nisu dokaz", ln)
+        self.assertIn("uz trošak 2.0%", ln)
+        self.assertIn("ispod × siroko: +2.0%", ln)
+        self.assertIsNone(nauceno.line_variants({"ts": 1}))                       # an older stored result: no line
+        # a row without a booked cost is left as it is (never a made-up saving)
+        res2 = nauceno.learn(self.book())
+        self.assertAlmostEqual(res2["variants"]["rt"]["0.020"]["ev"], res2["picked"]["ev"], places=9)
+        self.assertIn("variants", nauceno.summary({**res, "ts": 1}))
+
     def test_shrinkage_and_unknown_facts(self):
         m = nauceno.Model(shrink=150)
         for i in range(10):
@@ -160,8 +188,9 @@ class Run(unittest.TestCase):
         self.assertEqual(r["rows"], r["backfill"]["rows"])
         self.assertEqual(r["live_rows"], 0)
         self.assertIn(r["verdict"], ("kandidat", "premalo", "nema_plusa"))
-        self.assertTrue(self.lines[-1].startswith("veliki naučeno: "), self.lines)
-        self.assertIn("provjera na zadnjih", self.lines[-1])
+        self.assertTrue(self.lines[-2].startswith("veliki naučeno: "), self.lines)
+        self.assertIn("provjera na zadnjih", self.lines[-2])
+        self.assertTrue(self.lines[-1].startswith("veliki naučeno: varijante"), self.lines)   # the second line
         import sqlite3
         self.assertNotIn(nauceno.TABLE_H, {r[0] for r in midcap.ro(self.path).execute(
             "SELECT name FROM sqlite_master")})                   # midcap.db is only read; the history has its own file

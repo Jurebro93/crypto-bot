@@ -154,7 +154,11 @@ def _account(ucon, service, now):
     ts, used, lim = last[0]
     prev = _all(ucon, "SELECT used FROM account WHERE service = ? AND ts <= ? ORDER BY ts DESC LIMIT 1",
                 (service, int(ts) - 86400 + 1800))
-    return {"used": used, "lim": lim, "ts": ts, "dan": (round(used - prev[0][0], 4) if prev and used >= prev[0][0] else None)}
+    # 18.11.: a reading older than 26 h is not "the last 24 h": 12.-15.11. the Apify line repeated "+$1,92 u 24 h" from
+    # one old reading while the account (Apify's own usage API) had grown $0,23 and then under a cent a day
+    stale = int(now) - int(ts) > 26 * 3600
+    return {"used": used, "lim": lim, "ts": ts, "stale": stale,
+            "dan": (round(used - prev[0][0], 4) if prev and used >= prev[0][0] and not stale else None)}
 
 
 def apify(now, paths):
@@ -300,7 +304,9 @@ def line(d):
     if ap:
         acc = ap.get("racun")
         parts.append(f"Apify ${_usd(ap.get('usd_bot'))} po botu ({_top(ap.get('po_izvoru'), fmt=_usd)})"
-                     + (f", račun +${_usd(acc['dan'])} u 24 h" if acc and acc.get("dan") is not None else ""))
+                     + (f", račun +${_usd(acc['dan'])} u 24 h" if acc and acc.get("dan") is not None else "")
+                     + (time.strftime(", račun: zadnje očitanje %d.%m. %H:%M UTC (staro, rast nepoznat)", time.gmtime(acc["ts"]))
+                        if acc and acc.get("stale") else ""))
     if pp:
         parts.append(f"PumpPortal {_n(pp.get('tradeova'))} tradeova ≈ {pp.get('sol', 0):.3f} SOL")
     if he:

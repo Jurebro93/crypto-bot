@@ -46,6 +46,9 @@ MIN_TRAIN_DAYS = 7
 MIN_CLUSTERS = 30
 STOP_SLIP = 0.005
 BUDGET_S = 150
+VAR_THR = (0.01, 0.02, 0.03)     # stricter choices: a prediction above +1 / +2 / +3 %
+VAR_RT = (0.02, 0.015)           # what the same choices would have made at a cheaper round trip (a bigger stake)
+VAR_FIXED = (("ispod", "siroko"), ("ispod", "pravilo"))   # the plain rules the first result (18.11.) pointed at
 FEATS = ("band", "calm", "zone_ok", "btc", "makro", "hour6", "sirina", "dip", "oprez", "grok")
 FEAT_HR = {"band": "mjesto u zoni", "calm": "svijeće", "zone_ok": "zona", "btc": "BTC", "makro": "makro",
            "hour6": "doba dana", "sirina": "širina zone", "dip": "razlog pada", "oprez": "holderi", "grok": "Grok"}
@@ -264,6 +267,7 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK):
         by_day.setdefault(r["opened_ts"] // D, []).append(r)
     days = sorted(by_day)
     picks, every, prof_all, prof_pick = [], [], {}, {}
+    detail, fixed = [], {k: [] for k in VAR_FIXED}   # detail: (token-day, ret, prediction, rt) of every choice above thr
     seen = 0
     for d in days:
         batch = [(r, facts(r)) for r in by_day[d]]
@@ -273,6 +277,8 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK):
                 key = (r["token"], d)
                 every.append((key, r["ret"]))
                 prof_all.setdefault(r["profil"], []).append((key, r["ret"]))
+                if (f["band"], r["profil"]) in fixed:
+                    fixed[(f["band"], r["profil"])].append((key, r["ret"]))
                 pr = m.predict(r["profil"], f)
                 if pr is None:
                     continue
@@ -283,6 +289,7 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK):
                 if pr > thr:
                     picks.append((key, r["ret"]))
                     prof_pick.setdefault(r["profil"], []).append((key, r["ret"]))
+                    detail.append((key, r["ret"], pr, r.get("rt")))
         for r, f in batch:
             m.add(r, f)
         seen += 1
@@ -297,7 +304,7 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK):
            "picked": _stat(picks), "all": _stat(every),
            "by_profile": {p: {"all": _stat(prof_all.get(p, [])), "picked": _stat(prof_pick.get(p, [])),
                               "base": m.base(p)} for p in sjena.PROFILES},
-           "worst": eff[:6], "best": eff[-6:][::-1]}
+           "worst": eff[:6], "best": eff[-6:][::-1], "variants": _variants(detail, fixed)}
     pk = res["picked"]
     if pk["clusters"] >= MIN_CLUSTERS and pk["lo"] is not None and pk["lo"] > 0:
         res["verdict"] = "kandidat"
@@ -306,6 +313,22 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK):
     else:
         res["verdict"] = "nema_plusa"
     return res
+
+
+def _variants(detail, fixed):
+    """The same unseen days, looked at a few more ways (18.11., after the first result: chosen +0.6 % against -4.5 %
+    for all, interval across zero). thr: only the choices predicted above +1 / +2 / +3 %. rt: the choices at a
+    cheaper round trip, APPROXIMATE: the saved cost is added to the result, the exit levels stay where the 3 % cost
+    put them. fixed: plain rules without the model (a band under one exit). All of them were looked at on the SAME
+    days as the main result, so a plus here is a hypothesis for the days to come, never a proof."""
+    out = {"thr": {}, "rt": {}, "fixed": {}}
+    for t in VAR_THR:
+        out["thr"][f"{t:.2f}"] = _stat([(k, x) for k, x, pr, _rt in detail if pr > t])
+    for alt in VAR_RT:
+        out["rt"][f"{alt:.3f}"] = _stat([(k, x + max(0.0, (rt or 0.0) - alt)) for k, x, _pr, rt in detail])
+    for (band, prof), pairs in fixed.items():
+        out["fixed"][f"{band} × {prof}"] = _stat(pairs)
+    return out
 
 
 # ---------- running it and saying it ----------------------------------------------------------------------------------
@@ -340,6 +363,27 @@ def line(res):
             f"najviše šteti: {worst} ({res.get('secs', 0)} s)")
 
 
+def line_variants(res):
+    """The second line: the choices by exit, stricter thresholds, cheaper round trips and the plain rules."""
+    v = (res or {}).get("variants")
+    if not v:
+        return None
+
+    def short(st):
+        if not st or not st.get("n"):
+            return "nema"
+        ci = f" [{st['lo']:+.1%}; {st['hi']:+.1%}]" if st.get("lo") is not None else ""
+        return f"{st['ev']:+.1%}{ci}, n={st['n']} ({st['clusters']} token-dana)"
+    prof = "; ".join(f"{p} {short(d.get('picked'))} (svi {short(d.get('all')).split(',')[0]})"
+                     for p, d in (res.get("by_profile") or {}).items() if (d.get("picked") or {}).get("n"))
+    thr = "; ".join(f"iznad {float(t):+.0%}: {short(st)}" for t, st in v["thr"].items())
+    rt = "; ".join(f"uz trošak {float(a):.1%}: {short(st)}" for a, st in v["rt"].items())
+    fx = "; ".join(f"{k}: {short(st)}" for k, st in v["fixed"].items())
+    return (f"{PREFIX}varijante na istim neviđenim danima (hipoteze za nove dane, nisu dokaz): odabrani po izlazu: "
+            f"{prof or 'nema'}; stroži prag prognoze: {thr}; isti odabir uz niži trošak (približno): {rt}; "
+            f"jednostavna pravila bez modela: {fx}")
+
+
 def latest(path=None):
     p = db_path(path)
     if not os.path.exists(p):
@@ -371,6 +415,9 @@ def summary(res=None):
             "by_profile": {p: {"all": rnd(v.get("all")), "picked": rnd(v.get("picked"))}
                            for p, v in (res.get("by_profile") or {}).items()},
             "helps": [_e(e) for e in res.get("best") or []], "hurts": [_e(e) for e in res.get("worst") or []],
+            "variants": {g: {k: rnd(st) for k, st in d.items()} for g, d in (res.get("variants") or {}).items()},
+            "variants_note": ("Looked at on the same unseen days as the main result: hypotheses for the days to come, "
+                              "not proof. rt variants are approximate (saved cost added, exit levels unchanged)."),
             "how": ("Per exit profile: the profile's mean net return plus one shrunken adjustment per fact known before "
                     "the entry; a candidate takes its best-predicted profile when the prediction is above zero. Tested "
                     "day by day on days the model had not seen. Costs: the real round trip, never under 3 %.")}
@@ -407,6 +454,9 @@ def run(now=None, log=print, path=None, lpath=None, budget_s=BUDGET_S, btc=None,
                 if c is not None:
                     c.close()
         log(line(res))
+        lv = line_variants(res)
+        if lv:
+            log(lv)
         return res
     except Exception as e:  # noqa: BLE001 - a measurement: it never takes its caller down
         try:

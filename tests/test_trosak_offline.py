@@ -336,6 +336,12 @@ class DailyCostLine(_CG):
         self.assertEqual(d["helius"]["racun"]["dan"], 200000.0)
         self.assertEqual((d["ai"]["objava"], d["ai"]["usd"]), (2000, 0.11))
         line = daily.line(d)
+        # 18.11.: an old account reading is not a day's growth (12.-15.11. the line repeated +$1,92 from one reading)
+        later = daily.collect(self.now + 3 * 86400, self.paths)
+        self.assertIsNone(later["apify"]["racun"]["dan"])
+        self.assertTrue(later["apify"]["racun"]["stale"])
+        self.assertIn("staro, rast nepoznat", daily.line(later))
+        self.assertNotIn("staro", line)
         self.assertTrue(line.startswith("trošak po izvoru 2026-11-12 (UTC dan): CoinGecko ključem 8/3.000 (minute 5, masovno 3)"))
         for part in ("besplatno 1 (kol 1)", "429 ukupno 1 (po satu UTC: 04h 1)", "X twitterapi $6,10 (timeline 2,70, skener 2,85",
                      "Apify $0,12 po botu (kol_search 0,12), račun +$3,50 u 24 h", "PumpPortal 20.000 tradeova ≈ 0.020 SOL",
