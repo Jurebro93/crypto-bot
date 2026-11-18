@@ -1373,7 +1373,7 @@ def rent_sweep(con, now, wait_s=RENT_SWEEP_WAIT_S):
         return None
     _RENT["ts"] = now
     try:
-        tries = dict(settings.raw(con).get("rent_tries") or {})
+        tries = dict(settings.raw(con).get("rent_tries_v2") or {})
         rows = con.execute(
             "SELECT p.id, p.token, p.symbol FROM positions p WHERE p.mode='live' AND p.status='closed' "
             "AND p.closed_ts>=? AND p.closed_ts<=? AND COALESCE(p.sol_in, 0)>0 AND COALESCE(p.qty_raw, 0)>0 "
@@ -1391,24 +1391,58 @@ def rent_sweep(con, now, wait_s=RENT_SWEEP_WAIT_S):
             if n >= RENT_SWEEP_TRIES:
                 continue
             tries[str(pid)] = n + 1
-            settings.put(con, "rent_tries", dict(sorted(tries.items(), key=lambda kv: int(kv[0]))[-300:]), "alat")
+            settings.put(con, "rent_tries_v2", dict(sorted(tries.items(), key=lambda kv: int(kv[0]))[-300:]), "alat")
             name = symbol or token[:6]
+            sent = dict(settings.raw(con).get("rent_sent") or {})
+
+            def done():   # nothing more to try for this position
+                tries[str(pid)] = RENT_SWEEP_TRIES
+                settings.put(con, "rent_tries_v2", dict(sorted(tries.items(), key=lambda kv: int(kv[0]))[-300:]), "alat")
+
+            def book(got, how):
+                con.execute("UPDATE positions SET fees_sol=COALESCE(fees_sol,0)-? WHERE id=?", (got / LAMPORTS, pid))
+                _log(con, now, pid, token, "rent", "live", {"status": "ok", "amount_out": got, "fee_lamports": -got,
+                                                            "route": "rpc"}, "vraćen depozit token računa (naknadno)")
+                con.commit()
+                print(f"trade: vraćen depozit token računa {name}: +{got / LAMPORTS:.5f} SOL (pozicija #{pid}, {how})",
+                      flush=True)
             try:
-                got = wallet.close_empty(wallet._keypair(), token, wait_s=wait_s)
+                # 18.11. (2nd deploy): the reason in words. Whether the deposit is really lost decides the cost every
+                # test is run at (the 3 % floor), so each outcome says which of the three it is.
+                accs = wallet.token_accounts(wallet.address(), token)
+                if not accs:
+                    if str(pid) in sent:          # our own close landed after the short wait
+                        got = int(sent.pop(str(pid)))
+                        settings.put(con, "rent_sent", sent, "alat")
+                        done()
+                        book(got, "zatvaranje potvrđeno naknadno")
+                        return got
+                    done()
+                    print(f"trade: depozit token računa {name}: račun tokena više ne postoji, dakle depozit je vraćen "
+                          f"ranije, a nije knjižen (pozicija #{pid}; knjiga ostaje kakva je)", flush=True)
+                    return 0
+                left = sum(int(a[1] or 0) for a in accs)
+                if left > 0:
+                    done()
+                    print(f"trade: depozit token računa {name}: na računu je ostatak od {left} jedinica tokena, račun "
+                          f"nije prazan i depozit ostaje zaključan dok se ostatak ne proda (pozicija #{pid})", flush=True)
+                    return 0
+                info = {}
+                got = wallet.close_empty(wallet._keypair(), token, wait_s=wait_s, info=info)
             except Exception as e:  # noqa: BLE001 - only the deposit; the loop goes on
                 print(f"trade: depozit token računa {name}: pokušaj {n + 1}/{RENT_SWEEP_TRIES} nije uspio "
                       f"({type(e).__name__}: {str(e)[:80]})", flush=True)
                 return 0
             if got:
-                con.execute("UPDATE positions SET fees_sol=COALESCE(fees_sol,0)-? WHERE id=?", (got / LAMPORTS, pid))
-                _log(con, now, pid, token, "rent", "live", {"status": "ok", "amount_out": got, "fee_lamports": -got,
-                                                            "route": "rpc"}, "vraćen depozit token računa (naknadno)")
-                con.commit()
-                print(f"trade: vraćen depozit token računa {name}: +{got / LAMPORTS:.5f} SOL (pozicija #{pid}, "
-                      f"pokušaj {n + 1})", flush=True)
+                book(got, f"pokušaj {n + 1}")
+            elif info.get("lamports"):
+                sent[str(pid)] = int(info["lamports"])
+                settings.put(con, "rent_sent", dict(list(sent.items())[-100:]), "alat")
+                print(f"trade: depozit token računa {name}: račun je prazan, zatvaranje je poslano, potvrda nije stigla "
+                      f"u {wait_s} s (pokušaj {n + 1}/{RENT_SWEEP_TRIES}; provjera u sljedećem prolazu)", flush=True)
             else:
-                print(f"trade: depozit token računa {name} nije vraćen (račun nije prazan ili zatvaranje nije "
-                      f"potvrđeno), pokušaj {n + 1}/{RENT_SWEEP_TRIES}", flush=True)
+                print(f"trade: depozit token računa {name}: račun je prazan, ali zatvaranje nije poslano "
+                      f"(pokušaj {n + 1}/{RENT_SWEEP_TRIES})", flush=True)
             return got or 0
         return None
     except Exception as e:  # noqa: BLE001 - never the trade loop's problem
