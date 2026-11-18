@@ -13,6 +13,9 @@ list and the live rule from veliki.db.
     python3 run_veliki.py candles  the current list's candles only: own bars from the DexScreener polls + GeckoTerminal
                                    by need, 1h of the top first (start.sh every 15 min, low priority, no heavy lock)
     python3 run_veliki.py midcap   one midcap collector pass (veliki/midcap.py; only with the owner switch fokus_midcap)
+    python3 run_veliki.py nauceno  the shadow book replayed over the candles + what it has learned, walk-forward
+                                   (veliki/nauceno.py: nauceno.db: veliki_sjena_h and kv "nauceno", one line "veliki
+                                   naučeno: ...")
     python3 run_veliki.py replay   the intraday rule replayed over every midcap collector member (veliki/replay.py:
                                    midcap.db only, no network, ~5 min budget, low priority; the result in midcap.db
                                    kv "replay", one line "veliki replay: ..."). --ako-nema: only when no result exists
@@ -93,6 +96,14 @@ def main(argv=None):
         except OSError:
             pass
         replay.run(now=now, log=log)
+        return 0
+    if cmd == "nauceno":   # 18.11.: what the shadow book (history + live) has learned, walk-forward (measurement only)
+        from veliki import nauceno
+        try:
+            os.nice(5)
+        except OSError:
+            pass
+        nauceno.run(now=now, log=log)
         return 0
     if cmd == "report":
         _ts, data = store.latest()

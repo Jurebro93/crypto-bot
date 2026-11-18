@@ -12,8 +12,8 @@ in every exit PROFILE that has no open shadow in that token:
   skalp    target +3 % net, stop -4 %      kratko   +6 % / -8 %       uski   +10 % / -8 %
   pravilo  +10 % / -20 % (the live rule)   siroko   +20 % / -20 %
 
-so the same entry is judged under five exits (a paired comparison), at the rule's stake (0.1 SOL) and the rule's
-cost (the higher of the modelled and the measured round trip). Each row stores what was known BEFORE the entry:
+so the same entry is judged under five exits (a paired comparison), at the rule's stake (0.1 SOL) and the REAL
+account's cost (the higher of the modelled and the measured round trip, never under replay.RT_FLOOR = 3 %). Each row stores what was known BEFORE the entry:
 where the price stood in the 48 h zone (band dno / donja / sredina / vrh / ispod / iznad), whether the 15m bars had
 stopped falling, whether the zone was valid and why not, BTC's regime, the macro tag, the dip reason, a holder block or
 static risk, Grok's verdict from X, market cap, liquidity, the hour.
@@ -129,7 +129,8 @@ def consider(con, tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None):
         from veliki import intra, live, rule
         sol = sol or live._sol()
         c = rule.cost_at(SIZE_SOL, liq, sol, rule.fee_side_of(url=url), rule.tx_sol()[0])
-        rt = max(c["rt"], rule.demo_rt(SIZE_SOL * sol, liq))
+        from veliki import replay   # 18.11.: the real account's cost, never under the measured 3 % (replay.RT_FLOOR):
+        rt = max(c["rt"], rule.demo_rt(SIZE_SOL * sol, liq), replay.RT_FLOOR)   # a plus at an imagined cost teaches nothing
         if rt >= 0.5:
             return 0
         calm = 1 if intra.calm(b15 or [], cfg)[0] else 0
@@ -322,7 +323,12 @@ def mcp(args=None):
         for k in ("ev", "hit", "lo", "hi"):
             r[k] = None if r[k] is None else round(r[k], 4)
         r["enough"] = r["clusters"] >= MIN_CLUSTERS
-    return {"today": n, "days": days, "by": by, "features": list(FEATURES),
+    try:
+        from veliki import nauceno
+        learned = nauceno.summary()
+    except Exception:  # noqa: BLE001
+        learned = None
+    return {"today": n, "days": days, "by": by, "features": list(FEATURES), "learned": learned,
             "profiles": {k: {"target_net_pct": v[0], "stop_pct": v[1] * 100} for k, v in PROFILES.items()},
             "rows": rows[:int(args.get("limit") or 60)],
             "read_me": ("Imagined trades only: no account, no money. ev / lo / hi are net returns after the real round "

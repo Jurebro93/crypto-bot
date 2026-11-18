@@ -24,6 +24,8 @@
 - Knjiga sjene (18.11., vlasnik: „1000 demo tradeova dnevno da bi program mogao naučiti”): svaki midcap kandidat
   ulazi kao zamišljeni trade u pet profila izlaza (samo redci, bez računa i novca); ocjena po token-danu, ćelija
   vrijedi tek uz 20 token-dana i potvrdu na kasnijim danima; ništa što odlučuje o trgovanju je ne čita.
+  Broj tradeova nije cilj (18.11.): cilj je da program nauči koje kombinacije (mjesto u zoni, svijeće, BTC, makro,
+  Grok, izlaz) zarađuju na danima koje nije vidio, uz stvarni trošak (nikad ispod 3 %), i da demo bude u plusu.
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.
