@@ -672,6 +672,22 @@ class OwnerOrder(Fix):
         super().setUp()
         from ui import assistnotes
         assistnotes._NAUCENO_SAID["ceka"] = False
+        p = mock.patch.object(assistnotes, "NAUCENO_REAL_AUTO", True)   # the automatic branch (off by default, below)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_by_default_a_confirmed_test_leaves_the_tap_to_the_owner(self):
+        # 18.11. evening: the review of the real path did not run; the order says the test confirms and flips nothing
+        from ui import assistnotes
+        before = self.modes()
+        with mock.patch.object(assistnotes, "NAUCENO_REAL_AUTO", False):
+            self.assertTrue(self.order())
+        self.assertEqual(self.modes(), before)
+        rec = settings.raw(self.con)[assistnotes.NAUCENO_REAL_KEY]
+        self.assertEqual(rec["ishod"], "ceka_vlasnika")
+        self.assertTrue(rec["potvrdeno"])
+        self.assertTrue(self.order())                      # decided: a later pass (auto on again) does not fire it
+        self.assertEqual(self.modes(), before)
 
     def result(self, purge=True, **st):
         return {"ts": int(self.now) - 600, **({"purge": True} if purge else {}),

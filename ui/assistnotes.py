@@ -1043,6 +1043,11 @@ NAUCENO_REAL_WHY = "vlasnik u chatu 18.11.: pravi novac odmah na naučeno pravil
 NAUCENO_REAL_THR = "0.01"      # the learner's variant the order was given on: predictions above +1 %
 NAUCENO_REAL_MIN = 30          # token-days (veliki/nauceno.MIN_CLUSTERS)
 _NAUCENO_SAID = {"ceka": False}
+# 18.11. (evening): the independent review of the real path could not run (the weekly model limit ended the audit's
+# agents), and nobody can promise to watch the first real trades. So by default the order does NOT flip the switches
+# by itself: when the corrected test confirms, it says so and leaves the one tap to the owner (Autopilot, Prekidači).
+# NAUCENO_REAL_AUTO=1 restores the automatic execution.
+NAUCENO_REAL_AUTO = (__import__("os").environ.get("NAUCENO_REAL_AUTO") or "").strip() == "1"
 
 
 def nauceno_real_test(res):
@@ -1083,6 +1088,14 @@ def owner_nauceno_real(con, now=None, result=None):
                                              "rezultat_ts": result.get("ts")}, "Jure")
         print(f"pravi trade: nalog vlasnika NIJE izvršen: ispravljeni test ne potvrđuje plus uz prag +1 % ({numbers}); "
               "pravi novac ostaje na dosadašnjem pravilu dok vlasnik ne odluči", flush=True)
+        return True
+    if not NAUCENO_REAL_AUTO:
+        settings.put(con, NAUCENO_REAL_KEY, {"ts": stamp, "ishod": "ceka_vlasnika", "brojevi": numbers, "potvrdeno": True,
+                                             "rezultat_ts": result.get("ts")}, "Jure")
+        print(f"pravi trade: nalog vlasnika: ispravljeni test potvrđuje plus uz prag +1 % ({numbers}); prekidači NISU "
+              f"promijenjeni automatski (pregled koda pravog puta nije dovršen): {settings.NAUCENO_SWITCH} pali vlasnik "
+              "jednim dodirom na stranici Autopilot (Prekidači); pravi novac dotad ostaje na dosadašnjem pravilu",
+              flush=True)
         return True
     done = []
     for name, mode in ((settings.NAUCENO_SWITCH, "live"), (settings.VEL_SWITCH, "off")):

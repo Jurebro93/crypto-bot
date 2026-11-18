@@ -871,8 +871,20 @@ class Restart(Baza):
         self.assertEqual(len(self.kupnje()), 1)
         self.assertEqual(self.st()["status"], "prodaja")
 
+    def test_ne_krece_bez_izricitog_pokretanja(self):
+        # 18.11. evening: held until the two-signer signing bug is fixed; one line, no step, no swap
+        run_trade._MJERENJE_SAID["ceka"] = False
+        with mock.patch.dict(os.environ, {"MJERENJE_TROSKA_KRENI": ""}), \
+                mock.patch.object(mjerenje, "korak_sigurno", side_effect=AssertionError("ne smije krenuti")), \
+                mock.patch("builtins.print") as pr:
+            self.assertEqual(run_trade._mjerenje_once(self.con, self.cfg()), [])
+            self.assertEqual(run_trade._mjerenje_once(self.con, self.cfg()), [])
+        self.assertEqual(pr.call_count, 1)
+        self.assertIn("ne kreće dok se ne popravi potpisivanje", pr.call_args[0][0])
+
     def test_greska_koraka_ne_rusi_petlju(self):
-        with mock.patch.object(mjerenje, "korak", side_effect=RuntimeError("x")), mock.patch("builtins.print") as pr:
+        with mock.patch.dict(os.environ, {"MJERENJE_TROSKA_KRENI": "1"}), \
+                mock.patch.object(mjerenje, "korak", side_effect=RuntimeError("x")), mock.patch("builtins.print") as pr:
             self.assertEqual(run_trade._mjerenje_once(self.con, self.cfg()), [])
             self.assertEqual(run_trade._mjerenje_once(self.con, self.cfg()), [])
         self.assertEqual(pr.call_count, 1)   # one line a minute

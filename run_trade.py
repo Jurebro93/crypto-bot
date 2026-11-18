@@ -848,6 +848,15 @@ def _mjerenje_once(con, cfg):
     0.1, 0.3 and 0.5 SOL on the deepest midcap of the list veliki), through executor.buy / executor.sell like the
     owner's manual buy. At most one swap a pass; nothing once its record says "gotovo" or "odustalo"; MJERENJE_TROSKA=0
     switches it off. While the loop is stopping no new buy starts (a sale still goes out). Never raises."""
+    # 18.11. evening (audit): a Jupiter order that needs a second signer makes wallet.sign raise, and a failed sale
+    # would leave 0.3-0.5 SOL unsold: the measurement does not start until that is fixed. MJERENJE_TROSKA_KRENI=1
+    # starts it (the owner's approval stands); nothing else about it changed.
+    if (os.environ.get("MJERENJE_TROSKA_KRENI") or "").strip() != "1":
+        if not _MJERENJE_SAID["ceka"]:
+            _MJERENJE_SAID["ceka"] = True
+            print("mjerenje troška: ne kreće dok se ne popravi potpisivanje naloga s dva potpisnika "
+                  "(MJERENJE_TROSKA_KRENI=1 ga pokreće)", flush=True)
+        return []
     try:
         from trade import mjerenje
         return mjerenje.korak_sigurno(con, cfg, stani=STOPPING["flag"])
@@ -857,6 +866,7 @@ def _mjerenje_once(con, cfg):
 
 
 STOPPING = {"flag": False}
+_MJERENJE_SAID = {"ceka": False}
 
 
 def _on_term(signum, frame):
