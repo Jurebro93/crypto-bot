@@ -312,7 +312,8 @@ APPROVED_SRC = "ručno: Grok odobreno (MCP)"   # = league/exitplan.APPROVED_SRC 
 PROGRAM_WORDS = {"grok": "Grok", "fast_path": "brzi put", "insider_copy": "insajderi", "kopiranje": "kopiranje",
                  "momentum_scalp": "momentum", "range_dca": "range", "proposals": "prijedlog", "simianx": "SimianX",
                  # 16.11.: the strategies whose source starts with their own name (veliki/live.SRC, oscilator, konsenzus)
-                 "veliki": "midcap raspon", "oscilator": "oscilator", "konsenzus": "konsenzus"}
+                 "veliki": "midcap raspon", "oscilator": "oscilator", "konsenzus": "konsenzus",
+                 "mjerenje": "mjerenje troška"}   # 18.11.: the owner's one-time cost measurement (trade/mjerenje.py)
 
 
 def opened_by(source, profile=None):

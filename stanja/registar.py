@@ -117,6 +117,35 @@ MACHINES = [
        ("<queued>", "<none>", "program: prodaja prošla ili pozicija više nije otvorena")], who="vlasnik, Grok",
       caveats=("Nema roka: neuspjela prodaja ostaje u redu.",
                "Grok dobiva 'executed' čim je zahtjev stavljen u red, ne kad je prodaja prošla.")),
+    M("cost_measurement", "Mjerenje troška kruga (jednokratno, pravi novac)", "novac",
+      "trade.db settings 'mjerenje_troska_1811' (JSON, polje status)",
+      {"ceka": "čeka uvjete za sljedeći ulog", "kupnja": "kupnja poslana (zapisano prije swapa)",
+       "prodaja": "kupljeno, prodaje cijelu količinu",
+       "prodaja_kasni": "prodaja nepotvrđena u 120 s: pokušaj svake 2 min, najviše 15 (30 min); više ništa ne kupuje",
+       "gotovo": "sva tri uloga izmjerena", "odustalo": "prekinuto (razlog i otvoreno u zapisu)"},
+      [("-", "ceka", "program: prvi prolaz trade petlje nakon deploya (run_trade._mjerenje_once)"),
+       ("ceka", "ceka", "program: uvjet nije ispunjen (jedan redak, ponovno za 30 min)"),
+       ("ceka", "kupnja", "program: Autopilot uživo, bez kill switcha i „Prodaj sve”, stanje ≥ 1 + ulog + 0,05 SOL"),
+       ("kupnja", "prodaja", "program: executor.buy potvrdio swap (ili reconcile_pending nakon restarta)"),
+       ("kupnja", "ceka", "program: kupnja pala, a swap sigurno nije prošao (još jedan pokušaj, najviše jednom)"),
+       ("prodaja", "ceka", "program: executor.sell potvrdio prodaju, slijedi veći ulog nakon 20 s"),
+       ("prodaja", "gotovo", "program: prodan i treći ulog"),
+       ("prodaja", "prodaja_kasni", "program: prodaja nepotvrđena u 120 s ili nakon 3 pokušaja (nakon restarta 1); "
+                                    "preostali ulozi otkazani"),
+       ("prodaja_kasni", "odustalo", "program: prodaja potvrđena (rezultat uloga zapisan), poziciju zatvorio netko "
+                                     "drugi („Prodaj sve”, gumb vlasnika), ili 15 pokušaja bez potvrde"),
+       ("*", "odustalo", "program: izvršitelj odbio kupnju, 24 h bez uvjeta, nesklad knjige, pozicija zatvorena izvana")],
+      who="program", scan=(("trade/mjerenje.py", "status"),),
+      extra=("open", "pending", "ok"),   # trade.db positions.status / orders.status in the same file's SQL
+      caveats=("Jednokratno: nakon 'gotovo' ili 'odustalo' se više nikad ne pokreće (isti ključ je i brava).",
+               "Pozicija mjerenja nema automatski stop (nema demo par u league.db): ako prodaja ne prođe u 120 s, "
+               "mjerenje je pokušava prodati još 30 min (svake 2 min, 15 puta); nakon toga ostaje na stranici "
+               "Autopilot (gumbi za prodaju) i prodaje je „Prodaj sve”.",
+               "U 'prodaja_kasni' svaki poziv prodaje se broji, i kad izvršitelj odgovori da još čeka svoj razmak "
+               "nakon neuspjelih prodaja (5, 10, 20 ... do 600 s): stvarnih pokušaja swapa je manje od 15.",
+               "Uz nadjačavanje (ulozi 0,3 i 0,5 SOL) izvršitelj ne primjenjuje ni strop troška swapa; štiti izbor "
+               "tokena (likvidnost ≥ 2M $, volumen ≥ 500k $) i provjera prodaje prije kupnje.",
+               "MJERENJE_TROSKA=0 ga gasi; ništa ne mijenja postavke, stropove ni prekidače.")),
     M("grok_autotrade", "Grok autotrade", "novac", "trade.db settings 'grok_autotrade' {on, paused_until, who, since}",
       {"<off>": "ugašen", "<on>": "uključen: Grok kupuje i prodaje sam, unutar svojih limita",
        "<paused>": "pauziran do ponoći (dnevni gubitak)"},

@@ -109,15 +109,47 @@ def is_live(cfg):
 DAY_TZ = "Europe/Zagreb"   # audit 4.11. §14.4: "midnight" is Zagreb midnight, not whatever zone the server has
 
 
-def day_pnl(con, now, mode, tz=None):
+def day_pnl(con, now, mode, tz=None, strategije=False):
     """Today's cash result in this mode (since midnight in DAY_TZ): SOL back minus SOL in on positions closed today,
-    minus EVERY network fee charged today, also the ones of failed buys and sells (audit 4.11. C09/T24)."""
+    minus EVERY network fee charged today, also the ones of failed buys and sells (audit 4.11. C09/T24).
+    strategije (18.11., trade/mjerenje.py): True leaves out the owner's one-time cost measurement (positions and orders
+    whose reason starts with MJERENJE_SRC): what the day's loss STOPS compare with their caps (buy_checks, auto_hard).
+    The default counts everything: the wallet's real result of the day, the measurement included."""
     start = _day_start(now, tz)
+    skip = _mjerenje_ids(con, start) if strategije else []
+    q = ",".join("?" * len(skip))
     closed = con.execute("SELECT COALESCE(SUM(sol_back - sol_in),0) FROM positions WHERE mode=? AND status='closed' "
-                         "AND closed_ts>=?", (mode, start)).fetchone()[0]
-    fees = con.execute("SELECT COALESCE(SUM(fee_lamports),0) FROM orders WHERE mode=? AND ts>=?",
-                       (mode, start)).fetchone()[0] / LAMPORTS
+                         "AND closed_ts>=?" + (f" AND id NOT IN ({q})" if skip else ""), (mode, start, *skip)).fetchone()[0]
+    fees = con.execute("SELECT COALESCE(SUM(fee_lamports),0) FROM orders WHERE mode=? AND ts>=?"
+                       + (f" AND COALESCE(position_id, -1) NOT IN ({q})" if skip else ""),
+                       (mode, start, *skip)).fetchone()[0] / LAMPORTS
     return closed - fees
+
+
+# 18.11. (vlasnik: „Smiješ.” na pitanje smije li se trošak izmjeriti jednim pravim krugom pri 0,3 i 0,5 SOL;
+# trade/mjerenje.py): the one-time cost measurement buys and sells through buy() / sell() like the owner's own manual buy
+# (manual=True, his override with the reason), and its positions and orders carry a reason that starts with this. It is
+# no strategy: its buys are apart from the day's automatic counts and spend (OWN_REASONS), its result is apart from the
+# day's loss stops (day_pnl(strategije=True)) and from the cost model's calibration (trade/cost), and strategy_of
+# names it "mjerenje". It IS in the wallet's real result of the day (day_pnl's default).
+MJERENJE_SRC = "mjerenje troška"
+
+
+def is_mjerenje(reason):
+    return str(reason or "").strip().lower().startswith(MJERENJE_SRC)
+
+
+def _mjerenje_ids(con, start):
+    """The ids of the measurement's positions that touch the day from `start`: by the position's own reason, and by
+    its orders' (a failed buy's position keeps the error as its reason; its orders keep the measurement's)."""
+    like = MJERENJE_SRC + "%"
+    try:
+        return sorted({r[0] for r in con.execute(
+            "SELECT id FROM positions WHERE COALESCE(closed_ts, opened_ts)>=? AND COALESCE(reason, '') LIKE ? "
+            "UNION SELECT position_id FROM orders WHERE ts>=? AND COALESCE(reason, '') LIKE ? AND position_id IS NOT NULL",
+            (start, like, start, like))})
+    except sqlite3.Error:   # unreadable: nothing is left out (the stricter answer)
+        return []
 
 
 def _day_start(now, tz=None):
@@ -133,14 +165,16 @@ def _day_start(now, tz=None):
 # the Autopilot's AUTOMATIC buys; the owner's own buys (reason "ručno ...": quick buy, DCA, buy orders, approved Grok
 # requests) and Grok's autotrades ("Grok auto ...", which have their own limits, ui/grokauto) are not held by it, so
 # they must not use it up either (they did: his Hope lots stopped every copy for the day).
-OWN_REASONS = ("ručno%", "Grok auto%")
+# 18.11.: and the owner's one-time cost measurement (MJERENJE_SRC, trade/mjerenje.py): approved by him, no strategy's buy
+OWN_REASONS = ("ručno%", "Grok auto%", MJERENJE_SRC + "%")
+_NOT_OWN = "".join(" AND COALESCE(reason, '') NOT LIKE ?" for _ in OWN_REASONS)
 
 
 def auto_spent(con, now, mode, tz=None):
     """SOL put into automatic buys today (since midnight in tz) in this mode: what max_sol_per_day limits."""
     return con.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE opened_ts>=? AND mode=? "
-                       "AND status IN ('open','closed','pending') AND COALESCE(reason, '') NOT LIKE ? "
-                       "AND COALESCE(reason, '') NOT LIKE ?", (_day_start(now, tz), mode, *OWN_REASONS)).fetchone()[0] or 0.0
+                       "AND status IN ('open','closed','pending')" + _NOT_OWN,
+                       (_day_start(now, tz), mode, *OWN_REASONS)).fetchone()[0] or 0.0
 
 
 # 11.11. (owner's rule C): automatic real money is never above the grok_autotrade limits (ui/grokauto.LIMITS'
@@ -333,8 +367,8 @@ def auto_buys(con, now, mode="live", tz=None):
     """Automatic buys today (Zagreb day) in this mode: what SWITCH_CAPS max_buys_day counts (open, closed or in
     flight; refused and failed ones are not buys)."""
     return con.execute("SELECT COUNT(*) FROM positions WHERE opened_ts>=? AND mode=? "
-                       "AND status IN ('open','closed','pending') AND COALESCE(reason, '') NOT LIKE ? "
-                       "AND COALESCE(reason, '') NOT LIKE ?", (_day_start(now, tz), mode, *OWN_REASONS)).fetchone()[0] or 0
+                       "AND status IN ('open','closed','pending')" + _NOT_OWN,
+                       (_day_start(now, tz), mode, *OWN_REASONS)).fetchone()[0] or 0
 
 
 def strategy_of(source):
@@ -347,6 +381,8 @@ def strategy_of(source):
         return "ručno"
     if low.startswith("grok auto"):
         return "grok"
+    if low.startswith(MJERENJE_SRC):   # 18.11.: the owner's one-time cost measurement, never a strategy's result
+        return "mjerenje"
     if low.startswith("copy ") and low.endswith("(fast)") or low.startswith("fast path"):
         return "fast_path"
     if low.startswith("copy wallet insajder prije poziva"):
@@ -389,7 +425,9 @@ def switch_status(con, now, cfg=None, tz=None):
     return {"on": switch_on(con), "buys": auto_buys(con, now, "live", tz), "max_buys_day": caps["max_buys_day"],
             "open": n_open, "max_open": caps["max_open"], "pnl": pnl, "max_loss_day": caps["max_loss_day"],
             "spent": auto_spent(con, now, "live", tz), "max_sol_per_day": caps["max_sol_per_day"],
-            "size_sol": caps["size_sol"], "stopped": pnl <= -caps["max_loss_day"], "by": by}
+            "size_sol": caps["size_sol"],
+            # 18.11.: the stop compares the day without the owner's cost measurement (as buy_checks / auto_hard do)
+            "stopped": day_pnl(con, now, "live", tz, strategije=True) <= -caps["max_loss_day"], "by": by}
 
 
 def switch_line(st):
@@ -517,7 +555,7 @@ def auto_hard(con, size_sol, now, tz=None, veliki=False):
     cap = auto_cap(veliki)
     if size_sol > cap + 1e-9:
         out.append(("auto_stake", f"globalni strop automatskih pravih kupnji: ulog {size_sol:g} SOL iznad {cap:g} SOL"))
-    lost = day_pnl(con, now, "live", tz)
+    lost = day_pnl(con, now, "live", tz, strategije=True)   # 18.11.: without the owner's cost measurement
     lim = AUTO_HARD_CAPS["max_loss_day"]
     if lost <= -lim + 1e-12:
         out.append(("auto_day_loss", f"globalni dnevni gubitak {lost:+.3f} SOL (sve prave pozicije, s naknadama), "
@@ -616,7 +654,7 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
             yield SOFT, "day_spend", (f"{cap}max_sol_per_day: " if sw or ve else "") + \
                 f"dnevni limit automatskih kupnji: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
     if "max_loss_day" in cfg:
-        lost = day_pnl(con, now, mode, tz)
+        lost = day_pnl(con, now, mode, tz, strategije=True)   # 18.11.: without the owner's cost measurement
         if lost <= -cfg["max_loss_day"]:
             yield SOFT, "day_loss", ((f"{cap}max_loss_day: dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} "
                                       "SOL: nove automatske kupnje stoje do sljedećeg dana (Zagreb), otvorene pozicije "
@@ -753,7 +791,8 @@ def _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct, limit=N
     res = {"amount_in": int(o.get("inAmount") or amount_raw), "amount_out": int(o.get("outAmount") or 0),
            "cost_pct": jupiter.cost_pct(o), "request_id": o.get("requestId"), "error": None,
            "fee_lamports": jupiter.fee_lamports(o), "prio_lamports": int(o.get("prioritizationFeeLamports") or 0),
-           "error_code": o.get("errorCode")}
+           "error_code": o.get("errorCode"),
+           "impact_pct": jupiter.impact_pct(o)}   # 18.11.: the quote's price impact, reporting only (trade/mjerenje.py)
     if not res["amount_out"]:
         hs = o.get("http_status") if isinstance(o, dict) else None
         return {**res, "status": "failed", "retry": True, "error": o.get("error") or "nema rute",
