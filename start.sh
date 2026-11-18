@@ -451,6 +451,14 @@ low keep report python3 run_report.py loop
 # Owner switch openai_kritika off or no OPENAI_API_KEY: it looks again once a minute. The re-checks, the daily review
 # and the deep session run from run_sched (above).
 low keep kriticar python3 run_critic.py loop
+# 18.11. (vlasnik: "Kad Grok pošalje prijedlog, Claude i OpenAI moraju biti kritični prema njemu, doraditi ga i
+# prihvatiti ako se slažu ... neka alat sam sebe popravlja i uči i odlučuje u kojem smjeru ići"; vijece/, run_vijece.py):
+# the council's pass, 3 min after a start and then every 15 min: Claude's four proposals stored once, the direction
+# session when due (once after the deploy, weekly, when the learner's verdict changes), the waiting reviews of OpenAI
+# and Claude (0.60 $ a day each: VIJECE_OPENAI_DAY_USD / VIJECE_CLAUDE_DAY_USD), the decisions; Grok reviews through
+# the MCP tools when it polls (6 h, then it is decided without it). Light: it only waits on the two APIs, so no
+# ops.heavy slot. Real money is never applied by the council. Lines "vijeće: ocjena / odluka / smjer". VIJECE=0: off.
+( sleep "${VIJECE_FIRST_S:-180}"; while true; do low python3 run_vijece.py tick || echo "vijeće nije uspjelo"; sleep "${VIJECE_EVERY_S:-900}"; done ) &
 
 # safer layer: older survivors (Fartcoin/Useless style) and waking-up older tokens, free sources, every 6 h,
 # guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.

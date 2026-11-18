@@ -1625,6 +1625,13 @@ def _suggest_section(tcon, owner, who="grok"):
             why = None
         return (f'<p class=ap-diff style="color:var(--bad,#b42318)">Ne može se primijeniti: {esc(why)}. Odbij ga ili '
                 'neka Grok pošalje punu adresu.</p>') if why else ""
+    # 18.11. (vlasnik: "Claude i OpenAI moraju biti kritični prema njemu ... prihvatiti ako se slažu"; vijece/): under a
+    # note the council has reviewed, one small line: who said what and the decision (read-only, escaped)
+    try:
+        from vijece import posao as vposao
+        vij = vposao.ui_linije(tcon, [r["id"] for r in rows + acc], esc)
+    except Exception:  # noqa: BLE001 - the list shows without the council's line
+        vij = {}
     items = []
     for r in rows:
         pc = r.get("proposed_change")
@@ -1640,7 +1647,7 @@ def _suggest_section(tcon, owner, who="grok"):
         items.append(
             f'<div class=ap-sug id=as-{r["id"]}><p>{_tick(r, words, auto, bad)}<b>#{r["id"]} {esc(r.get("title") or "")}</b></label>'
             f' <span class=mut>· {esc(redak.ago(r["ts"]))}</span></p>'
-            + diff + bad
+            + vij.get(r["id"], "") + diff + bad
             + f'<details class=as-more id=as-more-{r["id"]}><summary class=mut>Obrazloženje i tipke samo za ovaj</summary>'
             f'<p>{esc(r.get("interpretation") or "")}</p>'
             + (f'<p><b>Poboljšanje:</b> {esc(r["improvement"])}</p>' if r.get("improvement") else "")
@@ -1663,6 +1670,7 @@ def _suggest_section(tcon, owner, who="grok"):
         acc_rows.append(
             f'<div class=ap-sug id=as-{r["id"]}><p>{_tick(r, words, True, bad)}<b>#{r["id"]} {esc(r.get("title") or "")}</b></label>'
             f' <span class=mut>· prihvaćeno {esc(redak.ago(r.get("decided_ts") or r["ts"]))}, bez promjene</span></p>'
+            + vij.get(r["id"], "")
             + (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(words)}</code></p>' if pc else "") + bad
             + (f'<form method=post action=/pravi-trade/asapply class=ap-exit><input type=hidden name=id value={int(r["id"])}>'
                '<button class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">Primijeni na bota</button></form>')

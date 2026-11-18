@@ -18,6 +18,8 @@ Sources (all counted by the bot itself; nothing here is a provider's invoice):
   AI oznake    usage.db anthropic per method ($) and ai.db batches (posts sent)
   OpenAI       15.11. (critic/): trade.db critic_calls per kind ($, calls, tokens), the verdicts written and what the
                owner did with the critic's suggestions (accepted / rejected): what of the cost led to a decision
+  vijeće       18.11. (vijece/): trade.db vijece_kv trosak:<day> (the council's OpenAI and Claude calls, apart from the
+               critic's ledger), the reviews and decisions of the day, the accepted proposals waiting for code
 """
 import json
 import os
@@ -256,6 +258,23 @@ def openai(now, paths):
     return out
 
 
+def vijece(now, paths):
+    """18.11. (vijece/): the council's UTC day from trade.db: what its OpenAI and Claude calls cost (vijece_kv, apart
+    from the critic's own ledger), the reviews and decisions written, how many accepted proposals wait for the coding
+    session; None before the council's first pass."""
+    con = _ro(paths.get("trade"))
+    if con is None:
+        return None
+    try:
+        if not _one(con, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vijece_kv'"):
+            return None
+        from vijece import store as vstore
+        d = vstore.dnevno(con, now)
+        return d if any(d.values()) else None
+    finally:
+        con.close()
+
+
 def collect(now=None, paths=None):
     """Today's (UTC) numbers per source as a dict (JSON-safe)."""
     now = int(now or time.time())
@@ -265,7 +284,7 @@ def collect(now=None, paths=None):
                      ("twitterapi", lambda: twitterapi(now, paths)),
                      ("apify", lambda: apify(now, paths)), ("pumpportal", lambda: pumpportal(now, paths)),
                      ("helius", lambda: helius(now, paths)), ("ai", lambda: ai(now, paths)),
-                     ("openai", lambda: openai(now, paths))):
+                     ("openai", lambda: openai(now, paths)), ("vijece", lambda: vijece(now, paths))):
         try:
             out[name] = fn()
         except Exception as e:  # noqa: BLE001 - one source costs only its part of the line
@@ -322,6 +341,10 @@ def line(d):
         dec = oa.get("odluke_vlasnika") or {}
         parts.append(f"OpenAI kritičar {_n(oa['poziva'])} poziva, ${_usd(oa.get('usd'))} ({_top(oa.get('po_vrsti'), fmt=_usd)}), "
                      f"{_n(oa.get('presuda'))} presuda" + (f", odluke vlasnika: {_top(dec)}" if dec else ""))
+    vj = d.get("vijece") or {}
+    if vj and not vj.get("greska"):   # 18.11. (vijece/): the council's own calls, reviews, decisions, the work it queued
+        parts.append(f"vijeće OpenAI ${_usd(vj.get('openai_usd'))}, Claude ${_usd(vj.get('claude_usd'))}, "
+                     f"{_n(vj.get('ocjena'))} ocjena, {_n(vj.get('odluka'))} odluka, za izvedbu {_n(vj.get('za_izvedbu'))}")
     errs = [f"{k}: {v['greska']}" for k, v in d.items() if isinstance(v, dict) and v.get("greska")]
     return f"trošak po izvoru {d.get('day')} (UTC dan): " + " | ".join(parts) + (f" | greške: {'; '.join(errs)}" if errs else "")
 
@@ -369,7 +392,8 @@ def week(now=None, path=None, n=7):
     s = {"dana": len(rows), "od": rows[-1]["day"] if rows else None, "do": rows[0]["day"] if rows else None,
          "coingecko_kljuc": 0, "coingecko_besplatno": 0, "e429": 0, "graf": 0, "x_usd": 0.0, "x_dijelovi": {}, "apify_usd_bot": 0.0,
          "apify_racun_usd": 0.0, "pumpportal_tradeova": 0, "pumpportal_sol": 0.0, "helius_bot": 0, "helius_racun": 0.0,
-         "ai_usd": 0.0, "ai_objava": 0, "openai_usd": 0.0, "openai_poziva": 0, "openai_presuda": 0, "openai_odluke": {}}
+         "ai_usd": 0.0, "ai_objava": 0, "openai_usd": 0.0, "openai_poziva": 0, "openai_presuda": 0, "openai_odluke": {},
+         "vijece_usd": 0.0, "vijece_ocjena": 0, "vijece_odluka": 0}
     for d in rows:
         cg, tw, ap, pp, he, ai_ = (d.get(k) or {} for k in ("coingecko", "twitterapi", "apify", "pumpportal", "helius", "ai"))
         s["coingecko_kljuc"] += int(cg.get("kljuc") or 0)
@@ -393,7 +417,11 @@ def week(now=None, path=None, n=7):
         s["openai_presuda"] += int(oa.get("presuda") or 0)
         for k, v in (oa.get("odluke_vlasnika") or {}).items():
             s["openai_odluke"][k] = s["openai_odluke"].get(k, 0) + int(v or 0)
-    for k in ("x_usd", "apify_usd_bot", "apify_racun_usd", "pumpportal_sol", "ai_usd", "openai_usd"):
+        vj = d.get("vijece") or {}
+        s["vijece_usd"] += _f(vj.get("openai_usd")) + _f(vj.get("claude_usd"))
+        s["vijece_ocjena"] += int(vj.get("ocjena") or 0)
+        s["vijece_odluka"] += int(vj.get("odluka") or 0)
+    for k in ("x_usd", "apify_usd_bot", "apify_racun_usd", "pumpportal_sol", "ai_usd", "openai_usd", "vijece_usd"):
         s[k] = round(s[k], 4)
     return s
 
@@ -413,7 +441,9 @@ def week_md(s):
             f"- AI oznake: {_n(s['ai_objava'])} objava, ${_usd(s['ai_usd'])}"] + (
         [f"- OpenAI kritičar: {_n(s['openai_poziva'])} poziva, ${_usd(s['openai_usd'])}, {_n(s['openai_presuda'])} "
          "presuda otvorenih pozicija; odluke vlasnika o prijedlozima: "
-         + (_top(s.get("openai_odluke")) if s.get("openai_odluke") else "nijedna")] if s.get("openai_poziva") else [])
+         + (_top(s.get("openai_odluke")) if s.get("openai_odluke") else "nijedna")] if s.get("openai_poziva") else []) + (
+        [f"- Vijeće (OpenAI + Claude): ${_usd(s.get('vijece_usd'))}, {_n(s.get('vijece_ocjena'))} ocjena, "
+         f"{_n(s.get('vijece_odluka'))} odluka"] if s.get("vijece_ocjena") or s.get("vijece_usd") else [])
 
 
 def run(now=None, log=print, paths=None, path=None):

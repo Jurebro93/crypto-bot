@@ -206,6 +206,11 @@ PROCESSES = (
     # 15.11. (critic/, owner switch openai_kritika): waits on the OpenAI API, a few hundred ms of CPU a pass; advice only
     ("kriticar", "run_critic.py", (), JOBS,
      "kritičar (OpenAI): svakih 5 min provjera otvorenih pozicija, poziv samo na promjenu; dnevna revizija algoritma"),
+    # 18.11. (owner, vijece/): the council's pass every 15 min: it waits on the OpenAI and Claude APIs and writes a few
+    # rows of trade.db; no money path (real money is never applied by it), so it may be paused
+    ("vijece", "run_vijece.py", (), JOBS,
+     "vijeće (Grok, OpenAI, Claude): svakih 15 min ocjene tuđih prijedloga i odluke; sjednica o smjeru tjedno; samo "
+     "čeka API-je, pravi novac nikad ne dira"),
     # 15.11. (owner, veliki/): the big tokens' list + candles every 3 h and the backtest after a deploy / nightly
     ("veliki", "run_veliki.py", (), JOBS,
      "veliki tokeni: lista svaka 3 h, svijeće svakih 15 min, sakupljač midcapova svakih 90 s (midcap.db), walk-forward "
