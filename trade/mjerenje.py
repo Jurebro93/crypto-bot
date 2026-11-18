@@ -34,6 +34,8 @@ once-key: with status "gotovo" or "odustalo" nothing ever runs again.
     kupnja   written and committed BEFORE executor.buy is called; a pass that FINDS this state (a restart in the middle
              of a buy) never buys: it looks for the position that buy left and goes on from what it finds
     prodaja  the position is bought; it is sold in the next pass
+    prodaja_kasni  the sale was not confirmed in its first 120 s: no stake is bought any more, and the same
+             executor.sell(close=True) is tried once every 120 s, 15 times at most (30 min), each try one line
     gotovo   all three stakes measured          odustalo   given up (the reason and what is open are in the record)
 
 Safety (tests/test_mjerenje_offline.py, one test per rule):
@@ -44,8 +46,13 @@ Safety (tests/test_mjerenje_offline.py, one test per rule):
      stake at risk at a time (buy, sell, then the next buy);
   3. the position is an ordinary real position (trade.db positions, mode 'live'): the owner's page lists it with its
      sell buttons, "Prodaj sve" sells it, reconcile_pending settles it after a crash. A sale that is not confirmed
-     within 120 s of its first try (three tries at most, after a restart one) ends the measurement: "odustalo", one line
-     with exactly what is open, no next stake, and the position is left to that management;
+     within 120 s of its first try (three tries at most, after a restart one) cancels the stakes left and moves to
+     "prodaja_kasni" (18.11., the coordinator's order before the merge: a position is not left without anybody trying
+     to sell it after only 120 s): one try every 120 s, 15 at most, the count and the time of the next try in the
+     record (a restart goes on in the same rhythm). A sale confirmed there ends as "odustalo" with the stake's result
+     recorded; a position somebody else closed meanwhile ("Prodaj sve", the owner's sell button) ends it with one
+     line; after the 15th try: "odustalo", one line with exactly what is open, and the position is left to that
+     management. The kill switch and "Prodaj sve" stop buys only, never these sales;
   4. the bigger stakes go through the owner's manual override with the logged reason, never by raising anything;
   5. a buy the executor refuses ends the measurement; a buy that failed and surely did not swap is tried once more;
   6. no strategy's numbers see it: trade/executor.OWN_REASONS (the day's automatic counts and spend),
@@ -74,8 +81,10 @@ REZERVA_SOL = 0.05
 PAUZA_S = 20             # between two stakes, and before the one retry of a failed buy
 PONOVI_S = 1800          # after a refusal
 ROK_S = 86400            # from the first call; then "odustalo"
-PRODAJA_ROK_S = 120      # rule 3
+PRODAJA_ROK_S = 120      # rule 3: the first phase of a sale
 PRODAJA_POKUSAJA = 3
+KASNI_SVAKIH_S = 120     # rule 3, "prodaja_kasni": one try of the sale this often ...
+KASNI_POKUSAJA = 15      # ... this many times at most (30 min), then "odustalo"
 KUPNJA_POKUSAJA = 2      # rule 5: a failed buy is tried once more, never twice
 PENDING_ROK_S = 600      # a buy still 'pending' this long after a restart is not waited for any longer
 GRESKA_SVAKIH_S = 60
@@ -438,6 +447,8 @@ def korak(con, cfg, now=None, stani=False):
             _nakon_prekida(con, st, raw, now, lines)
         elif st["status"] == "prodaja":
             _prodaja(con, cfg, st, raw, now, lines)
+        elif st["status"] == "prodaja_kasni":
+            _kasni(con, cfg, st, raw, now, lines)
         else:
             _kraj(con, st, raw, now, lines, "odustalo", f"nepoznato stanje zapisa ({st['status']})")
     except Zauzeto:
@@ -445,8 +456,9 @@ def korak(con, cfg, now=None, stani=False):
     return lines
 
 
-def _kraj(con, st, raw, now, lines, status, razlog=None):
-    """The end: "gotovo" or "odustalo", with the summary of what was measured and, when given up, why and what is open."""
+def _kraj(con, st, raw, now, lines, status, razlog=None, tiho=False):
+    """The end: "gotovo" or "odustalo", with the summary of what was measured and, when given up, why and what is open.
+    tiho: the record only, no line (the caller says its own one line)."""
     st["status"] = status
     st["kraj_ts"] = int(now)
     if razlog:
@@ -459,6 +471,8 @@ def _kraj(con, st, raw, now, lines, status, razlog=None):
     if otv:
         st["otvoreno"] = [{"pozicija": i, "simbol": sym, "tokena": q, "ulozeno_sol": sin} for i, sym, q, sin in otv]
     raw = _spremi(con, st, raw)
+    if tiho:
+        return raw
     if status == "odustalo":
         _reci(lines, f"odustalo: {razlog}" + ("" if otv else "; nijedna pozicija mjerenja nije otvorena"))
         for i, sym, q, sin in otv:
@@ -621,9 +635,49 @@ def _nakon_prekida(con, st, raw, now, lines):
                  f"kupnja {_g(ulog)} SOL nije prošla prije restarta ({why}); ne ponavljam je naslijepo")
 
 
+def _izmjeri(con, st, lines, gotovo, p):
+    """After a confirmed sale: the price after it, the wallet's balance, and the stake's record, appended and logged.
+    (the record or None when the orders do not show one filled buy and one filled sale, seconds from the buy)."""
+    mid_p = None
+    try:   # the price after the sale (the sale itself never waits for a price)
+        q = (kotacije([st["token"]["mint"]]) or {}).get(st["token"]["mint"]) or {}
+        mid_p = q if q.get("cijena") and not q.get("sumnjivo") else None
+    except Exception:  # noqa: BLE001 - no price: the move is "nepoznat", the measurement stands
+        mid_p = None
+    sek = gotovo - (st["kupnja"].get("gotovo_ts") or st.get("prodaja_od") or gotovo)
+    nov = {"prije_kupnje": st["kupnja"].get("stanje_prije"), "poslije_kupnje": st["kupnja"].get("stanje_poslije")}
+    try:
+        nov["poslije_prodaje"] = float(stanje_sol())
+    except Exception:  # noqa: BLE001 - the cross-check only
+        nov["poslije_prodaje"] = None
+    rez = rezultat(con, st, sek, mid_p, p.get("impact_pct"), nov)
+    if rez is not None:
+        st["rezultati"].append(rez)
+        _reci(lines, redak(rez))
+    return rez, sek
+
+
+def _u_kasni(con, st, raw, now, lines, zasto, odmah=False):
+    """prodaja -> prodaja_kasni: the sale was not confirmed in its first phase. The stakes left are cancelled for good
+    (no state after this one buys), and the sale is tried again every KASNI_SVAKIH_S, KASNI_POKUSAJA times at most.
+    odmah: the first of those tries goes out in the next pass (the first phase ran out of time, not of tries)."""
+    pid, ulog = st["pozicija"], st["kupnja"]["ulog"]
+    st["status"] = "prodaja_kasni"
+    st["kasni_od"] = round(now, 1)
+    st["kasni_pokusaja"] = 0
+    st["sljedeci_ts"] = int(now) if odmah else int(now) + KASNI_SVAKIH_S
+    st["otkazano"] = list(ULOZI[st["i"] + 1:])
+    st["zadnje"] = zasto
+    raw = _spremi(con, st, raw)
+    ostali = (" (" + ", ".join(_g(u) for u in st["otkazano"]) + " SOL)") if st["otkazano"] else ""
+    _reci(lines, f"prodaja pozicije #{pid} ({_g(ulog)} SOL) {zasto}; preostali ulozi se više ne kupuju{ostali}; prodaju "
+                 f"pokušavam svake {KASNI_SVAKIH_S // 60} min, najviše {KASNI_POKUSAJA} puta")
+    return raw
+
+
 def _prodaja(con, cfg, st, raw, now, lines):
-    """The whole lot is sold with executor.sell(close=True). Rule 3: three tries at most (one after a restart), all
-    within 120 s of the first; then "odustalo" and the position is the normal management's."""
+    """The whole lot is sold with executor.sell(close=True). Rule 3, the first phase: three tries at most (one after a
+    restart), all within 120 s of the first; a sale not confirmed by then goes on in "prodaja_kasni" (_kasni)."""
     pid, ulog = st["pozicija"], st["kupnja"]["ulog"]
     r = con.execute("SELECT status, symbol, qty_left FROM positions WHERE id=?", (pid,)).fetchone()
     if r is None or r[0] != "open":
@@ -638,37 +692,21 @@ def _prodaja(con, cfg, st, raw, now, lines):
     if st.get("prodaja_od") is None:
         st["prodaja_od"] = round(now, 1)
     elif now - st["prodaja_od"] > PRODAJA_ROK_S:
-        return _kraj(con, st, raw, now, lines, "odustalo",
-                     f"prodaja pozicije #{pid} ({_g(ulog)} SOL) nije potvrđena u {PRODAJA_ROK_S} s")
+        return _u_kasni(con, st, raw, now, lines, f"nije potvrđena u {PRODAJA_ROK_S} s", odmah=True)
     najvise = 1 if st.get("nakon_restarta") else PRODAJA_POKUSAJA
     if st.get("prodaja_pokusaja", 0) >= najvise:   # tries that ended in an error of the pass itself count too
-        return _kraj(con, st, raw, now, lines, "odustalo",
-                     f"prodaja pozicije #{pid} ({_g(ulog)} SOL) nije potvrđena nakon {st['prodaja_pokusaja']} pokušaja")
+        return _u_kasni(con, st, raw, now, lines, f"nije potvrđena nakon {st['prodaja_pokusaja']} pokušaja")
     st["prodaja_pokusaja"] = st.get("prodaja_pokusaja", 0) + 1
     raw = _spremi(con, st, raw)   # the try is counted BEFORE it goes out: an error or a restart here cannot add tries
     p = executor.sell(con, cfg, pid, close=True, now=now, reason=f"{RAZLOG}: prodaja")
     gotovo = _sat()
     ishod = p.get("status")
     if ishod == "ok":
-        mid_p = None
-        try:   # the price after the sale (the sale itself never waits for a price)
-            q = (kotacije([st["token"]["mint"]]) or {}).get(st["token"]["mint"]) or {}
-            mid_p = q if q.get("cijena") and not q.get("sumnjivo") else None
-        except Exception:  # noqa: BLE001 - no price: the move is "nepoznat", the measurement stands
-            mid_p = None
-        sek = gotovo - (st["kupnja"].get("gotovo_ts") or gotovo)
-        nov = {"prije_kupnje": st["kupnja"].get("stanje_prije"), "poslije_kupnje": st["kupnja"].get("stanje_poslije")}
-        try:
-            nov["poslije_prodaje"] = float(stanje_sol())
-        except Exception:  # noqa: BLE001 - the cross-check only
-            nov["poslije_prodaje"] = None
-        rez = rezultat(con, st, sek, mid_p, p.get("impact_pct"), nov)
+        rez, _sek = _izmjeri(con, st, lines, gotovo, p)
         if rez is None:
             return _kraj(con, st, raw, now, lines, "odustalo",
                          f"prodaja pozicije #{pid} je prošla, ali nalozi ne daju iznose kupnje i prodaje: ulog "
                          f"{_g(ulog)} SOL nije izmjeren")
-        st["rezultati"].append(rez)
-        _reci(lines, redak(rez))
         kasno = gotovo - st["prodaja_od"] > PRODAJA_ROK_S
         st["i"] += 1
         st.update(pokusaja=0, pozicija=None, prodaja_od=None, prodaja_pokusaja=0, nakon_restarta=False, kupnja=None)
@@ -691,10 +729,69 @@ def _prodaja(con, cfg, st, raw, now, lines):
                      f"pozicija #{pid} ({_g(ulog)} SOL): u novčaniku nema tokena za prodaju, izvršitelj ju je zatvorio; "
                      "ulog nije izmjeren")
     if st.get("nakon_restarta") or st["prodaja_pokusaja"] >= PRODAJA_POKUSAJA:
-        return _kraj(con, st, raw, now, lines, "odustalo",
-                     f"prodaja pozicije #{pid} ({_g(ulog)} SOL) nije prošla ({greska}), pokušaja {st['prodaja_pokusaja']}")
+        return _u_kasni(con, st, raw, now, lines, f"nije prošla ({greska}), pokušaja {st['prodaja_pokusaja']}")
     _reci(lines, f"prodaja pozicije #{pid} ({_g(ulog)} SOL) nije prošla ({greska}); pokušaj {st['prodaja_pokusaja']} od "
                  f"{PRODAJA_POKUSAJA}, najdulje {PRODAJA_ROK_S} s od prvog")
+
+
+def _kasni(con, cfg, st, raw, now, lines):
+    """"prodaja_kasni" (rule 3, the second phase): never buys. One try of the same executor.sell(close=True) every
+    KASNI_SVAKIH_S, KASNI_POKUSAJA at most, each one line. It is a sale: the kill switch and "Prodaj sve" do not hold
+    it, and the executor's own conditions apply as to any sale (its backoff after failed tries answers "wait": that
+    call is a try of ours all the same, so the phase ends after KASNI_POKUSAJA calls). The count and the time of the
+    next try are written BEFORE the call, so an error or a restart goes on in the same rhythm, never in a burst.
+    A position that is not open any more (sold by "Prodaj sve", the owner's button, or by hand) ends it with one line."""
+    pid, ulog = st["pozicija"], st["kupnja"]["ulog"]
+
+    def tudje(kako):
+        s = sazetak(st.get("rezultati") or [])
+        _kraj(con, st, raw, now, lines, "odustalo",
+              f"pozicija #{pid} ({_g(ulog)} SOL) zatvorena izvan mjerenja ({kako}); ulog nije izmjeren", tiho=True)
+        _reci(lines, f"pozicija #{pid} ({_g(ulog)} SOL) je već zatvorena izvan mjerenja ({kako}): mjerenje završeno, "
+                     "ulog nije izmjeren" + (f"; {s} (nepotpuno)" if s else ""))
+
+    r = con.execute("SELECT status FROM positions WHERE id=?", (pid,)).fetchone()
+    if r is None or r[0] != "open":
+        return tudje("„Prodaj sve” ili vlasnikova prodaja")
+    if now < (st.get("sljedeci_ts") or 0):
+        return
+    k = st.get("kasni_pokusaja", 0)
+    kraj = (f"prodaja pozicije #{pid} ({_g(ulog)} SOL) nije potvrđena ni nakon {KASNI_POKUSAJA} pokušaja u "
+            f"{KASNI_POKUSAJA * KASNI_SVAKIH_S // 60} min")
+    if k >= KASNI_POKUSAJA:   # the last try was cut off (an error, a restart): it counted, no further one
+        return _kraj(con, st, raw, now, lines, "odustalo", kraj)
+    k += 1
+    st["kasni_pokusaja"] = k
+    st["sljedeci_ts"] = int(now) + KASNI_SVAKIH_S
+    raw = _spremi(con, st, raw)
+    try:
+        p = executor.sell(con, cfg, pid, close=True, now=now, reason=f"{RAZLOG}: prodaja")
+    except Exception as e:  # noqa: BLE001 - e.g. the RPC of the wallet check: this try is spent, the next in 2 min
+        p = {"error": f"{type(e).__name__}: {e}"[:200]}   # no answer of the executor: not confirmed
+        try:
+            con.rollback()
+        except sqlite3.Error:
+            pass
+    gotovo = _sat()
+    ishod = p.get("status")
+    if ishod == "ok":
+        rez, sek = _izmjeri(con, st, lines, gotovo, p)
+        minuta = max(1, round(sek / 60))
+        _reci(lines, f"pozicija #{pid} prodana nakon {minuta} min")
+        if rez is not None:
+            st["i"] += 1
+        st.update(pokusaja=0, pozicija=None, prodaja_od=None, prodaja_pokusaja=0, nakon_restarta=False, kupnja=None)
+        return _kraj(con, st, raw, now, lines, "odustalo",
+                     f"prodaja {_g(ulog)} SOL potvrđena tek nakon {minuta} min"
+                     + ("" if rez is not None else ", a nalozi ne daju iznose kupnje i prodaje (ulog nije izmjeren)")
+                     + ": preostali ulozi se ne kupuju")
+    if ishod == "noop":   # nothing of it in the wallet: the executor closed the record
+        return tudje("u novčaniku više nema tokena")
+    if k >= KASNI_POKUSAJA:
+        return _kraj(con, st, raw, now, lines, "odustalo", kraj)
+    greska = ("izvršitelj čeka svoj razmak nakon neuspjelih prodaja" if ishod == "wait" else p.get("error") or ishod)
+    _reci(lines, f"prodaja pozicije #{pid} i dalje nije potvrđena (pokušaj {k}/{KASNI_POKUSAJA}); ponovno za "
+                 f"{KASNI_SVAKIH_S // 60} min; razlog: {greska}")
 
 
 def korak_sigurno(con, cfg, stani=False):

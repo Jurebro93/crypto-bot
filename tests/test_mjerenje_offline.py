@@ -29,6 +29,7 @@ RENT = 2_039_280
 FEE_K, PRIO_K = 2_120_000, 70_000     # the buy: signature + priority + the new token account's deposit
 FEE_P, PRIO_P = 260_000, 250_000      # the sale
 T0 = 1_795_000_000.0
+PAD = {"status": "failed", "retry": True, "error": "cijena se pomaknula"}   # a sale that surely did not swap
 
 
 class Baza(unittest.TestCase):
@@ -53,16 +54,24 @@ class Baza(unittest.TestCase):
         self.buy_calls = []
         real_buy = executor.buy
 
+        self.sell_calls = []
+        real_sell = executor.sell
+
         def buy(*a, **k):
             self.buy_calls.append(k)
             return real_buy(*a, **k)
+
+        def sell(*a, **k):
+            self.sell_calls.append(k.get("reason"))
+            return real_sell(*a, **k)
 
         def order(inp, out, amount, taker=None, route="v2", slippage_bps=None):
             if inp != jupiter.SOL and not self.route_back:
                 return {"error": "No route found"}
             rate = 0.01 if inp == jupiter.SOL else 99.9
             return {"inAmount": str(amount), "outAmount": str(int(amount * rate)), "inUsdValue": 100, "outUsdValue": 99.9}
-        patches = [(executor, "swap", self.swap), (executor, "buy", buy), (executor, "is_live", lambda cfg: self.live),
+        patches = [(executor, "swap", self.swap), (executor, "buy", buy), (executor, "sell", sell),
+                   (executor, "is_live", lambda cfg: self.live),
                    (executor, "armed", lambda: True), (executor, "STOP_FILE", os.path.join(self.tmp.name, "STOP")),
                    (wallet, "sol_balance", lambda addr: self.bal), (wallet, "address", lambda: "ADDR"),
                    (wallet, "token_raw_balance", lambda addr, tok: self.held_raw.get(tok, 0)),
@@ -136,6 +145,20 @@ class Baza(unittest.TestCase):
         self.korak(1)
         self.korak(mjerenje.PAUZA_S)
         self.korak(1)
+
+    def u_kasni(self, dalje=()):
+        """Buy 0.1 SOL, three failed sales (T0+1, +7, +18): the record is in "prodaja_kasni". dalje: what the next
+        sales answer ("ok" when it runs out). Returns the position's id."""
+        self.sell_plan = [dict(PAD) for _ in range(3)] + list(dalje)
+        self.korak()
+        self.korak(1)
+        self.korak(6)
+        self.korak(11)
+        self.assertEqual(self.st()["status"], "prodaja_kasni")
+        return self.st()["pozicija"]
+
+    def nase_prodaje(self):
+        return [r for r in self.sell_calls if r == "mjerenje troška: prodaja"]
 
     def postavke(self):
         return {k: v for k, v in self.con.execute("SELECT k, v FROM settings") if k != mjerenje.KLJUC}
@@ -340,37 +363,41 @@ class Pravilo2JedanUlog(Baza):
 
 
 class Pravilo3Prodaja(Baza):
-    PAD = {"status": "failed", "retry": True, "error": "cijena se pomaknula"}
-
-    def test_prodaja_ne_prolazi_tri_pokusaja_pa_odustaje(self):
-        self.sell_plan = [dict(self.PAD), dict(self.PAD), dict(self.PAD)]
+    def test_tri_pokusaja_pa_faza_kasni_bez_novih_kupnji(self):
+        self.sell_plan = [dict(PAD), dict(PAD), dict(PAD)]
         self.korak()
         self.korak(1)             # try 1
         self.korak(1)             # the executor's own backoff (5 s): "wait", not a try
         self.assertEqual(len(self.prodaje()), 1)
         self.korak(6)             # try 2
-        self.korak(11)            # try 3 -> given up
+        lines = self.korak(11)    # try 3 -> the late phase, not the end
         st = self.st()
         self.assertEqual(len(self.prodaje()), 3)
-        self.assertEqual(st["status"], "odustalo")
+        self.assertEqual(st["status"], "prodaja_kasni")
         self.assertEqual(st["rezultati"], [])
-        self.assertEqual(st["otvoreno"][0]["tokena"], 1_000_000)
-        pid = st["otvoreno"][0]["pozicija"]
-        self.assertTrue(any(f"otvoreno ostaje: pozicija #{pid} AAA, 1000000 jedinica tokena, uloženo 0,1000 SOL" in ln
-                            for ln in self.out))
-        for dt in (30, 600, 4000):   # no loop, no next stake
+        self.assertEqual(st["otkazano"], [0.3, 0.5])
+        self.assertEqual((st["kasni_pokusaja"], st["sljedeci_ts"]), (0, int(self.t) + 120))
+        self.assertEqual(lines, ["mjerenje troška: prodaja pozicije #1 (0,1 SOL) nije prošla (cijena se pomaknula), pokušaja 3; "
+                                 "preostali ulozi se više ne kupuju (0,3, 0,5 SOL); prodaju pokušavam svake 2 min, najviše "
+                                 "15 puta"])
+        for dt in (1, 30, 60):   # no burst, no next stake
             self.assertEqual(self.korak(dt), [])
         self.assertEqual(len(self.prodaje()), 3)
         self.assertEqual(len(self.kupnje()), 1)
 
-    def test_prodaja_nepotvrdena_u_120_s(self):
-        self.sell_plan = [dict(self.PAD)]
+    def test_prodaja_nepotvrdena_u_120_s_ide_u_fazu_kasni_i_odmah_pokusava(self):
+        self.sell_plan = [dict(PAD)]
         self.korak()
         self.korak(1)
         lines = self.korak(mjerenje.PRODAJA_ROK_S + 1)
-        self.assertEqual(len(self.prodaje()), 1)   # no further try after the window
-        self.assertEqual(self.st()["status"], "odustalo")
+        self.assertEqual(len(self.prodaje()), 1)   # this pass only moves the state
+        self.assertEqual(self.st()["status"], "prodaja_kasni")
         self.assertIn("nije potvrđena u 120 s", lines[0])
+        lines = self.korak(1)                      # the first late try goes out in the next pass
+        self.assertEqual(len(self.prodaje()), 2)
+        self.assertIn("mjerenje troška: pozicija #1 prodana nakon 2 min", lines)
+        self.assertEqual(self.st()["status"], "odustalo")
+        self.assertEqual(len(self.st()["rezultati"]), 1)
 
     def test_prodaja_potvrdena_prekasno_ne_kupuje_sljedeci_ulog(self):
         def spora():
@@ -398,38 +425,27 @@ class Pravilo3Prodaja(Baza):
             for _ in range(3):
                 with self.assertRaises(RuntimeError):
                     self.korak(1)
-            lines = self.korak(1)        # the fourth pass does not call the sale again
+            lines = self.korak(1)        # the fourth pass does not call the sale again: the late phase
             self.assertEqual(self.korak(1), [])
         self.assertEqual(len(zvano), 3)
-        self.assertEqual(self.st()["status"], "odustalo")
+        self.assertEqual(self.st()["status"], "prodaja_kasni")
         self.assertIn("nije potvrđena nakon 3 pokušaja", lines[0])
-        self.assertTrue(any("otvoreno ostaje: pozicija #" in ln for ln in lines))
 
     def test_pozicija_je_obicna_prava_pozicija_koju_aplikacija_prodaje(self):
-        self.sell_plan = [dict(self.PAD), dict(self.PAD), dict(self.PAD)]
-        self.korak()
-        self.korak(1)
-        self.korak(6)
-        self.korak(11)
-        pid = self.st()["otvoreno"][0]["pozicija"]
+        pid = self.u_kasni()
         row = self.con.execute("SELECT mode, status, reason, league_id, qty_left FROM positions WHERE id=?", (pid,)).fetchone()
         self.assertEqual(row, ("live", "open", "mjerenje troška: 0,1 SOL", None, 1_000_000))
         # the owner's page: the sell button of one position (settings sell_req -> run_trade.sell_requests_once)
         settings.put(self.con, "sell_req", {str(pid): 1.0}, "vlasnik")
         with mock.patch.object(run_trade, "notify", lambda t: None):
-            run_trade.sell_requests_once(self.con, self.cfg(), now=self.t + 700, quiet=True)
+            run_trade.sell_requests_once(self.con, self.cfg(), now=self.t + 30, quiet=True)
         self.assertEqual(self.con.execute("SELECT status FROM positions WHERE id=?", (pid,)).fetchone()[0], "closed")
 
     def test_prodaj_sve_prodaje_i_poziciju_mjerenja(self):
-        self.sell_plan = [dict(self.PAD), dict(self.PAD), dict(self.PAD)]
-        self.korak()
-        self.korak(1)
-        self.korak(6)
-        self.korak(11)
-        pid = self.st()["otvoreno"][0]["pozicija"]
+        pid = self.u_kasni()
         settings.put(self.con, "sell_all", int(self.t), "vlasnik")
         with mock.patch.object(run_trade, "notify", lambda t: None), mock.patch.dict(run_trade._sell_all_try, {"ts": 0}):
-            run_trade.sell_all_once(self.con, self.cfg(), now=self.t + 700, quiet=True)
+            run_trade.sell_all_once(self.con, self.cfg(), now=self.t + 30, quiet=True)
         self.assertEqual(self.con.execute("SELECT status FROM positions WHERE id=?", (pid,)).fetchone()[0], "closed")
 
     def test_redovno_upravljanje_zatvori_prije_prodaje(self):
@@ -441,6 +457,186 @@ class Pravilo3Prodaja(Baza):
         self.assertEqual(len(self.prodaje()), n)
         self.assertEqual(self.st()["status"], "odustalo")
         self.assertIn("zatvorilo ju je redovno upravljanje", lines[0])
+
+
+class ProdajaKasni(Baza):
+    """18.11. (the coordinator, before the merge): a sale not confirmed in 120 s is tried every 2 min for 30 min."""
+    I_DALJE = "mjerenje troška: prodaja pozicije #1 i dalje nije potvrđena (pokušaj {k}/15); ponovno za 2 min"
+
+    def test_kasna_potvrda_u_fazi(self):
+        # late try 1 fails on the chain (its network fee is charged), late try 2 fills
+        self.u_kasni(dalje=[dict(PAD, fee_lamports=5000, fee_total=5000)])
+        self.assertEqual(self.korak(119), [])                # T0+137: not yet
+        self.assertEqual(self.korak(1), [self.I_DALJE.format(k=1) + "; razlog: cijena se pomaknula"])
+        self.assertEqual(self.st()["kasni_pokusaja"], 1)
+        self.assertEqual(self.korak(60), [])
+        lines = self.korak(60)                               # T0+258
+        st = self.st()
+        self.assertEqual(st["status"], "odustalo")
+        self.assertEqual(len(st["rezultati"]), 1)            # the stake's result is recorded (it is real)
+        self.assertEqual(st["rezultati"][0]["sekundi"], 258.0)
+        # the plain round trip (1.14072 %) + the failed try's 5000 lamports: 0.000005 / 0.1 = 0.005 %
+        self.assertAlmostEqual(st["rezultati"][0]["krug_pct"], 1.14572, places=3)
+        self.assertEqual(st["rezultati"][0]["prodaja"]["naknada_lamports"], FEE_P + 5000)
+        self.assertEqual(lines[1], "mjerenje troška: pozicija #1 prodana nakon 4 min")
+        self.assertTrue(lines[0].startswith("mjerenje troška: 0,1 SOL na AAA (likvidnost 4,4M $): potrošeno 0,10212 SOL, "
+                                            "vraćeno 0,10097 SOL, krug 1,15 %"), lines[0])
+        self.assertEqual(lines[2], "mjerenje troška: odustalo: prodaja 0,1 SOL potvrđena tek nakon 4 min: preostali ulozi "
+                                   "se ne kupuju; nijedna pozicija mjerenja nije otvorena")
+        self.assertTrue(lines[3].endswith("(nepotpuno)"))
+        self.assertEqual(len(lines), 4)
+        self.assertEqual(mjerenje.otvorene(self.con), [])
+        self.assertEqual(self.con.execute("SELECT status FROM positions").fetchall(), [("closed",)])
+        for dt in (1, 120, 3600, 90_000):                    # nothing after the end, and never a buy
+            self.assertEqual(self.korak(dt), [])
+        self.assertEqual(len(self.kupnje()), 1)
+        self.assertEqual(len(self.nase_prodaje()), 3 + 2)
+
+    def test_iscrpljeno_nakon_15_pokusaja(self):
+        pid = self.u_kasni(dalje=[dict(PAD) for _ in range(40)])
+        t_ulaz, prije = self.t, len(self.nase_prodaje())
+        for k in range(1, 16):
+            self.assertEqual(self.korak(1), [])              # no burst between two tries
+            lines = self.korak(119)
+            self.assertEqual(len(self.nase_prodaje()) - prije, k)
+            if k < 15:
+                self.assertEqual(len(lines), 1)              # each try one line
+                self.assertTrue(lines[0].startswith(self.I_DALJE.format(k=k) + "; razlog: "), lines[0])
+                self.assertEqual(self.st()["status"], "prodaja_kasni")
+        self.assertEqual(self.t - t_ulaz, 15 * 120)          # 30 min
+        st = self.st()
+        self.assertEqual(st["status"], "odustalo")
+        self.assertEqual(lines, [
+            "mjerenje troška: odustalo: prodaja pozicije #1 (0,1 SOL) nije potvrđena ni nakon 15 pokušaja u 30 min",
+            "mjerenje troška: otvoreno ostaje: pozicija #1 AAA, 1000000 jedinica tokena, uloženo 0,1000 SOL; prepuštena "
+            "redovnom upravljanju (stranica Autopilot: gumbi za prodaju, „Prodaj sve”); automatskog stopa nema, mjerenje "
+            "je više ne dira"])
+        self.assertEqual(st["otvoreno"], [{"pozicija": pid, "simbol": "AAA", "tokena": 1_000_000, "ulozeno_sol": 0.1}])
+        self.assertEqual(self.con.execute("SELECT status FROM positions WHERE id=?", (pid,)).fetchone()[0], "open")
+        for dt in (1, 120, 3600, 90_000):                    # nothing more: no try, no buy
+            self.assertEqual(self.korak(dt), [])
+        self.assertEqual(len(self.nase_prodaje()) - prije, 15)
+        self.assertEqual(len(self.kupnje()), 1)
+        # the executor's own backoff after failed sales answered some of the calls: fewer real swaps than calls
+        self.assertTrue(any("izvršitelj čeka svoj razmak" in ln for ln in self.out))
+        self.assertTrue(3 < len(self.prodaje()) < 18)
+
+    def test_restart_u_fazi_nastavlja_isti_ritam(self):
+        self.u_kasni(dalje=[dict(PAD) for _ in range(40)])
+        self.korak(120)                                      # try 1 (T0+138)
+        self.assertEqual(self.st()["kasni_pokusaja"], 1)
+        with mock.patch.object(mjerenje, "PROCES", "nakon-restarta"):
+            self.assertEqual(self.korak(10), [])             # a restart 10 s later: no burst
+            self.assertEqual(self.korak(109), [])
+            self.assertEqual(len(self.nase_prodaje()), 3 + 1)
+            self.assertEqual(self.korak(1), [self.I_DALJE.format(k=2) + "; razlog: cijena se pomaknula"])   # the count goes on
+        with mock.patch.object(mjerenje, "PROCES", "nakon-duge-stanke"):
+            lines = self.korak(1000)                         # down for a quarter of an hour: ONE try, not eight
+            self.assertEqual(len(lines), 1)
+            self.assertTrue(lines[0].startswith(self.I_DALJE.format(k=3)))
+            self.assertEqual(len(self.nase_prodaje()), 3 + 3)
+            self.assertEqual(self.korak(1), [])
+            self.assertEqual(self.korak(118), [])
+            self.assertTrue(self.korak(1)[0].startswith(self.I_DALJE.format(k=4)))
+        self.assertEqual(self.st()["kasni_pokusaja"], 4)
+        self.assertEqual(self.st()["status"], "prodaja_kasni")
+        self.assertEqual(len(self.kupnje()), 1)
+
+    def test_prekid_usred_kasnog_pokusaja_ne_dodaje_pokusaj(self):
+        self.u_kasni()
+        with mock.patch.object(executor, "sell", side_effect=KeyboardInterrupt):   # the process dies inside the sale
+            with self.assertRaises(KeyboardInterrupt):
+                self.korak(120)
+        st = self.st()
+        self.assertEqual((st["status"], st["kasni_pokusaja"], st["sljedeci_ts"]), ("prodaja_kasni", 1, int(self.t) + 120))
+        n = len(self.nase_prodaje())
+        self.assertEqual(self.korak(1), [])                  # counted and scheduled before the call: no second try now
+        self.assertEqual(len(self.nase_prodaje()), n)
+        lines = self.korak(119)                              # the next one in the same rhythm
+        self.assertIn("mjerenje troška: pozicija #1 prodana nakon 4 min", lines)
+
+    def test_greska_izvrsitelja_u_fazi_je_potroseni_pokusaj(self):
+        self.u_kasni()
+        with mock.patch.object(executor, "sell", side_effect=RuntimeError("RPC ne odgovara")):
+            lines = self.korak(120)
+            self.assertEqual(lines, [self.I_DALJE.format(k=1) + "; razlog: RuntimeError: RPC ne odgovara"])
+            self.assertEqual(self.korak(1), [])
+        self.assertEqual(self.st()["kasni_pokusaja"], 1)
+
+    def test_poziciju_prodao_prodaj_sve(self):
+        pid = self.u_kasni()
+        settings.put(self.con, "sell_all", int(self.t), "vlasnik")
+        with mock.patch.object(run_trade, "notify", lambda t: None), mock.patch.dict(run_trade._sell_all_try, {"ts": 0}):
+            run_trade.sell_all_once(self.con, self.cfg(), now=self.t + 30, quiet=True)
+        n = len(self.nase_prodaje())
+        lines = self.korak(31)
+        self.assertEqual(lines, [f"mjerenje troška: pozicija #{pid} (0,1 SOL) je već zatvorena izvan mjerenja („Prodaj sve” "
+                                 "ili vlasnikova prodaja): mjerenje završeno, ulog nije izmjeren"])   # quietly: one line
+        st = self.st()
+        self.assertEqual(st["status"], "odustalo")
+        self.assertEqual(st["rezultati"], [])
+        self.assertNotIn("otvoreno", st)
+        for dt in (1, 120, 3600):
+            self.assertEqual(self.korak(dt), [])
+        self.assertEqual(len(self.nase_prodaje()), n)        # the measurement itself sold nothing more
+        self.assertEqual(len(self.kupnje()), 1)
+
+    def test_poziciju_prodao_vlasnik_gumbom_na_drugom_ulogu(self):
+        self.krug()                                          # 0.1 SOL measured
+        self.sell_plan = [dict(PAD) for _ in range(3)]
+        self.korak(mjerenje.PAUZA_S)                         # 0.3 SOL bought
+        self.korak(1)
+        self.korak(6)
+        self.korak(11)
+        st = self.st()
+        self.assertEqual((st["status"], st["otkazano"]), ("prodaja_kasni", [0.5]))
+        pid = st["pozicija"]
+        settings.put(self.con, "sell_req", {str(pid): 1.0}, "vlasnik")
+        with mock.patch.object(run_trade, "notify", lambda t: None):
+            run_trade.sell_requests_once(self.con, self.cfg(), now=self.t + 30, quiet=True)
+        lines = self.korak(31)
+        self.assertEqual(len(lines), 1)
+        self.assertIn(f"pozicija #{pid} (0,3 SOL) je već zatvorena izvan mjerenja", lines[0])
+        self.assertIn("krug pri 0,1 SOL: 1,1 % (bez pomaka cijene: 0,6 %) (nepotpuno)", lines[0])
+        self.assertEqual(self.st()["status"], "odustalo")
+        self.assertEqual(len(self.st()["rezultati"]), 1)
+        self.assertEqual(self.korak(3600), [])
+        self.assertEqual(len(self.kupnje()), 2)              # 0.5 SOL is never bought
+
+    def test_novcanik_bez_tokena_zavrsava_jednim_retkom(self):
+        pid = self.u_kasni()
+        self.held_raw[A] = 0                                 # sold by hand outside the app
+        lines = self.korak(120)
+        self.assertEqual(lines, [f"mjerenje troška: pozicija #{pid} (0,1 SOL) je već zatvorena izvan mjerenja (u novčaniku "
+                                 "više nema tokena): mjerenje završeno, ulog nije izmjeren"])
+        self.assertEqual(self.st()["status"], "odustalo")
+        self.assertEqual(len(self.prodaje()), 3)             # no swap went out
+
+    def test_kill_switch_i_prodaj_sve_ne_blokiraju_kasnu_prodaju(self):
+        self.u_kasni()
+        open(executor.STOP_FILE, "w").close()
+        settings.put(self.con, "sell_all", int(self.t), "vlasnik")
+        self.live = False                                    # and the Autopilot's switch is off
+        lines = self.korak(120, stani=True)                  # even while the loop is stopping
+        self.assertEqual(len(self.nase_prodaje()), 3 + 1)
+        self.assertIn("mjerenje troška: pozicija #1 prodana nakon 2 min", lines)
+        self.assertEqual(self.st()["status"], "odustalo")
+        self.assertEqual(self.con.execute("SELECT status FROM positions").fetchall(), [("closed",)])
+
+    def test_nema_kupnje_u_fazi_ni_nakon_nje(self):
+        self.u_kasni(dalje=[dict(PAD), dict(PAD)])
+
+        def zabranjeno(*a, **k):
+            raise AssertionError("kupnja u fazi prodaja_kasni ili nakon nje")
+        with mock.patch.object(executor, "buy", zabranjeno):
+            for _ in range(40):                              # every pass of the phase, conditions for a buy all met
+                self.korak(10)
+            self.assertEqual(self.st()["status"], "odustalo")   # sold at the third late try
+            for dt in (1, mjerenje.PAUZA_S, mjerenje.PONOVI_S, 3600, 90_000):
+                self.assertEqual(self.korak(dt), [])
+        self.assertEqual(len(self.kupnje()), 1)
+        self.assertEqual(self.st()["i"], 1)                  # the measured stake counts; 0.3 and 0.5 never start
+        self.assertEqual(len(self.st()["rezultati"]), 1)
 
 
 class Pravilo4Nadjacavanje(Baza):
@@ -618,13 +814,14 @@ class Restart(Baza):
             self.assertEqual(len(self.st()["rezultati"]), 1)
             self.assertEqual(self.st()["status"], "ceka")
 
-    def test_kupljeno_a_neprodano_prodaja_padne_nema_drugog_pokusaja(self):
+    def test_kupljeno_a_neprodano_prodaja_padne_pa_faza_kasni(self):
         self.korak()
         self.sell_plan = [{"status": "failed", "retry": True, "error": "nema rute"}]
         with mock.patch.object(mjerenje, "PROCES", "novi-proces"):
-            self.korak(45)
-            self.assertEqual(self.st()["status"], "odustalo")
-            self.assertEqual(self.korak(30), [])
+            lines = self.korak(45)                       # the one try after a restart fails
+            self.assertEqual(self.st()["status"], "prodaja_kasni")
+            self.assertIn("nije prošla (nema rute), pokušaja 1", lines[-1])
+            self.assertEqual(self.korak(30), [])         # no second try now: the 2-minute rhythm
         self.assertEqual(len(self.prodaje()), 1)
         self.assertEqual(len(self.kupnje()), 1)
         self.assertEqual(len(mjerenje.otvorene(self.con)), 1)
