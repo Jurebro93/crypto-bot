@@ -298,8 +298,15 @@ low keep zonewatch python3 run_zonewatch.py loop
 # cap (skipped when the last pass is younger than 3 h); nightly 01-06 Zagreb (--night, once in 20 h) the rest of the
 # cap; every 3 h a light pass over the new calls (at most 10 % of the cap). Writes insajderi.db, output/insajderi.md,
 # output/pametni_novac.md and "insajderi2: " lines; the demo (flag insajderi2, league/auto.loop) reads the groups.
-( sleep "${INSAJDERI_FIRST_S:-600}"; python3 -m ops.heavy run_insajderi.py once || echo "insajderi2 nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_insajderi.py night || echo "insajderi2 (noć) nije uspio"; done ) &
+# 18.11. (vijeće, prijedlog #845, prihvatili OpenAI i Grok; pokus 7 dana, do 25.11.): Insajderi 2.0 are demo-only (no
+# real-money decision reads them: insider copy -2.7 % a trade, n=1043), yet took ~40 % of the tool's Helius credits and
+# held the heavy-job lock for hours a day (the midcap candles loop waited 52 min behind it on 18.11.). So: ONE pass a
+# night (ops.heavy --night, 01-06 CET), no pass at every start, no pass every 3 h; the day cap is 15,000 credits
+# (insajderi/config.json). Nothing is deleted. Back as before: INSAJDERI_ONCE=1 and INSAJDERI_INCR=1 (and the config).
+( sleep "${INSAJDERI_FIRST_S:-600}"; if [ "${INSAJDERI_ONCE:-0}" = "1" ]; then python3 -m ops.heavy run_insajderi.py once || echo "insajderi2 nije uspio"; fi; while true; do sleep 3600; python3 -m ops.heavy --night run_insajderi.py night || echo "insajderi2 (noć) nije uspio"; done ) &
+if [ "${INSAJDERI_INCR:-0}" = "1" ]; then
 ( sleep "${INSAJDERI_INCR_FIRST_S:-3600}"; while true; do python3 -m ops.heavy run_insajderi.py incr || echo "insajderi2 (3 h) nije uspio"; sleep "${INSAJDERI_INCR_S:-10800}"; done ) &
+fi
 
 # 15.11. (vlasnik: "Slažem se s prijedlogom koraka za plan makroinfluencera s dopunama kritičara"; makroinf/,
 # run_makroinf.py): the PILOT of 50 macro accounts starts soon after a deploy (MAKROINF_FIRST_S, 480 s; the owner wants
