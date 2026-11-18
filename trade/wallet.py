@@ -126,7 +126,12 @@ def token_decimals(mint):
     return int(rpc("getTokenSupply", [mint])["value"]["decimals"])
 
 
-TOKEN_PROGRAMS = {"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PQnx5ujeXu69C1"}
+# 18.11. (audit + the refund step's own log line "račun je prazan, ali zatvaranje nije poslano"): the second id here was
+# a typo of the Token-2022 program, so an empty Token-2022 token account was never closed and its deposit (~0.002 SOL,
+# 2 % of a 0.1 SOL stake) never came back: 0 refunds in 11 full closes on 14.-15.11.
+TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+TOKEN_PROGRAMS = {TOKEN_PROGRAM, TOKEN_2022_PROGRAM}
 
 
 def token_accounts(owner, mint):
