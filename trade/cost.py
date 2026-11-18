@@ -74,6 +74,13 @@ RENT_LAMPORTS = 2_039_280      # an SPL token account's rent-exempt deposit
 NET_FEE_CAP_LAMPORTS = 1_000_000   # 0.001 SOL: signature + priority of one swap at most (TX_FEE_SOL 0.0005 typical)
 
 
+# 18.11. (trade/mjerenje.py: "the cost model is NOT changed by this code"): the orders of the owner's one-time cost
+# measurement (their reason starts with trade/executor.MJERENJE_SRC; stakes of 0.3 and 0.5 SOL, where the network fee is
+# a smaller share) stay out of the calibration: the measurement only reports, a later change may use it.
+CALIB_SQL = ("SELECT cost_pct, side, amount_in, amount_out, fee_lamports FROM orders WHERE cost_pct IS NOT NULL "
+             "AND COALESCE(reason, '') NOT LIKE 'mjerenje troška%' ORDER BY id DESC LIMIT ?")
+
+
 def network_lamports(side, fee_lamports):
     """An order's network cost without the refundable token-account deposit, capped at NET_FEE_CAP_LAMPORTS."""
     f = _f(fee_lamports) or 0.0
@@ -119,8 +126,7 @@ def breakdown_line(path=None):
     try:
         con = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=2)
         try:
-            rows = con.execute("SELECT cost_pct, side, amount_in, amount_out, fee_lamports FROM orders WHERE "
-                               "cost_pct IS NOT NULL ORDER BY id DESC LIMIT ?", (CALIB_N,)).fetchall()
+            rows = con.execute(CALIB_SQL, (CALIB_N,)).fetchall()
         finally:
             con.close()
     except sqlite3.Error as e:
@@ -163,8 +169,7 @@ def calibration(path=None, now=None):
             try:
                 con = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=2)
                 try:
-                    rows = con.execute("SELECT cost_pct, side, amount_in, amount_out, fee_lamports FROM orders WHERE "
-                                       "cost_pct IS NOT NULL ORDER BY id DESC LIMIT ?", (CALIB_N,)).fetchall()
+                    rows = con.execute(CALIB_SQL, (CALIB_N,)).fetchall()
                 finally:
                     con.close()
                 fee, n = calibrate(rows)

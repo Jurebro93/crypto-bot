@@ -24,6 +24,12 @@ računajući velike padove Bitcoina ... sada se stvara novi range, iskoristi ga 
     makro.py     the macro regime from the platforms' volumes (DefiLlama via market.db, CoinGecko's Solana meme
                  sector, the collector's midcap volume, BTC): risk_on / neutral / risk_off, hourly in midcap.db
     gate.py      the real-money gate (owner switch pravi_novac_veliki, off; holdout proof at the real size)
+    istrazivac.py a second DEMO account that buys what the intraday rule refuses, tagged with why (18.11.)
+    sjena.py     the shadow book: every candidate as an imagined trade under five exit profiles (rows only, 18.11.)
+    nauceno.py   what the book has learned: the history replayed over candles + the live rows, a walk-forward purged
+                 of look-ahead, the stored model for live predictions (nauceno.db, 18.11.)
+    ucenik.py    the learner's own DEMO account: the pre-registered forward test of "enter only above +1 % predicted",
+                 and its real twin behind the owner switch pravi_novac_nauceno (18.11.)
     view.py      the card (Ostalo), MCP get_big_ranges, the OpenAI critic's block
 run_veliki.py: list (after a deploy, every 3 h: the list + candles), once (the backtest after a deploy, heavy lock),
 night (01-06 Zagreb, once a day), replay (the intraday rule's historical test; nightly and once after a deploy),

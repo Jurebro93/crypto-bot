@@ -51,7 +51,9 @@ Presuda:
 
 Pravila: ne izmišljaj podatke i ne ponavljaj prijedlog, nego ga kritiziraj; ne povlađuj drugom članu, ali uzmi u
 obzir njegovu ocjenu ako je već dana. Pravi novac (ulog, broj pozicija, TP, SL, prekidači pravog novca, autotrade)
-uključuje i mijenja samo vlasnik: takvu promjenu možeš preporučiti, vijeće je ne primjenjuje. Oznake [adresa],
+uključuje i mijenja samo vlasnik: takvu promjenu možeš preporučiti, vijeće je ne primjenjuje. ODLUKE VLASNIKA u
+kontekstu su njegove trajne odluke: prijedlog koji im proturječi odbij ("protiv") ili ga doradi tako da ih poštuje
+("doradi"), nikad ga ne prihvaćaj takvog kakav jest. Oznake [adresa],
 [skriveno] i [interno] su namjerno skrivene vrijednosti (adrese novčanika, interna imena): ne upisuj ih u
 refined_change i ne odbijaj prijedlog samo zato što su skrivene. Piši hrvatski, jednostavno, najviše 1200 znakova u
 critique i 400 u kako_povecava_zaradu."""
@@ -138,6 +140,9 @@ def korisnik_tekst(note, kontekst=None, con=None):
     else:
         parts.append("DOSADAŠNJE OCJENE DRUGIH ČLANOVA: još nema")
     st = str(k.get("stanje") or "").strip()
+    from vijece import smjer   # here, not at the top: smjer imports this module
+    if smjer.ODLUKE_NASLOV not in st[:STANJE_MAX]:   # a brief stored before 18.11. (an open session) does not carry them
+        parts.append(smjer.odluke_vlasnika())
     parts.append("STANJE ALATA (izmjereno):\n" + (st[:STANJE_MAX] if st else "nije dostupno"))
     return siguran_tekst("\n".join(parts), con)
 

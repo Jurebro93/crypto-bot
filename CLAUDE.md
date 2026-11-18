@@ -35,6 +35,12 @@
   oba protiv = odbijeno, podijeljeno = vlasnik. Pravi novac (ulog, broj pozicija, TP, SL, copy.*, live, autotrade, kill)
   vijeće nikad ne primjenjuje: samo vlasnik. Grok ima 6 h, zatim se odlučuje bez njega. Budžet 0,60 $ dnevno po članu
   (OpenAI, Claude); sjednica o smjeru jednom tjedno (ponedjeljak) i kad se presuda učenja promijeni.
+- Pravi novac (18.11., vlasnik: „Ne želim da se pravi novac pauzira, nego da se da sve od sebe da tradeovi s pravim
+  novcem postanu profitabilni. To mi je najbitnije."): pravi novac se ne pauzira; najvažniji cilj svih resursa je
+  profitabilnost tradeova pravim novcem. Što pravi novac kupuje mijenja samo vlasnik svojim prekidačem
+  (pravi_novac_veliki, pravi_novac_nauceno); nalog iz chata („odmah na naučeno pravilo", 18.11.) izvršava se jednom i
+  samo ako ga ispravljeni test učenja (bez curenja budućnosti) potvrdi, inače pravi novac ostaje na dosadašnjem pravilu.
+  Mjerenje troška jednim stvarnim krugom pri 0,1 / 0,3 / 0,5 SOL je odobreno (18.11.), jednokratno.
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.

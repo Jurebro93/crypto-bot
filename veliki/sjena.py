@@ -106,6 +106,47 @@ def why_class(why):
     return "drugo" if w else None
 
 
+def levels(px, prof, rt):
+    """(target price, stop price) of an entry at px under one exit profile at the round trip rt: the target is NET of
+    the cost, the stop a plain share under the entry. The book and everything that trades its profiles (veliki/ucenik)
+    take their levels here."""
+    from veliki import rule
+    tp, stop = PROFILES[prof]
+    return rule.tp_price(px, tp, rt, None, {"exit_slip": 0.0}), px * (1 - stop)
+
+
+def known(tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None, size_sol=SIZE_SOL):
+    """What the book knows about a candidate BEFORE its entry: the fields of a book row that veliki/nauceno.facts reads
+    (band, calm, zone_ok, zone_why, width, btc, makro, dip, oprez, grok) plus the price, the place in the zone, the
+    liquidity, the market cap, the name and the cost (rt: the real round trip at size_sol, never under
+    replay.RT_FLOOR). None when it is no candidate: no zone edges, no liquidity, a round trip of 50 % or more.
+    ONE code path for the row the book stores and for a live prediction (18.11.), so both speak about the same thing."""
+    px, liq, url, mcap = (list(q[:4]) + [None] * 4)[:4]
+    band, pos = band_of(px, z)
+    if band is None or not liq or liq <= 0:
+        return None
+    from veliki import intra, live, replay, rule
+    sol = sol or live._sol()
+    c = rule.cost_at(size_sol, liq, sol, rule.fee_side_of(url=url), rule.tx_sol()[0])
+    # 18.11.: the real account's cost, never under the measured 3 % (replay.RT_FLOOR): a plus at an imagined cost
+    # teaches nothing
+    rt = max(c["rt"], rule.demo_rt(size_sol * sol, liq), replay.RT_FLOOR)
+    if rt >= 0.5:
+        return None
+    prow = prow or {}
+    g = prow.get("grok") or {}
+    grok = None
+    if g.get("verdict") and now - float(g.get("ts") or 0) <= 6 * 3600:
+        grok = str(g["verdict"]).strip().lower()[:12]
+    return {"px": px, "liq": liq, "url": url, "mcap": mcap, "rt": rt, "pos": round(pos, 4), "band": band,
+            "symbol": (q[4] if len(q) > 4 else None) or live._sym(tok, q),
+            "calm": 1 if intra.calm(b15 or [], cfg)[0] else 0, "zone_ok": 1 if (z or {}).get("ok") else 0,
+            "zone_why": why_class((z or {}).get("why")), "width": (z or {}).get("width"),
+            "btc": (btc or {}).get("state"), "makro": live._ST.get("makro_tag"),
+            "dip": ((prow.get("dip") or {}).get("kind") or None),
+            "oprez": 1 if (prow.get("block") or prow.get("risk")) else 0, "grok": grok}
+
+
 def consider(con, tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None):
     """Called once per token per completed 15m bar (live.intra_entries): open a shadow in every profile that has none
     in this token. How many were opened. Never raises."""
@@ -113,9 +154,8 @@ def consider(con, tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None):
         return 0
     try:
         _load(con, now)
-        px, liq, url, mcap = (list(q[:4]) + [None] * 4)[:4]
-        band, pos = band_of(px, z)
-        if band is None or not liq or liq <= 0:
+        px, liq = (list(q[:2]) + [None] * 2)[:2]
+        if band_of(px, z)[0] is None or not liq or liq <= 0:
             return 0
         day = _day(now)
         if _ST["day"] != day:
@@ -126,38 +166,23 @@ def consider(con, tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None):
         n_open = sum(len(v) for v in _ST["open"].values())
         if not free or _ST["n_day"] >= PER_DAY or n_open >= MAX_OPEN:
             return 0
-        from veliki import intra, live, rule
-        sol = sol or live._sol()
-        c = rule.cost_at(SIZE_SOL, liq, sol, rule.fee_side_of(url=url), rule.tx_sol()[0])
-        from veliki import replay   # 18.11.: the real account's cost, never under the measured 3 % (replay.RT_FLOOR):
-        rt = max(c["rt"], rule.demo_rt(SIZE_SOL * sol, liq), replay.RT_FLOOR)   # a plus at an imagined cost teaches nothing
-        if rt >= 0.5:
+        k = known(tok, q, now, z, b15, prow, btc, cfg, sol)
+        if k is None:
             return 0
-        calm = 1 if intra.calm(b15 or [], cfg)[0] else 0
-        prow = prow or {}
-        g = prow.get("grok") or {}
-        grok = None
-        if g.get("verdict") and now - float(g.get("ts") or 0) <= 6 * 3600:
-            grok = str(g["verdict"]).strip().lower()[:12]
-        dip = ((prow.get("dip") or {}).get("kind") or None)
-        oprez = 1 if (prow.get("block") or prow.get("risk")) else 0
-        sym = (q[4] if len(q) > 4 else None) or live._sym(tok, q)
+        rt = k["rt"]
         done = dict(con.execute("SELECT profil, COUNT(*) FROM veliki_sjena WHERE token=? AND opened_ts>=? GROUP BY profil",
                                 (tok, day)).fetchall())
         n = 0
         for prof in free:
             if done.get(prof, 0) >= ROUNDS:
                 continue
-            tp, stop = PROFILES[prof]
-            tp_px = rule.tp_price(px, tp, rt, None, {"exit_slip": 0.0})
-            stop_px = px * (1 - stop)
+            tp_px, stop_px = levels(px, prof, rt)
             cur = con.execute(
                 "INSERT INTO veliki_sjena (token, symbol, opened_ts, entry_px, profil, tp_px, stop_px, rt, pos, band, calm, "
                 "zone_ok, zone_why, width, btc, makro, dip, oprez, grok, mcap, liq, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,"
                 "?,?,?,?,?,?,?,?,?,'open')",
-                (tok, sym, int(now), px, prof, tp_px, stop_px, rt, round(pos, 4), band, calm, 1 if (z or {}).get("ok") else 0,
-                 why_class((z or {}).get("why")), (z or {}).get("width"), (btc or {}).get("state"),
-                 live._ST.get("makro_tag"), dip, oprez, grok, mcap, liq))
+                (tok, k["symbol"], int(now), px, prof, tp_px, stop_px, rt, k["pos"], k["band"], k["calm"], k["zone_ok"],
+                 k["zone_why"], k["width"], k["btc"], k["makro"], k["dip"], k["oprez"], k["grok"], k["mcap"], liq))
             held[prof] = {"id": cur.lastrowid, "entry": px, "tp": tp_px, "stop": stop_px, "rt": rt, "ts": int(now),
                           "pend": None}
             n += 1
@@ -312,9 +337,15 @@ def mcp(args=None):
     by = str(args.get("by") or "band")
     days = max(1, min(int(args.get("days") or 7), KEEP_D))
     con = lstore.connect()
+    demo = None
     try:
         rows = table(con, now, days, by, args.get("profile") or None)
         n = counts(con, now)
+        try:   # 18.11.: the demo account that tests the learner's rule forward (veliki/ucenik)
+            from veliki import ucenik
+            demo = ucenik.summary(con, now)
+        except Exception:  # noqa: BLE001 - the book's table never fails for it
+            demo = None
     except ValueError as e:
         return {"error": str(e)}
     finally:
@@ -328,6 +359,8 @@ def mcp(args=None):
         learned = nauceno.summary()
     except Exception:  # noqa: BLE001
         learned = None
+    if demo is not None:
+        learned = {**(learned or {}), "demo": demo}
     return {"today": n, "days": days, "by": by, "features": list(FEATURES), "learned": learned,
             "profiles": {k: {"target_net_pct": v[0], "stop_pct": v[1] * 100} for k, v in PROFILES.items()},
             "rows": rows[:int(args.get("limit") or 60)],

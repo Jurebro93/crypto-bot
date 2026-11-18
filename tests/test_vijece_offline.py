@@ -135,6 +135,7 @@ class Base(unittest.TestCase):
         if done:
             settings.put(self.con, sjeme.ONCE_KEY, 1, "test")
             settings.put(self.con, smjer.ONCE_KEY, self.now, "test")
+            settings.put(self.con, smjer.ONCE_KEY_B, self.now, "test")
         store.start_ts(self.con, self.now - 5)
 
     def note(self, kid=GROK_KID, title="Prijedlog", pc=None, evidence=None):
@@ -749,6 +750,133 @@ class Direction(Base):
         self.tick(self.now + 900)
         self.assertEqual(smjer.sjednica(self.con)["clanovi"], {"openai": "ok", "claude": "ok"})
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM assistant_notes WHERE key_id=?", (store.CLAUDE_KID,)).fetchone()[0], 1)
+
+
+class Learner(Base):
+    """18.11.: the council sees the learner's variants and its forward test, and deliberates once more."""
+
+    def test_the_learner_block_carries_the_variants_and_the_demo_line(self):
+        from veliki import nauceno, ucenik
+        st = {"n": 111, "clusters": 71, "ev": 0.049, "ev_trade": 0.04, "hit": 0.6, "lo": 0.017, "hi": 0.082}
+        summ = {"verdict": "nema_plusa", "verdict_text": "nema dokazanog plusa", "rows": 9000, "days": 46, "test_days": 39,
+                "picked": {**st, "ev": 0.008, "lo": -0.015, "hi": 0.032}, "all": {**st, "ev": -0.045}, "helps": ["a"],
+                "hurts": ["b"], "variants": {"thr": {"0.01": st, "0.02": {**st, "n": 49, "ev": 0.071}, "0.03": {"n": 0}},
+                                             "rt": {"0.020": st, "0.015": st}, "fixed": {"ispod × siroko": st}}}
+        demo = ("veliki naučeno (demo): pravilo od 18.11.: ulaz samo uz prognozu iznad +1 %; otvoreno 2; zatvoreno 0; "
+                "presuda nakon 21 dana ili 60 token-dana: još se mjeri")
+        with mock.patch.object(nauceno, "summary", lambda: summ), mock.patch.object(ucenik, "line_ro", lambda now: demo):
+            txt = smjer._ucenje(self.now, self.con)
+            mock.patch.stopall()                                  # the real IZVORI: the block inside the whole brief
+            self.addCleanup(mock.patch.stopall)
+            with mock.patch.object(nauceno, "summary", lambda: summ), mock.patch.object(ucenik, "line_ro", lambda now: demo), \
+                    mock.patch("veliki.makro.current", return_value=None), mock.patch("builtins.print"), \
+                    mock.patch("veliki.live.btc_state", return_value={"state": "normalno", "why": "mirno", "known": True,
+                                                                      "last_end": self.now - 600}):
+                brief = smjer.brief(self.now, self.con)
+        self.assertEqual(len(txt.splitlines()), 3)
+        self.assertIn("prognoza iznad +1%: +4.9% [+1.7%; +8.2%], n=111 (71 token-dana)", txt)
+        self.assertIn("prognoza iznad +2%: +7.1%", txt)
+        self.assertIn("prognoza iznad +3%: nema tradeova", txt)
+        self.assertIn("uz trošak runde 2.0%: +4.9%", txt)
+        self.assertIn("uz trošak runde 1.5%: +4.9%", txt)
+        self.assertIn("gledani su na ISTIM neviđenim danima kao i rezultat: to su hipoteze za nove dane, nisu dokaz", txt)
+        self.assertIn("pravilo od 18.11.: ulaz samo uz prognozu iznad +1 %; otvoreno 2; zatvoreno 0", txt)
+        self.assertNotIn("ispod × siroko", txt)                   # the plain rules stay in the learner's own line
+        self.assertIn("prognoza iznad +1%: +4.9% [+1.7%; +8.2%], n=111 (71 token-dana)", brief)   # not cut by the cap
+        self.assertIn("presuda nakon 21 dana ili 60 token-dana: još se mjeri", brief)
+        self.assertLessEqual(len(brief), smjer.BRIEF_MAX)
+
+    def test_without_a_result_only_the_demo_line_and_without_both_nothing(self):
+        from veliki import nauceno, ucenik
+        with mock.patch.object(nauceno, "summary", lambda: None), mock.patch.object(ucenik, "line_ro", lambda now: None):
+            self.assertIsNone(smjer._ucenje(self.now, self.con))
+        with mock.patch.object(nauceno, "summary", lambda: None), \
+                mock.patch.object(ucenik, "line_ro", lambda now: ucenik.PREFIX + "isključen"):
+            self.assertIn("isključen", smjer._ucenje(self.now, self.con))
+
+    def test_the_second_one_time_session_opens_once(self):
+        self.con.execute("DELETE FROM settings WHERE k=?", (smjer.ONCE_KEY_B,))   # the deploy: the first one is done
+        self.con.commit()
+        self.assertEqual(smjer.ONCE_KEY_B, "vijece_smjer_1811b")
+        from veliki import nauceno
+        for leaky in ({}, {"ts": 1, "verdict": "kandidat"}, {"ts": 1, "purge": "true"}):
+            with mock.patch.object(nauceno, "latest", lambda: leaky):
+                self.assertIsNone(smjer.na_redu(self.con, self.now))                # never on the leaky result
+        p = mock.patch.object(nauceno, "latest", lambda: {"ts": 1, "purge": True})  # the corrected result arrived
+        p.start()
+        self.addCleanup(p.stop)
+        why = smjer.na_redu(self.con, self.now)
+        self.assertEqual(why, "nova sjednica: stigao rezultat učenja po pragu prognoze")
+        s = smjer.korak(self.con, self.now, self.log)
+        self.assertEqual(s["razlog"], why)
+        self.assertEqual(settings.raw(self.con)[smjer.ONCE_KEY_B], self.now)
+        self.assertTrue(self.logged("vijeće: smjer: sjednica otvorena (nova sjednica: stigao rezultat učenja"))
+        smjer.zakljuci(self.con, self.now + 3600, self.log, force=True)
+        with mock.patch.object(smjer, "tjedan", lambda ts: 1):                      # the week rule out of the way
+            self.assertIsNone(smjer.na_redu(self.con, self.now + 2 * 3600))         # once
+            self.assertIsNone(smjer.korak(self.con, self.now + 2 * 3600, self.log))
+
+    def test_it_waits_for_an_open_session_and_any_new_session_uses_it_up(self):
+        from veliki import nauceno
+        s = smjer.otvori(self.con, self.now, self.log, "tjedna")                    # open before the deploy
+        self.con.execute("DELETE FROM settings WHERE k=?", (smjer.ONCE_KEY_B,))
+        self.con.commit()
+        self.assertNotIn(smjer.ONCE_KEY_B, settings.raw(self.con))                  # no corrected result: not used up
+        p = mock.patch.object(nauceno, "latest", lambda: {"ts": 1, "purge": True})
+        p.start()
+        self.addCleanup(p.stop)
+        self.assertIsNone(smjer.na_redu(self.con, self.now + 600))                  # one at a time
+        self.assertEqual(smjer.korak(self.con, self.now + 600, self.log)["ts"], s["ts"])
+        smjer.zakljuci(self.con, self.now + 3600, self.log, force=True)
+        self.assertEqual(smjer.na_redu(self.con, self.now + 3700), smjer.RAZLOG_B)  # opens when that one closed
+        self.con.execute("DELETE FROM settings WHERE k IN (?, ?)", (smjer.ONCE_KEY, smjer.ONCE_KEY_B))
+        self.con.commit()
+        self.assertEqual(smjer.na_redu(self.con, self.now + 3800), "prva sjednica nakon deploya")
+        smjer.otvori(self.con, self.now + 3800, self.log, "prva")                   # a new install: one session, both keys
+        raw = settings.raw(self.con)
+        self.assertTrue(raw[smjer.ONCE_KEY] and raw[smjer.ONCE_KEY_B])
+
+
+class OwnerDecisions(Base):
+    """18.11.: the owner's standing decisions lead every brief and every review; a proposal against them is refused."""
+
+    def test_they_lead_the_brief_and_the_session(self):
+        txt = smjer.brief(self.now, self.con)
+        self.assertTrue(txt.startswith("ODLUKE VLASNIKA"))
+        self.assertLess(txt.index("pravi novac se NE pauzira"), txt.index("STANJE ALATA"))
+        self.assertIn("18.11.: pravi novac se NE pauzira; cilj svih resursa je da tradeovi pravim novcem budu profitabilni. "
+                      "Prijedlozi 'pauzirati pravi novac' nisu prihvatljivi; prihvatljivi su prijedlozi koji mijenjaju ŠTO "
+                      "pravi novac kupuje i kako izlazi, uz dokaz.", txt)
+        self.assertIn("18.11.: vlasnik je odobrio jednokratno mjerenje troška jednim stvarnim krugom pri 0,3 i 0,5 SOL.", txt)
+        self.assertEqual(len(smjer.ODLUKE_VLASNIKA), 2)
+        smjer.otvori(self.con, self.now, self.log, "prva")
+        body = [b for b in self.openai.calls if b["text"]["format"]["name"] == "vijece_smjer"][0]
+        self.assertIn("pravi novac se NE pauzira", body["input"])
+        self.assertIn("ODLUKE VLASNIKA", body["instructions"])
+        self.assertIn("proturječi", smjer.SYSTEM)
+
+    def test_the_reviewers_get_them_and_are_told_to_refuse_what_contradicts_them(self):
+        self.note(title="Pauzirati pravi novac dok demo ne dokaže plus")
+        self.tick()
+        for sent, system in ((self.openai.review_calls()[0]["input"], self.openai.review_calls()[0]["instructions"]),
+                             (self.claude.calls[0]["text"], self.claude.calls[0]["system"])):
+            self.assertEqual(sent.count("pravi novac se NE pauzira"), 1)            # once, not doubled
+            self.assertLess(sent.index("ODLUKE VLASNIKA"), sent.index("presuda: nema dokazanog plusa"))
+            self.assertIn("ODLUKE VLASNIKA u\nkontekstu su njegove trajne odluke", system)
+            self.assertIn('odbij ("protiv") ili ga doradi', system)
+
+    def test_a_brief_stored_before_the_decisions_still_gets_them(self):
+        note = {"id": 7, "predlagac": "grok", "title": "x", "interpretation": "y"}
+        txt = kriticari.korisnik_tekst(note, {"stanje": "STANJE ALATA, staro: bez odluka"}, self.con)
+        self.assertEqual(txt.count("pravi novac se NE pauzira"), 1)
+        self.assertLess(txt.index("ODLUKE VLASNIKA"), txt.index("STANJE ALATA, staro"))
+        new = kriticari.korisnik_tekst(note, {"stanje": smjer.brief(self.now, self.con)}, self.con)
+        self.assertEqual(new.count("pravi novac se NE pauzira"), 1)
+
+    def test_the_new_real_money_switch_is_never_the_councils(self):
+        for pc in ({"key": "pravi_novac_nauceno", "from": "off", "to": "live"},
+                   {"flag": "pravi_novac_nauceno", "mode": "off"}, {"key": "flag:pravi_novac_nauceno", "to": "live"}):
+            self.assertEqual(odluka.klasa(pc), "pravi_novac", pc)
 
 
 class Brief(Base):

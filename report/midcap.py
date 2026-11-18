@@ -139,20 +139,24 @@ def rule_of(r):
 
 
 def vrows(lcon, since=None, closed_only=False):
-    """league.db veliki_trades as dicts: open + opened / closed since `since`, or every closed row (closed_only)."""
+    """league.db veliki_trades as dicts: open + opened / closed since `since`, or every closed row (closed_only).
+    Only the rules' own rows: the explorer's demo account (veliki/istrazivac) and the učenik's rows (veliki/ucenik:
+    its demo account and its real twins on the real account, tagged varijanta "nauceno:...") have their own lines."""
     if not _has(lcon, "veliki_trades"):
         return []
     have = {r[1] for r in lcon.execute("PRAGMA table_info(veliki_trades)")}
     cols = [c for c in VCOLS if c in have]
+    own = " AND COALESCE(varijanta, '') NOT LIKE 'nauceno:%'" if "varijanta" in have else ""
     if closed_only:
-        sql, args = f"SELECT {', '.join(cols)} FROM veliki_trades WHERE status='closed' AND ret IS NOT NULL", ()
+        sql, args = f"SELECT {', '.join(cols)} FROM veliki_trades WHERE status='closed' AND ret IS NOT NULL{own}", ()
     else:
-        sql = (f"SELECT {', '.join(cols)} FROM veliki_trades WHERE status='open' OR opened_ts>=? OR closed_ts>=? "
-               "OR half_ts>=?" if "half_ts" in have else
-               f"SELECT {', '.join(cols)} FROM veliki_trades WHERE status='open' OR opened_ts>=? OR closed_ts>=?")
+        sql = (f"SELECT {', '.join(cols)} FROM veliki_trades WHERE (status='open' OR opened_ts>=? OR closed_ts>=? "
+               f"OR half_ts>=?){own}" if "half_ts" in have else
+               f"SELECT {', '.join(cols)} FROM veliki_trades WHERE (status='open' OR opened_ts>=? OR closed_ts>=?){own}")
         args = (since, since, since) if "half_ts" in have else (since, since)
-    from veliki import istrazivac   # 18.11.: the explorer's demo trades are not the rule's (its own hourly line)
-    return [d for d in (dict(zip(cols, r)) for r in lcon.execute(sql, args)) if d.get("user") != istrazivac.USER]
+    from veliki import istrazivac, ucenik   # 18.11.: the explorer's and the učenik's demo trades are not the rule's
+    other = (istrazivac.USER, ucenik.USER)  # (each has its own hourly line)
+    return [d for d in (dict(zip(cols, r)) for r in lcon.execute(sql, args)) if d.get("user") not in other]
 
 
 def window(rows, t0, t1):

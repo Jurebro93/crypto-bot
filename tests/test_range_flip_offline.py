@@ -349,6 +349,7 @@ class LiveGate(TradeBase):
         # macro influencers' DEMO input makroinf_indeks (MI1) and the public pages' owner switch makroinf_javno (MI2);
         # 16.11.: the measurement flag of the influencers' probably linked wallets insajderi_kol (P24, insajderi/)
         # 16.11.: the demo copies of the proven wallets kopija_dokazani (P25, wallets/kopija_demo.py)
+        # 18.11.: the learned rule's owner switch pravi_novac_nauceno (P26, veliki/ucenik.py)
         self.assertEqual(names[names.index("range_flip") + 1:], ["range_missed", "x_call_scalp", "range_demo",
                                                                  "pravi_novac_sve", "prati_zadnjih5", "openai_kritika",
                                                                  "konsenzus", "pravi_novac_izvori", "oscilator",
@@ -357,7 +358,7 @@ class LiveGate(TradeBase):
                                                                  "pravi_novac_veliki", "fokus_midcap",
                                                                  "arhiva_mikrokapova", "insajderi2",
                                                                  "makroinf_indeks", "makroinf_javno",
-                                                                 "insajderi_kol", "kopija_dokazani"])
+                                                                 "insajderi_kol", "kopija_dokazani", "pravi_novac_nauceno"])
         self.assertEqual(settings.flag("range_flip", con=self.con), "off")
         self.assertNotIn("range_flip", settings.DATA_FLAGS)
         self.assertNotIn("range_flip", settings.NEVER_LIVE)
