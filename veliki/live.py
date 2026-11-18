@@ -1291,6 +1291,11 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             _ST["q"][tok] = (q, now)
             if tok in open_t:   # 16.11.: the open positions' liquidity of the last hour (liq_drop, stop gaps)
                 _win().note(tok, now, q[1] if len(q) > 1 else None)
+    try:   # 18.11.: the shadow book's exits on this pass's quotes (veliki/sjena.mark never raises; rows only)
+        from veliki import sjena
+        sjena.mark(con, mk, now)
+    except Exception:  # noqa: BLE001
+        pass
     con.commit()
     cfg = cfg_now()
     if cfg.get("default") and now - _ST.get("default_said", 0) >= 3600:
@@ -1311,6 +1316,11 @@ def tick(con, market_fn, now=None, force=False, toks=None):
                 out.append(istrazivac.line(con, now))
             except Exception as e:  # noqa: BLE001
                 out.append(f"veliki istraživač: red nije složen ({type(e).__name__})")
+            try:   # 18.11.: the shadow book's counts and its best / worst cell
+                from veliki import sjena
+                out.append(sjena.line(con, now))
+            except Exception as e:  # noqa: BLE001
+                out.append(f"veliki sjena: red nije složen ({type(e).__name__})")
             out.append(refusal_line())
         _ST["rep_h"] = hour
     if not users or not poll_all:
@@ -1469,7 +1479,7 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
     enter); one position a token, cooldown intra.COOLDOWN_S after an exit, at most intra.MAX_ROUNDS rounds a token a
     Zagreb day. [text]."""
     from trade import settings
-    from veliki import intra, istrazivac
+    from veliki import intra, istrazivac, sjena
     out = []
     m15 = int(now) - int(now) % M15
     icfg = intra.cfg_of()
@@ -1482,6 +1492,12 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
         if not q or not q[0]:
             continue
         _ST["bar15"][tok] = m15
+        b15, h1 = bars_intra(tok, now)
+        z = intra.zone(h1, m15, icfg)
+        # 18.11. (owner: "1000 demo tradeova dnevno ... da bi program mogao naučiti"): every candidate of the bar goes
+        # into the shadow book in five exit profiles, whatever the rule decides below (veliki/sjena: rows only, no
+        # account, no money, never raises)
+        sjena.consider(con, tok, q, now, z, b15, pr.get(tok), btc, icfg, sol)
         dip = (pr.get(tok) or {}).get("dip") or {}
         if dip.get("kind") == "los":
             _refused("dnevni: pad iz lošeg razloga")
@@ -1492,8 +1508,6 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
         if (pr.get(tok) or {}).get("risk"):   # 15.11. popodne (prioritet.static_risk): known before the buy
             _refused("dnevni: oprez (koncentracija / dev / ovlasti)")
             continue
-        b15, h1 = bars_intra(tok, now)
-        z = intra.zone(h1, m15, icfg)
         why = intra.signal(q[0], z, b15, icfg, btc["state"])
         if why:
             _refused("dnevni: " + why)

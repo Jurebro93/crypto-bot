@@ -21,6 +21,9 @@
 - Demo istraživač (18.11., vlasnik: „što više demo tradeova”): drugi demo račun kupuje kandidate koje dnevno pravilo
   odbije (šira zona, svijeće još padaju, Grokov „kupi” s X-a), svaki s oznakom; nikad pravi novac, ne ulazi u dokaz.
   Grok bot je analitičar (X, objave, hype) i drugi kritičar uz OpenAI; Grok autotrade pravim novcem pali samo vlasnik.
+- Knjiga sjene (18.11., vlasnik: „1000 demo tradeova dnevno da bi program mogao naučiti”): svaki midcap kandidat
+  ulazi kao zamišljeni trade u pet profila izlaza (samo redci, bez računa i novca); ocjena po token-danu, ćelija
+  vrijedi tek uz 20 token-dana i potvrdu na kasnijim danima; ništa što odlučuje o trgovanju je ne čita.
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.

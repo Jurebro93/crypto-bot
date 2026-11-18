@@ -1983,6 +1983,31 @@ TOOLS.append(
          "key": {"type": "string", "description": "one machine by its key, e.g. position, mcp_request, grok_autotrade"}}}})
 
 
+# 18.11. (owner: "1000 demo tradeova treba raditi dnevno da bi program mogao naučiti što prolazi, a što ne";
+# veliki/sjena.py): the shadow book, read-only
+TOOLS.append(
+    {"name": "get_shadow_book", "annotations": _READ,
+     "description": ("The shadow book of the midcap strategy: about a thousand IMAGINED trades a day (rows only, no "
+                     "account, no money). Every candidate of the demo universe is entered once per 15m bar in five exit "
+                     "profiles (skalp +3 % / -4 %, kratko +6 / -8, uski +10 / -8, pravilo +10 / -20 = the live rule, "
+                     "siroko +20 / -20; targets net of the real round trip), whatever the live rule decides, so the "
+                     "same entry is judged under five exits. A level crossed on one quote is filled at the next quote. "
+                     "Returns today's counts and the closed shadows of the last `days` grouped by one feature known "
+                     "BEFORE the entry (by: band = where the price stood in the 48 h zone: dno / donja / sredina / "
+                     "vrh / ispod / iznad; calm = had the 15m bars stopped falling; zone_ok; btc = BTC regime; makro; "
+                     "dip = the dip reason; oprez = holder block or static risk; grok = your own verdict from X; "
+                     "hour6) and the profile: n, clusters (token-days), ev (mean net return), hit, lo / hi (90 % "
+                     "interval over token-days), enough (>= 20 token-days). Use it to say which entries and exits "
+                     "the data supports and which it refutes; a cell is evidence only when enough is true and it "
+                     "holds on later days, and with ~45 cells a few look good by chance. by=grok shows how your own "
+                     "'kupi' and 'preskoči' did. Nothing here changes a rule: propose changes as notes."),
+     "inputSchema": {"type": "object", "properties": {
+         "by": {"type": "string", "enum": ["band", "calm", "zone_ok", "btc", "makro", "dip", "oprez", "grok", "hour6"],
+                "default": "band"},
+         "days": {"type": "integer", "minimum": 1, "maximum": 45, "default": 7},
+         "profile": {"type": "string", "enum": ["skalp", "kratko", "uski", "pravilo", "siroko"]},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 60}}}})
+
 SEEN_KEY = "mcp_seen"
 SEEN_EVERY_S = 60
 _SEEN = {"saved": 0.0, "day": None, "n": 0}
@@ -2084,6 +2109,10 @@ def _tool(name, args, kid="local"):
     if name == "get_insiders2":   # 15.11. insajderi/, read-only
         from insajderi import report as i2report
         d = i2report.mcp(args)
+        return d, "error" in d
+    if name == "get_shadow_book":   # 18.11. veliki/sjena.py, read-only
+        from veliki import sjena
+        d = sjena.mcp(args)
         return d, "error" in d
     if name == "get_system_state":   # 17.11. stanja/: the global state now + the registry, read-only
         from stanja import ploca
