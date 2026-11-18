@@ -958,6 +958,8 @@ def cmd_follow(a):
             if cfg.get("follow_paper"):
                 follow_once(con, cfg, since)
             _exit_recon_once(con)             # 10.11. (plan 1.5): demo vs real exit price of positions just closed
+            if executor.is_live(cfg):         # 18.11. (audit): the token-account deposit of a closed position, tried
+                executor.rent_sweep(con, time.time())   # again here (it did not come back once in 11 closes); never raises
             _mjerenje_once(con, cfg)          # 18.11.: the owner's one-time cost measurement, last: exits and buys first
             con.close()
         except Exception as e:

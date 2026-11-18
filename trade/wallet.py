@@ -61,7 +61,23 @@ def sign(tx_b64, keypair=None):
     if kp is None:
         raise RuntimeError("SOLANA_PRIVATE_KEY nije postavljen")
     tx = VersionedTransaction.from_bytes(base64.b64decode(tx_b64))
-    return base64.b64encode(bytes(VersionedTransaction(tx.message, [kp]))).decode()
+    n = tx.message.header.num_required_signatures
+    if n <= 1:
+        return base64.b64encode(bytes(VersionedTransaction(tx.message, [kp]))).decode()
+    # 18.11. (audit): an order that needs a second signer (a market maker co-signs, or somebody else pays the fee) made
+    # VersionedTransaction(message, [kp]) raise "SignerError: not enough signers": 3 of 13 real midcap buys were lost
+    # and two real sales waited 103 s and 221 s (15.-16.11.). We sign OUR slot and leave the others as received; the
+    # other party adds its own (Jupiter's execute endpoint for its own orders).
+    from solders.message import to_bytes_versioned
+    keys = list(tx.message.account_keys)[:n]
+    me = kp.pubkey()
+    if me not in keys:
+        raise RuntimeError("naš ključ nije među potpisnicima naloga")
+    sigs = list(tx.signatures)
+    if len(sigs) != n:
+        raise RuntimeError(f"nalog traži {n} potpisa, a nosi {len(sigs)} mjesta")
+    sigs[keys.index(me)] = kp.sign_message(to_bytes_versioned(tx.message))
+    return base64.b64encode(bytes(VersionedTransaction.populate(tx.message, sigs))).decode()
 
 
 def _rpc_url():
@@ -148,7 +164,7 @@ def sign_raw(tx_bytes, keypair=None):
     return sign(base64.b64encode(tx_bytes).decode(), keypair)
 
 
-def close_empty(owner_kp, mint):
+def close_empty(owner_kp, mint, wait_s=30):
     """Close this wallet's empty token accounts for `mint`, giving the ~0.002 SOL rent of each back.
     Returns lamports reclaimed (0 when nothing was empty or the RPC failed)."""
     from solders.hash import Hash
@@ -168,4 +184,4 @@ def close_empty(owner_kp, mint):
     bh = Hash.from_string(rpc("getLatestBlockhash", [{"commitment": "confirmed"}])["value"]["blockhash"])
     tx = VersionedTransaction(MessageV0.try_compile(owner, ixs, [], bh), [owner_kp])
     sig = send(base64.b64encode(bytes(tx)).decode())
-    return lamports if confirmed(sig, wait_s=30) else 0
+    return lamports if confirmed(sig, wait_s=wait_s) else 0

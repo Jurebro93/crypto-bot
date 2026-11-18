@@ -814,7 +814,14 @@ def _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct, limit=N
             before = wallet.token_raw_balance(wallet.address(), output_mint)
         except Exception:  # noqa: BLE001
             before = None
-    r = jupiter.execute(wallet.sign(o["transaction"]), o["requestId"], route=route)
+    try:
+        signed = wallet.sign(o["transaction"])
+    except Exception as e:  # noqa: BLE001 - 18.11. (audit): nothing was sent, so this is a failed try like any other:
+        # it gets its order row (the token in the log, the sale's backoff) and the next route goes out in the same
+        # pass, instead of an exception that ended the whole real-money pass once a second for minutes
+        return {**res, "status": "failed", "retry": True,
+                "error": f"{ROUTE_HR[route]}: nalog nije potpisan ({type(e).__name__}: {str(e)[:80]})"}
+    r = jupiter.execute(signed, o["requestId"], route=route)
     if r is None:   # never answered: the swap may or may not have landed, never try another route blind
         if before is not None:
             try:
@@ -1342,6 +1349,71 @@ def exit_reconcile(con, lg, decimals_fn, sol_usd_fn, now=None, window_s=RECON_WI
     if done:
         con.commit()
     return done
+
+
+# 18.11. (audit, trošak): the deposit of a token account (~0.00204 SOL, 2.04 % of a 0.1 SOL stake) did not come back:
+# 0 refunds in 11 full closes on 14.-15.11. _reclaim_rent below runs once, right after the sale answers, when the
+# wallet's token account usually does not read empty yet, and nothing tried again. rent_sweep is that second try: a
+# step of the trade loop, at most once a minute, ONE closed live position (of the last 7 days, closed at least 30 s
+# ago, no open lot of the token, no refund booked since it closed), at most 3 tries a position, a short wait for the
+# confirmation so the loop is not held. It only closes token accounts that are EMPTY (wallet.close_empty checks the
+# balance itself) and books the refund exactly as _reclaim_rent does.
+RENT_SWEEP_EVERY_S = 60
+RENT_SWEEP_AGE_S = 30
+RENT_SWEEP_DAYS = 7
+RENT_SWEEP_TRIES = 3
+RENT_SWEEP_WAIT_S = 5
+_RENT = {"ts": 0}
+
+
+def rent_sweep(con, now, wait_s=RENT_SWEEP_WAIT_S):
+    """One try (see above). None when nothing was due, else the lamports that came back (0 = not yet). Never raises."""
+    now = int(now)
+    if now - _RENT["ts"] < RENT_SWEEP_EVERY_S:
+        return None
+    _RENT["ts"] = now
+    try:
+        tries = dict(settings.raw(con).get("rent_tries") or {})
+        rows = con.execute(
+            "SELECT p.id, p.token, p.symbol FROM positions p WHERE p.mode='live' AND p.status='closed' "
+            "AND p.closed_ts>=? AND p.closed_ts<=? AND COALESCE(p.sol_in, 0)>0 AND COALESCE(p.qty_raw, 0)>0 "
+            "AND NOT EXISTS (SELECT 1 FROM positions q WHERE q.token=p.token AND q.mode='live' "
+            "                AND q.status IN ('open','pending')) "
+            "AND NOT EXISTS (SELECT 1 FROM orders o JOIN positions r ON r.id=o.position_id WHERE o.side='rent' "
+            "                AND r.token=p.token AND o.ts>=p.closed_ts) "
+            "ORDER BY p.closed_ts DESC LIMIT 60", (now - RENT_SWEEP_DAYS * 86400, now - RENT_SWEEP_AGE_S)).fetchall()
+        seen = set()
+        for pid, token, symbol in rows:
+            if token in seen:           # one account a token: the newest closed position of the token carries the refund
+                continue
+            seen.add(token)
+            n = int(tries.get(str(pid)) or 0)
+            if n >= RENT_SWEEP_TRIES:
+                continue
+            tries[str(pid)] = n + 1
+            settings.put(con, "rent_tries", dict(sorted(tries.items(), key=lambda kv: int(kv[0]))[-300:]), "alat")
+            name = symbol or token[:6]
+            try:
+                got = wallet.close_empty(wallet._keypair(), token, wait_s=wait_s)
+            except Exception as e:  # noqa: BLE001 - only the deposit; the loop goes on
+                print(f"trade: depozit token računa {name}: pokušaj {n + 1}/{RENT_SWEEP_TRIES} nije uspio "
+                      f"({type(e).__name__}: {str(e)[:80]})", flush=True)
+                return 0
+            if got:
+                con.execute("UPDATE positions SET fees_sol=COALESCE(fees_sol,0)-? WHERE id=?", (got / LAMPORTS, pid))
+                _log(con, now, pid, token, "rent", "live", {"status": "ok", "amount_out": got, "fee_lamports": -got,
+                                                            "route": "rpc"}, "vraćen depozit token računa (naknadno)")
+                con.commit()
+                print(f"trade: vraćen depozit token računa {name}: +{got / LAMPORTS:.5f} SOL (pozicija #{pid}, "
+                      f"pokušaj {n + 1})", flush=True)
+            else:
+                print(f"trade: depozit token računa {name} nije vraćen (račun nije prazan ili zatvaranje nije "
+                      f"potvrđeno), pokušaj {n + 1}/{RENT_SWEEP_TRIES}", flush=True)
+            return got or 0
+        return None
+    except Exception as e:  # noqa: BLE001 - never the trade loop's problem
+        print(f"trade: povrat depozita: {type(e).__name__}: {str(e)[:100]}", flush=True)
+        return None
 
 
 def _reclaim_rent(con, now, position_id, token):
