@@ -1786,6 +1786,18 @@ def tasks(limit=20, now=None, src=None):
                                                   "evidence": {"source": "catalyst_check",
                                                                "catalyst": "poziv | listing | boost | vijest | kit | "
                                                                            "nepoznato"}}}})
+    # 18.11. (vlasnik: "ako OpenAI ima prijedlog, Grok i Claude moraju biti kritični"; vijece/mcp.py): the council's
+    # work first: a direction session that waits for Grok's answer, and the notes of OpenAI / Claude that wait for
+    # Grok's review (the oldest 5), answered with submit_suggestion ("Smjer: ...") / submit_council_review
+    def council():
+        from vijece import mcp as vmcp
+        tc = S._tcon()
+        try:
+            return vmcp.grok_tasks(tc, now_i)
+        finally:
+            if tc is not None:
+                tc.close()
+    out += safe(council, [])
     out.sort(key=lambda t: (t["priority"], t.get("rank") or 999))
 
     def intake():

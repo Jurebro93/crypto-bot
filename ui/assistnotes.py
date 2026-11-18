@@ -6,6 +6,12 @@ Storage: trade.db table assistant_notes. The MCP write tools only INSERT here (v
 at most RATE_PER_HOUR writes an hour per key). Nothing reads a note for trading. Only the owner's "Primijeni" on the
 Autopilot page applies a note's proposed_change, and only for the keys in APPLY (each with its own check); the old and
 the new value go to the log (settings "applied_log"). Anything else is marked 'prihvaćeno' for a manual change.
+
+18.11. (vlasnik: "automatski prihvati sve prijedloge koji imaju smisla ... Claude i OpenAI moraju biti kritični prema
+njemu, doraditi ga i prihvatiti ako se slažu"; vijece/): a suggestion written after the council's first pass is
+reviewed by the two council members who did not write it; when both accept it, vijece/odluka.py calls the same apply()
+/ decide() below in the council's name (owner_note "vijeće: ..."). The council never applies a real-money key
+(size_sol, max_open, tp_default, sl_default, copy.*): those stay the owner's tap.
 """
 import hashlib
 import json
@@ -123,7 +129,9 @@ def _insert(con, kid, **row):
 def _done(nid, kind):
     print(f"mcp: asistent je zapisao {kind} #{nid} (čeka vlasnika)", flush=True)
     return {"id": nid, "kind": kind, "status": "novo",
-            "message": "Stored for the owner on the MemeSonar Autopilot page; nothing in live trading changed."}
+            "message": "Stored on the MemeSonar Autopilot page; nothing in live trading changed. A suggestion is reviewed by "
+                       "the council (the other two assistants; get_council shows the outcome); what touches real "
+                       "money waits for the owner."}
 
 
 # ---------- the four write tools (insert only) ---------------------------------------------------------------------

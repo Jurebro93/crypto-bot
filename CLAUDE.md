@@ -29,6 +29,12 @@
 - Twitter API krediti (18.11., vlasnik): za midcapove koje pratimo: tko ih zove i gura, izmjerena moć poziva (kretanje
   nakon objave iznad prosjeka tokena), pa praćenje najjačih kad pozovu mali token (demo). Makro influenceri: dohvat
   zaustavljen dok vlasnik ne odobri. Pretraga po midcapu: strop 4 $ dnevno, oko 2,50 $ po tjednom prolazu.
+- Vijeće (18.11., vlasnik: „kad Grok pošalje prijedlog, Claude i OpenAI moraju biti kritični, doraditi ga i prihvatiti
+  ako se slažu; isto za OpenAI i Claude”): prijedlog jednog člana (Grok, OpenAI, Claude) ocjenjuju druga dva; kad su oba
+  bez „protiv”, prihvaća se sam (dopuštena postavka se primijeni, najviše do sjene; ostalo ide Claude Codeu za izvedbu),
+  oba protiv = odbijeno, podijeljeno = vlasnik. Pravi novac (ulog, broj pozicija, TP, SL, copy.*, live, autotrade, kill)
+  vijeće nikad ne primjenjuje: samo vlasnik. Grok ima 6 h, zatim se odlučuje bez njega. Budžet 0,60 $ dnevno po članu
+  (OpenAI, Claude); sjednica o smjeru jednom tjedno (ponedjeljak) i kad se presuda učenja promijeni.
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.

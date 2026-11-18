@@ -16,6 +16,8 @@ if it did not exist. Read-only on the databases except the request queue (trade 
 assistant's notes (ui/assistnotes.py) and the insert-only X features (xfeat.db, ui/xfeat.py; 10.11. Grok MCP audit 10);
 11.11.: also the caller weights (applied on arrival, trade settings caller_weights, behind the flag caller_weights)
 and Grok's predictions (events.db grok_predictions, insert only, events/predictions.py).
+18.11.: also Grok's council reviews (vijece/, trade.db vijece_ocjene; a review that completes a note's two voices
+decides it in vijece/odluka.py, which never applies a real-money key).
 Why trades wait for the owner: the client is an LLM that reads public posts; a crafted post has already made Grok
 order a transfer (May 2026). Real money moves only on the owner's tap (CLAUDE.md: pitaj prije), or, since 10.11. at
 the owner's request, through grok_autotrade: off by default, switched on only by the owner on the Autopilot page,
@@ -1358,7 +1360,10 @@ TOOLS += [
          "min_sources": {"type": "integer", "minimum": 1, "maximum": 10, "default": 1},
          "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 30}}}},
     {"name": "get_grok_tasks", "annotations": _READ,
-     "description": ("Your work queue, most useful first, with how_to_work: x_check (search X for a top candidate's CA "
+     "description": ("Your work queue, most useful first, with how_to_work: council_review / council_direction "
+                     "(18.11., the council: a proposal of OpenAI or Claude waits for your critical review, answer "
+                     "with submit_council_review; or a direction session waits for your answer, see "
+                     "get_council_queue), x_check (search X for a top candidate's CA "
                      "and ticker; answer with submit_x_features: it can lift a rug risk rating and saves MemeSonar's "
                      "paid X lookup), resolve_conflict (sources disagree, e.g. good callers but falling X momentum; "
                      "answer with submit_signal_opinion), label_group / label_insiders (name a hidden wallet list, a "
@@ -2033,6 +2038,71 @@ TOOLS.append(
      "inputSchema": {"type": "object", "properties": {
          "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20}}}})
 
+# 18.11. (vlasnik: "Kad Grok pošalje prijedlog, Claude i OpenAI moraju biti kritični prema njemu, doraditi ga i
+# prihvatiti ako se slažu. Isto tako, ako OpenAI ima prijedlog, Grok i Claude moraju biti kritični"; vijece/): the
+# council. Grok has no API in the app, so its part is these tools: what waits for its review, its review, the picture.
+TOOLS += [
+    {"name": "get_council_queue", "annotations": _READ,
+     "description": ("The council (vijeće: Grok, OpenAI, Claude; every proposal is reviewed by the two members who did "
+                     "not write it). reviews: the suggestion notes of OpenAI and Claude that wait for YOUR critical "
+                     "review, oldest first: note_id, title, proposer, interpretation, improvement, evidence, "
+                     "proposed_change, other_reviews (the other member's verdict and critique when it is in), "
+                     "review_by_ts (after it the note is decided without you). Answer each with "
+                     "submit_council_review. direction_request (while a direction session is open and you have not "
+                     "answered): the measured state of the tool (brief) and the question, one direction for ALL "
+                     "resources; answer with at most 3 submit_suggestion calls whose title starts with \"Smjer: \". "
+                     "last_direction: the result of the last session (accepted, rejected, waiting for the owner). "
+                     "Your own proposals (submit_suggestion) are reviewed by OpenAI and Claude the same way."),
+     "inputSchema": {"type": "object", "properties": {
+         "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20}}}},
+    {"name": "submit_council_review",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+     "description": ("Your review of one note from get_council_queue (not of your own proposal: that is refused). "
+                     "verdict: slazem (it makes sense exactly as it stands) | doradi (you agree with the aim and "
+                     "give a concrete better version in critique; refined_change = that version as one JSON object "
+                     "in the shape of proposed_change when it is a setting, omitted when the refinement is text only) "
+                     "| protiv (with the reason). critique (required, at most 4000 characters): which numbers support "
+                     "the proposal, what could go wrong, whether it raises NET profit (trading PnL minus running cost) "
+                     "and how, whether it is measurable and reversible. One review per note. When both reviewers are "
+                     "in and neither is protiv the proposal is accepted: an allow-listed setting that is not real "
+                     "money is applied at once (flags at most to shadow), a change that needs code is queued for the "
+                     "coding session; both protiv = rejected; a split = the owner decides. Real money (size_sol, "
+                     "max_open, tp_default, sl_default, copy.*, anything live / autotrade / kill) is never applied "
+                     "by the council. The answer says whether a decision was taken."),
+     "inputSchema": {"type": "object", "properties": {
+         "note_id": {"type": "integer"},
+         "verdict": {"type": "string", "enum": ["slazem", "doradi", "protiv"]},
+         "critique": {"type": "string", "maxLength": 4000},
+         "refined_change": {"type": "object", "description": "only with doradi: the better change as one JSON object"}},
+         "required": ["note_id", "verdict", "critique"]}},
+    {"name": "get_council", "annotations": _READ,
+     "description": ("The council's whole picture, read-only: queue (every note under review with the reviews so far "
+                     "and who is missing), decisions (the last 20: prihvaceno_primijenjeno | prihvaceno_za_izvedbu | "
+                     "odbijeno | vlasniku, the reason, what was applied, both critiques), za_izvedbu (accepted "
+                     "proposals that need code, not implemented yet), last_direction (the last direction session's "
+                     "result), open_direction_session, today (reviews, decisions and the spend of the UTC day) and "
+                     "the rules."),
+     "inputSchema": {"type": "object", "properties": {}}},
+]
+COUNCIL_TOOLS = ("get_council_queue", "submit_council_review", "get_council")
+INSTRUCTIONS += (" Council (vijeće): you are one of three members with OpenAI and Claude. get_grok_tasks lists "
+                 "council_review (a proposal of another member waits for your critical review: get_council_queue, "
+                 "then submit_council_review with slazem | doradi | protiv) and council_direction (a direction "
+                 "session is open: answer with submit_suggestion, title starting \"Smjer: \"). Your own "
+                 "submit_suggestion notes are reviewed by the other two and accepted when both agree; real money is "
+                 "never changed by the council.")
+
+
+def _council_tool(name, a, kid):
+    """18.11. (vijece/mcp.py): the three council tools."""
+    from vijece import mcp as vmcp
+    if name == "get_council_queue":
+        return vmcp.queue(a)
+    if name == "submit_council_review":
+        return vmcp.submit_review(a, kid)
+    return vmcp.council(a)
+
+
 SEEN_KEY = "mcp_seen"
 SEEN_EVERY_S = 60
 _SEEN = {"saved": 0.0, "day": None, "n": 0}
@@ -2076,6 +2146,9 @@ def _tool(name, args, kid="local"):
         d = _xfeat_tool(name, args, kid)
         if name == "submit_x_features" and (args.get("subject_kind") or "token") == "token":
             d = _retry_hint(d, args.get("subject") or args.get("token"))
+        return d, "error" in d
+    if name in COUNCIL_TOOLS:   # 18.11. vijece/mcp.py
+        d = _council_tool(name, args, kid)
         return d, "error" in d
     if name in ("get_trade_candidates", "get_grok_tasks"):   # 10.11. ui/kandidati.py, read-only
         from ui import kandidati

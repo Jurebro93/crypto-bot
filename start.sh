@@ -368,8 +368,9 @@ low keep zonewatch python3 run_zonewatch.py loop
 # 18.11. (vlasnik: "Twitter API kredite koristiš za ove mid-capove ... tko agresivno gura ... velike influencere koji
 # imaju veliku moć poziva"; veliki/moc.py): the posts already bought + one X search per midcap a week (at most ~$2.50 a
 # pass, hard cap MOC_DAY_USD 4 $ a UTC day), the price after each post from our candles. 9.5 min after a start (ahead
-# of run_insajderi.py once, like the learner above), then every 12 h, under the heavy-job lock. One line "moć poziva: ...", its own file moc.db.
-( sleep "${MOC_FIRST_S:-570}"; while true; do python3 -m ops.heavy run_veliki.py moc || echo "moć poziva nije uspjela"; sleep "${MOC_EVERY_S:-43200}"; done ) &
+# of run_insajderi.py once, like the learner above), then every 3 h (18.11.: one pass searches ~35 tokens in its
+# 240 s, 176 are queued; a token is searched once in 7 days, so later passes cost nothing), under the heavy-job lock. One line "moć poziva: ...", its own file moc.db.
+( sleep "${MOC_FIRST_S:-570}"; while true; do python3 -m ops.heavy run_veliki.py moc || echo "moć poziva nije uspjela"; sleep "${MOC_EVERY_S:-10800}"; done ) &
 # 16.11. (vlasnik: "Objasni mi kako ovdje postoji profitabilni wallet, a mi nemamo profitabilnu strategiju"; wallets/
 # kopija.py): what WE would have earned copying the "dokazan dvaput" wallets: picked on the older 60 % of the stored
 # days, their buys of the newer 40 % taken 30 / 60 / 180 s later at the stored prices, sold after their sale / at a stop
@@ -450,6 +451,14 @@ low keep report python3 run_report.py loop
 # Owner switch openai_kritika off or no OPENAI_API_KEY: it looks again once a minute. The re-checks, the daily review
 # and the deep session run from run_sched (above).
 low keep kriticar python3 run_critic.py loop
+# 18.11. (vlasnik: "Kad Grok pošalje prijedlog, Claude i OpenAI moraju biti kritični prema njemu, doraditi ga i
+# prihvatiti ako se slažu ... neka alat sam sebe popravlja i uči i odlučuje u kojem smjeru ići"; vijece/, run_vijece.py):
+# the council's pass, 3 min after a start and then every 15 min: Claude's four proposals stored once, the direction
+# session when due (once after the deploy, weekly, when the learner's verdict changes), the waiting reviews of OpenAI
+# and Claude (0.60 $ a day each: VIJECE_OPENAI_DAY_USD / VIJECE_CLAUDE_DAY_USD), the decisions; Grok reviews through
+# the MCP tools when it polls (6 h, then it is decided without it). Light: it only waits on the two APIs, so no
+# ops.heavy slot. Real money is never applied by the council. Lines "vijeće: ocjena / odluka / smjer". VIJECE=0: off.
+( sleep "${VIJECE_FIRST_S:-180}"; while true; do low python3 run_vijece.py tick || echo "vijeće nije uspjelo"; sleep "${VIJECE_EVERY_S:-900}"; done ) &
 
 # safer layer: older survivors (Fartcoin/Useless style) and waking-up older tokens, free sources, every 6 h,
 # guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.
