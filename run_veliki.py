@@ -13,6 +13,8 @@ list and the live rule from veliki.db.
     python3 run_veliki.py candles  the current list's candles only: own bars from the DexScreener polls + GeckoTerminal
                                    by need, 1h of the top first (start.sh every 15 min, low priority, no heavy lock)
     python3 run_veliki.py midcap   one midcap collector pass (veliki/midcap.py; only with the owner switch fokus_midcap)
+    python3 run_veliki.py moc      call power on the midcaps (veliki/moc.py: the bought posts + one capped X search per
+                                   midcap a week; moc.db kv "moc", one line "moć poziva: ...")
     python3 run_veliki.py nauceno  the shadow book replayed over the candles + what it has learned, walk-forward
                                    (veliki/nauceno.py: nauceno.db: veliki_sjena_h and kv "nauceno", one line "veliki
                                    naučeno: ...")
@@ -96,6 +98,14 @@ def main(argv=None):
         except OSError:
             pass
         replay.run(now=now, log=log)
+        return 0
+    if cmd == "moc":       # 18.11.: who pushes our midcaps on X and what the price did after (measurement only)
+        from veliki import moc
+        try:
+            os.nice(5)
+        except OSError:
+            pass
+        moc.run(now=now, log=log)
         return 0
     if cmd == "nauceno":   # 18.11.: what the shadow book (history + live) has learned, walk-forward (measurement only)
         from veliki import nauceno
