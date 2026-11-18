@@ -164,7 +164,7 @@ def sign_raw(tx_bytes, keypair=None):
     return sign(base64.b64encode(tx_bytes).decode(), keypair)
 
 
-def close_empty(owner_kp, mint, wait_s=30):
+def close_empty(owner_kp, mint, wait_s=30, info=None):
     """Close this wallet's empty token accounts for `mint`, giving the ~0.002 SOL rent of each back.
     Returns lamports reclaimed (0 when nothing was empty or the RPC failed)."""
     from solders.hash import Hash
@@ -184,4 +184,6 @@ def close_empty(owner_kp, mint, wait_s=30):
     bh = Hash.from_string(rpc("getLatestBlockhash", [{"commitment": "confirmed"}])["value"]["blockhash"])
     tx = VersionedTransaction(MessageV0.try_compile(owner, ixs, [], bh), [owner_kp])
     sig = send(base64.b64encode(bytes(tx)).decode())
+    if info is not None:     # 18.11.: what was sent, for a caller that books the refund when it is confirmed later
+        info.update(lamports=lamports, sig=sig)
     return lamports if confirmed(sig, wait_s=wait_s) else 0

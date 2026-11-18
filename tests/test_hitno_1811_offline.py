@@ -188,12 +188,43 @@ class RentSweep(unittest.TestCase):
         self.con.commit()
         return cur.lastrowid
 
-    def sweep(self, now=None, got=2_039_280):
-        def close_empty(kp, mint, wait_s=30):
+    def sweep(self, now=None, got=2_039_280, accounts="empty", sent=0):
+        """accounts: "empty" (one account, no tokens), "none" (the account is gone), or a raw amount left on it."""
+        def close_empty(kp, mint, wait_s=30, info=None):
             self.closed.append((mint, wait_s))
+            if sent and info is not None:
+                info.update(lamports=sent, sig="SIG")
             return got
-        with mock.patch.object(wallet, "close_empty", side_effect=close_empty), mock.patch("builtins.print"):
-            return executor.rent_sweep(self.con, now or self.NOW)
+        accs = [] if accounts == "none" else [("ACC", 0 if accounts == "empty" else accounts, 6, "PROG")]
+        with mock.patch.object(wallet, "close_empty", side_effect=close_empty), \
+                mock.patch.object(wallet, "token_accounts", return_value=accs), \
+                mock.patch.object(wallet, "address", return_value="WALLET"), mock.patch("builtins.print") as pr:
+            out = executor.rent_sweep(self.con, now or self.NOW)
+        self.said = " | ".join(str(c[0][0]) for c in pr.call_args_list)
+        return out
+
+    def test_the_reason_is_said_and_a_hopeless_case_is_not_tried_again(self):
+        self.pos("GONETOKN")
+        self.assertEqual(self.sweep(accounts="none"), 0)
+        self.assertIn("više ne postoji", self.said)                  # closed earlier: the deposit did come back
+        self.assertEqual(self.closed, [])
+        self.assertIsNone(self.sweep(self.NOW + 61, accounts="none"))
+        self.pos("DUSTTOKN")
+        self.assertEqual(self.sweep(self.NOW + 122, accounts=37), 0)
+        self.assertIn("ostatak od 37 jedinica", self.said)           # not empty: the deposit stays locked
+        self.assertIsNone(self.sweep(self.NOW + 183, accounts=37))
+        self.assertEqual(self.closed, [])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM orders WHERE side='rent'").fetchone()[0], 0)
+
+    def test_a_close_confirmed_after_the_wait_is_booked_on_the_next_pass(self):
+        pid = self.pos("LATETOKN")
+        self.assertEqual(self.sweep(got=0, sent=2_039_280), 0)       # sent, not confirmed in the short wait
+        self.assertIn("zatvaranje je poslano", self.said)
+        self.assertEqual(self.sweep(self.NOW + 61, accounts="none"), 2_039_280)   # the account is gone: it landed
+        self.assertIn("potvrđeno naknadno", self.said)
+        self.assertAlmostEqual(self.fees(pid), 0.003 - 0.00203928, places=8)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM orders WHERE side='rent'").fetchone()[0], 1)
+        self.assertIsNone(self.sweep(self.NOW + 122, accounts="none"))
 
     def fees(self, pid):
         return self.con.execute("SELECT fees_sol FROM positions WHERE id=?", (pid,)).fetchone()[0]
@@ -233,7 +264,8 @@ class RentSweep(unittest.TestCase):
         self.assertEqual(self.con.execute("SELECT position_id FROM orders WHERE side='rent'").fetchone()[0], new)
         self.assertIsNone(self.sweep(self.NOW + 61))                 # the older position of the same token: refunded since
         self.pos("ERRTOKEN")
-        with mock.patch.object(wallet, "close_empty", side_effect=RuntimeError("RPC")), mock.patch("builtins.print"):
+        with mock.patch.object(wallet, "token_accounts", side_effect=RuntimeError("RPC")), \
+                mock.patch.object(wallet, "address", return_value="WALLET"), mock.patch("builtins.print"):
             self.assertEqual(executor.rent_sweep(self.con, self.NOW + 200), 0)
 
 
