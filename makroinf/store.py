@@ -31,6 +31,7 @@ SWITCH = "makroinf_javno"    # owner switch: the public pages (default off: rout
 DEFAULT = {
     # caps (USD)
     # (16.11., the owner's second wave: the daily caps 1,50 -> 2,00 $ and 0,50 -> 0,60 $, "more accounts")
+    "twapi_stop": True,   # 18.11.: no twitterapi spend until the owner approves a budget (makroinf/xapi.stopped)
     "pilot_twapi_usd": 5.0, "day_twapi_usd": 2.00, "pilot_openai_usd": 4.0, "day_openai_usd": 0.60,
     "quality_openai_usd": 1.0, "expand_twapi_usd": 40.0, "expand_openai_usd": 15.0,
     "expand2_twapi_usd": 25.0, "expand2_openai_usd": 8.0,

@@ -52,8 +52,17 @@ def _call(get, url, params):
         raise
 
 
+def stopped(c=None):
+    """18.11. (owner: "Kako je moguće da je ... na Twitter API dodano $50 kredita i sve je potrošeno u 3 dana?"): this
+    module spends nothing on twitterapi until the owner approves a budget again (config "twapi_stop", default True):
+    the history bought on 15-16.11. ($35.16, 221,545 posts of 500 accounts) stays and every test on it is free, while
+    the index it feeds did not beat "always bull" on the locked test (32 % against 34 %, n=158). With the stop the
+    module behaves as if no key were set: no call, no cap consumed, no wave marked finished."""
+    return bool((c or store.config()).get("twapi_stop"))
+
+
 def has_key(get=None):
-    return get is not None or bool(twapi.key())
+    return get is not None or (bool(twapi.key()) and not stopped())
 
 
 def _get(get):

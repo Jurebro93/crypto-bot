@@ -671,5 +671,21 @@ class Wiring2(Base):
         self.assertIn("regularity", {r[1] for r in self.con.execute("PRAGMA table_info(accounts)")})
 
 
+class SpendStop(unittest.TestCase):
+    """18.11. (owner: "$50 kredita i sve je potrošeno u 3 dana"): no twitterapi spend until he approves a budget."""
+
+    def test_the_module_acts_as_if_it_had_no_key(self):
+        from kol import twapi
+        from makroinf import xapi
+        self.assertTrue(store.config()["twapi_stop"])
+        with mock.patch.object(twapi, "key", lambda: "k"):
+            self.assertFalse(xapi.has_key())                              # production: a key, but stopped
+            self.assertTrue(xapi.has_key(get=lambda *a, **k: None))       # an injected fetcher (tests) is not a spend
+            with mock.patch.object(store, "config", lambda cfg=None: {**store.DEFAULT, "twapi_stop": False}):
+                self.assertTrue(xapi.has_key())                           # the owner approved again
+        with mock.patch.object(twapi, "key", lambda: ""):
+            self.assertFalse(xapi.has_key())
+
+
 if __name__ == "__main__":
     unittest.main()
