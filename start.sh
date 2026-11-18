@@ -362,13 +362,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 # 18.11. (vlasnik: "da program što više nauči iz tih mid-capova ... da nauči kombinirati te faktore ... želim da demo
 # što prije bude profitabilan"; veliki/nauceno.py): the shadow book replayed over the midcaps' candles and the
 # walk-forward of what it has learned (history + the live book). Local databases only, ~1 min, under the heavy-job
-# lock: 20 min after a start, then every 6 h. One line "veliki naučeno: ...", its own file nauceno.db.
-( sleep "${NAUCENO_FIRST_S:-1200}"; while true; do python3 -m ops.heavy run_veliki.py nauceno || echo "veliki naučeno nije uspio"; sleep "${NAUCENO_EVERY_S:-21600}"; done ) &
+# lock: 8.5 min after a start (18.11. 12:25: at 20 min it queued 25+ min behind run_insajderi.py once, which starts at
+# 10 min), then every 6 h. One line "veliki naučeno: ...", its own file nauceno.db.
+( sleep "${NAUCENO_FIRST_S:-510}"; while true; do python3 -m ops.heavy run_veliki.py nauceno || echo "veliki naučeno nije uspio"; sleep "${NAUCENO_EVERY_S:-21600}"; done ) &
 # 18.11. (vlasnik: "Twitter API kredite koristiš za ove mid-capove ... tko agresivno gura ... velike influencere koji
 # imaju veliku moć poziva"; veliki/moc.py): the posts already bought + one X search per midcap a week (at most ~$2.50 a
-# pass, hard cap MOC_DAY_USD 4 $ a UTC day), the price after each post from our candles. 25 min after a start, then
-# every 12 h, under the heavy-job lock. One line "moć poziva: ...", its own file moc.db.
-( sleep "${MOC_FIRST_S:-1500}"; while true; do python3 -m ops.heavy run_veliki.py moc || echo "moć poziva nije uspjela"; sleep "${MOC_EVERY_S:-43200}"; done ) &
+# pass, hard cap MOC_DAY_USD 4 $ a UTC day), the price after each post from our candles. 9.5 min after a start (ahead
+# of run_insajderi.py once, like the learner above), then every 12 h, under the heavy-job lock. One line "moć poziva: ...", its own file moc.db.
+( sleep "${MOC_FIRST_S:-570}"; while true; do python3 -m ops.heavy run_veliki.py moc || echo "moć poziva nije uspjela"; sleep "${MOC_EVERY_S:-43200}"; done ) &
 # 16.11. (vlasnik: "Objasni mi kako ovdje postoji profitabilni wallet, a mi nemamo profitabilnu strategiju"; wallets/
 # kopija.py): what WE would have earned copying the "dokazan dvaput" wallets: picked on the older 60 % of the stored
 # days, their buys of the newer 40 % taken 30 / 60 / 180 s later at the stored prices, sold after their sale / at a stop
