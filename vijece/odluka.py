@@ -118,7 +118,7 @@ def odluci(con, note, now=None, log=print):
     orig = n.get("proposed_change") if isinstance(n.get("proposed_change"), dict) else None
     odl, razlog, prim = "vlasniku", "", None
     try:
-        if len(protiv) == len(glasovi):
+        if len(protiv) == len(glasovi) and len(glasovi) == len(revs):   # a lone "protiv" while Grok is late: the owner
             assistnotes.decide(con, nid, "odbijeno", owner_note=store.kratko(f"vijeće: {tko}. {kritike}", 1000))
             odl, razlog = "odbijeno", ("oba ocjenjivača protiv" if len(glasovi) > 1 else "ocjenjivač protiv") + f". {kritike}"
         elif protiv:

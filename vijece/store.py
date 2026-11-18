@@ -186,10 +186,20 @@ def note(con, nid):
     return _note(r) if r else None
 
 
+def oznaka(pc):
+    """A label or a weight (insider_label, group_label, a caller weight): Grok sends these by the dozen, they have
+    their own paths (auto_apply_weight, the owner's "Primijeni označene"), and their wallet addresses may not leave
+    the app, so the council does not review them (18.11.: they would use up the day budgets ahead of real proposals)."""
+    return isinstance(pc, dict) and (isinstance(pc.get("insider_label"), dict) or isinstance(pc.get("group_label"), dict)
+                                     or ("caller" in pc and "weight" in pc))
+
+
 def u_vijecu(n, start):
-    """A note the council handles: a suggestion that still waits, written after the start (or by the council's Claude)."""
+    """A note the council handles: a suggestion that still waits, written after the start (or by the council's Claude),
+    that is not a label or a weight."""
     return bool(n and n.get("kind") == "suggestion" and n.get("status") == "novo" and start is not None
-                and ((n.get("ts") or 0) >= start or n.get("key_id") == CLAUDE_KID))
+                and ((n.get("ts") or 0) >= start or n.get("key_id") == CLAUDE_KID)
+                and not oznaka(n.get("proposed_change")))
 
 
 def red(con, limit=200):
@@ -204,7 +214,7 @@ def red(con, limit=200):
             "o.note_id = n.id) ORDER BY n.id LIMIT ?", (start, CLAUDE_KID, int(limit))).fetchall()
     except sqlite3.Error:
         return []
-    return [_note(r) for r in rows]
+    return [n for n in (_note(r) for r in rows) if not oznaka(n.get("proposed_change"))]
 
 
 # ---------- reviews and decisions ------------------------------------------------------------------------------------

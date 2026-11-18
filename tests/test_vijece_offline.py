@@ -354,6 +354,30 @@ class GrokWait(Base):
         self.assertIn("Grok nije odgovorio u 6 h", self.logged(f"vijeće: odluka #{nid} ")[0])
         self.assertEqual(settings.raw(self.con)["dca_token_cap"], 0.2)
 
+    def test_a_lone_veto_while_grok_is_late_goes_to_the_owner(self):
+        # 18.11. (review): one voice against, while the proposer is for and Grok is silent, is not a rejection
+        nid = self.note(cnotes.KID)                                                # OpenAI's: Claude and Grok review
+        self.claude.reviews[nid] = {**SLAZEM, "verdict": "protiv", "critique": "Nema dokaza."}
+        self.tick()
+        self.tick(self.now + 6 * 3600 + 120)
+        d = self.decision(nid)
+        self.assertEqual(d["odluka"], "vlasniku")
+        self.assertEqual(self.status(nid), "novo")
+        self.assertIn("Grok nije odgovorio u 6 h", d["razlog"])
+
+    def test_labels_and_weights_stay_out_of_the_council(self):
+        # Grok sends these by the dozen; they keep their own paths and their addresses do not leave the app
+        w = "So11111111111111111111111111111111111111112"
+        self.assertTrue(store.oznaka({"insider_label": {"wallet": w, "label": "insider"}}))
+        self.assertTrue(store.oznaka({"group_label": {"group_id": "g1", "label": "ekipa"}}))
+        self.assertTrue(store.oznaka({"caller": "x:abc", "weight": 0.5}))
+        self.assertFalse(store.oznaka({"key": "dca_token_cap", "to": 0.2}))
+        self.assertFalse(store.oznaka(None))
+        n = {"kind": "suggestion", "status": "novo", "ts": self.now, "key_id": GROK_KID,
+             "proposed_change": {"group_label": {"group_id": "g1", "label": "ekipa"}}}
+        self.assertFalse(store.u_vijecu(n, self.now - 5))
+        self.assertTrue(store.u_vijecu({**n, "proposed_change": None}, self.now - 5))
+
     def test_the_wait_is_an_env_setting(self):
         nid = self.note(store.CLAUDE_KID)
         with mock.patch.dict(os.environ, {"VIJECE_GROK_WAIT_S": "600"}):

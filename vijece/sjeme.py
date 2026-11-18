@@ -17,14 +17,16 @@ ONCE_KEY = "vijece_claude_1811"
 PRIJEDLOZI = (
     {"title": "Ugasiti praćenje 400 KOL računa preko twitterapi (oko 2,70 $ dnevno) dok moć poziva ne izdvoji račune",
      "interpretation": ("Kopiranje poziva influencera nakon troška daje −7,4 % po tradeu (n=308), a čitanje vremenskih "
-                        "crta praćenih računa preko twitterapi stajalo je 14,00 $ od 11. do 17.11. Plaćamo podatke za "
+                        "crta praćenih računa preko twitterapi stajalo je 14,00 $ od 11. do 17.11. (2,65 do 2,70 $ dnevno dok je bilo "
+                        "kredita, do 15.11.; od 18.11. opet troši). Plaćamo podatke za "
                         "strategiju koja je izmjereno u minusu."),
      "improvement": ("Zaustaviti redovito čitanje vremenskih crta 400 KOL računa. Kad moć poziva izdvoji račune s donjom "
                      "granicom iznad nule, pratiti samo njih. Neto zarada: ušteda troška podataka bez gubitka dokazanog "
                      "signala. Mjerenje: trošak twitterapi po danu u dnevnom retku troška; broj računa koje moć poziva "
                      "izdvoji."),
      "evidence": {"kopiranje_poziva_influencera_nakon_troska_pct": -7.4, "n": 308,
-                  "twitterapi_timeline_usd": 14.00, "razdoblje": "11.-17.11."}},
+                  "twitterapi_timeline_usd": 14.00, "razdoblje": "11.-17.11.",
+                  "usd_dnevno_dok_ima_kredita": 2.70}},
     {"title": "Ugasiti OpenAI klasifikaciju makro objava",
      "interpretation": ("Klasifikacija makro objava stajala je 18,16 $ u 3 dana. Indeks 10 najtočnijih računa pogađa 32 %, "
                         "a pravilo „uvijek bull” 34 % (n=158): indeks ne bije najjednostavniju usporedbu."),

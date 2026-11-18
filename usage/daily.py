@@ -245,7 +245,8 @@ def openai(now, paths):
                        "presuda": int(_f(_one(con, "SELECT COUNT(*) FROM critic_verdicts WHERE ts >= ?", (day0,), 0)))}
                 from ui import assistnotes
                 dec = _all(con, "SELECT status, COUNT(*) FROM assistant_notes WHERE kind='suggestion' AND key_id=? AND "
-                                "decided_ts >= ? GROUP BY status", (assistnotes.CRITIC_KID, day0))
+                                "decided_ts >= ? AND (owner_note IS NULL OR owner_note NOT LIKE 'vijeće:%') GROUP BY status",
+                           (assistnotes.CRITIC_KID, day0))   # 18.11.: the council's decisions are not the owner's
                 out["odluke_vlasnika"] = {st: int(n) for st, n in dec}
         finally:
             con.close()

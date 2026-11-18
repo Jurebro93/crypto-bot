@@ -129,7 +129,9 @@ def _insert(con, kid, **row):
 def _done(nid, kind):
     print(f"mcp: asistent je zapisao {kind} #{nid} (čeka vlasnika)", flush=True)
     return {"id": nid, "kind": kind, "status": "novo",
-            "message": "Stored for the owner on the MemeSonar Autopilot page; nothing in live trading changed."}
+            "message": "Stored on the MemeSonar Autopilot page; nothing in live trading changed. A suggestion is reviewed by "
+                       "the council (the other two assistants; get_council shows the outcome); what touches real "
+                       "money waits for the owner."}
 
 
 # ---------- the four write tools (insert only) ---------------------------------------------------------------------
