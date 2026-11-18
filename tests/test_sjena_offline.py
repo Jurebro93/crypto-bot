@@ -111,7 +111,8 @@ class Book(_Base):
         self.assertEqual((r["status"], r["reason"]), ("closed", "stop"))
         self.assertAlmostEqual(r["exit_px"], 0.97e-4)
         self.assertAlmostEqual(r["ret"], 0.97 * (1 - r["rt"]) - 1, places=9)
-        self.assertEqual(sjena.mark(self.lg, {tok(100): (1.09e-4,)}, t + 90), 0)        # a spike: arms the targets up to +6 %
+        self.assertEqual(sjena.mark(self.lg, {tok(100): (1.10e-4,)}, t + 90), 0)        # a spike: arms the +6 % net target
+        self.assertGreaterEqual(self.rows("profil='kratko'")[0]["rt"], 0.03)            # (the real cost, never under 3 %)
         self.assertEqual(sjena.mark(self.lg, {tok(100): (1.00e-4,)}, t + 120), 1)       # back at the entry: booked there
         r = self.rows("profil='kratko'")[0]
         self.assertEqual(r["reason"], "tp")
