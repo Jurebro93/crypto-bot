@@ -14,6 +14,7 @@ key of its own (45 s fresh), so a phone gets it at once; nothing here reaches th
   5  Test kopiranja   60 s, brzo 2 s (Pretpostavka klizanja 1 %), random wallets per MC bucket; the verdict line
   6  Povijesni PnL    wallets.db per listed wallet (the groups' wallets and the best scored), the history queue
   7  Veliki holderi   holderi.db holder_pos: the profitable holders of the midcaps, longest held first
+  8  Birdeye          insajderi/birdeye.py: the month's CU, the pump tokens read, the cross-check, the new candidates
 
 Every value that is not stored yet says "nije još izmjereno"; every empty section says when its data comes.
 """
@@ -445,7 +446,8 @@ def copy_html(pp):
 
 # ---------- 6. wallet history ----------------------------------------------------------------------------------------
 
-QUEUE_HR = (("prije_pumpe", "grupe prije pumpe"), ("prije_pumpe_kandidat", "kandidati"), ("bundle", "bundle"),
+QUEUE_HR = (("prije_pumpe", "grupe prije pumpe"), ("prije_pumpe_kandidat", "kandidati"), ("birdeye", "Birdeye vrh"),
+            ("bundle", "bundle"),
             ("rani_pumpa15", "rani kupci pumpi ≥ 15 M $"), ("rani_pumpa2", "rani kupci 2–15 M $"),
             ("rani_bez_prodaje", "rani kupci bez prodaje"), ("holder", "holderi"), ("registar", "stari registar"))
 KIND_HR = {"day": "dnevni", "night": "noćni", "once": "nakon deploya", "incr": "dopunski"}
@@ -552,6 +554,48 @@ def holders_html(now):
             f'„drži od” za starije držače najranije što znamo, ne stvarni početak.</p>')
 
 
+# ---------- 8. Birdeye ------------------------------------------------------------------------------------------------
+
+def birdeye_html(con, pp, now):
+    """Birdeye: provjera iz drugog izvora (insajderi/birdeye.py): the month's usage, the tokens read, the cross-check,
+    the new candidates (Birdeye's top traders by realized PnL on 3+ pumps). Report only; an honest empty state."""
+    b = P.birdeye(con, pp, now)
+    if not b["key"] and not b["calls"]:
+        return _empty("Birdeye ključ nije postavljen (varijabla BIRDEYE_API_KEY na serveru): ovaj dio čeka ključ.")
+    if not b["table"] or not b["tokens"]:
+        return _empty("Birdeye još ništa nije pročitao: prvi prolaz nakon postavljanja ključa čita najbolje trgovce "
+                      "tokena s pumpom (najviše 25.000 CU mjesečno).")
+    ck = b["check"]
+    cap = f" / {rd.num(b['cap'])}" if b["cap"] else ""
+    cards = [_stat("Birdeye ovaj mjesec", f"{rd.num(b['cu'])}{cap} CU", f"{rd.num(b['calls'])} poziva",
+                   "warn" if b["cap"] and b["cu"] >= b["cap"] else ""),
+             _stat("Pročitano tokena s pumpom", rd.num(b["tokens"]), "najboljih 30 po ostvarenoj zaradi"),
+             _stat("Grupe viđene u Birdeyeovu vrhu",
+                   rd.share(ck.get("groups_seen_in_top"), ck.get("groups_checked")) if ck.get("groups_checked")
+                   else NOT_YET,
+                   (f"od {rd.num(ck.get('groups_checked'))} provjerenih grupa; oznake bundler / sniper / dev: slaže se "
+                    f"{rd.num(ck.get('tag_agree'))}, ne slaže {rd.num(ck.get('tag_disagree'))}") if ck else None)]
+    head = ("Novčanik", "Pumpi", "≥ 15 M $", "Ostvareno $", "Oznake", "Zadnji trade")
+    th = "".join(f'<th data-k="c{i}" data-t="{"s" if i in (0, 4) else "n"}" scope=col>{rd.h(h)}</th>'
+                 for i, h in enumerate(head))
+    rows = []
+    for r in b["cand"]:
+        data = {"c0": rd.h(str(r["owner"]).lower()), "c1": _n(r["n_tokens"]), "c2": _n(r["n15"]),
+                "c3": _n(r["realized"]), "c4": rd.h(",".join(r["tags"])), "c5": _n(r["last_ts"])}
+        attrs = " ".join(f'data-{k}="{v}"' for k, v in data.items())
+        rows.append(f'<tr class=rt-r {attrs}>{_wcell(r["owner"])}<td>{rd.h(rd.num(r["n_tokens"]))}</td>'
+                    f'<td>{rd.h(rd.num(r["n15"]))}</td><td>{rd.h(rd.num(r["realized"], 0))}</td>'
+                    f'<td class=na-l>{rd.h(", ".join(r["tags"]) or rd.DASH)}</td>'
+                    f'<td class=mut>{rd.h(rd.ago(r["last_ts"], now))}</td></tr>')
+    table = (f'<div class=rt-wrap><table class=rt data-rt><thead><tr>{th}</tr></thead><tbody>{"".join(rows)}</tbody>'
+             f'</table></div>' if rows else _empty("Još nema novčanika u Birdeyeovu vrhu na 3+ pumpe."))
+    smart = ", ".join(f'{sh6(s["owner"])} ({s["smart_n"]})' for s in b["smart"][:20])
+    return (f'<div class=na-grid>{"".join(cards)}</div><p class=na-v>Birdeye: u vrhu po ostvarenoj zaradi na 3+ pumpe</p>'
+            + table + (f'<p class=na-note><b>Oznaka smart_trader na 2+ pumpe:</b> {rd.h(smart)}</p>' if smart else "")
+            + '<p class=na-note>Drugi izvor, samo izvještaj: ne mijenja pravila odabira. Kandidati idu u red povijesti '
+              'novčanika. Bez oznaka bundler / sniper / dev na tim pumpama.</p>')
+
+
 # ---------- the page -------------------------------------------------------------------------------------------------
 
 def _safe(name, fn, *a):
@@ -582,6 +626,8 @@ def page(qs=None, user=None, now=None):
             ("mjerenje", "Mjerenje po ulazu", _safe("mjerenje", _mjera_html, now)),
             ("pnl", "Povijesni PnL novčanika", _safe("pnl", history_html, con, now)),
             ("holderi", "Veliki holderi s dugom poviješću", _safe("holderi", holders_html, now)),
+            ("birdeye", "Birdeye: provjera iz drugog izvora", _safe("birdeye", birdeye_html, con, pp, now)
+             if con is not None else _empty("Birdeye još ništa nije pročitao (baza još ne postoji).")),
         ]
     finally:
         if con is not None:

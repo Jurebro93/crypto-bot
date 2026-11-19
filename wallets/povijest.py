@@ -10,6 +10,8 @@ wallets/rpc.wallet_swaps = getTransactionsForAddress, 10 credits a page of 100) 
 Queue (povijest_queue, rebuilt every pass from what the other jobs stored; reads only), best first:
   0 prije_pumpe            members of a CONFIRMED "kupuje prije pumpe" group (insajderi.db i2_pp)
   1 prije_pumpe_kandidat   members of an unconfirmed prije_pumpe group, then of a "kandidat" group
+  . birdeye                (19.11. navečer) Birdeye's top traders by realized PnL on 3+ pumped tokens / smart_trader
+                           on 2+ (insajderi.db be_cand, insajderi/birdeye.py)
   2 bundle                 members of a bundle (i2_bundle)
   3 rani_pumpa15           early buyers that SOLD into a pumpa15 event (i2_part bought_before and sold_into)
   4 rani_pumpa2            the same for pumpa2 events
@@ -48,9 +50,10 @@ PREFIX = "novčanici povijest: "
 METHOD = "povijest"
 DEFAULT = {"workers": 6, "helius_rps": 8, "kredita_dan": 60000, "najvise_stranica": 5, "pass_max_s": {"day": 300, "night": 3600}, "refresh_d": 7,
            "lookback_d": 90, "dan_udio": 0.4, "holder_min_usd": 50000, "holder_min_days": 30, "red_max": 20000}
-SOURCES = ("prije_pumpe", "prije_pumpe_kandidat", "bundle", "rani_pumpa15", "rani_pumpa2", "rani_bez_prodaje", "holder",
+SOURCES = ("prije_pumpe", "prije_pumpe_kandidat", "birdeye", "bundle", "rani_pumpa15", "rani_pumpa2", "rani_bez_prodaje", "holder",
            "registar")
 GROUP = {"prije_pumpe": "prije pumpe", "prije_pumpe_kandidat": "prije pumpe", "bundle": "prije pumpe",
+         "birdeye": "prije pumpe",
          "rani_pumpa15": "rani kupci", "rani_pumpa2": "rani kupci", "rani_bez_prodaje": "rani kupci",
          "holder": "holderi", "registar": "registar"}
 SKIP_LABELS = {"cex", "mev", "bot", "rugger", "izbačen"}
@@ -262,6 +265,9 @@ def sources(con, p, c):
                     "ORDER BY n_pumps15 DESC, n_tokens DESC"), "prije_pumpe")
         add(members("SELECT members FROM i2_pp WHERE (cls = 'prije_pumpe' AND confirmed_ts IS NULL) OR cls = 'kandidat' "
                     "ORDER BY (cls = 'prije_pumpe') DESC, n_pumps15 DESC, n_tokens DESC"), "prije_pumpe_kandidat")
+        # 19.11. navečer: Birdeye's top traders by realized PnL on 3+ pumped tokens (not tagged bundler / sniper / dev)
+        # and its smart_trader tag on 2+ (insajderi/birdeye.py be_cand), right after the pump groups
+        add([w for (w,) in _q(ic, "SELECT owner FROM be_cand ORDER BY n15 DESC, sum_realized_usd DESC")], "birdeye")
         add(members("SELECT members FROM i2_bundle ORDER BY n_pumps15 DESC, n_pumps DESC"), "bundle")
         rel = {w for (w,) in _q(ic, "SELECT DISTINCT wallet FROM i2_part WHERE owner LIKE 'relayer:%'")}
         for tier, src in (("pumpa15", "rani_pumpa15"), ("pumpa2", "rani_pumpa2")):

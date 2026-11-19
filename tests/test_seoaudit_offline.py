@@ -135,7 +135,8 @@ class Helpers(unittest.TestCase):
         self.assertEqual(A.page_type("/hr/coin/pengu/prognoza"), "coin/*")
         self.assertEqual(A.page_type("/blog/category/guides"), "blog/category")
         self.assertEqual(A.page_type("/"), "home")
-        self.assertEqual(A.expected_lang("/autopilot"), "hr")
+        self.assertEqual(A.expected_lang("/autopilot"), "en")       # 19.11.: English by default, Croatian at /hr/autopilot
+        self.assertEqual(A.expected_lang("/hr/autopilot"), "hr")
         self.assertEqual(A.expected_lang("/en/autopilot"), "en")
 
 

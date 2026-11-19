@@ -305,9 +305,9 @@ class State(Base):
         hr, en = apjavno.landing_strip("hr"), apjavno.landing_strip("en")
         self.assertIn("Tradanje pravim sredstvima je live", hr)
         self.assertIn("Provjeri kako nam ide", hr)
-        self.assertIn('href="/autopilot"', hr)
+        self.assertIn('href="/hr/autopilot"', hr)                  # 19.11.: "/x" English, "/hr/x" Croatian
         self.assertIn("Real-money trading is live", en)
-        self.assertIn('href="/en/autopilot"', en)
+        self.assertIn('href="/autopilot"', en)
         with mock.patch.object(apjavno, "snapshot", side_effect=RuntimeError("pad")):
             self.assertEqual(apjavno.landing_strip("hr"), "")           # the front page never fails because of it
 
@@ -628,7 +628,7 @@ class Page(Base):
         version; /autopilot/zivo answers the same parts, so the page script swaps only what changed."""
         self.trade(on=False).close()
         body = apjavno.page({}, None)[1]
-        self.assertIn('data-live="/autopilot/zivo"', body)
+        self.assertIn('data-live="/autopilot/zivo?l=hr"', body)    # 19.11.: always explicit, a guest's default is en
         for name in apjavno.LIVE_PARTS:
             self.assertIn(f"id=apj-l-{name} data-v=", body)
         self.assertIn("setInterval(live,15000)", body)
@@ -667,7 +667,7 @@ class Page(Base):
         self.assertIn("Prijavi se", html)
         self.assertIn("Zatraži pristup", html)
         self.assertIn("/autopilot?prijava=1", html)
-        self.assertIn(f'data-src="{apjavno.CHAT_PATH}"', html)
+        self.assertIn(f'data-src="{apjavno.CHAT_PATH}?l=hr"', html)
         self.assertIn("15000", html)                                # the list refreshes every 15 s, not every second
         # a player's copy has the chat form, still no trading control
         _, body = apjavno.page({}, "Ivan")
@@ -683,8 +683,12 @@ class Page(Base):
         en, hr = apjavno.guest_html({}, "en"), apjavno.guest_html({}, "hr")
         for html in (en, hr):
             self.assertIn('hreflang=en href="', html)
-            self.assertIn(f'{apjavno.PATH_EN}"><link rel=alternate hreflang=hr href="', html)
-            self.assertIn("hreflang=x-default", html)
+            self.assertIn(f'{apjavno.PATH}"><link rel=alternate hreflang=hr href="', html)
+            self.assertIn(f'{apjavno.PATH_HR}"><link rel=alternate hreflang=x-default href="', html)
+        self.assertIn('<link rel=canonical href="', en)
+        self.assertIn(f'href="/jezik?l=hr&amp;next={apjavno.PATH_HR}" hreflang=hr translate=no>HR<', en)   # remembered
+        self.assertIn(f'href="/jezik?l=en&amp;next={apjavno.PATH}" hreflang=en translate=no>EN<', hr)
+        self.assertIn(f'/hr/autopilot"><link rel=alternate', hr.split("<link rel=canonical href=", 1)[1][:200])
         self.assertIn(f'<meta name=description content="{apjavno.GUEST_DESC["en"]}', en.replace("&#x27;", "'"))
         self.assertIn(">Request access<", en)
         self.assertIn(">Influencers<", en)
@@ -791,7 +795,7 @@ class Http(unittest.TestCase):
         self.start()
         ivan, jure, viewer = self.login("Ivan", "ivanpw"), self.login("Jure", "jurepw"), self.login("Claude", "gledam")
         # a visitor reads the page and the list; no login form, no app cookies; 10.11. (Jure): indexable now
-        code, hdr, body = self.call("/autopilot")
+        code, hdr, body = self.call("/hr/autopilot")          # 19.11.: the Croatian copy (/autopilot is English)
         self.assertEqual(code, 200)
         self.assertIn("<h1>Autopilot</h1>", body)
         self.assertIn("Probni rad", body)
@@ -822,8 +826,9 @@ class Http(unittest.TestCase):
         self.assertIn("<aside", body)
         self.assertIn("cb_csrf=", " ".join(hdr.get_all("Set-Cookie") or []))
         self.assertEqual(self.call("/autopilot?prijava=1", cookie=ivan)[0], 200)
-        code, hdr, _ = self.call("/en/autopilot", cookie=ivan)
-        self.assertEqual((code, hdr["Location"]), (303, "/autopilot"))
+        for old in ("/en/autopilot", "/hr/autopilot"):        # inside the app the language is the player's setting
+            code, hdr, _ = self.call(old, cookie=ivan)
+            self.assertEqual((code, hdr["Location"]), (303, "/autopilot"), old)
         # he writes: back to the chat, and everybody sees it
         code, hdr, _ = self.call("/autopilot/poruka", {"text": "Prijedlog: <b>manji</b> stop"}, ivan)
         self.assertEqual((code, hdr["Location"]), (303, "/autopilot#chat"))
@@ -888,13 +893,39 @@ class Http(unittest.TestCase):
         self.assertIn("bok svima", self.call("/autopilot/chat")[2])
 
     def test_english_copy_for_a_visitor(self):
+        """19.11. (audit): the public site's scheme, "/autopilot" English for a visitor with no choice, Croatian at
+        "/hr/autopilot"; the old English address moves for good; a visitor whose cookie says hr is sent to /hr/."""
         self.start()
-        code, _, body = self.call("/en/autopilot")
+        code, hdr, body = self.call("/autopilot")
         self.assertEqual(code, 200)
         self.assertIn("<html lang=en>", body)
         self.assertIn('data-src="/autopilot/chat?l=en"', body)
+        self.assertIn('data-live="/autopilot/zivo?l=en"', body)
+        self.assertNotIn("noindex", hdr.get("X-Robots-Tag") or "")
         self.assertEqual(self.call("/autopilot/chat?l=en")[0], 200)
-        self.assertIn("<html lang=hr>", self.call("/autopilot")[2])
+        code, hdr, body = self.call("/hr/autopilot")
+        self.assertEqual(code, 200)
+        self.assertIn("<html lang=hr>", body)
+        self.assertIn('data-src="/autopilot/chat?l=hr"', body)
+        self.assertNotIn("noindex", hdr.get("X-Robots-Tag") or "")
+        code, hdr, _ = self.call("/en/autopilot")
+        self.assertEqual((code, hdr["Location"]), (301, "/autopilot"))
+        code, hdr, _ = self.call("/en/autopilot?prije=1")
+        self.assertEqual((code, hdr["Location"]), (301, "/autopilot?prije=1"))
+        code, hdr, _ = self.call("/autopilot", cookie="cb_lang=hr")
+        self.assertEqual((code, hdr["Location"]), (302, "/hr/autopilot"))
+        self.assertEqual(self.call("/autopilot", cookie="cb_lang=en")[0], 200)
+        self.assertIn("<html lang=hr>", self.call("/hr/autopilot", cookie="cb_lang=en")[2])   # the address decides
+        code, hdr, _ = self.call("/jezik?l=en&next=/autopilot", cookie="cb_lang=hr")   # the EN link on the HR copy
+        self.assertEqual(hdr["Location"], "/autopilot")
+        self.assertIn("cb_lang=en", " ".join(hdr.get_all("Set-Cookie") or []))
+        from ui import public
+        sm, rb = public.sitemap(), public.robots()
+        self.assertIn("/autopilot</loc>", sm)
+        self.assertIn('hreflang="hr" href="', sm)
+        self.assertIn("/hr/autopilot\"", sm)
+        self.assertNotIn("/en/autopilot", sm + rb)
+        self.assertIn("Allow: /autopilot$\nAllow: /hr/autopilot$\n", rb)
 
     def test_two_hosts(self):
         os.environ.update(SITE_URL="https://memesonar.app", APP_URL="https://app.memesonar.app",

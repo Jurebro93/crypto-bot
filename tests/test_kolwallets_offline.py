@@ -485,6 +485,25 @@ class Pass(Base):
         self.assertEqual(len(self.ch.calls), n)
         self.assertIn("prekinuta na vremenskoj granici", self.logs[-1])
 
+    def test_left_s_of_the_whole_pass_bounds_this_one_and_the_live_share(self):
+        """19.11. navečer: kol_helius_share 0 -> 0.1 in insajderi/config.json; the pass still stops at the seconds the
+        whole insajderi pass has left (left_s), and its credits are at most a tenth of the day cap and one pass's cap."""
+        live = store.config()
+        self.assertEqual(live["kol_helius_share"], 0.1)
+        c = cfg(kol_helius_share=0.1, helius_day=60_000, kol_pass_credits=5000)
+        self.assertEqual(kw.budget(self.con, self.p, c, NOW), 5000)                     # one pass: kol_pass_credits
+        self.assertEqual(kw.budget(self.con, self.p, cfg(kol_helius_share=0.1, helius_day=20_000), NOW), 1500)
+        n = len(self.ch.calls)
+        s = kw.run_pass(self.con, self.p, c, NOW, kind="night", fetch=self.ch.fetch, credits=5000,
+                        log=self.logs.append, seed=self.seed, left_s=0)
+        self.assertTrue(s["truncated"])                                                 # no time left: nothing read
+        self.assertEqual((s["helius"], len(self.ch.calls)), (0, n))
+        s = kw.run_pass(self.con, self.p, c, NOW, kind="night", fetch=self.ch.fetch, credits=5000,
+                        log=self.logs.append, seed=self.seed, left_s=3600)
+        self.assertGreater(s["helius"], 0)                                              # time left: it reads
+        self.assertLessEqual(s["helius"], 5000)
+        self.assertLessEqual(kw._spent_today(self.con, NOW), 6000)                      # a tenth of 60k a day
+
     def test_pass_never_raises_and_no_calls_cost_nothing(self):
         with mock.patch.object(kw, "analyze", side_effect=RuntimeError("pokvareno")):
             self.assertEqual(self.run_pass(), {})

@@ -2,6 +2,7 @@
 table-cell bars. Every section links to the dashboard page with the details."""
 import html
 import os
+import sys
 import time
 
 from .collect import NAMES, SESSIONS
@@ -590,6 +591,10 @@ def midcap_sections(data, ai):
                                                                                [[e(a), e(b)] for a, b in costs_rows(c)])
     else:
         body += para("Još nema spremljenog dana (usage.db daily_cost se piše u 23:59 UTC).")
+    tw = data.get("tjedni_trosak")
+    if tw:   # 19.11. (CLAUDE.md: every week the cost per source and what of it led to a decision or a trade)
+        from report import tjedni
+        body += sub("Tjedni trošak po izvoru") + tjedni.html(tw, sys.modules[__name__])
     out.append(section("Troškovi po izvoru", body, ("/usage", "Potrošnja")))
     if data.get("fokus"):
         out.append(section("Mikrokap", para(mikrokap_line(m.get("mikrokap"))), ("/strategije#arhiva", "Arhiva")))

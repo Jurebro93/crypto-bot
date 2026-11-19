@@ -23,10 +23,11 @@ def lines(s):
         return [store.PREFIX + "još nema prolaza"]
     cp = s.get("copy") or {}
     ours, al = cp.get("nasa_pravila") or {}, cp.get("svi") or {}
+    prog = f" ({s['copy_progress']}, zaostaje za kopijom prije pumpe)" if s.get("copy_progress") else ""
     out = [f"{store.PREFIX}događaja {s.get('events', 0)} (pozivi {s.get('call_events', 0)}, skokovi {s.get('jump_events', 0)}), "
            f"prodavača {s.get('sellers', 0)}, kupili prije poziva {s.get('bought_before', 0)}, potvrđenih grupa "
            f"{s.get('confirmed', 0)}; kopiranje: MC≥5M n={ours.get('n', 0)}, EV {_ev(ours.get('ev_pct'))}; svi "
-           f"n={al.get('n', 0)}, EV {_ev(al.get('ev_pct'))}"]
+           f"n={al.get('n', 0)}, EV {_ev(al.get('ev_pct'))}{prog}"]
     pn = cp.get("poziv_nakon") or {}
     out.append(f"{store.PREFIX}odluka: {'KOPIRATI U DEMU' if s.get('copyable') else 'ne kopirati'} — {s.get('verdict')}; "
                f"poziv nakon njihove kupnje: 1 d {pn.get('1d_pct')} %, 3 d {pn.get('3d_pct')} %, 7 d {pn.get('7d_pct')} % "

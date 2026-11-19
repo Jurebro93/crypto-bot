@@ -20,9 +20,59 @@
   "tekst": "ljestvice influencera, Telegram kanala i poziva od danas se osvježavaju jednom u 5 dana. Na vrhu tih stranica piše datum zadnjeg i sljedećeg osvježavanja."
  },
  {
+  "datum": "2026-11-17",
+  "naslov": "Autopilot: dodir na poziciju otvara njezin token",
+  "tekst": "dodir bilo gdje na retku pozicije učitava taj token: graf, zaglavlje i gumbe Kupi / Prodaj. Pozicije pokazuju ime tokena umjesto početka adrese, SL i TP pozicija koje vodi strategija, FDV uz market cap i koliko je stara cijena."
+ },
+ {
+  "datum": "2026-11-16",
+  "naslov": "Autopilot jednostavniji",
+  "tekst": "stranica Autopilot je pospremljena: prekidači su u pet redova, postavke u četiri bloka, a vrijednost walleta i rezultat po danu su na vrhu. Na mobitelu se sve što je dugo otvara jednim dodirom."
+ },
+ {
+  "datum": "2026-11-16",
+  "naslov": "Usporedba strategija na midcapovima",
+  "tekst": "stranica Usporedba strategija sada uspoređuje demo strategije na midcapovima, tokenima od nekoliko milijuna dolara market capa naviše. Rezultati starih strategija na malim tokenima ostaju u arhivi."
+ },
+ {
+  "datum": "2026-11-15",
+  "naslov": "Stranica za svaki praćeni token",
+  "tekst": "svaki midcap token koji alat prati ima svoju javnu stranicu: statistiku, tko ga je zvao, sastav holdera po vrsti, tumačenje brojki i mišljenje AI-ja, uz mogućnost da igrači ostave komentar i ocjenu. Stranica postoji na engleskom i hrvatskom."
+ },
+ {
+  "datum": "2026-11-15",
+  "naslov": "Makro influenceri",
+  "tekst": "pod Influencerima je nova kartica Makro: računi koji pišu o smjeru cijelog tržišta (Bitcoin, Ethereum, Solana, altcoini, meme coini), svaka izjava izmjerena po tome što je tržište napravilo poslije. Isto je dostupno i na javnim stranicama."
+ },
+ {
   "datum": "2026-11-14",
   "naslov": "Povijest Telegram kanala za ocjene callera",
   "tekst": "alat je dobio 11.547 povijesnih poziva iz 210 Telegram kanala (zadnjih 6 mjeseci). Server ih mjeri besplatnim izvorima cijena, uvijek tek nakon svježih poziva, pa se ocjene kanala iz zadnjih 50 poziva pune kroz par dana."
+ },
+ {
+  "datum": "2026-11-14",
+  "naslov": "Autopilot: graf, Brza kupnja i pozicije na vrhu",
+  "tekst": "na stranici Autopilot graf, Brza kupnja i otvorene pozicije su na vrhu, a svi prekidači na dnu. Graf dohvaća povijest kad je zatražiš i crta cijele svijeće, a Brza kupnja odbija SL iznad i TP ispod trenutnog market capa."
+ },
+ {
+  "datum": "2026-11-13",
+  "naslov": "Stranice na engleskom od prvog pogleda",
+  "tekst": "stranica tokena i javne stranice sada su na engleskom već pri prvom otvaranju, svaka ima hrvatsku i englesku verziju s poveznicom na drugu, pa ih možeš poslati i prijateljima izvan Hrvatske."
+ },
+ {
+  "datum": "2026-11-13",
+  "naslov": "Autopilot: dodir na token učita graf",
+  "tekst": "dodir na token na stranici Autopilot otvara njegov graf na istoj stranici, umjesto skočnog prozora ili odlaska na DexScreener."
+ },
+ {
+  "datum": "2026-11-11",
+  "naslov": "Rang novčanika i influencera za kopiranje",
+  "tekst": "na Novčanicima i Influencerima je tablica Za kopiranje: ocjena 0-100 iz zadnjih 30 dana (donja granica uspješnosti, medijan po tradeu, profit factor, može li se kopirati i koliko je svježe). Svaki stupac se poreda dodirom na naslov, a redak otvara detalje."
+ },
+ {
+  "datum": "2026-11-11",
+  "naslov": "Autopilot kao trading terminal",
+  "tekst": "stranica Autopilot je sada terminal: interaktivni graf svijeća, panel naloga s procjenom troška kupnje, tablice pozicija i povijesti, rezultat po danima i blok Portfelj. Podaci se osvježavaju sami dok je stranica otvorena."
  },
  {
   "datum": "2026-11-10",
