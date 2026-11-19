@@ -497,6 +497,57 @@ def history(con, st, now, wallet_db=None):
     return out
 
 
+def funnel(con, c, events, parts, st, now):
+    """19.11. navečer (vlasnik: "zašto će večeras pisati premalo podataka?"): the honest funnel before any group
+    qualifies (the class thresholds do not move): {"pumpe15_1h", "pumpe15_1d", "pumpe2_1h", "pumpe2_1d" (pump events
+    found), "duboko" (read at full depth: i2_cover.depth >= store.FETCH_DEPTH), "rani" (distinct wallets that bought
+    before t0 of a pump), "rani_prodali" (of them, also sold into it), "blizu_praga" (owner groups with pump_min_tokens
+    - 1 paid pumps bought before and sold into, not excluded), "grupe" (the list: prije_pumpe), "potvrdjeno",
+    "pokrivenost_pre_med" / "pokrivenost_skok_med" (median share of the pre / jump window the deep reads covered, %),
+    "n_pokrivenost" (events with a coverage)}."""
+    from insajderi import events as iev
+    out = {k: 0 for k in ("pumpe15_1h", "pumpe15_1d", "pumpe2_1h", "pumpe2_1d", "duboko", "rani", "rani_prodali",
+                          "blizu_praga", "grupe", "potvrdjeno")}
+    tiered = {e["eid"]: e for e in events if e.get("tier") in ("pumpa15", "pumpa2")}
+    for e in tiered.values():
+        out[f"pumpe{'15' if e['tier'] == 'pumpa15' else '2'}_{iev.res_of(e)}"] += 1
+    cov = {eid: (d, pc, jc) for eid, d, pc, jc in store.q(con, "SELECT eid, depth, pre_cov, jump_cov FROM i2_cover")}
+    deep = [cov[eid] for eid in tiered if eid in cov and (cov[eid][0] or 0) >= store.FETCH_DEPTH]
+    out["duboko"] = len(deep)
+    pre = [x[1] for x in deep if x[1] is not None]
+    jmp = [x[2] for x in deep if x[2] is not None]
+    out["pokrivenost_pre_med"] = round(100 * _med(pre), 1) if pre else None
+    out["pokrivenost_skok_med"] = round(100 * _med(jmp), 1) if jmp else None
+    out["n_pokrivenost"] = len(pre)
+    rani, prodali = set(), set()
+    for r in parts:
+        if r[0] in tiered and r[8]:
+            rani.add(r[1])
+            if r[9]:
+                prodali.add(r[1])
+    out["rani"], out["rani_prodali"] = len(rani), len(prodali)
+    need = int(c["pump_min_tokens"])
+    out["blizu_praga"] = sum(1 for s in st.values() if s["n_tokens"] == need - 1 and s["cls"] in ("kandidat",))
+    out["grupe"] = sum(1 for s in st.values() if s["cls"] == "prije_pumpe")
+    out["potvrdjeno"] = len(confirmed(st))
+    return out
+
+
+def funnel_line(pp):
+    """The funnel line (19.11. navečer), one per pass next to the main line."""
+    f = (pp or {}).get("lijevak")
+    if not f:
+        return PREFIX + "lijevak: još nema prolaza"
+    cov = (f"medijan {f['pokrivenost_pre_med']:.0f} % (skok {f['pokrivenost_skok_med']:.0f} %, "
+           f"{f['n_pokrivenost']} pumpi)" if f.get("pokrivenost_pre_med") is not None else "još nema dubokog čitanja")
+    return (f"{PREFIX}lijevak: pumpi ≥ 15M {f['pumpe15_1h'] + f['pumpe15_1d']} (1h {f['pumpe15_1h']}, 1d "
+            f"{f['pumpe15_1d']}), 2-15M {f['pumpe2_1h'] + f['pumpe2_1d']} (1h {f['pumpe2_1h']}, 1d {f['pumpe2_1d']}); "
+            f"pročitano do pune dubine {f['duboko']}; ranih kupaca {f['rani']}, od njih prodali u pumpu "
+            f"{f['rani_prodali']}; blizu praga (2 pumpe) {f['blizu_praga']}; grupa s 3+ pumpe {f['grupe']}; potvrđeno "
+            f"{f['potvrdjeno']}; pokrivenost prozora prije skoka: {cov}"
+            + (f"; {pp['punjenje']}" if pp.get("punjenje") else ""))
+
+
 def run_list(con, c, now, events, parts, bad=frozenset(), first_trade=None, prev=None, stop=None):
     """The class list and the bundles, stored -> (the summary block without the copy numbers, the market makers).
     stop() true before the end: the stored list / bundles of the last run stay and the block says "cut"."""
@@ -520,8 +571,11 @@ def run_list(con, c, now, events, parts, bad=frozenset(), first_trade=None, prev
            "market_makers": len(mm), "bundles": n_b, "min_tokens": int(c["pump_min_tokens"]),
            "min_n": int(c["pp_min_n"]), "slip_fast_pct": round(float(c["slip_fast"]) * 100, 2),
            "copy": prev.get("copy"), "copy_ts": prev.get("copy_ts")}
+    if store.backfill_on(c, now):   # 19.11. navečer: the line says the backfill budget applies
+        out["punjenje"] = store.backfill_label(c)
     if bs is None:
         out["cut"] = "bundle"
+    out["lijevak"] = funnel(con, c, events, parts, st, now)
     try:   # 19.11.: the members' own history (wallets/povijest.py), report only
         out["povijest"] = history(con, st, now)
     except Exception as e:  # noqa: BLE001 - the list never fails on it
@@ -560,7 +614,7 @@ def line(pp, helius_today=0, helius_cap=0):
         return PREFIX + f"još nema prolaza; Helius danas {helius_today:,}/{helius_cap:,}"
     cp = pp.get("copy") or {}
     a, f, z = ((cp.get(k) or {}).get("svi") or {} for k in ("60s", "brzo", "null"))
-    heli = f"Helius danas {helius_today:,}/{helius_cap:,}"
+    heli = f"Helius danas {helius_today:,}/{helius_cap:,}" + (f" ({pp['punjenje']})" if pp.get("punjenje") else "")
     if pp.get("copy_ts") and pp.get("ts") and pp["copy_ts"] != pp["ts"]:   # 19.11.: incr reuses the full pass's copy
         heli = f"brojke kopije iz prolaza {_t(pp['copy_ts'])} UTC; " + heli
     head = (f"{PREFIX}{pp.get('covered15', 0)} pumpi ≥ 15M i {pp.get('covered2', 0)} pumpi 2-15M pokriveno "
@@ -628,7 +682,7 @@ def markdown(pp, con, helius_today=0, helius_cap=0):
     cls = (pp or {}).get("classes") or {}
     L += ["", "Isključeno (razlog): " + (", ".join(f"{CLS_HR.get(k, k)} {v}" for k, v in sorted(cls.items())
                                                    if k not in ("prije_pumpe",)) or "—"), "",
-          _hist_line(pp), "",
+          _hist_line(pp), "", funnel_line(pp), "",
           "## Kopiranje (walk-forward: odabir samo iz prošlosti, trošak nikad ispod 3 %, promašaji brojani)", "",
           "| varijanta | skupina | kupnji | kopija | tokena | grupa | promašeno % | prosjek % | 95 % od | 95 % do "
           "| uz 0,5 SOL % |",

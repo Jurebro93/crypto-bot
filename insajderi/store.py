@@ -71,6 +71,16 @@ DEFAULT = {
     # stage asks the same Clock and stops cleanly (what was done is saved, the rest waits for the next pass). incr runs
     # the list and the bundles only when that stage took under incr_list_max_s on the last full pass
     "pass_max_s": {"once": 900, "incr": 420, "night": 5400}, "rest_time_share": 0.5, "rest_credit_share": 1.0, "incr_list_max_s": 60,
+    # 19.11. navečer (vlasnik: "zašto ne možeš provjeriti povijesne podatke, više tokena koji su pumpali i tko je kupio
+    # prije, a prodao u pumpi?"): pumps also from the DAILY candles (pump_days_1d back: +mkt_x1d in a day or +mkt_x3d
+    # within 3 days), the tiered events kept and scored over pump_days (the call events keep `days`), a deeper Helius
+    # read of every tiered event spread over its windows (pump_* pages in slices: pump_slices_pre / pump_slices_jump;
+    # pre window pump_pre_h before t0, 24 h for a 1h event, pump_pre_h_1d for a 1d one; at most pump_event_max_credits
+    # an event), and a bounded one-time backfill budget (backfill until / helius_day, once 1800 s, incr_share 0.2)
+    "pump_days": 180, "pump_days_1d": 180, "mkt_x1d": 0.50, "mkt_x3d": 1.00, "pump_sell_pages": 20,
+    "pump_pre_pages": 20, "pump_lookups": 40, "pump_acct_pages": 2, "pump_event_max_credits": 2000,
+    "pump_slices_pre": 10, "pump_slices_jump": 10, "pump_pre_h": 24, "pump_pre_h_1d": 72,
+    "backfill": {"from": "2026-11-19", "until": "2026-11-25", "helius_day": 250000, "once_s": 1800, "incr_share": 0.2},
 }
 
 SCHEMA = """
@@ -102,6 +112,8 @@ CREATE TABLE IF NOT EXISTS i2_signals (token TEXT, ts INTEGER, n_clusters INTEGE
     ret REAL, exit TEXT, PRIMARY KEY (token, ts));
 CREATE TABLE IF NOT EXISTS i2_runs (ts INTEGER, kind TEXT, credits INTEGER, detail TEXT);
 CREATE TABLE IF NOT EXISTS i2_kv (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS i2_cover (eid TEXT PRIMARY KEY, depth INTEGER, pre_s INTEGER, pre_cov REAL, jump_s INTEGER,
+    jump_cov REAL, n_tx INTEGER, credits INTEGER, ts INTEGER);
 CREATE TABLE IF NOT EXISTS i2_pp (owner TEXT PRIMARY KEY, members TEXT, n_members INTEGER, cls TEXT, why TEXT,
     n_pumps15 INTEGER, n_pumps2 INTEGER, n_tokens INTEGER, med_lead_min REAL, pnl_sol REAL, confirmed_ts INTEGER,
     last_seen INTEGER, updated INTEGER);
@@ -116,6 +128,9 @@ CREATE TABLE IF NOT EXISTS i2_bundle (bid TEXT PRIMARY KEY, kind TEXT, members T
 """
 # 19.11.: columns added to a table that already exists in production (connect() adds them when missing)
 MIGRATIONS = (("i2_events", "tier", "TEXT"), ("i2_events", "peak_mc", "REAL"))
+# 19.11. navečer: the deep, time-spread Helius read of a tiered event (chain.fetch_event_deep); FETCH_DEPTH is the
+# version: an event whose i2_cover.depth is lower (or that has none: the old 3 + 2 pages from one end) is read again
+FETCH_DEPTH = 2
 # scripts of the old microcap jobs whose Helius use the cap is a share of (usage.db usage.script = argv[0]'s name)
 OLD_SCRIPTS = ("precall.py", "groupdisc.py", "preshill.py", "run_wallets.py")
 
@@ -231,7 +246,7 @@ def paths(**over):
     from kol import groupdisc as gd
     p = gd.paths()
     extra = {"insajderi_db": db_path(),
-             "midcap_db": None, "xfeat_db": None, "trade_db": None, "usage_db": None, "corr_db": None,
+             "midcap_db": None, "veliki_db": None, "xfeat_db": None, "trade_db": None, "usage_db": None, "corr_db": None,
              "listing_db": os.environ.get("LISTING_DB") or os.path.join(ROOT, "listing.db"), "makroinf_db": None}
     try:
         from makroinf import store as mstore
@@ -241,6 +256,8 @@ def paths(**over):
     try:
         from veliki import midcap
         extra["midcap_db"] = midcap.db_path()
+        from veliki import store as vstore   # 19.11. navečer: its daily candles (events.daily_events)
+        extra["veliki_db"] = vstore.db_path()
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -283,8 +300,36 @@ def old_jobs_day(usage_db, now, days=30):
     return sum(r[1] for r in rows) / len(rows), len(rows)
 
 
+def backfill_on(c, now):
+    """19.11. navečer: True from backfill.from up to and including backfill.until (UTC days; the one-time history
+    backfill)."""
+    b = c.get("backfill") or {}
+    return bool(b.get("until")) and str(b.get("from") or "") <= day(now) <= str(b["until"])
+
+
+def backfill_label(c):
+    """'punjenje povijesti do 25.11.' of backfill.until."""
+    u = str((c.get("backfill") or {}).get("until") or "")
+    return f"punjenje povijesti do {u[8:10]}.{u[5:7]}." if len(u) == 10 else "punjenje povijesti"
+
+
+def effective(c, now):
+    """The config of a pass at `now`: during the backfill pass_max_s once = backfill.once_s (1800) and incr_share =
+    backfill.incr_share (0.2); after backfill.until the normal values."""
+    if not backfill_on(c, now):
+        return c
+    b = c.get("backfill") or {}
+    out = dict(c)
+    out["pass_max_s"] = dict(c.get("pass_max_s") or {}, once=float(b.get("once_s") or 1800))
+    out["incr_share"] = float(b.get("incr_share") or c["incr_share"])
+    return out
+
+
 def helius_cap(c, now, usage_db=None):
-    """(credits a UTC day, how it was set in Croatian)."""
+    """(credits a UTC day, how it was set in Croatian). 19.11. navečer: until backfill.until the backfill's own day cap
+    (250k; worst case 5 days x 250k = 1.25M credits), then helius_day."""
+    if backfill_on(c, now) and (c.get("backfill") or {}).get("helius_day"):
+        return int(c["backfill"]["helius_day"]), backfill_label(c)
     if c.get("helius_day") not in (None, ""):
         return int(c["helius_day"]), "zadano (helius_day)"
     avg, n = old_jobs_day(usage_db, now)
