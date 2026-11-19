@@ -398,6 +398,12 @@ MACHINES = [
       board=True),
     # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, sve resurse na novčanike; ops/drustveni.py)
     # 19.11. (vlasnik: "Demo money maybe no longer makes sense ... Yes, start with both steps"; league/mjera.py)
+    # 19.11. (vlasnik: BNB chain i praćenje novčanika; bnb/prati.py): mjerenje novih kupnji BSC novčanika, bez novca
+    M("bnb_measure_row", "BNB: mjerenje jedne nove kupnje praćenog novčanika", "strategije", "bnb.db bnb_mjera.status",
+      {"open": "otvoreno (čeka ulaz ili izlaz)", "closed": "zatvoreno (izmjereno)", "miss": "promašaj (ne ulazi u prosjek)"},
+      [("-", "open", "program: poll vidi kupnju"), ("open", "closed", "program: prodali su / stop / vrijeme"),
+       ("open", "miss", "program: bez cijene, likvidnost, MC ispod 30k")],
+      scan=(("bnb/prati.py", "status"),), caveats=("Samo redci u postotku; nikad trade ni novac.",)),
     M("wallet_measure_mode", "Praćenje novčanika: demo novac ili mjerenje po ulazu", "strategije",
       "trade.db settings 'mjera_nacin' (auto / demo / mjera) + league.db mjera_kv 'prebaceno'",
       {"auto": "auto: demo dok se mjerenje ne potvrdi na istim tradeovima, zatim samo mjerenje",

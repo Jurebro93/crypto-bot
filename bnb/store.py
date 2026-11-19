@@ -39,7 +39,7 @@ DEFAULT = {
     "pass_max_s": {"pass": 1500, "backfill": 36000, "track": 240}, "calls_day": 40_000, "gt_calls_pass": 120,
     "max_events_pass": 60, "db_max_mb": 400,
     # tracking and the measurement (league/mjera.py semantics)
-    "track_max_addrs": 200, "track_chunk": 20, "track_blocks": 4000, "stop": 0.25, "hold_h": 24,
+    "track_max_addrs": 200, "track_chunk": 40, "track_blocks": 4000, "stop": 0.25, "hold_h": 24,
     "entry_wait_s": 600, "no_price_s": 6 * 3600, "stakes_usd": [50, 250], "rt_floor": 0.03, "gas_usd": 0.02,
     "fee_side_default": 0.0025,
 }
