@@ -67,9 +67,8 @@ def _verdict_cell(st):
 def summary_table(s, full=False):
     """The table per source (and MC bucket) from league/mjera.summary."""
     from league import mjera
-    head = ["Koga pratimo", "Vrijednost tokena pri kupnji", "Kupnji", "Zatvoreno",
-            "Ne bismo stigli kopirati (promašaji)", "Otvoreno", "Po kupnji nakon troška", "Raspon u kojem je pravi "
-            "rezultat vjerojatno (95 % interval)", "Uz 0,5 SOL po kupnji", "U plusu", "Koliko kasnimo", "Presuda"]   # the verdict's whole sentence is in its title
+    head = ["Koga pratimo", "Vrijednost tokena", "Kupnji", "Zatvoreno", "Promašaji", "Otvoreno",
+            "Prosjek nakon troška", "Raspon (95 %)", "Uz 0,5 SOL", "U plusu", "Kašnjenje", "Presuda"]   # the verdict's whole sentence is in its title
     rows = []
     for src in mjera.SOURCES:
         keys = ["svi"] + [b for b in mjera.BUCKETS if (src, b) in s["by"]]
@@ -92,7 +91,8 @@ def summary_table(s, full=False):
         return ""
     th = "".join(f"<th scope=col>{rd.h(h)}</th>" for h in head)
     return (f'<div class=rt-wrap><table class="rt nm-t"><thead><tr>{th}</tr></thead><tbody>{"".join(rows)}</tbody>'
-            f'</table></div><p class=apx-mut style="font-size:12.5px;margin-top:4px">Presuda: „premalo” = manje od '
+            f'</table></div><p class=apx-mut style="font-size:12.5px;margin-top:4px">Promašaji = kupnje koje ne bismo '
+            'stigli kopirati. Raspon = u kojem je pravi rezultat vjerojatno (95 % interval). Presuda: „premalo” = manje od '
             f'{mjera.MIN_TOKEN_DAYS} dana s kupnjama (svaki token u jednom danu broji se jednom); „nije dokazano” = '
             'raspon dira nulu; „u plusu” / „u minusu” kad je cijeli raspon iznad / ispod nule.</p>')
 
