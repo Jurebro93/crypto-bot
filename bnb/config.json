@@ -1,0 +1,8 @@
+{
+  "_": "bnb/store.DEFAULT on top of which this file sits (19.11.): the production pass is bounded by pass_max_s.pass (s) and calls_day (public RPC calls a UTC day, all free); max_tokens the universe; db_max_mb the stage stop",
+  "pass_max_s": {"pass": 1500, "backfill": 36000, "track": 240},
+  "calls_day": 40000,
+  "gt_calls_pass": 120,
+  "max_tokens": 400,
+  "db_max_mb": 400
+}

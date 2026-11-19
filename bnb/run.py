@@ -37,21 +37,25 @@ def fill(con, c, now, clock, log=print, kind="backfill", max_events=None, gt_bud
         con.commit()
         out["discover"] = {"kept": kept, "seen": seen}
         log(f"{store.PREFIX}tokeni: {kept} memecoina u pojasu od {seen} viđenih")
-    b = pumpe.build(con, c, now, clock, log, gt_budget=gt_budget)
-    out["pumpe"] = b
-    log(f"{store.PREFIX}svijeće: {b['candled']} tokena ({b['gt_calls']} GeckoTerminal poziva, ostalo {b['left']}); "
-        f"pumpi {b['events']} (novih {b['events_new']})")
-    events = pumpe.load(con)
     rpc = _rpc(c)
-    todo = chain.due(con, events, now, c)
-    if max_events:
-        todo = todo[:int(max_events)]
-    out["due"] = len(todo)
-    read = 0
-    if todo:
-        blocks = chain.Blocks(rpc, c["block_s"])
-        px = chain.Px(con)
-        cap = int(c["calls_day"])
+    blocks = px = None
+    read, rounds, b = 0, 0, {}
+    cap = int(c["calls_day"])
+    while True:
+        rounds += 1
+        # candles in rounds of gt_round calls, then the pumps they found are read at once: the first results come
+        # within minutes, not after the whole universe's candles (GeckoTerminal is the slow source: ~4-16 s a call)
+        step = int(gt_budget) if gt_budget is not None else int(c.get("gt_round") or 40)
+        b = pumpe.build(con, c, now, clock, log, gt_budget=step)
+        log(f"{store.PREFIX}svijeće: {b['candled']} tokena ({b['gt_calls']} GeckoTerminal poziva, ostalo {b['left']}); "
+            f"pumpi {b['events']} (novih {b['events_new']})")
+        todo = chain.due(con, pumpe.load(con), now, c)
+        if max_events:
+            todo = todo[:int(max_events)]
+        out["due"] = len(todo)
+        if todo and blocks is None:
+            blocks = chain.Blocks(rpc, c["block_s"])
+            px = chain.Px(con)
         for e in todo:
             if clock.over():
                 out["cut"] = "vrijeme"
@@ -69,6 +73,16 @@ def fill(con, c, now, clock, log=print, kind="backfill", max_events=None, gt_bud
             log(f"{store.PREFIX}{e.get('symbol')} {e['tier']} {time.strftime('%d.%m. %H:%M', time.gmtime(e['t0']))}: "
                 f"{r['swaps']} swapova, {r['calls']} poziva, {r['reach']}{'' if r['complete'] else ' (nedovršeno)'}; "
                 f"baza {store.size_mb():.0f} MB")
+        if kind == "backfill" and read:   # a list after every round: partial results are on disk
+            evs = pumpe.load(con)
+            chain.build_parts(con, c, evs)
+            _st, f = klasa.run(con, c, evs, now, rpc)
+            store.kv_json(con, "last", dict(out, lijevak=f, read=read))
+            con.commit()
+            log(klasa.funnel_line(f))
+        if out.get("cut") or clock.over() or not b.get("left") or gt_budget is not None or max_events:
+            break
+    out["pumpe"] = b
     out["read"] = read
     events = pumpe.load(con)
     chain.build_parts(con, c, events)

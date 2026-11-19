@@ -226,6 +226,9 @@ PROCESSES = (
     ("oscilator", "run_oscilator.py", (), JOBS,
      "oscilator: walk-forward skalpiranja tokena koji osciliraju (samo čita minutne podatke), nakon deploya i noću"),
     # 15.11. (owner, insajderi/): Insajderi 2.0 under the heavy lock (nice), a Helius day cap; writes only insajderi.db
+    # 19.11. (owner, bnb/): BSC pumps and wallets every 3 h; network bound (free APIs), writes only bnb.db; may be paused
+    ("bnb", "run_bnb.py", (), JOBS,
+     "BNB Smart Chain: pumpe, kupci prije pumpe i mjerenje njihovih kupnji svaka 3 h (besplatni izvori, samo bnb.db)"),
     ("insajderi2", "run_insajderi.py", (), JOBS,
      "Insajderi 2.0: kupci prije poziva / skokova koji prodaju u skok, pametni novac; nakon deploya, svaka 3 h i noću, "
      "strop Helius kredita dnevno"),

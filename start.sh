@@ -20,6 +20,8 @@ touch "$DATA_DIR/events.db"; ln -sfn "$DATA_DIR/events.db" events.db
 touch "$DATA_DIR/insajderi.db"; ln -sfn "$DATA_DIR/insajderi.db" insajderi.db
 # 15.11. makroinf.db (makro influenceri, makroinf/store.py): persistent too
 touch "$DATA_DIR/makroinf.db"; ln -sfn "$DATA_DIR/makroinf.db" makroinf.db
+# 19.11. bnb.db (BNB Smart Chain: pumpe i novčanici, bnb/store.py): persistent too
+touch "$DATA_DIR/bnb.db"; ln -sfn "$DATA_DIR/bnb.db" bnb.db
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1 UI_SNAP_DIR="$DATA_DIR/pagecache"
 # memory: glibc gives every thread its own malloc arena (up to 8 per CPU the host reports, not our 0.5 CPU), and
 # freed memory stays parked in them, so the threaded dashboard climbed to ~200 MB and the 512 MB server ran out
@@ -327,6 +329,12 @@ low keep zonewatch python3 run_zonewatch.py loop
 ( sleep "${INSAJDERI_FIRST_S:-600}"; if [ "${INSAJDERI_ONCE:-1}" = "1" ]; then python3 -m ops.heavy run_insajderi.py once || echo "insajderi2 nije uspio"; fi; while true; do sleep 3600; python3 -m ops.heavy --night run_insajderi.py night || echo "insajderi2 (noć) nije uspio"; done ) &
 if [ "${INSAJDERI_INCR:-1}" = "1" ]; then
 ( sleep "${INSAJDERI_INCR_FIRST_S:-3600}"; while true; do python3 -m ops.heavy run_insajderi.py incr || echo "insajderi2 (3 h) nije uspio"; sleep "${INSAJDERI_INCR_S:-10800}"; done ) &
+# 19.11. (vlasnik: "dodaj BNB chain i praćenje novčanika"; bnb/, run_bnb.py): BSC pumps, who bought before and sold
+# into them, the class "kupuje prije pumpe" (insajderi/prijepumpe.classify), the measurement of their new buys (bnb.db
+# bnb_mjera); free sources only (GeckoTerminal, DexScreener, public BSC RPC, Binance market data), analysis only, never
+# trades. Low priority, NOT under the heavy lock (network bound), 30 min after a start then every 3 h, a pass bounded by
+# bnb/config.json pass_max_s.pass and calls_day. BNB_ON=0 turns it off. One line "bnb: ..." and output/bnb_novcanici.md.
+( sleep "${BNB_FIRST_S:-1800}"; while true; do if [ "${BNB_ON:-1}" != "0" ]; then low python3 run_bnb.py pass || echo "bnb nije uspio"; fi; sleep "${BNB_EVERY_S:-10800}"; done ) &
 fi
 
 # 15.11. (vlasnik: "Slažem se s prijedlogom koraka za plan makroinfluencera s dopunama kritičara"; makroinf/,
