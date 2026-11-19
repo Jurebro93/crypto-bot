@@ -381,11 +381,15 @@ def cols_tool():
                              fixed_left="minmax(0,1fr) 96px 92px")
 
 
-VIEWS = [("/tokens", "Novi"), ("/tokens/jaki", "Jaki"), ("/dugorocno", "Dugoročni")]
+OLD_VIEWS = [("/tokens", "Novi"), ("/tokens/jaki", "Jaki"), ("/dugorocno", "Dugoročni")]
+# 19.11. (vlasnik: "Kome treba ova stranica"): the three views of what the tool follows now (ui/midcaplist)
+TABS = (("15", "Od 15 M $"), ("2", "2–15 M $"), ("skok", "Skočili nedavno"))
+TAB_KEYS = tuple(k for k, _ in TABS)
+VIEWS = [("/tokens" if k == "15" else f"/tokens?t={k}", lab) for k, lab in TABS]
 
 
 def switch(cur):
-    """Novi · Jaki · Dugoročni on top of all three views (10.11.: the calm segment over the full width)."""
+    """Od 15 M $ · 2–15 M $ · Skočili nedavno (the calm segment over the full width); /dugorocno lights none."""
     return R.seg(VIEWS, cur)
 
 
@@ -438,8 +442,10 @@ def _page_jaki():
     return "Tokeni", f'{CSS}<div class="ms-page ms-wide">{body}</div>'
 
 
-def page(qs, view="novi", now=None, rows=None, st=None, picks=None):
-    """/tokens and /tokens/jaki. rows / st / picks: test seams (token_rows, token status, today's suggestion)."""
+def page_novi(qs, view="novi", now=None, rows=None, st=None, picks=None):
+    """The old /tokens (Novi) and /tokens/jaki views (microcap candidates from the hype scanner, off since 15.11.).
+    19.11.: no longer routed (run_ui redirects the old views to /tokens); kept for its callers and tests.
+    rows / st / picks: test seams (token_rows, token status, today's suggestion)."""
     if view == "jaki":
         return _page_jaki()
     now = now or time.time()
@@ -489,4 +495,221 @@ def page(qs, view="novi", now=None, rows=None, st=None, picks=None):
              f'{time.strftime("%H:%M", time.localtime(now))}, osvježava se svakih {WARM_S // 60} min.</span> '
              '<a class="ms-acc" href="/pojmovnik#confidence">Što znači pouzdanost</a></p>')
     b.append(sheet() + "</div>" + JS)
+    return "Tokeni", "".join(b)
+
+
+# ---------- 19.11.: what the tool follows now (ui/midcaplist) ------------------------------------------------------
+
+EMPTY_ON = "Popis se puni: prvi podaci nakon sljedećeg osvježavanja."
+EMPTY_OFF = "Popis midcap tokena se trenutno ne puni: sakupljač je isključen."
+DUGO_LINK = ('<p class="ms-hint" style="margin-top:14px"><a class="ms-acc" href="/dugorocno">Dugoročni</a>: stariji tokeni '
+             's ocjenom preživljavanja, poseban popis.</p>')
+
+
+def _collector_on():
+    """The midcap collector runs only while the owner switch fokus_midcap is on (veliki/midcap.py)."""
+    try:
+        from ops import fokus
+        return fokus.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _date(ts):
+    return time.strftime("%d.%m.", time.localtime(ts)).lstrip("0")
+
+
+def pump_phrase(p):
+    """"+140 % u 2 dana, 12.11." (rise from the start of the jump to its peak, how long, the day it started)."""
+    if not p or p.get("pct") is None:
+        return ""
+    dur = max(0, (p.get("peak_ts") or p["t0"]) - p["t0"])
+    if dur < 3600:
+        span = "u 1 h"
+    elif dur < 86400:
+        span = f"u {int(round(dur / 3600))} h"
+    else:
+        d = int(round(dur / 86400))
+        span = f"u {d} {'dan' if d % 10 == 1 and d % 100 != 11 else 'dana'}"
+    return f"{R.pct(p['pct'])} {span}, {_date(p['t0'])}"
+
+
+def groups_phrase(n):
+    """"prije skoka kupile 3 skupine novčanika" (only when insajderi knows of at least one)."""
+    if not n:
+        return ""
+    if n % 10 == 1 and n % 100 != 11:
+        return f"prije skoka kupila {n} skupina novčanika"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return f"prije skoka kupile {n} skupine novčanika"
+    return f"prije skoka kupilo {n} skupina novčanika"
+
+
+def answer(d, now=None):
+    """The page's one sentence from the data (19.11.: never a claim about a job that does not run)."""
+    toks = d.get("tokens") or []
+    if not toks:
+        return EMPTY_ON if _collector_on() else EMPTY_OFF
+    n, n15, n2, k = len(toks), d.get("n15") or 0, d.get("n2") or 0, d.get("pumped7") or 0
+    s = (f"Pratimo {R.num(n)} {plural(n, 'token', 'tokena', 'tokena')}: {R.num(n15)} vrijedi 15 M $ ili više, "
+         f"{R.num(n2)} između 2 i 15 M $.")
+    if k == 0:
+        s += " U zadnjih 7 dana nijedan nije skočio."
+    elif k == 1:
+        s += " U zadnjih 7 dana skočio je jedan."
+    else:
+        s += f" U zadnjih 7 dana skočilo ih je {R.num(k)}."
+    return s
+
+
+def age_line(d, now=None):
+    """How old the prices are: minutes, or the date plainly when older than an hour (nothing about a cadence)."""
+    now = now or time.time()
+    u = d.get("updated")
+    if not u:
+        return ""
+    a = now - u
+    if a < 120:
+        return "Cijene osvježene upravo sada."
+    if a < midcaplist_stale():
+        return f"Cijene osvježene prije {int(a // 60)} min."
+    return f"Cijene zadnji put osvježene {time.strftime('%d.%m.%Y. u %H:%M', time.localtime(u))}."
+
+
+def midcaplist_stale():
+    from ui import midcaplist
+    return midcaplist.STALE_S
+
+
+def _sym(t):
+    m = t.get("mint") or t.get("token") or ""
+    return t.get("symbol") or (m[:4] + "…" + m[-4:])
+
+
+def mid_row(t, pump=None, show_date=False):
+    """One token: symbol + name, MC, 24 h change, liquidity; under the name the pump and the groups when known."""
+    mint = t.get("mint") or t.get("token")
+    sym, name = _sym(t), t.get("name") or ""
+    mc, ch, lq = t.get("mcap"), t.get("c24"), t.get("liq")
+    pump = pump if pump is not None else t.get("pump")
+    sub = [x for x in (pump_phrase(pump), groups_phrase((pump or {}).get("groups"))) if x]
+    if not sub and lq:
+        sub = [f"likv. {R.usd(lq)}"]
+    # each part its own <span>: one dictionary entry per phrase, not per combination (ui/i18n)
+    sub_txt = " · ".join(f"<span>{esc(x)}</span>" for x in sub)
+    nm = f'<span class="mc-nm" translate=no>{esc(name)}</span>' if name and name.lower() != sym.lower() else ""
+    chs = f'<span class="{R.tone(ch)}">{esc(R.pct(ch))}</span>' if ch is not None else esc(R.DASH)
+    attrs = (f'data-s="{esc((sym + " " + name + " " + mint).lower())}" data-mc="{int(mc or 0)}" '
+             f'data-ts="{int((pump or {}).get("t0") or 0)}"')
+    return (f'<a class="mc-r" href="/token/{esc(mint)}" {attrs}>'
+            f'<span class="mc-n"><b translate=no>{esc(sym)}</b>{nm}</span>'
+            f'<span class="mc-w">{sub_txt or esc(R.DASH)}</span>'
+            f'<span class="mc-m">{esc(R.usd(mc) if mc else ("vrh " + R.usd(pump["peak_mc"])) if (pump or {}).get("peak_mc") else R.DASH)}</span>'
+            f'<span class="mc-c">{chs}</span>'
+            f'<span class="mc-l">{esc(R.usd(lq) if lq else R.DASH)}</span>'
+            '<span class="ms-chev" aria-hidden="true"></span></a>')
+
+
+MC_CSS = """<style>
+.tk-fld{display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:11px;padding:0 12px;margin:14px 0 0}
+.tk-fld svg{width:17px;height:17px;fill:none;stroke:var(--mut);stroke-width:2;stroke-linecap:round;flex:none}
+.tk-fld input{flex:1;min-width:0;border:0!important;background:none!important;font-size:17px;padding:9px 0;color:var(--fg);outline:none;box-shadow:none}
+.mc-head{display:grid;grid-template-columns:minmax(0,1fr) auto 14px;column-gap:12px;font-size:13px;color:var(--mut);padding:18px 0 8px;border-bottom:1px solid var(--line)}
+.mc-head .r{text-align:right}.mc-head .d{display:none}
+.mc-r{display:grid;grid-template-columns:minmax(0,1fr) auto 14px;grid-template-areas:"n m v" "w c v";column-gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line);min-height:62px;color:var(--fg);text-decoration:none}
+.mc-r[hidden]{display:none!important}
+.mc-r:hover b{color:var(--acc)}
+.mc-n{grid-area:n;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}.mc-n b{font-weight:600}
+.mc-nm{font-size:14px;color:var(--mut);margin-left:6px}
+.mc-w{grid-area:w;font-size:14px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin-top:1px}
+.mc-m{grid-area:m;text-align:right;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mc-c{grid-area:c;text-align:right;font-size:14px;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mc-c .pos{color:var(--good)}.mc-c .neg{color:var(--bad)}
+.mc-l{display:none}
+.mc-r .ms-chev{grid-area:v}
+.mc-ans{font-size:17px;line-height:1.45;margin:14px 0 0}
+.mc-empty{text-align:center;padding:26px 6px 18px;font-size:15px;color:var(--mut)}
+@media(min-width:900px){
+ .mc-r,.mc-head{grid-template-columns:minmax(0,1fr) 110px 90px 110px 14px;grid-template-areas:none}
+ .mc-r>*{grid-area:auto}
+ .mc-n{grid-column:1;grid-row:1}.mc-w{grid-column:1;grid-row:2}
+ .mc-m{grid-column:2;grid-row:1/3}.mc-c{grid-column:3;grid-row:1/3;font-size:15px}
+ .mc-l{display:block;grid-column:4;grid-row:1/3;text-align:right;font-size:15px;color:var(--mut);font-variant-numeric:tabular-nums}
+ .mc-r .ms-chev{grid-column:5;grid-row:1/3}
+ .mc-head .d{display:block;text-align:right}.mc-head .p{display:none}
+}
+</style>"""
+
+MC_JS = r"""<script>(()=>{const q=document.getElementById('tk-q'),root=document.getElementById('mc-root');if(!q||!root)return;
+const rows=[...root.querySelectorAll('.mc-r')],none=document.getElementById('mc-none'),MINT=/^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const f=()=>{const s=q.value.trim().toLowerCase();let n=0;rows.forEach(r=>{const ok=!s||r.dataset.s.indexOf(s)>=0;r.hidden=!ok;if(ok)n++});
+ if(none)none.hidden=!!n||!rows.length};
+q.addEventListener('input',f);document.getElementById('tk-f').addEventListener('submit',e=>{const v=q.value.trim();
+ if(MINT.test(v)){e.preventDefault();location.href='/token/'+v;return}
+ const vis=rows.filter(r=>!r.hidden);if(v&&vis.length===1){e.preventDefault();location.href=vis[0].getAttribute('href')}})})()</script>"""
+
+
+def tab_of(qs):
+    t = (qs or {}).get("t") or "15"
+    return t if t in TAB_KEYS else "15"
+
+
+def redirect_for(path, qs):
+    """The address an old Tokeni view moves to (None = serve it): /tokens/jaki, ?view= / ?v= / ?tab= of the old Novi /
+    Jaki views and an unknown ?t= go to the new default /tokens (19.11.)."""
+    qs = qs or {}
+    if path == "/tokens/jaki":
+        return "/tokens"
+    if path == "/tokens":
+        if any(k in qs for k in ("view", "v", "tab", "pogled")):
+            return "/tokens"
+        if "t" in qs and qs["t"] not in TAB_KEYS:
+            return "/tokens"
+        if qs.get("t") == "15":
+            return "/tokens"
+    return None
+
+
+def page(qs, now=None, d=None):
+    """/tokens (19.11.): the midcap list the tool follows now and the recent pumps. d: test seam (midcaplist.load())."""
+    from ui import midcaplist
+    now = now or time.time()
+    t0 = time.time()
+    if d is None:
+        d = midcaplist.load(now)
+    tab = tab_of(qs)
+    cur = "/tokens" if tab == "15" else f"/tokens?t={tab}"
+    toks = d.get("tokens") or []
+    b = [MC_CSS, '<div class="ms-page ms-wide" id="mc-root">', R.top("Tokeni"),
+         f'<p class="mc-ans">{esc(answer(d, now))}</p>']
+    age = age_line(d, now)
+    if age:
+        b.append(f'<p class="ms-sub">{esc(age)}</p>')
+    b += [switch(cur), SEARCH]
+    if tab == "skok":
+        items = [mid_row(p, pump=p) for p in d.get("pumps") or []]
+        head = ('<div class="mc-head"><span>Token · skok · skupine</span><span class="r p">mcap · 24 h</span>'
+                '<span class="r d">Mcap</span><span class="r d">24 h</span><span class="r d">Likv.</span><span></span></div>')
+        empty = (f"U zadnjih {midcaplist.PUMP_LIST_DAYS} dana nijedan praćeni token nije skočio."
+                 if toks else "Još nema skokova: prvo se mora napuniti popis tokena.")
+    else:
+        sel = sorted((x for x in toks if x.get("tier") == tab), key=lambda x: -(x.get("mcap") or 0))
+        items = [mid_row(x) for x in sel]
+        head = ('<div class="mc-head"><span>Token</span><span class="r p">mcap · 24 h</span>'
+                '<span class="r d">Mcap</span><span class="r d">24 h</span><span class="r d">Likv.</span><span></span></div>')
+        empty = ("Trenutno nijedan praćeni token ne vrijedi 15 M $ ili više." if tab == "15" else
+                 "Trenutno nijedan praćeni token ne vrijedi između 2 i 15 M $.") if toks else answer(d, now)
+    if items:
+        b += [head, f'<div class="mc-list">{"".join(items)}</div>',
+              '<div class="mc-empty" id="mc-none" hidden>Nema tokena s tim simbolom ili adresom na ovom popisu. Zalijepi '
+              'punu adresu za bilo koji token.</div>']
+    else:
+        b.append(f'<div class="mc-empty">{esc(empty)}</div>')
+    b.append(DUGO_LINK)
+    b.append("</div>" + MC_JS)
+    try:
+        from ui import data as _d
+        _d.stage("/tokens midcap", t0)
+    except Exception:  # noqa: BLE001
+        pass
     return "Tokeni", "".join(b)

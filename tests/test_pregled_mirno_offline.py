@@ -300,7 +300,7 @@ class Page(unittest.TestCase):
                 mock.patch.object(pocetna, "strategy_row", return_value=row("Strategije u demu")), \
                 mock.patch.object(pocetna, "wallets_row", return_value=row("Novčanici")), \
                 mock.patch.object(pocetna, "data_foot", return_value='<a class=ms-footlink>Podaci alata: 1 novi zapis</a>'):
-            title, body = pocetna.page({})
+            title, body = pocetna.page_old({})   # 19.11.: the old layout, kept as page_old
         self.assertEqual(title, "Pregled")
         seen = visible(body)
         order = ["Pregled", "osvježeno", "Najbolji ulaz sada", "Vrijedi pratiti",
@@ -324,7 +324,7 @@ class Page(unittest.TestCase):
                 mock.patch.object(pocetna, "strategy_row", side_effect=sqlite3.OperationalError("z")), \
                 mock.patch.object(pocetna, "wallets_row", return_value=None), \
                 mock.patch.object(pocetna, "data_foot", return_value=""):
-            _t, body = pocetna.page({})
+            _t, body = pocetna.page_old({})
         self.assertIn("Prijedlog se trenutno ne može složiti", body)
         self.assertNotIn("Ovaj tjedan", body)
         self.assertIn("ms-dlg", body)                                       # the pop-up look is still there

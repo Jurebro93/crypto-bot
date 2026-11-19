@@ -70,7 +70,7 @@ class Words(unittest.TestCase):
 class ListPage(unittest.TestCase):
     def _page(self, rows, picks=None, view="novi"):
         with mock.patch("ui.data.stage"):
-            return tokens.page({}, view=view, now=NOW, rows=rows, st={}, picks=picks or {})[1]
+            return tokens.page_novi({}, view=view, now=NOW, rows=rows, st={}, picks=picks or {})[1]   # 19.11.: old view
 
     def test_rows_groups_and_no_repeated_box(self):
         rows = [row("GIGA", "GIGAFROG", conf=94, mcap=412_000, feats={"turnover": 1.0}),
@@ -119,9 +119,10 @@ class ListPage(unittest.TestCase):
         self.assertIn('href="/token/M1"', html)
 
     def test_switch_is_the_calm_segment(self):
-        html = tokens.switch("/dugorocno")
+        html = tokens.switch("/tokens?t=skok")   # 19.11.: Od 15 M $ · 2–15 M $ · Skočili nedavno
         self.assertIn('class="ms-seg"', html)
-        self.assertIn('href="/dugorocno" class="on"', html)
+        self.assertIn('href="/tokens?t=skok" class="on"', html)
+        self.assertNotIn("Jaki", html)
 
 
 class Chart(unittest.TestCase):

@@ -162,6 +162,17 @@ def token_box(mint, symbol, locked=None):
             '🔄 Pokreni DCA</button></a>' + copy_btn(mint) + '</div>')
 
 
+def _manual_label():
+    """19.11.: the owner's manual buy stays while automatic real-money buying is paused (ui/pauza); the row says so."""
+    try:
+        from ui import pauza
+        paused = pauza.on()
+    except Exception:  # noqa: BLE001
+        paused = False
+    return ("Autopilot, ručno (pravi novac; automatske kupnje su pauzirane)" if paused
+            else "Autopilot, ručno (pravi novac)")
+
+
 def buy_sheet(mint, symbol, locked=None, stake=50):
     """10.11. (Jure, prijedlog 4.3: blok Natjecanje → list "Kupi"): the token page's Kupi opens this sheet instead of
     the box with three buttons at the bottom of the page. Demo on Natjecanje (the same /natjecanje/buy form and checks
@@ -187,7 +198,7 @@ def buy_sheet(mint, symbol, locked=None, stake=50):
             f'<div class="tk-grp2">{form}</div>'
             '<div class="tk-gl">Drugi načini</div><div class="tk-grp2">'
             f'<a class="tk-o" href="/natjecanje?dca={esc(mint)}#dca">DCA na Natjecanju<span class="ms-chev"></span></a>'
-            '<a class="tk-o adm-only" href="/pravi-trade#kupi-odmah">Autopilot, ručno (pravi novac)<span class="ms-chev"></span></a>'
+            f'<a class="tk-o adm-only" href="/pravi-trade#kupi-odmah">{esc(_manual_label())}<span class="ms-chev"></span></a>'
             '</div><p class="qb-note">Za demo kupnju moraš biti prijavljen svojim imenom. Adresu možeš i kopirati pa je '
             'zalijepiti u svoj wallet.</p><button type="button" class="tk-done qb-x" data-close>Zatvori</button></dialog>')
 

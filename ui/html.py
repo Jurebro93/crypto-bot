@@ -17,53 +17,42 @@ def _p(href, icon, name, desc, kw=""):
 
 
 SECTIONS = [
-    # the three things the app is about: the only items at the top of the menu and in the phone bar
+    # 19.11. (vlasnik: fokus na novčanike koji kupuju prije pumpe, zatim midcapovi): Pregled, Novčanici, Tokeni lead the
+    # menu, the phone bar and the map; Influenceri moved to "Više" (refreshed once in 5 days, ops/drustveni)
     ("Glavno", [
-        _p("/pregled", "🏠", "Pregled", "Najprofitabilnija strategija, koliko podataka imamo, rast u tjedan dana i brzi linkovi.",
-           "overview home početna pregled start nadzorna ploča dashboard sažetak rast strategija"),
-        _p("/tokens", "🪙", "Tokeni", "Prijedlozi tokena: novi, jaki i dugoročni, poredani po Šansi za skok.",
-           "radar hype novi zadnji sken kandidati lista coin prijedlozi"),
-        _p("/kol", "📣", "Influenceri", "Koji KOL-ovi stvarno pogađaju i što su upravo zvali.",
-           "influenceri pozivi twitter x ljestvica kol"),
-        _p("/wallets", "👛", "Novčanici", "Tko je upravo kupio ili prodao i koga se isplati kopirati.",
-           "walleti wallet smart money copy praćenje"),
+        _p("/pregled", "🏠", "Pregled", "Što alat sada radi: novčanici koji kupuju prije pumpe, Autopilot i midcapovi koji su skočili.",
+           "overview home početna pregled start nadzorna ploča dashboard sažetak"),
+        _p("/wallets", "👛", "Novčanici", "Novčanici koji kupuju prije pumpe i koga se isplati pratiti.",
+           "walleti wallet smart money copy praćenje insajderi prije pumpe"),
+        _p("/tokens", "🪙", "Tokeni", "Midcap tokeni koje pratimo (od 2 M $) i oni koji su nedavno skočili.",
+           "midcap tokeni lista coin skok pumpa popis"),
+        _p("/kol", "📣", "Influenceri", "Makro influenceri i KOL-ovi; osvježava se jednom u 5 dana.",
+           "influenceri pozivi twitter x ljestvica kol makro"),
     ]),
-    ("Tokeni", [
+    ("Novčanici i tokeni", [
         _p("/dugorocno", "🌱", "Dugoročni", "Sigurniji stariji tokeni koji se oporavljaju i rastu.",
            "dugorocno long term preživjeli veliki holderi burze"),
-        _p("/radar", "📡", "Zadnji sken", "Što je skener našao u zadnjem prolazu.", "radar hype novi zadnji sken"),
-        _p("/events", "📅", "Eventi", "Kalendar događaja, njihovi tokeni i kreću li prije događaja.",
-           "kalendar događaji prije eventa watch praćenje"),
+        _p("/strategije", "🏁", "Usporedba strategija", "Midcap strategije u demu, jedna uz drugu.",
+           "strategije usporedba demo midcap"),
     ]),
-    ("Influenceri i novčanici", [
-        _p("/izvori", "💬", "Telegram i KOL novčanici", "Telegram kanali i novčanici KOL-ova.",
-           "telegram kanali konvergencija kol novčanici"),
-        _p("/korelacije", "🕸", "Korelacije", "Novčanici i KOL-ovi koji rade zajedno.", "grupe klasteri veze"),
-        _p("/kol-test", "🧪", "KOL test", "Isplati li se ući odmah na KOL poziv.", "test"),
-    ]),
-    ("Bot (demo)", [
-        _p("/paper", "🤖", "Demo trading", "Bi li bot zaradio, bez pravog novca.", "paper trejd"),
-        _p("/strategije", "🏁", "Usporedba strategija", "5 demo računa po $1000.",
-           "strategije usporedba budžet račun novčanici kol mix kontrola nasumično"),
-        _p("/izlazi", "🚪", "Izlazi", "Kada bot prodaje i koliko to vrijedi.", "exit prodaja stop"),
-        _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak, gotov prije 8 h.", "email mail report sažetak"),
-    ]),
-    ("Pomoć", [
-        _p("/pojmovnik", "📖", "Pojmovnik", "Što znači svaki pojam i broj.",
-           "objašnjenje pojmovi rječnik značenje help pomoć info"),
-        _p("/mapa", "🧭", "Sve stranice", "Sve stranice na jednom mjestu.", "izbornik mapa pomoć help gdje je što"),
-        _p("/novo", "✨", "Što je novo", "Sve što je dodano u aplikaciju, po datumima.",
-           "novosti novo promjene dnevnik log povijest update changelog dodano"),
-    ]),
-    ("Bonus", [
-        _p("/natjecanje", "🏆", "Natjecanje", "Demo račun: kupi tokene iz prijedloga i natječi se s ostalima.",
+    ("Natjecanje", [
+        _p("/natjecanje", "🏆", "Natjecanje", "Demo račun: kupi tokene i natječi se s ostalima.",
            "liga ljestvica igra igrači demo račun kupi dca automatska kupnja prosjek"),
         _p("/copy-trading", "🔁", "Copy trading", "Alat ulazi i izlazi umjesto tebe, prema influenceru ili novčaniku.",
            "kopiraj prati influencer kol wallet novčanik copy trade"),
+    ]),
+    ("Alati", [
+        _p("/events", "📅", "Eventi", "Kalendar događaja.", "kalendar događaji"),
+        _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak, gotov prije 8 h.", "email mail report sažetak"),
         _p("/nas-token", "🪙", "Naš token", "Naš vlastiti Solana meme token.",
            "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja strategija promocija"),
         _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za WhatsApp grupu.", "whatsapp grupa podijeli pošalji share novosti"),
         _p("/prijedlozi", "💡", "Ideje za alat", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
+        _p("/pojmovnik", "📖", "Pojmovnik", "Što znači svaki pojam i broj.",
+           "objašnjenje pojmovi rječnik značenje help pomoć info"),
+        _p("/novo", "✨", "Što je novo", "Sve što je dodano u aplikaciju, po datumima.",
+           "novosti novo promjene dnevnik log povijest update changelog dodano"),
+        _p("/mapa", "🧭", "Sve stranice", "Sve stranice na jednom mjestu.", "izbornik mapa pomoć help gdje je što"),
     ]),
     ("Autopilot", [
         _p("/pravi-trade", "💰", "Autopilot", "Bot trguje pravim novcem iz tvog walleta, po onima koje odabereš.",
@@ -73,7 +62,6 @@ SECTIONS = [
         # 19.11. (vlasnik: "the admin must have a dashboard with more data about the wallets"): the owner only
         _p("/novcanici-admin", "👛", "Novčanici: administracija", "Grupe koje kupuju prije pumpe, bundle, isključeni, "
            "test kopiranja, povijest i veliki holderi.", "insajderi kupuje prije pumpe bundle novčanici admin pnl holderi"),
-        _p("/learn", "🧠", "Učenje", "Što bot uči iz ishoda i kako mijenja ocjene.", "learn težine"),
         _p("/criteria", "📏", "Pravila", "Svi pragovi i težine po kojima bot ocjenjuje.", "kriteriji criteria"),
         _p("/market", "🌡", "Tržište", "Je li tržište vruće ili hladno.", "market volumen"),
         _p("/analitika", "📈", "Analitika", "Posjete s Googlea.", "google search console gsc seo klikovi prikazi upiti posjete"),
@@ -87,7 +75,7 @@ SECTIONS = [
 ]
 # the three things the app is about (Nicholas 2.11.): they lead the menu, Pregled, the phone bar and the map
 CORE = ("Glavno",)
-BONUS = "Bonus"
+BONUS = "Natjecanje"
 # menu groups only an admin sees (UI_ADMINS); everyone else still reaches the pages by link or search
 # 9.11. (Jure): Autopilot is for the administrators only: shown to them at the top of the menu, highlighted (see
 # autopilot_link); everybody else gets a copy without it (ui/admstrip strips adm-only elements server-side)
@@ -98,12 +86,13 @@ PRIVATE = ("Autopilot",)
 NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
               "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
               "/prijava": "/", "/nas-token/": "/nas-token", "/registracija": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
-# phone bottom bar: the three core features + Više (opens the menu). Line icons, one colour.
+# phone bottom bar (19.11., vlasnik: "Autopilot stavi u drugi plan dok rekonstruiramo app"): Pregled, Novčanici, Tokeni,
+# Influenceri, Više for every role; the Autopilot is under "Više". Line icons, one colour.
 _SVG = '<svg viewBox="0 0 24 24" aria-hidden="true">{}</svg>'
 BOTTOM = [("/pregled", _SVG.format('<path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/>'), "Pregled"),
+          ("/wallets", _SVG.format('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h2"/>'), "Novčanici"),
           ("/tokens", _SVG.format('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>'), "Tokeni"),
-          ("/kol", _SVG.format('<path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/>'), "Influenceri"),
-          ("/wallets", _SVG.format('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h2"/>'), "Novčanici")]
+          ("/kol", _SVG.format('<path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/>'), "Influenceri")]
 MORE_ICON = _SVG.format('<circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/>')
 
 # Logo: candidates, LOGO picks the one shown. Plain SVG, no files to serve.
@@ -163,9 +152,9 @@ def nav_group(path):
 # one box at the top of every page: what the page is for, which data is on it, and where it sits in the pipeline
 # (kalendar -> skener -> slojevi T0-T3 -> Šansa -> demo trading -> učenje). Keyed by route or route prefix.
 INTRO = {
-    "/pregled": ("Početna: najvažnije na jednom mjestu", "Koja strategija najviše zarađuje i koliko, koliko podataka alat "
-                 "ima i kako je narastao u odnosu na prošli tjedan, zanimljivosti sada i brzi linkovi.",
-                 "Prvo što vidiš nakon prijave; odavde ideš na Tokene, Influencere i Novčanike."),
+    "/pregled": ("Početna: što alat sada radi", "Novčanici koji kupuju prije pumpe (koliko smo ih našli i potvrdili), "
+                 "novčanici koje vrijedi pratiti, stanje Autopilota i midcapovi koji su nedavno skočili; niže, s datumom, "
+                 "influenceri i promet novčanika.", "Prvo što vidiš nakon prijave; odavde ideš na Novčanike i Tokene."),
     "/postavke": ("Tvoj račun, tvoja pravila", "Lozinka, profilna slika, jezik aplikacije (hrvatski ili engleski), "
                   "društvene mreže i e-mail, odjava sa svih uređaja i brisanje računa.",
                   "Slika i društvene mreže se vide u Natjecanju; jezik vrijedi za cijelu aplikaciju."),
@@ -182,14 +171,14 @@ INTRO = {
           "njihovi zadnji pozivi, te što praćeni novčanici kupuju. Ispod su veliki pogoci, demo rezultat, kako se baza puni i "
           "tablica tokena koji su prošli više analiza.",
           "Završna točka cjevovoda: ovdje se vidi što je iz svih slojeva izašlo kao kandidat."),
-    "/tokens": ("Sve što alat zna o svakom tokenu", "Svaki token viđen u zadnjih 7 dana kroz sve analize (hype, X, smart money, "
-                "KOL, holderi, rug, event, demo), poredan po Šansi; odvojeno event tokeni, stariji i odbačeni.",
-                "Povijest i puna slika; za trenutak zadnjeg prolaza služi Zadnji sken, za odluku Pregled."),
-    "/radar": ("Što je hype skener vidio u zadnjem prolazu", "Kandidati iz zadnjeg skena (svake 2 min) s razlozima i rizicima, "
+    "/tokens": ("Tokeni koje alat prati", "Midcap tokeni od 2 M $ naviše (od 15 M $ prvi), njihova vrijednost, promjena "
+                "u 24 h i likvidnost, te tokeni koji su nedavno skočili i koliko je skupina novčanika kupilo prije skoka.",
+                "Popis puni sakupljač midcapova; skokove i rane kupce traži analiza novčanika (insajderi)."),
+    "/radar": ("Što je hype skener vidio u zadnjem prolazu", "Kandidati iz zadnjeg skena (do 15.11. svake 2 min; skener je od tada isključen) s razlozima i rizicima, "
                "odbačeni, narativi (X trendovi, kopije), smart money, radi li ocjena, Apify trošak.",
                "Prvi sloj cjevovoda: sirovi signali s DexScreenera, pump.funa i X-a prije skupljih provjera."),
-    "/events": ("Događaji oko kojih bi mogli nastati tokeni", "Kalendar s točkicama po važnosti, lista događaja s hype ocjenom i "
-                "najizglednijim tokenom, te praćenje tokena od 14 dana prije eventa (volumen, kupci, smart money).", "Ulaz za klasu Event: pravi token događaja ide u slojevitu analizu kao event kandidat."),
+    "/events": ("Događaji iz kalendara", "Kalendar s točkicama po važnosti i lista događaja s hype ocjenom.",
+                "Praćenje tokena prije eventa i event tokeni stali su 15.11. (fokus na midcapove); kalendar se i dalje puni."),
     "/wallets": ("Tko kupuje rano i zarađuje", "Registar walleta iz svih analiza (rani kupci, smart, top traderi, botovi, devovi), "
                  "ocjena profitabilnosti, copy lista.", "Smart walleti među prvim kupcima su signal u hype ocjeni i T1 provjeri; "
                  "rotacijski devovi su upozorenje."),
@@ -271,21 +260,16 @@ AP_ICON = _SVG.format('<path d="M3.5 16a8.5 8.5 0 0 1 17 0"/><path d="M12 16l4.2
 
 
 def bottom_bar(path, cur=None):
-    """Phone bar: Pregled, Tokeni, Influenceri, Autopilot (admins; class adm-only, stripped server-side for the
-    others) or Novčanici (everybody else; class nadm, hidden for admins), Više (/vise, a page now, not the drawer).
+    """Phone bar (19.11.): Pregled, Novčanici, Tokeni, Influenceri, Više (/vise, a page now, not the drawer) for every
+    role; the Autopilot pages light Više (they live under it while the app is rebuilt).
     The dot on Više (class nd) shows while "Što je novo" has an entry the user has not opened (ADMIN_JS, html.novo)."""
-    bcur = "/pravi-trade" if path.startswith("/pravi-trade") else bottom_item(path)
+    bcur = "/vise" if path.startswith("/pravi-trade") else bottom_item(path)
     if bcur is None and _more_cur(path, cur if cur is not None else nav_item(path)):
         bcur = "/vise"
     out = []
     for h, i, t in BOTTOM:
         on = "on" if h == bcur else ""
-        if h == "/wallets":
-            out.append(f'<a href="/pravi-trade" class="adm-only{" on" if bcur == "/pravi-trade" else ""}">'
-                       f'<span class=bi>{AP_ICON}</span>Autopilot</a>')
-            out.append(f'<a href="{h}" class="nadm {on}"><span class=bi>{i}</span>{t}</a>')
-        else:
-            out.append(f'<a href="{h}" class="{on}"><span class=bi>{i}</span>{t}</a>')
+        out.append(f'<a href="{h}" class="{on}"><span class=bi>{i}</span>{t}</a>')
     out.append(f'<a href="/vise" class="vise{" on" if bcur == "/vise" else ""}"><span class="bi nd">{MORE_ICON}</span>Više</a>')
     return "<nav class=bbar aria-label='Brzi izbornik'>" + "".join(out) + "</nav>"
 
@@ -304,6 +288,9 @@ html.novo .side .sec-c .vd::after{content:"";position:absolute;top:2px;right:-11
 /* the "Više" page: groups of rows on a soft page, like iOS settings (makete/izbornik.html) */
 body:has(.ms-vise){background:var(--soft)}
 .ms-vise .ms-gt{font-size:15px;font-weight:600;color:var(--mut);margin:26px 4px 8px}
+.ms-vise .ms-gn{font-weight:400}
+.ms-grp a.ms-quiet{font-size:15px;color:var(--mut)}
+.ms-grp .ms-gl{margin:0;padding:12px 16px;font-size:14px;color:var(--mut);line-height:1.4;border-bottom:1px solid var(--line)}
 .ms-grp{background:#fff;border-radius:14px;overflow:hidden}
 .ms-grp a{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:50px;padding:0 16px;font-size:17px;color:var(--fg);text-decoration:none}
 html.adm .ms-grp a.adm-only{display:flex!important}
@@ -326,18 +313,33 @@ def _vrow(href, label, right="", cls=""):
     return f'<a href="{href}"{ca}>{esc(label)}<span class=r>{right}<span class=ms-chev></span></span></a>'
 
 
-# The "Više" page (10.11., Jure, prijedlog 3.5): 17 rows in four groups instead of the 37-link drawer. Every page that
-# left the menu stays one tap away: Dugoročni is the third tab on Tokeni, Izlazi is linked from Demo trading, the
-# eight Sustav pages are one sub-page (/vise/sustav), and "Sve stranice" (/mapa, kept for old links) lists all of them.
+# The "Više" page (10.11., Jure, prijedlog 3.5; 19.11. regrouped around the new focus: novčanici prije pumpe, midcapovi).
+# Pages of the microcap strategies that stopped on 15.11. left the list (ui/umirovljeno.py: their routes answer with
+# one line); "Sve stranice" (/mapa) lists every page that is still in use.
 VISE = [
-    ("Istraživanje", [("/wallets", "Novčanici", "m-only adm-only"), ("/events", "Eventi", ""), ("/radar", "Zadnji sken", ""),
-                      ("/izvori", "Telegram i KOL novčanici", "")]),
-    ("Demo", [("/natjecanje", "Natjecanje", ""), ("/paper", "Demo trading", ""), ("/strategije", "Usporedba strategija", ""),
-              ("/copy-trading", "Copy trading", ""), ("/kol-test", "KOL test", "")]),
-    ("Zajednica", [("/autopilot", "Autopilot uživo: rezultati i chat", ""),   # 10.11. (Jure): always one tap away
-                   ("/nas-token", "Naš token", ""), ("/whatsapp", "Za WhatsApp", ""), ("/prijedlozi", "Ideje za alat", "")]),
-    ("Pomoć", [("/pojmovnik", "Pojmovnik", ""), ("/novo", "Što je novo", "")]),
+    ("Novčanici i tokeni", [("/dugorocno", "Dugoročni tokeni", "")]),
+    # 19.11. (vlasnik: "Telegram KOLs makni iz izračuna ... samo informativna lista skrivena negdje sa strane"): one
+    # quiet link to the informational channel list (/telegram-kanali, ui/tgkanali.py: built in another branch)
+    ("Influenceri", [("/kol", "Influenceri", ""), ("/telegram-kanali", "Telegram kanali (informativno)", "ms-quiet")]),
+    ("Natjecanje", [("/natjecanje", "Natjecanje", ""), ("/copy-trading", "Copy trading", "")]),
+    # 19.11. (vlasnik: "Autopilot stavi u drugi plan dok rekonstruiramo app"): the Autopilot family near the end;
+    # the heading and its line follow the real-money pause (ui/pauza), see vise_page
+    ("Autopilot", [("/pravi-trade", "Autopilot", "adm-only"), ("/strategije", "Usporedba strategija (demo)", ""),
+                   ("/autopilot", "Autopilot: rezultati i chat", "")]),
+    ("Alati", [("/events", "Eventi", ""), ("/izvjestaj", "Jutarnji izvještaj", ""), ("/nas-token", "Naš token", ""),
+               ("/whatsapp", "Za WhatsApp", ""), ("/prijedlozi", "Ideje za alat", ""), ("/pojmovnik", "Pojmovnik", ""),
+               ("/novo", "Što je novo", "")]),
 ]
+VISE_NOTE = {"Influenceri": "osvježava se jednom u 5 dana"}
+AP_PAUSED_LINE = "Pauzirano: kupnje pravim novcem stoje, alat se preslaguje oko novčanika."
+
+
+def _ap_paused():
+    try:
+        from ui import pauza
+        return pauza.on()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def vise_page(qs=None, sub=None):
@@ -352,18 +354,24 @@ def vise_page(qs=None, sub=None):
                 '<p class="ms-note nadm">Ove stranice vide samo administratori.</p></div>')
         return "Sustav", body
     groups = []
+    paused = _ap_paused()
     for title, items in VISE:
         rows = "".join(_vrow(h, t, '<span class=new data-novo>novo</span>' if h == "/novo" else "", c) for h, t, c in items)
-        groups.append(f'<div class=ms-gt>{esc(title)}</div><nav class=ms-grp>{rows}</nav>')
-    last = ('<div class=ms-gt>&nbsp;</div><nav class=ms-grp>'
+        note = VISE_NOTE.get(title)
+        if title == "Autopilot" and paused:
+            title = "Autopilot (pauzirano)"
+            rows = f'<p class=ms-gl>{esc(AP_PAUSED_LINE)}</p>' + rows
+        groups.append(f'<div class=ms-gt>{esc(title)}' + (f' <span class=ms-gn>· {esc(note)}</span>' if note else "")
+                      + f'</div><nav class=ms-grp>{rows}</nav>')
+    last = ('<div class="ms-gt adm-only">Sustav</div><nav class=ms-grp>'
             + _vrow("/vise/sustav", "Sustav", str(len(sustav)), "adm-only")
             + _vrow("/postavke", "Postavke", "", "m-only")
             + '<a href="/odjava"><span class=out>Odjava</span></a></nav>')
-    half = 2
+    half = 2   # left: novčanici i tokeni, influenceri; right: natjecanje, autopilot, alati, sustav
     body = ('<div class=ms-vise><div class=ms-top><h1 class=ms-h1>Više</h1></div><div class=ms-cols>'
             f'<div>{"".join(groups[:half])}</div><div>{"".join(groups[half:])}{last}</div></div>'
-            '<p class=ms-note>Svaka stranica alata, i one kojih ovdje nema (Dugoročni, Korelacije, Izlazi, Jutarnji '
-            f'izvještaj), je na popisu <a href="/mapa">Sve stranice</a>; javna stranica: '
+            '<p class=ms-note>Stranice strategija za nove tokene (mikrokapove) koje više ne vodimo od 15.11. maknute su s '
+            f'popisa; sve ostale su na <a href="/mapa">Sve stranice</a>; javna stranica: '
             f'<a href="{_home_link()}" target=_blank rel=noopener>Naslovna</a>.</p></div>')
     return "Više", body
 
@@ -652,8 +660,10 @@ def autopilot_link(cur):
 
 def _more_cur(path, cur):
     """True when the page lives under "Više" (not one of the core items, not the Autopilot, not the start page)."""
-    if path in ("/", "") or cur == "/pravi-trade" or path.startswith("/pravi-trade"):
+    if path in ("/", ""):
         return False
+    if cur == "/pravi-trade" or path.startswith("/pravi-trade"):   # 19.11.: the Autopilot lives under "Više" now
+        return True
     return cur not in [p["href"] for p in SECTIONS[0][1]]
 
 
@@ -669,7 +679,7 @@ def side_menu(cur, path=None):
     links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}{_role_cls(p["href"])}">'
                     f'{esc(p["name"])}</a>' for p in core)
     more_on = path is not None and _more_cur(path, cur) or cur == "/vise"
-    b.append(f'<div class=sec-c>{links}{autopilot_link(cur)}'
+    b.append(f'<div class=sec-c>{links}'
              f'<a href="/vise" class="vise{" on" if more_on else ""}"><span class=vd>Više</span></a></div>')
     from ui.i18n import lang
     en = lang() == "en"

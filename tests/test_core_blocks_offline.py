@@ -59,8 +59,8 @@ class MenuTest(unittest.TestCase):
     def test_core_first_bonus_last(self):
         names = [s for s, _ in html.SECTIONS]
         self.assertEqual(names[0], html.CORE[0])
-        self.assertEqual([p["href"] for p in html.SECTIONS[0][1]], ["/pregled", "/tokens", "/kol", "/wallets"])
-        self.assertGreater(names.index(html.BONUS), names.index("Bot (demo)"))
+        self.assertEqual([p["href"] for p in html.SECTIONS[0][1]], ["/pregled", "/wallets", "/tokens", "/kol"])   # 19.11.
+        self.assertGreater(names.index(html.BONUS), names.index("Novčanici i tokeni"))
         self.assertIn("/natjecanje", [p["href"] for s, items in html.SECTIONS if s == html.BONUS for p in items])
 
     def test_natjecanje_not_in_header_or_bottom_bar(self):
@@ -69,7 +69,7 @@ class MenuTest(unittest.TestCase):
         self.assertNotIn("natjecanje", header)
         bbar = out[out.index("class=bbar"):]
         self.assertNotIn('href="/natjecanje"', bbar[:bbar.index("</nav>")])
-        self.assertEqual([h for h, _, _ in html.BOTTOM], ["/pregled", "/tokens", "/kol", "/wallets"])
+        self.assertEqual([h for h, _, _ in html.BOTTOM], ["/pregled", "/wallets", "/tokens", "/kol"])
 
 
 if __name__ == "__main__":

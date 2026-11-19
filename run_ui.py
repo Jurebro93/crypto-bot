@@ -234,6 +234,10 @@ def login_page(qs, err=""):
 
 
 def route(path, qs):
+    from ui import umirovljeno   # 19.11.: pages of the stopped microcap strategies answer with one line
+    gone = umirovljeno.page(path, qs)
+    if gone:
+        return gone
     if path == "/pregled":
         from ui import pocetna
         return pocetna.page(qs)
@@ -271,8 +275,8 @@ def route(path, qs):
         return pages.wallet(path[len("/wallet/"):], qs)
     if path == "/tokens":
         return tokens.page(qs)
-    if path == "/tokens/jaki":
-        return tokens.page(qs, view="jaki")
+    if path == "/tokens/jaki":   # 19.11.: the old Jaki view; do_GET redirects it to /tokens (tokens.redirect_for)
+        return tokens.page({})
     if path.startswith("/token/"):
         return pages.token(path[len("/token/"):], qs)
     if path == "/events":
@@ -849,6 +853,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 frag = _error_html()
             return self._send(200, frag.encode("utf-8"))
+        if path in ("/tokens", "/tokens/jaki"):   # 19.11.: the old Novi / Jaki views move to the new default view
+            to = tokens.redirect_for(path, qs)
+            if to:
+                return self._redirect(to, code=302)
         if path == "/watch":   # Prije eventa is a section of Eventi since 4.11.
             return self._redirect("/events#prije", code=301)
         if path == "/":   # the app opens on Pregled (4.11.: one page with the most important things, then Tokeni)

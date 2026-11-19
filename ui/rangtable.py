@@ -159,7 +159,7 @@ def table(rows, kind="wallet", now=None, names=None, empty=None, tags=None):
     default is Ocjena, high to low). tags: {target: [short marks]} shown next to the name (dokazan dvaput, prati
     Autopilot)."""
     if not rows:
-        return rd.hint(empty or "Rang za kopiranje još nije izračunat (računa se nakon ocjenjivanja novčanika, svaka 3 h).")
+        return rd.hint(empty or "Rang za kopiranje još nije izračunat (računa se iz ocjena novčanika).")
     head = []
     for k, t, typ in COLS:
         lbl = ("Influencer" if kind == "kol" else "Novčanik") if k == "name" else ("Drži (mjereno)" if k == "hold" and kind == "kol" else t)

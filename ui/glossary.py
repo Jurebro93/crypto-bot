@@ -279,7 +279,7 @@ T("Phantom", "osnove", "Najpopularniji Solana novčanik (aplikacija i dodatak za
 
 # ---------------------------------------------------------------- ocjene alata
 T("Hype ocjena", "ocjene", "0-100: koliko je pažnje token upravo dobio (volumen, kupci, X, KOL-ovi, kopije teme).",
-  "Hype skener svake 2 minute gleda nove tokene i zbraja signale: rast volumena, broj kupaca, spominjanja na X-u, KOL "
+  "Hype skener je do 15.11. svake 2 minute gledao nove tokene (od tada je isključen) i zbrajao signale: rast volumena, broj kupaca, spominjanja na X-u, KOL "
   "pozive, smart money među kupcima, vrućinu tržišta. Svaki signal ima težinu koju bot sam prilagođava prema tome što je "
   "stvarno prethodilo skokovima. Hype 50+ je prag za ulaz u demo trading. Hype nije preporuka: mjeri buku, a ne sigurnost.",
   "Hype 72 = token je jedan od najglasnijih u zadnjem skenu.",
@@ -350,9 +350,9 @@ T("Konvergencija", "ocjene", "Više neovisnih izvora (KOL-ovi, Telegram kanali, 
 T("X buzz", "ocjene", "Token na X-u spominje barem 5 različitih autora ili barem jedan influencer s 10k+ pratitelja.",
   vidi=["kol", "hype-ocjena"])
 T("Snaga", "ocjene", "Drži li token volumen i raste li mu broj holdera kroz zadnjih 6 sati.",
-  "Iz očitanja svake 2 minute (puls): volumen i transakcije prema najboljem satu, rast holdera po satu i koliko su novi "
+  "Iz očitanja puls (do 15.11. svake 2 minute; od tada se ne skupljaju): volumen i transakcije prema najboljem satu, rast holdera po satu i koliko su novi "
   "holderi stvarni ljudi. Token koji tone nakon prvog skoka gubi snagu.", vidi=["puls"])
-T("Puls", "ocjene", "Očitanja svake 2 minute za zanimljive tokene: cijena, mcap, volumen, kupnje, prodaje, holderi.",
+T("Puls", "ocjene", "Očitanja za zanimljive nove tokene (do 15.11. svake 2 minute; od tada isključeno): cijena, mcap, volumen, kupnje, prodaje, holderi.",
   vidi=["snaga"])
 T("Put", "ocjene", "Oblik puta do današnjeg mcapa: koliko brzo, koliko u skokovima i koliko blizu vrha je sada.",
   "Zadržavanje 1 znači da je na vrhu; 0,3 znači da je pao na 30% vrha.")
