@@ -31,10 +31,32 @@ STAGE_HR = (("dogadaji", "događaji"), ("lanac", "lanac"), ("popis", "popis"), (
 
 def _unfetched(con, c, now):
     """'N događaja (pumpa15 a, pumpa2 b, ostalo c)' of the events still due for Helius."""
-    evs = [e for e in ev.load(con, now - int(c["days"]) * 86400) if not e.get("fetched") and e["win_end"] <= now]
+    evs = chain.due_events(con, ev.load_horizon(con, c, now), now)   # 19.11. navečer: incl. shallow pumps to re-read
     t15 = sum(1 for e in evs if e.get("tier") == "pumpa15")
     t2 = sum(1 for e in evs if e.get("tier") == "pumpa2")
     return f"{len(evs)} događaja (pumpa15 {t15}, pumpa2 {t2}, ostalo {len(evs) - t15 - t2})"
+
+
+def force_once(con):
+    """19.11. navečer: the pass after a deploy runs even within once_gap_h while the pump list was never computed (no
+    prije_pumpe in the stored summary) or the Helius depth version changed (store.FETCH_DEPTH; set after a full pass
+    that computed the list). So it runs ONCE after this deploy, and again only if it did not get to the list."""
+    try:
+        s = json.loads(store.kv(con, "summary") or "{}")
+    except ValueError:
+        s = {}
+    return not s.get("prije_pumpe") or str(store.kv(con, "depth_version") or "") != str(store.FETCH_DEPTH)
+
+
+def pump_counts(evs):
+    """'pumpe: ≥ 15M n (1h a, 1d b), 2-15M m (1h c, 1d d); pročitano do dubine k' of the events a pass works on."""
+    n = {(t, r): 0 for t in ("pumpa15", "pumpa2") for r in ("1h", "1d")}
+    for e in evs:
+        if e.get("tier") in ("pumpa15", "pumpa2"):
+            n[(e["tier"], ev.res_of(e))] += 1
+    return (f"pumpe: ≥ 15M {n[('pumpa15', '1h')] + n[('pumpa15', '1d')]} (1h {n[('pumpa15', '1h')]}, 1d "
+            f"{n[('pumpa15', '1d')]}), 2-15M {n[('pumpa2', '1h')] + n[('pumpa2', '1d')]} (1h {n[('pumpa2', '1h')]}, "
+            f"1d {n[('pumpa2', '1d')]})")
 
 
 def time_line(kind, clk):
@@ -54,7 +76,7 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
     meets the budget stops cleanly, what was done is saved, the rest waits for the next pass and the time line says
     what was left."""
     now = int(now or time.time())
-    c = store.config(cfg)
+    c = store.effective(store.config(cfg), now)   # 19.11. navečer: the backfill's once / incr values until its date
     p = store.paths(**over)
     con = store.connect(p.get("insajderi_db"))
     clk = store.Clock(kind, c, clock)
@@ -64,7 +86,7 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
             if now - last < float(c["night_gap_h"]) * 3600:
                 _log(log, f"noćni prolaz već odrađen prije {(now - last) / 3600:.1f} h, preskačem")
                 return json.loads(store.kv(con, "summary") or "{}")
-        if kind == "once" and credits is None:   # a deploy a few times a day must not redo it (nor eat the cap)
+        if kind == "once" and credits is None and not force_once(con):   # a deploy a few times a day must not redo
             last = max(int(float(store.kv(con, "once_last") or 0)), int(float(store.kv(con, "night_last") or 0)))
             if now - last < float(c["once_gap_h"]) * 3600:
                 _log(log, f"prolaz nakon deploya već odrađen prije {(now - last) / 3600:.1f} h, preskačem")
@@ -74,9 +96,14 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
             with clk.stage("dogadaji"):
                 calls = ev.call_events(p, c, now, since)
                 jumps = ev.market_events(p, c, now, max(since, now - int(c["mkt_days"]) * 86400))
-                new = ev.save(con, ev.merge(calls, jumps), now)
+                merged = ev.merge(calls, jumps)
+                if kind != "incr":   # 19.11. navečer: the pumps of the daily candles (180 days), the 1h ones win
+                    old = ev.load(con, now - int(c["pump_days_1d"]) * 86400)
+                    merged += ev.daily_events(p, c, now, ev.avoid_map(merged + old))
+                new = ev.save(con, merged, now)
                 ev.mark_tiers(con, c)   # 19.11.: the pump tiers (pumpa15 / pumpa2) of every stored market jump
-                evs = ev.load(con, now - int(c["days"]) * 86400)
+                evs = ev.load_horizon(con, c, now)
+                _log(log, pump_counts(evs))
                 todo = sorted((e for e in evs if e["t0"] >= since or not e.get("n_part")), key=chain.order_key)
                 built = chain.build(con, p, c, todo, stop=clk.over)
                 if built < len(todo):
@@ -99,7 +126,7 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                     budget = min(left, int(cap * float(c["incr_share"])))
                 n_f, spent = (0, 0)
                 if budget > 0 and not clk.over():
-                    evs = ev.load(con, now - int(c["days"]) * 86400)
+                    evs = ev.load_horizon(con, c, now)
                     # 19.11. (the first production pass: all 900 s went to Helius for 972 untiered call events, so
                     # the list and the copy tests were never computed): the pump tiers get the whole deadline; the
                     # rest (call events) only rest_time_share of the pass time (and rest_credit_share of the budget, 1.0 = no cut:
@@ -120,7 +147,7 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                         _log(log, f"Helius za pozive stao na {share_t:.0%} vremena prolaza (pumpe imaju prednost): "
                                   f"ostaje {_unfetched(con, c, now)}")
                     if n_f:
-                        chain.build(con, p, c, [e for e in ev.load(con, now - int(c["days"]) * 86400)
+                        chain.build(con, p, c, [e for e in ev.load_horizon(con, c, now)
                                                 if e.get("fetched")], stop=clk.over)
                 if clk.over():
                     clk.cut(f"Helius ostaje {_unfetched(con, c, now)} za sljedeći prolaz (istim redom)")
@@ -144,6 +171,8 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                         log(f"insajderi kol: prolaz nije uspio ({type(e).__name__}: {e})")
         if kind in ("night", "once"):
             store.kv(con, f"{kind}_last", now)
+            if (summary or {}).get("prije_pumpe"):   # 19.11. navečer: the forced once pass is done for this depth
+                store.kv(con, "depth_version", store.FETCH_DEPTH)
             store.kv(con, "stage_s", json.dumps({**clk.stages, "ts": now, "kind": kind, "cut": bool(clk.cuts)}))
         summary["trajanje"] = dict(clk.stages)
         summary["prekinuto"] = list(clk.cuts)
@@ -193,7 +222,7 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
     the copy tests (the wallets' trades read ONCE for both), the rest."""
     clk = clk or store.Clock("report", c)
     stop = clk.over
-    evs = ev.load(con, now - int(c["days"]) * 86400)
+    evs = ev.load_horizon(con, c, now)
     prev = json.loads(store.kv(con, "summary") or "{}")
     ok_list, why_not = _list_ok(con, c, light)
     if ok_list and clk.over():
