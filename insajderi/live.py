@@ -1,4 +1,6 @@
-"""The demo strategy of Insajderi 2.0 (flag insajderi2, trade/settings: paper on the demo account PAPER_USER only;
+"""The demo strategy of Insajderi 2.0 (flag insajderi2, trade/settings: paper on a demo account only: since 19.11. the
+wallet-following demo account league/store.WALLET_DEMO_USER "autopilot-novcanici", before PAPER_USER, whose open rows
+still exit there; 19.11. rule change: from MC 2M the midcap guards, wallets/kopija_demo.guards;
 NEVER_LIVE, no owner switch: real money is the owner's decision later, with the numbers). Runs inside league/auto.loop
 (run_ui.py, league.db's only writer) next to the source consensus, at most every RUN_EVERY_S.
 
@@ -63,12 +65,21 @@ def watched(path=None, max_age_s=60):
 
 
 def webhook_wallets(limit=None, path=None):
-    """Wallets for the Helius webhook (kol/chainwatch.wanted): the confirmed groups' wallets, best group first, ONLY
-    while the flag is paper / live; [] otherwise."""
+    """Wallets for the Helius webhook (kol/chainwatch.wanted), ONLY while the flag is paper / live ([] otherwise), at
+    most max_webhook (19.11.: 10 -> 135): the confirmed "kupuje prije pumpe" groups, the bundles, the candidate groups
+    (insajderi/pp_live.watched), then the old confirmed insider groups, best group first."""
     if mode() not in ("paper", "live"):
         return []
     lim = int(limit if limit is not None else store.config()["max_webhook"])
     out = []
+    try:
+        from insajderi import pp_live
+        for _k, _g, ms in pp_live.watched(path):
+            for w in ms:
+                if w not in out:
+                    out.append(w)
+    except Exception:  # noqa: BLE001 - the old groups still go
+        pass
     for _o, ms in watched(path):
         for w in ms:
             if w not in out:
@@ -98,7 +109,6 @@ def fresh_buys(members, now, fresh_s, hype_db=None):
 
 def enter(con, user, tok, owner, wallet, buy_ts, mq, now, sol, c):
     """One demo entry; (text or None, why not or None)."""
-    from konsenzus import live as klive
     from league import auto, copy as lcopy, store as lstore
     from trade import capgate
     if con.execute("SELECT 1 FROM insajderi2_trades WHERE user=? AND token=?", (user, tok)).fetchone():
@@ -112,7 +122,8 @@ def enter(con, user, tok, owner, wallet, buy_ts, mq, now, sol, c):
                         (user, lcopy._day_start(int(now)))).fetchone()[0]
     if n_day >= int(c["demo_per_day"]):
         return None, f"dnevni strop ({c['demo_per_day']}) potrošen"
-    why = klive.guards(tok, mq)
+    from wallets import kopija_demo   # 19.11.: from MC 2M the midcap guards (see kopija_demo.guards)
+    why = kopija_demo.guards(tok, mq)
     if why:
         return None, why
     price, liq, _url, mcap = mq[:4]
@@ -206,7 +217,8 @@ def run_once(con, market_fn=None, now=None, sol=None, force=False, hype_db=None)
     if not buys:
         return done
     from trade import settings
-    user = settings.PAPER_USER   # the demo account only: never LEAGUE_USER (NEVER_LIVE)
+    from league import store as lstore   # 19.11.: the wallet-following demo account (before: PAPER_USER, whose open
+    user = lstore.WALLET_DEMO_USER        # rows still exit by their own rules); never LEAGUE_USER (NEVER_LIVE)
     if sol is None:
         from rangedca import trade as rtrade
         sol = rtrade.sol_usd()
@@ -236,10 +248,11 @@ def demo_stats(lcon=None):
         if own:
             lcon = store.ro(lstore.DB)
         if lcon is not None:
-            rows = lcon.execute("SELECT pnl_usd, ret FROM insajderi2_trades WHERE user=? AND status='closed'",
-                                (settings.PAPER_USER,)).fetchall()
-            n_open = lcon.execute("SELECT COUNT(*) FROM insajderi2_trades WHERE user=? AND status='open'",
-                                  (settings.PAPER_USER,)).fetchone()[0]
+            us = (settings.PAPER_USER, lstore.WALLET_DEMO_USER)   # 19.11.: both accounts (see run_once)
+            rows = lcon.execute("SELECT pnl_usd, ret FROM insajderi2_trades WHERE user IN (?, ?) AND status='closed'",
+                                us).fetchall()
+            n_open = lcon.execute("SELECT COUNT(*) FROM insajderi2_trades WHERE user IN (?, ?) AND status='open'",
+                                  us).fetchone()[0]
     except sqlite3.Error:
         pass
     finally:

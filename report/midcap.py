@@ -554,10 +554,11 @@ def demo_insajderi(now, p=None):
     except Exception:  # noqa: BLE001
         user = "autopilot-paper"
     try:
-        rows = lcon.execute("SELECT pnl_usd, ret, closed_ts FROM insajderi2_trades WHERE user=? AND status='closed'",
-                            (user,)).fetchall()
-        n_open = lcon.execute("SELECT COUNT(*) FROM insajderi2_trades WHERE user=? AND status='open'",
-                              (user,)).fetchone()[0]
+        us = (user, "autopilot-novcanici")   # 19.11.: new entries on the wallet-following demo account
+        rows = lcon.execute("SELECT pnl_usd, ret, closed_ts FROM insajderi2_trades WHERE user IN (?, ?) AND "
+                            "status='closed'", us).fetchall()
+        n_open = lcon.execute("SELECT COUNT(*) FROM insajderi2_trades WHERE user IN (?, ?) AND status='open'",
+                              us).fetchone()[0]
     except sqlite3.Error:
         return None
     finally:

@@ -32,7 +32,8 @@ RESERVED = {"bot", "admin", "svi", "gost"}
 # them would log in as that account: "pravi-trade" is the account whose league.db trades run_trade.py mirrors with REAL
 # swaps, the autopilot-* accounts are the demo accounts every proof and report reads. Nobody registers or logs in as
 # them (register and verify below, run_ui.cookie_user); compared without case, with or without trade/ importable.
-BOT_NAMES = {"pravi-trade", "autopilot-paper", "autopilot-istrazivac", "autopilot-nauceno"}
+BOT_NAMES = {"pravi-trade", "autopilot-paper", "autopilot-istrazivac", "autopilot-nauceno",
+             "autopilot-novcanici"}
 BOT_PREFIXES = ("autopilot-", "pravi-")
 
 

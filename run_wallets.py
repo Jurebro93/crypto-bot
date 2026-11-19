@@ -13,6 +13,7 @@
     python3 run_wallets.py kopija                  # what WE would have earned copying the proven wallets (wallets/kopija.py:
                                                    # walk-forward on the stored trades and prices, no network); --ako-nema:
                                                    # only when no result exists; --night: 01-06 Zagreb, once a day
+    python3 run_wallets.py povijest --kind night   # 19.11.: the history queue (wallets/povijest.py, Helius in its own day cap)
     python3 run_wallets.py osvjezi                 # refresh the proven wallets' trades (Helius, paid): only with
                                                    # wallets/config.json "kopija" osvjezi true (default false: one line)
 """
@@ -33,7 +34,9 @@ HYPE_DB = os.path.join(HERE, "hype.db")
 OUT = os.path.join(HERE, "output")
 LOOKBACK_D = 30
 MONTHLY = int(os.environ.get("HELIUS_MONTHLY_CREDITS", "10000000"))
-SHARE = float(os.environ.get("WALLET_CREDIT_SHARE", "0.15"))  # 1.5M of Helius Developer's 10M; rest: rug, hype
+# 19.11. (vlasnik: "povijesni profit i gubitak za sve novčanike ... što više novčanika"): 0.15 -> 0.25 (2.5M a month):
+# the history job (wallets/povijest.py, 60k a day at most = 1.8M a month) + osvjezi (6k a day) did not fit in 1.5M
+SHARE = float(os.environ.get("WALLET_CREDIT_SHARE", "0.25"))  # 2.5M of Helius Developer's 10M; rest: rug, hype
 
 
 def _month_start():
@@ -143,21 +146,24 @@ def cmd_harvest(a):
 
 # ---------- scoring ----------
 
-def score_one(con, wallet, max_pages=3, now=None, verbose=False):
+def score_one(con, wallet, max_pages=3, now=None, verbose=False, method="wallet_history", lookback_d=LOOKBACK_D):
+    """19.11.: method (the helius_credits row name: "povijest" for wallets/povijest.py, so its day cap is its own) and
+    lookback_d (how far back a first look reads, newest first, within max_pages) are the caller's; the defaults are the
+    scorer's own."""
     now = int(now or time.time())
     row = con.execute("SELECT last_tx_ts, history_from FROM wallets WHERE wallet=?", (wallet,)).fetchone()
-    log = _credit_logger(con, "wallet_history", wallet)
+    log = _credit_logger(con, method, wallet)
     if row and row[0]:  # recheck: only what's new since the last tx we stored
         rows, complete, newest, _ = rpc.wallet_swaps(wallet, since_ts=row[0], max_pages=max_pages + 2,
                                                      oldest_first=True, on_credits=log)
         history_from = None
     else:
-        rows, complete, newest, oldest = rpc.wallet_swaps(wallet, since_ts=now - LOOKBACK_D * 86400,
+        rows, complete, newest, oldest = rpc.wallet_swaps(wallet, since_ts=now - lookback_d * 86400,
                                                           max_pages=max_pages, on_credits=log)
-        history_from = now - LOOKBACK_D * 86400 if complete else oldest
+        history_from = now - lookback_d * 86400 if complete else oldest
     wstore.save_trades(con, wallet, rows)
     hist = con.execute("SELECT history_from FROM wallets WHERE wallet=?", (wallet,)).fetchone()[0] or history_from or 0
-    trades = wstore.trades(con, wallet, since=max(hist, now - 2 * LOOKBACK_D * 86400))
+    trades = wstore.trades(con, wallet, since=max(hist, now - 2 * max(LOOKBACK_D, lookback_d) * 86400))
     pos = pnl.positions(trades)
     open_mints = [m for m, p in pos.items() if p["status"] == "open"]
     prices, _ = pnl.prices_sol(open_mints, client) if open_mints else ({}, None)
@@ -352,6 +358,18 @@ def refresh_targets(con, limit):
     return out[:max(0, int(limit))]
 
 
+def cmd_povijest(a):
+    """19.11.: the history queue (wallets/povijest.py): pump-group members, bundles, early buyers of the pumps, long
+    holders, the old registry; the scorer's own Helius call within wallets/config.json "povijest" (day cap, pages a
+    wallet, a wall-clock deadline a pass). One line "novčanici povijest: ..."."""
+    from wallets import povijest
+    try:
+        os.nice(5)
+    except OSError:
+        pass
+    povijest.run(kind=a.kind, log=lambda m: print(m, flush=True))
+
+
 def cmd_osvjezi(a, score=None):
     """16.11.: under the owner switch fokus_midcap the scorer is off, so the proven wallets' trades (and with them the
     "dokazan dvaput" list, the ranking and the copy measurement) go stale. This re-reads ONLY those wallets' new
@@ -455,12 +473,15 @@ def main(argv=None):
     k.add_argument("--ako-nema", action="store_true", help="samo kad još nema spremljenog rezultata")
     k.add_argument("--night", action="store_true", help="samo 01-06 po Zagrebu, jednom dnevno")
     k.add_argument("--force", action="store_true")
+    pv = sub.add_parser("povijest")
+    pv.add_argument("--kind", choices=("day", "night"), default="day",
+                    help="day: kratki prolaz (pass_max_s day, dan_udio dnevnog stropa); night: veliki prolaz")
     o = sub.add_parser("osvjezi")
     o.add_argument("--stanje", action="store_true", help="dok je isključeno: ispiši procjenu kredita (ništa se ne zove)")
     a = p.parse_args(argv)
     {"harvest": cmd_harvest, "score": cmd_score, "top": cmd_top, "copy": cmd_copy, "wallet": cmd_wallet,
      "history": cmd_history, "label": cmd_label, "credits": cmd_credits, "dokazani": cmd_dokazani,
-     "rang": cmd_rang, "kopija": cmd_kopija, "osvjezi": cmd_osvjezi}[a.cmd](a)
+     "rang": cmd_rang, "kopija": cmd_kopija, "osvjezi": cmd_osvjezi, "povijest": cmd_povijest}[a.cmd](a)
 
 
 if __name__ == "__main__":

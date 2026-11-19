@@ -70,6 +70,9 @@ SECTIONS = [
            "pravi trade pravi novac live trading wallet phantom jupiter prekidač limit kupnja prodaja autopilot usdc"),
     ]),
     ("Sustav", [
+        # 19.11. (vlasnik: "the admin must have a dashboard with more data about the wallets"): the owner only
+        _p("/novcanici-admin", "👛", "Novčanici: administracija", "Grupe koje kupuju prije pumpe, bundle, isključeni, "
+           "test kopiranja, povijest i veliki holderi.", "insajderi kupuje prije pumpe bundle novčanici admin pnl holderi"),
         _p("/learn", "🧠", "Učenje", "Što bot uči iz ishoda i kako mijenja ocjene.", "learn težine"),
         _p("/criteria", "📏", "Pravila", "Svi pragovi i težine po kojima bot ocjenjuje.", "kriteriji criteria"),
         _p("/market", "🌡", "Tržište", "Je li tržište vruće ili hladno.", "market volumen"),

@@ -668,6 +668,27 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/novcanici-admin":
+            # 19.11. (vlasnik: "the admin must have a dashboard with more data about the wallets than an ordinary
+            # user"; ui/novadmin.py): the OWNER only, checked here on the server like /kol-insajderi and /stanje, before
+            # anything is read; the rendered page is kept by pagecache under its own key (read-only reads, no network)
+            from trade import settings as tsettings
+            from ui import novadmin
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/wallets>← Na novčanike</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+
+            def build_admin(q=qs, lang=self.lang):
+                try:
+                    html = page(*novadmin.page(q, self.user), path)
+                except Exception:
+                    return 500, page("Greška", _error_html(), path).encode("utf-8")
+                if lang == "en":
+                    html = i18n.translate(html)
+                return 200, html.encode("utf-8")
+            code, raw, gz = pagecache.get(("/novcanici-admin", u.query, "vlasnik", self.lang), build_admin)
+            return self._send(code, raw, gz=gz, translated=True)
         if path == "/stanje":
             # 17.11. (vlasnik: "Find all of the implicit state machines in my app", stanja/): what is switched on, who
             # set it and since when + the dictionary of every status word. The OWNER only (the switches of the real

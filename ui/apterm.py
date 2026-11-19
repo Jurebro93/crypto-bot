@@ -2789,7 +2789,9 @@ def page(qs, user, full=False):
                  f'data-slow="Prijedlozi još nisu stigli · pokušavam ponovno">{k_in}</section>'
                  f'<section class="apx-card apx-lz" id=pratimo data-x-src="/pravi-trade/l/pratimo{esc(q_ek)}" '
                  f'data-x-every={PRATIMO_EVERY_S} data-hide-empty{" hidden" if full and not p_in else ""}>{p_in}</section>')
-        for name, every in (("eventi", 60), ("preshill", 120)):
+        # 19.11. (vlasnik: "while real money is off, do as many demo trades as possible with wallet following"):
+        # "Demo praćenje novčanika" (ui/novkartice.demo_html) exists only while the real-money pause is on
+        for name, every in (("demonov", 60), ("eventi", 60), ("preshill", 120)):
             c_in = lazy(name, user, qs) if full else ""
             cards += (f'<section class="apx-card apx-lz ap" id=apx-{name} data-x-src=/pravi-trade/l/{name} data-x-every={every} '
                       f'data-hide-empty{"" if c_in else " hidden"}>{c_in}</section>')
@@ -2861,6 +2863,9 @@ def lazy(name, user, qs=None):
             return ostalo_html(tcon, cfg, owner, now, (qs.get("ekipa") or "").strip())
         if name in ("eventi", "preshill"):
             return card_html(name, tcon, owner)
+        if name == "demonov":   # 19.11.: display only; "" while real money is not paused (the page hides the card)
+            from ui import novkartice
+            return pt._safe(name, novkartice.demo_html, owner) or ""
         return ""
     finally:
         tcon.close()
@@ -2868,7 +2873,7 @@ def lazy(name, user, qs=None):
 
 # the lazy parts that exist; "" from one of them means "nothing to show now" (200, the page hides the card), "" for
 # any other name is a 404
-LAZY = ("kupiti", "pratimo", "povijest", "ostalo", "eventi", "preshill")
+LAZY = ("kupiti", "pratimo", "povijest", "ostalo", "eventi", "preshill", "demonov")
 
 
 def _proposals(owner, now):

@@ -325,6 +325,14 @@ class Bundles(unittest.TestCase):
             self.assertEqual((len(b["members"]), len(b["pumps"]), len(b["pumps15"]), len(b["sold"])), (3, 2, 1, 1))
             self.assertAlmostEqual(pp._med(list(b["shares"].values())), 15 / 16)
             self.assertEqual(pp.save_bundles(con, bs, C, BASE), 1)          # one-pump owners are under the floor
+            # 19.11. (fix): a second event of the SAME token is the same pump: n_pumps counts tokens, not events
+            same = dict(jump(3), token=evs[0]["token"], eid="j:again")
+            con.executemany("INSERT INTO i2_trades VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            [(same["token"], addr(f"Bw{i}"), f"y{i}", same["t0"] - 60, 778, "buy", 5.0, 1, addr("Pay"),
+                              None) for i in range(3)])
+            con.commit()
+            b2 = pp.bundles(con, evs + [same], C, BASE + 40 * D)["p:" + addr("Pay")]
+            self.assertEqual((len(b2["pumps"]), len(b2["pumps15"])), (2, 1))
             self.assertEqual(pp.bundle_rows(con)[0]["n_pumps"], 2)
             con.close()
 

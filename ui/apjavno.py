@@ -1245,7 +1245,7 @@ def page(qs, user, lang="hr", logged_in=None):
     if paused:   # 19.11. (vlasnik): one notice at the top while real money is paused; Croatian, run_ui translates it
         try:
             from ui import pauza
-            note = pauza.notice_html("hr", notr=False)
+            note = pauza.notice_html("hr", notr=False) + pauza.demo_html("hr", notr=False)
         except Exception as e:  # noqa: BLE001 - the public page never fails on this
             _warn("pauza", e)
     body = (CSS + f'<div class=apj data-live="{src}">' + note + _live_div("hero", parts["hero"]) + own + _wallet(s["addr"])
