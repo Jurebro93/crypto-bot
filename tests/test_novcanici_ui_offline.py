@@ -93,6 +93,13 @@ class Admin(Base):
         self.assertIn("min prije skoka", html)
         self.assertIn('target=_blank rel="noopener noreferrer">Solscan ↗', html)
         self.assertIn("isti platitelj naknada", html)
+        # list rows: the short address (6 … 6) with the full one in the title and the copy payload; the detail keeps it
+        part = html.split('id="grupe"')[1].split('id="bundle"')[0]
+        full = self.seed["members"][0]
+        self.assertIn(f'<code translate=no title="{full}">{full[:6]}…{full[-6:]}</code>', part)
+        self.assertIn(f'data-cp="{full}"', part)
+        self.assertIn(f"<li><code translate=no>{full}</code>", part)
+        self.assertIn('.na.ms-page{max-width:none}', html)
         self.assertIn('data-cp="', html)
         # history and holders
         self.assertRegex(html, r"\d+ od \d+ navedenih novčanika ima izračunatu povijest, \d+ čeka")

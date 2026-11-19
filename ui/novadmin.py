@@ -43,8 +43,11 @@ CSS = """<style>
 .na-f a.on{border-color:var(--acc);color:var(--acc);font-weight:600}
 .na-pg{display:flex;gap:12px;align-items:center;font-size:13.5px;margin:10px 0 0;color:var(--mut)}
 .na-pg a{color:var(--acc);text-decoration:none}
-.na .rt td.na-w{text-align:left;white-space:normal;min-width:230px;max-width:330px}
-.na .rt td.na-w code{font-size:12.5px;word-break:break-all;background:var(--soft);border-radius:5px;padding:1px 5px;
+.na.ms-page{max-width:none}
+.na .rt{min-width:0}.na .rt th{white-space:normal;vertical-align:bottom;line-height:1.25;padding:9px 6px}
+.na .rt td{padding:9px 6px}
+.na .rt td.na-w{text-align:left;white-space:nowrap;min-width:0}
+.na .rt td.na-w code{font-size:12.5px;white-space:nowrap;background:var(--soft);border-radius:5px;padding:1px 5px;
  color:var(--fg);display:inline-block;max-width:100%}
 .na .nk-cp{font:inherit;font-size:12px;line-height:1.4;border:1px solid var(--line);border-radius:6px;background:var(--card);
  color:var(--fg);padding:1px 7px;margin:3px 6px 0 0;cursor:pointer;min-height:0;box-shadow:none;font-weight:500}
@@ -52,7 +55,7 @@ CSS = """<style>
 .na table.cards{min-width:0!important}.na .rt-d td{max-width:calc(100vw - 32px)}
 .na-in p{overflow-wrap:anywhere}.na-in li a{font-size:12.5px;color:var(--acc);text-decoration:none;font-weight:500}
 .na .rt td.na-w a{font-weight:500;font-size:12.5px;color:var(--acc)}
-.na .rt td.na-l{text-align:left}.na .rt td.na-hist{white-space:normal;min-width:140px;max-width:190px}
+.na .rt td.na-l{text-align:left}.na .rt td.na-hist{white-space:normal;min-width:130px;max-width:180px}
 .na .rt .ok{color:var(--good);font-weight:600}
 .na-in{display:block;white-space:normal}
 .na-in table{border-collapse:collapse;width:100%;font-size:13px;margin:6px 0 10px;background:var(--card)}
@@ -160,14 +163,25 @@ def _link(qs, **over):
     return PATH + ("?" + urlencode(q) if q else "") + "#grupe"
 
 
+def sh6(w):
+    """The list rows' short address: first 6 … last 6 (the full one is in the title, the copy payload and the detail)."""
+    w = str(w or "")
+    return w if len(w) <= 14 else f"{w[:6]}…{w[-6:]}"
+
+
+def _wcell(w, extra=""):
+    """One wallet cell of a list row: the short address (monospace, full one in title), copy, Solscan, extra."""
+    w = str(w or "")
+    return (f'<td class=na-w><code translate=no title="{rd.h(w)}">{rd.h(sh6(w))}</code><br>'
+            f'<button type=button class=nk-cp data-cp="{rd.h(w)}" aria-label="Kopiraj adresu">Kopiraj</button>'
+            f'<a href="https://solscan.io/account/{quote(w)}" target=_blank rel="noopener noreferrer">Solscan ↗</a>'
+            + (f' <span class=mut>{extra}</span>' if extra else "") + '</td>')
+
+
 def _wallet_cell(ws, owner):
     ws = ws or [owner]
-    first = ws[0]
     more = len(ws) - 1
-    return (f'<td class=na-w><code translate=no>{rd.h(first)}</code><br>'
-            f'<button type=button class=nk-cp data-cp="{rd.h(first)}">Kopiraj</button>'
-            f'<a href="https://solscan.io/account/{quote(first)}" target=_blank rel="noopener noreferrer">Solscan ↗</a>'
-            + (f' <span class=mut>+{more} u grupi</span>' if more > 0 else "") + '</td>')
+    return _wcell(ws[0], f"+{more} u grupi" if more > 0 else "")
 
 
 def _pump_rows(pumps, now):
@@ -257,7 +271,7 @@ def groups_html(con, qs, now):
     pumps = P.pumps_of(con, [g["owner"] for g in gs])
     hist = P.hist_of(con, [g["owner"] for g in gs])
     head = [("w", "Novčanici", "s"), ("p15", "Pumpe ≥ 15 M $", "n"), ("p2", "2–15 M $", "n"), ("tok", "Tokena", "n"),
-            ("lead", "Medijan vodstva", "n"), ("pnl", "Ostvareno", "n"), ("hist", "Povijest članova", "n"),
+            ("lead", "Vodstvo (medijan)", "n"), ("pnl", "Ostvareno", "n"), ("hist", "Povijest članova", "n"),
             ("st", "Status", "n"), ("last", "Zadnji put", "n")]
     th = "".join(f'<th data-k="{k}" data-t="{t}" scope=col>{rd.h(lab)}</th>' for k, lab, t in head)
     body = []
@@ -324,8 +338,8 @@ def bundles_html(con, now):
         toks = ", ".join(f'<a href="/token/{quote(t)}" translate=no>{rd.h(syms.get(t) or K.short(t))}</a>'
                          for t in b["tokens"][:20])
         rows.append(
-            f'<tr class=rt-r {attrs} aria-expanded="false"><td class=na-w><code translate=no>{rd.h(bid[2:] if who else bid)}</code>'
-            f'<br><span class=mut>{rd.h(who)}</span></td><td class=na-l>{rd.h(b.get("kind") or rd.DASH)}</td>'
+            f'<tr class=rt-r {attrs} aria-expanded="false"><td class=na-w><code translate=no title="{rd.h(bid[2:] if who else bid)}">'
+            f'{rd.h(sh6(bid[2:] if who else bid))}</code><br><span class=mut>{rd.h(who)}</span></td><td class=na-l>{rd.h(b.get("kind") or rd.DASH)}</td>'
             f'<td>{rd.h(rd.num(b.get("n_members")))}</td><td>{rd.h(rd.num(b.get("n_pumps")))}</td>'
             f'<td>{rd.h(rd.num(b.get("n_pumps15")))}</td><td>{rd.h(rd.pct(sh, sign=False, frac=True) if sh is not None else rd.DASH)}</td>'
             f'<td>{rd.h(rd.share(b.get("sold_into"), b.get("n_pumps")))}</td>'
@@ -449,10 +463,8 @@ def history_html(con, now):
         attrs = " ".join(f'data-{k}="{v}"' for k, v in data.items())
         cp = rd.DASH if r["copyable"] is None else ("da" if r["copyable"] else "ne")
         body.append(
-            f'<tr class=rt-r {attrs}><td class=na-w><code translate=no>{rd.h(K.short(r["wallet"]))}</code> '
-            f'<button type=button class=nk-cp data-cp="{rd.h(r["wallet"])}">Kopiraj</button>'
-            f'<a href="https://solscan.io/account/{quote(r["wallet"])}" target=_blank rel="noopener noreferrer">Solscan ↗</a></td>'
-            f'<td class=na-l>{rd.h(gtxt)}</td>'
+            f'<tr class=rt-r {attrs}>{_wcell(r["wallet"])}'
+            f'<td class="na-l na-hist">{rd.h(gtxt)}</td>'
             + (f'<td>{rd.num(r["closed"])}</td><td>{rd.h(rd.pct(r["win_rate"], sign=False, frac=True))}</td>'
                f'<td class="{rd.tone(r["realized"])}">{rd.h(rd.sol(r["realized"], 2, sign=True))}</td>'
                if r["scored"] else '<td colspan=3 class="na-l mut">povijest čeka</td>')
@@ -487,9 +499,7 @@ def holders_html(now):
                 if r["scored"] else '<span class=mut>još se računa</span>')
         tier = {"15-200M": "15–200 M $", "2-15M": "2–15 M $"}.get(r.get("tier"), r.get("tier") or rd.DASH)
         body.append(
-            f'<tr class=rt-r {attrs}><td class=na-w><code translate=no>{rd.h(K.short(r["wallet"]))}</code> '
-            f'<button type=button class=nk-cp data-cp="{rd.h(r["wallet"])}">Kopiraj</button>'
-            f'<a href="https://solscan.io/account/{quote(r["wallet"])}" target=_blank rel="noopener noreferrer">Solscan ↗</a></td>'
+            f'<tr class=rt-r {attrs}>{_wcell(r["wallet"])}'
             f'<td class=na-l><a href="/token/{quote(r["mint"])}" translate=no>{rd.h(r["symbol"] or K.short(r["mint"]))}</a></td>'
             f'<td>{rd.h(tier)}</td><td>{rd.h(rd.usd(r["value_usd"]))}</td>'
             f'<td>{rd.h(rd.pct(r["pct"], 2, sign=False))}</td>'
