@@ -370,6 +370,119 @@ class Pass(unittest.TestCase):
             self.assertTrue(any(x.startswith("insajderi2: događaja") for x in lines))   # the old line stays
 
 
+class TimeBudget(unittest.TestCase):
+    """19.11.: the wall-clock budget of a pass (pass_max_s) on a fake clock, the light incr, ONE read of the trades."""
+
+    def setUp(self):
+        from tests.test_insajderi2_offline import build_world, t0_of
+        self.tmp = tempfile.TemporaryDirectory()
+        self.p, self.ch = build_world(self.tmp.name)
+        self.now = t0_of(6) + 2 * 86400
+        self.t = [0.0]
+        env = mock.patch.dict(os.environ, {"INSAJDERI_DB": self.p["insajderi_db"]})
+        env.start()
+        self.addCleanup(env.stop)
+        from insajderi import report
+        out = mock.patch.object(report, "OUT_DIR", self.tmp.name)
+        out.start()
+        self.addCleanup(out.stop)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fetch(self, *a, **k):
+        self.t[0] += 1000.0          # every Helius call costs 1000 s on the fake clock
+        return self.ch.fetch(*a, **k)
+
+    def go(self, kind="once", limit=None, now=None, **k):
+        from insajderi import run
+        from tests.test_insajderi2_offline import cfg
+        lines = []
+        c = cfg(pass_max_s={"once": limit, "incr": limit, "night": limit}, **k)
+        s = run.run(kind, now=now or self.now, cfg=c, credits=100_000, fetch=self.fetch, log=lines.append,
+                    clock=lambda: self.t[0], **self.p)
+        return s, lines
+
+    def fetched(self):
+        con = store.connect(self.p["insajderi_db"])
+        n = con.execute("SELECT COUNT(*) FROM i2_events WHERE fetched = 1").fetchone()[0]
+        con.close()
+        return n
+
+    def test_cut_pass_saves_logs_and_the_next_pass_continues(self):
+        s, lines = self.go(limit=1500)
+        n1 = self.fetched()
+        self.assertGreaterEqual(n1, 1)
+        self.assertLess(n1, 6)                                            # stopped before the rest
+        cut = [x for x in lines if "prekinuto na vremenskoj granici 1500 s" in x]
+        self.assertEqual(len(cut), 1, lines)
+        self.assertTrue(cut[0].startswith("insajderi2: prolaz once: trajanje: događaji "), cut[0])
+        self.assertIn(f"Helius ostaje {6 - n1} događaja", cut[0])
+        self.assertIn("popis i kopija nisu izračunati", cut[0])
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, "insajderi.md")))   # the report from what it has
+        self.assertEqual(s["prekinuto"][0][:13], "Helius ostaje")
+        calls = len(self.ch.calls)
+        self.t[0] = 0.0
+        s2, lines2 = self.go(limit=None)                                  # the next pass, no bound
+        self.assertEqual(self.fetched(), 6)
+        self.assertFalse([x for x in lines2 if "prekinuto" in x])
+        self.assertEqual(s2["confirmed"], 1)
+        con = store.connect(self.p["insajderi_db"])
+        done = {k for (k,) in con.execute("SELECT key FROM i2_fetch")}
+        con.close()
+        self.assertEqual(len(done), len(set(done)))
+        self.assertGreater(len(self.ch.calls), calls)
+        self.assertTrue(any(x.startswith("insajderi2: prolaz once: trajanje: događaji") and "kopija" in x
+                            for x in lines2), lines2)
+
+    def test_incr_is_light_and_the_trades_are_read_once(self):
+        n_reads = []
+        real = copy.wallet_trades
+
+        def counted(con, p, ws):
+            n_reads.append(len(ws))
+            return real(con, p, ws)
+        from insajderi import smart
+        with mock.patch.object(copy, "wallet_trades", counted), \
+                mock.patch.object(smart, "run", lambda *a, **k: {}):   # smart money reads its own wallets (ostalo)
+            s, _l = self.go()
+        self.assertEqual(len(n_reads), 1)                                 # ONE read for both copy tests
+        self.assertIn("popis", s["trajanje"])
+        con = store.connect(self.p["insajderi_db"])
+        st = json.loads(store.kv(con, "stage_s"))
+        self.assertIn("kopija", st)
+        store.kv(con, "stage_s", json.dumps({**st, "popis": 100.0}))   # the list was slow on the last full pass
+        con.commit()
+        con.close()
+        boom = mock.patch.object(copy, "selection", side_effect=AssertionError("incr must not copy"))
+        with boom:
+            s2, lines = self.go("incr", now=self.now + 3 * 3600)
+        self.assertTrue(any("popis i bundle preskočeni (popis je u zadnjem punom prolazu trajao 100 s" in x
+                            for x in lines), lines)
+        self.assertEqual(s2["copy"], s["copy"])                           # the stored numbers
+        con = store.connect(self.p["insajderi_db"])
+        store.kv(con, "stage_s", json.dumps({**st, "popis": 1.0}))
+        con.commit()
+        con.close()
+        with mock.patch.object(copy, "selection", side_effect=AssertionError("incr must not copy")):
+            s3, lines3 = self.go("incr", now=self.now + 6 * 3600)
+        self.assertIn("popis", s3["trajanje"])                            # fast list: it runs in incr
+        self.assertNotIn("kopija", s3["trajanje"])
+        pl = [x for x in lines3 if x.startswith("novčanici prije pumpe:")]
+        self.assertTrue(pl)
+
+    def test_kol_pass_never_runs_past_the_pass(self):
+        from insajderi import kolwallets
+        got = {}
+
+        def fake(con, p, c, now, **k):
+            got["left_s"] = k.get("left_s")
+        with mock.patch.object(kolwallets, "run_pass", fake):
+            self.go(limit=100_000)
+        self.assertIsNotNone(got["left_s"])
+        self.assertLessEqual(got["left_s"], 100_000)
+
+
 class Config(unittest.TestCase):
     def test_values(self):
         c = store.config()

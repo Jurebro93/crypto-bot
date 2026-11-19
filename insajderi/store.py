@@ -67,6 +67,10 @@ DEFAULT = {
     "fast_delay_s": 2, "fast_gap_s": 5, "slip_fast": 0.01, "pp_size_sol": 0.1, "pp_size_sol_big": 0.5,
     "pp_min_n": 20, "boot_n": 2000, "null_k": 5, "null_seed": 19, "bundle_min_wallets": 3, "bundle_early_s": 3600,
     "bundle_share": 0.30, "bundle_min_pumps": 2,
+    # 19.11. (the 18.11. problem: a pass held the heavy-job lock for hours): a wall-clock budget per pass; every long
+    # stage asks the same Clock and stops cleanly (what was done is saved, the rest waits for the next pass). incr runs
+    # the list and the bundles only when that stage took under incr_list_max_s on the last full pass
+    "pass_max_s": {"once": 900, "incr": 420, "night": 5400}, "incr_list_max_s": 60,
 }
 
 SCHEMA = """
@@ -125,6 +129,44 @@ def config(cfg=None):
     c = {**DEFAULT, **(cfg or {})}
     c["min_mcap"] = max(10_000.0, float(c["min_mcap"]))   # CLAUDE.md: measured in shadow from 10k at most; default 30k
     return c
+
+
+class Clock:
+    """The wall-clock budget of one pass (pass_max_s[kind]; None = unbounded) and the measured seconds per stage.
+    fn: the clock (time.monotonic; tests pass a fake). over(): the budget is spent; cut(what): note what a stage left
+    undone; stage(name): a context manager adding the stage's seconds to stages."""
+
+    def __init__(self, kind, c, fn=None):
+        self.fn = fn or time.monotonic
+        self.t0 = self.fn()
+        lim = (c.get("pass_max_s") or {})
+        self.max_s = float(lim[kind]) if isinstance(lim, dict) and lim.get(kind) else None
+        self.cuts, self.stages = [], {}
+
+    def elapsed(self):
+        return self.fn() - self.t0
+
+    def over(self):
+        return self.max_s is not None and self.elapsed() >= self.max_s
+
+    def left_s(self):
+        return None if self.max_s is None else max(0.0, self.max_s - self.elapsed())
+
+    def cut(self, what):
+        if what not in self.cuts:
+            self.cuts.append(what)
+
+    def stage(self, name):
+        clock = self
+
+        class _S:
+            def __enter__(self):
+                self.t = clock.fn()
+
+            def __exit__(self, *_a):
+                clock.stages[name] = round(clock.stages.get(name, 0.0) + clock.fn() - self.t, 1)
+                return False
+        return _S()
 
 
 def db_path():

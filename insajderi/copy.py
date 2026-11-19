@@ -295,20 +295,37 @@ def calls_after(p, toks):
     return out
 
 
-def walk(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, trades=None, prices=None):
-    """The walk-forward rows [dict] (one per token: the first confirmed buy of a day) and the confirmed sets per day."""
+def selection(c, events, parts, now, bad=frozenset(), first_trade=None, stop=None):
+    """(days, {day: confirmed insiders}, members) of the walk-forward: each day classified from the events whose window
+    ended before it only. None when stop() came true first (19.11.: the pass's time budget)."""
     if not events:
-        return [], {}
+        return [], {}, set()
     start = min(e["t0"] for e in events) + int(c["warmup_days"]) * 86400
     d0 = start - start % 86400 + 86400
     days = list(range(d0, int(now) - int(now) % 86400 + 86400, 86400))
     conf_by_day = {}
     members = set()
     for d in days:
+        if stop is not None and stop():
+            return None
         st = score.classify(parts, events, d, c, bad, first_trade)
         conf_by_day[d] = score.confirmed(st)
         for ms in conf_by_day[d].values():
             members |= set(ms)
+    return days, conf_by_day, members
+
+
+def walk(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, trades=None, prices=None, sel=None,
+         stop=None):
+    """The walk-forward rows [dict] (one per token: the first confirmed buy of a day) and the confirmed sets per day.
+    sel: selection()'s result when the caller already has it (19.11.: the pass reads the wallets' trades ONCE for this
+    and prijepumpe.walk); stop() true: (None, {}) - a cut walk is no result (the early days alone would be biased)."""
+    if not events:
+        return [], {}
+    sel = sel if sel is not None else selection(c, events, parts, now, bad, first_trade, stop)
+    if sel is None:
+        return None, {}
+    days, conf_by_day, members = sel
     if not members:
         return [], conf_by_day
     trades = trades if trades is not None else wallet_trades(con, p, members)
@@ -321,6 +338,8 @@ def walk(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, trade
     rt = cost_rt(c)
     rows, taken = [], set()
     for d in days:
+        if stop is not None and stop():
+            return None, conf_by_day
         for owner, ms in conf_by_day[d].items():
             own = sorted((r for m in ms for r in by_w.get(m, [])), key=lambda r: r[2])
             before = {r[1] for r in own if r[2] < d}

@@ -121,10 +121,13 @@ def store_participants(con, eid, rows):
     con.execute("UPDATE i2_events SET n_part = ? WHERE eid = ?", (len(rows), eid))
 
 
-def build(con, p, c, events):
-    """i2_part of `events` from every source we have now. Returns the number of events built."""
+def build(con, p, c, events, stop=None):
+    """i2_part of `events` from every source we have now. Returns the number of events built. stop() true (19.11.:
+    the pass's time budget): no further chunk; the events not built keep n_part NULL and are built by the next pass."""
     n = 0
     for ch in _chunks(events, 100):
+        if stop is not None and stop():
+            break
         src = sources(con, p, sorted({e["token"] for e in ch}))
         for e in ch:
             store_participants(con, e["eid"], participants(e, src.get(e["token"]) or [], c))
@@ -253,15 +256,16 @@ def order_key(e):
     return (TIER_RANK.get(e.get("tier"), 9), -(e.get("prio") or 0))
 
 
-def fetch_due(con, p, c, events, now, budget, fetch=None, log=print):
+def fetch_due(con, p, c, events, now, budget, fetch=None, log=print, stop=None):
     """Helius for the events not fetched yet, pump tiers first then best prio (order_key), within `budget`.
-    -> (events read, credits)."""
+    stop() true (19.11.: the pass's time budget): no further event; what was read is saved, the rest stays unfetched
+    and comes first, in the same order, in the next pass. -> (events read, credits)."""
     todo = sorted((e for e in events if not e.get("fetched") and e["win_end"] <= now), key=order_key)
     rec = Counter(w for (w,) in store.q(con, "SELECT wallet FROM i2_part WHERE sold_into = 1"))
     total, n = 0, 0
     for e in todo[:int(c["max_events_pass"])]:
         left = budget - total
-        if left < 10:
+        if left < 10 or (stop is not None and stop()):
             break
         got = fetch_event(con, p, c, e, now, left, fetch=fetch, seller_events=rec, log=log)
         store.add_spent(con, now, got)

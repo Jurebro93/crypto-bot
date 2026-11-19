@@ -79,7 +79,7 @@ def pump_events(events, as_of):
 
 # ---------- exclusions that need the trades ---------------------------------------------------------------------------
 
-def market_makers(con, events, c):
+def market_makers(con, events, c, stop=None):
     """Wallets with two-sided flow: >= mm_min_side buys AND >= mm_min_side sells of the token inside one pump window
     [t0 - 6 h, win_end] on >= mm_min_events windows (our Helius rows, i2_trades)."""
     by_tok = defaultdict(list)
@@ -89,6 +89,8 @@ def market_makers(con, events, c):
     side_min, ev_min = int(c["mm_min_side"]), int(c["mm_min_events"])
     hits = Counter()
     for tok, wins in by_tok.items():
+        if stop is not None and stop():
+            return None
         rows = store.q(con, "SELECT wallet, ts, side FROM i2_trades WHERE mint = ?", (tok,))
         for lo, hi in wins:
             n = defaultdict(lambda: [0, 0])
@@ -183,7 +185,7 @@ def confirmed(stats):
 
 # ---------- bundles ---------------------------------------------------------------------------------------------------
 
-def bundles(con, events, c, as_of):
+def bundles(con, events, c, as_of, stop=None):
     """{bid: {"kind", "members", "pumps", "pumps15", "shares", "sold", "tokens", "last"}} of the pump windows ended
     before as_of (see the module text). Reads i2_trades (slot, payer) and i2_part (owner, sold_into)."""
     pumps = [e for e in events if e.get("tier") and e["win_end"] < as_of]
@@ -211,6 +213,8 @@ def bundles(con, events, c, as_of):
             b["kind"] = "isti blok + udio"
 
     for e in pumps:
+        if stop is not None and stop():
+            return None   # cut: the stored bundles of the last full run stay
         t0, end = int(e["t0"]), int(e["win_end"])
         rows = store.q(con, "SELECT wallet, ts, slot, sol, payer FROM i2_trades WHERE mint = ? AND side = 'buy' AND "
                             "ts BETWEEN ? AND ?", (e["token"], t0 - 6 * 3600, end))
@@ -316,15 +320,13 @@ def _days(events, c, now):
     return list(range(d0, int(now) - int(now) % 86400 + 86400, 86400))
 
 
-def walk(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, mm=frozenset(), trades=None, prices=None,
-         null=True):
-    """{"60s": [row], "brzo": [row], "null": [row]} and the selected sets per day. Day D: the confirmed "kupuje prije
-    pumpe" groups classified from the events whose window ended BEFORE D only; their buys during D of tokens new to
-    them (one copy a token). The null: as many owners as selected (at least null_k), drawn at random from the early
-    buyers of the pump events known before D that are not selected, copied the same way."""
-    out = {"60s": [], "brzo": [], "null": []}
+def selection(c, events, parts, now, bad=frozenset(), first_trade=None, mm=frozenset(), null=True, stop=None):
+    """(days, {day: selected}, {day: null owners}, members) of the walk-forward. Day D: the confirmed "kupuje prije
+    pumpe" groups classified from the events whose window ended BEFORE D only; the null: as many owners as selected
+    (at least null_k), drawn at random (null_seed) from the early buyers of the pump events known before D that are not
+    selected and not excluded. None when stop() came true first (19.11.: the pass's time budget)."""
     if not events:
-        return out, {}
+        return [], {}, {}, set()
     days = _days(events, c, now)
     sel_by_day, null_by_day = {}, {}
     rng = random.Random(int(c["null_seed"]))
@@ -335,6 +337,8 @@ def walk(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, mm=fr
         if bb:
             early_owners[eid].add(o or w)
     for d in days:
+        if stop is not None and stop():
+            return None
         st = classify(parts, events, d, c, bad, first_trade, mm)
         sel_by_day[d] = confirmed(st)
         if null:
@@ -347,6 +351,22 @@ def walk(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, mm=fr
             null_by_day[d] = {o: sorted(owner_members[o]) for o in rng.sample(pool, k)} if k else {}
     members = {w for x in sel_by_day.values() for ms in x.values() for w in ms}
     members |= {w for x in null_by_day.values() for ms in x.values() for w in ms}
+    return days, sel_by_day, null_by_day, members
+
+
+def walk(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, mm=frozenset(), trades=None, prices=None,
+         null=True, sel=None, stop=None):
+    """{"60s": [row], "brzo": [row], "null": [row]} and the selected sets per day (see selection(); one copy a token
+    new to the group, bought during D). sel: selection()'s result when the caller has it; trades: the wallets' trades
+    when the caller read them (19.11.: once a pass for this and copy.walk). stop() true: (None, {}): a cut walk is no
+    result."""
+    out = {"60s": [], "brzo": [], "null": []}
+    if not events:
+        return out, {}
+    sel = sel if sel is not None else selection(c, events, parts, now, bad, first_trade, mm, null, stop)
+    if sel is None:
+        return None, {}
+    days, sel_by_day, null_by_day, members = sel
     if not members:
         return out, sel_by_day
     trades = trades if trades is not None else copy.wallet_trades(con, p, members)
@@ -357,6 +377,8 @@ def walk(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, mm=fr
     for variant, chosen in (("60s", sel_by_day), ("brzo", sel_by_day), ("null", null_by_day)):
         taken = set()
         for d in days:
+            if stop is not None and stop():
+                return None, sel_by_day
             for owner, ms in (chosen.get(d) or {}).items():
                 own = sorted((r for m in ms for r in by_w.get(m, [])), key=lambda r: r[2])
                 before = {r[1] for r in own if r[2] < d}
@@ -448,30 +470,48 @@ def save(con, st, now):
 
 # ---------- the pass --------------------------------------------------------------------------------------------------
 
-def run(con, p, c, now, events, parts, bad=frozenset(), first_trade=None, prev=None, light=False):
-    """Classify, the bundles, the copy test (light: the previous numbers), store -> the summary block."""
-    mm = market_makers(con, events, c)
+def run_list(con, c, now, events, parts, bad=frozenset(), first_trade=None, prev=None, stop=None):
+    """The class list and the bundles, stored -> (the summary block without the copy numbers, the market makers).
+    stop() true before the end: the stored list / bundles of the last run stay and the block says "cut"."""
+    prev = prev or {}
+    mm = market_makers(con, events, c, stop)
+    if mm is None:
+        return dict(prev, cut="popis"), set()
     st = classify(parts, events, now + 1, c, bad, first_trade, mm)
     save(con, st, now)
-    bs = bundles(con, events, c, now + 1)
-    n_b = save_bundles(con, bs, c, now)
-    if light and (prev or {}).get("copy"):
-        cs = prev["copy"]
-    else:
-        res, _sel = walk(con, p, c, events, parts, now, bad, first_trade, mm)
-        save_copy(con, res)
-        cs = summarize(res, c)
+    bs = bundles(con, events, c, now + 1, stop)
+    n_b = save_bundles(con, bs, c, now) if bs is not None else prev.get("bundles", 0)
     pumps = pump_events(events, now + 1)
     cov = [e for e in pumps.values() if e.get("n_part")]
     cls = Counter(s["cls"] for s in st.values())
-    return {"ts": int(now), "pumps15": sum(1 for e in pumps.values() if e["tier"] == "pumpa15"),
-            "pumps2": sum(1 for e in pumps.values() if e["tier"] == "pumpa2"),
-            "covered15": sum(1 for e in cov if e["tier"] == "pumpa15"),
-            "covered2": sum(1 for e in cov if e["tier"] == "pumpa2"),
-            "fetched15": sum(1 for e in pumps.values() if e["tier"] == "pumpa15" and e.get("fetched")),
-            "groups": cls.get("prije_pumpe", 0), "confirmed": len(confirmed(st)), "classes": dict(cls),
-            "market_makers": len(mm), "bundles": n_b, "copy": cs, "min_tokens": int(c["pump_min_tokens"]),
-            "min_n": int(c["pp_min_n"]), "slip_fast_pct": round(float(c["slip_fast"]) * 100, 2)}
+    out = {"ts": int(now), "pumps15": sum(1 for e in pumps.values() if e["tier"] == "pumpa15"),
+           "pumps2": sum(1 for e in pumps.values() if e["tier"] == "pumpa2"),
+           "covered15": sum(1 for e in cov if e["tier"] == "pumpa15"),
+           "covered2": sum(1 for e in cov if e["tier"] == "pumpa2"),
+           "fetched15": sum(1 for e in pumps.values() if e["tier"] == "pumpa15" and e.get("fetched")),
+           "groups": cls.get("prije_pumpe", 0), "confirmed": len(confirmed(st)), "classes": dict(cls),
+           "market_makers": len(mm), "bundles": n_b, "min_tokens": int(c["pump_min_tokens"]),
+           "min_n": int(c["pp_min_n"]), "slip_fast_pct": round(float(c["slip_fast"]) * 100, 2),
+           "copy": prev.get("copy"), "copy_ts": prev.get("copy_ts")}
+    if bs is None:
+        out["cut"] = "bundle"
+    return out, mm
+
+
+def run_copy(con, p, c, now, events, parts, block, res):
+    """Store the copy rows `res` (walk()'s) and put their numbers into the block (copy_ts = now)."""
+    save_copy(con, res)
+    return dict(block, copy=summarize(res, c), copy_ts=int(now))
+
+
+def run(con, p, c, now, events, parts, bad=frozenset(), first_trade=None, prev=None, light=False):
+    """The list and the bundles, and (not light) the copy test -> the summary block (tests; run.analyze calls the
+    parts in its own order under the pass's time budget)."""
+    block, mm = run_list(con, c, now, events, parts, bad, first_trade, prev)
+    if light and block.get("copy"):
+        return block
+    res, _sel = walk(con, p, c, events, parts, now, bad, first_trade, mm)
+    return run_copy(con, p, c, now, events, parts, block, res)
 
 
 # ---------- what it says ----------------------------------------------------------------------------------------------
@@ -490,6 +530,8 @@ def line(pp, helius_today=0, helius_cap=0):
     cp = pp.get("copy") or {}
     a, f, z = ((cp.get(k) or {}).get("svi") or {} for k in ("60s", "brzo", "null"))
     heli = f"Helius danas {helius_today:,}/{helius_cap:,}"
+    if pp.get("copy_ts") and pp.get("ts") and pp["copy_ts"] != pp["ts"]:   # 19.11.: incr reuses the full pass's copy
+        heli = f"brojke kopije iz prolaza {_t(pp['copy_ts'])} UTC; " + heli
     head = (f"{PREFIX}{pp.get('covered15', 0)} pumpi ≥ 15M i {pp.get('covered2', 0)} pumpi 2-15M pokriveno "
             f"(od {pp.get('pumps15', 0)} + {pp.get('pumps2', 0)}), {pp.get('groups', 0)} grupa kupuje prije pumpe "
             f"({pp.get('confirmed', 0)} potvrđeno), bundle grupa {pp.get('bundles', 0)}")
