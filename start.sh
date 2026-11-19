@@ -194,6 +194,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
     sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))
   done
 ) &
+# 19.11. (vlasnik: "povijesni profit i gubitak za sve novčanike ... što više novčanika, posebno rani kupci tokena koji su
+# skočili"; wallets/povijest.py): the history queue (pump-group members, bundles, early buyers of the pumps, long
+# holders, the old registry), scored by the existing scorer into wallets.db. Helius at most wallets/config.json
+# "povijest" kredita_dan (60k) a UTC day, 5 pages a wallet, never past WALLET_CREDIT_SHARE of the month. Night: under
+# the heavy lock (--night, 01-06 Zagreb), each pass at most 60 min, hourly while the day cap lasts. Day: every
+# POVIJEST_DAY_S (2 h) a short pass WITHOUT the heavy lock (network bound), at most 5 min and 40 % of the day cap.
+( sleep "${POVIJEST_FIRST_S:-1800}"; while true; do python3 -m ops.heavy --night run_wallets.py povijest --kind night || echo "novčanici povijest (noć) nisu uspjeli"; sleep 3600; done ) &
+( sleep "${POVIJEST_DAY_FIRST_S:-2400}"; while true; do low python3 run_wallets.py povijest --kind day || echo "novčanici povijest (dan) nisu uspjeli"; sleep "${POVIJEST_DAY_S:-7200}"; done ) &
 # 10.11. (Grok MCP audit 9): sale amounts missing in hype.db chain_trades (sol NULL) read from the transaction itself
 # (wallets/solfill.py, one Helius getTransaction each): night window only (--night, 01-06 Zagreb), at most
 # SOLFILL_MAX_NIGHT (200) calls a night, counted by the job itself, so the hourly tries after the first find it spent

@@ -200,13 +200,15 @@ def bundles(con, events, c, as_of, stop=None):
         b = out.setdefault(bid, {"kind": kind, "members": set(), "pumps": set(), "pumps15": set(), "shares": {},
                                  "sold": set(), "tokens": set(), "last": 0})
         b["members"] |= set(ws)
-        b["pumps"].add(e["eid"])
+        # 19.11. (fix): pumps are counted as distinct pump TOKENS per bundle, never per event or per wallet (two events
+        # of one token, or a call event and its jump, are one pump); save_bundles rewrites the whole table each pass
+        b["pumps"].add(e["token"])
         if e["tier"] == "pumpa15":
-            b["pumps15"].add(e["eid"])
+            b["pumps15"].add(e["token"])
         if share is not None:
-            b["shares"][e["eid"]] = max(share, b["shares"].get(e["eid"], 0.0))
+            b["shares"][e["token"]] = max(share, b["shares"].get(e["token"], 0.0))
         if set(ws) & sold[e["eid"]]:
-            b["sold"].add(e["eid"])
+            b["sold"].add(e["token"])
         b["tokens"].add(e["token"])
         b["last"] = max(b["last"], int(e["t0"]))
         if b["kind"] != kind:
@@ -470,6 +472,31 @@ def save(con, st, now):
 
 # ---------- the pass --------------------------------------------------------------------------------------------------
 
+def history(con, st, now, wallet_db=None):
+    """19.11. (feed back of wallets/povijest.py, REPORT ONLY: never a selection rule, that would be tuning on the same
+    data): per "kupuje prije pumpe" / kandidat group the members' own scored history (wallets.db) -> i2_pp_hist; agrees
+    = the history's realized SOL has the sign of the group's pump record (pnl_sol), None while no member is scored.
+    -> {"groups", "with_history", "agree", "disagree"}."""
+    from wallets import povijest
+    rows, out = [], {"groups": 0, "with_history": 0, "agree": 0, "disagree": 0}
+    for o, s in st.items():
+        if s["cls"] not in ("prije_pumpe", "kandidat"):
+            continue
+        h = povijest.group_history(s["members"], wallet_db)
+        out["groups"] += 1
+        agrees = None
+        if h["n_scored"]:
+            out["with_history"] += 1
+            agrees = int((h["realized_sol"] > 0) == ((s.get("pnl_sol") or 0) > 0))
+            out["agree" if agrees else "disagree"] += 1
+        rows.append((o, s["cls"], int(bool(s["confirmed"])), h["n_members"], h["n_scored"], h["realized_sol"],
+                     h["profitable_share"], s.get("pnl_sol"), agrees, int(now)))
+    con.execute("DELETE FROM i2_pp_hist")
+    con.executemany("INSERT INTO i2_pp_hist VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+    con.commit()
+    return out
+
+
 def run_list(con, c, now, events, parts, bad=frozenset(), first_trade=None, prev=None, stop=None):
     """The class list and the bundles, stored -> (the summary block without the copy numbers, the market makers).
     stop() true before the end: the stored list / bundles of the last run stay and the block says "cut"."""
@@ -495,6 +522,10 @@ def run_list(con, c, now, events, parts, bad=frozenset(), first_trade=None, prev
            "copy": prev.get("copy"), "copy_ts": prev.get("copy_ts")}
     if bs is None:
         out["cut"] = "bundle"
+    try:   # 19.11.: the members' own history (wallets/povijest.py), report only
+        out["povijest"] = history(con, st, now)
+    except Exception as e:  # noqa: BLE001 - the list never fails on it
+        out["povijest"] = {"error": f"{type(e).__name__}: {e}"[:120]}
     return out, mm
 
 
@@ -570,6 +601,16 @@ def bundle_rows(con, limit=30):
     return [dict(zip(keys, r)) for r in rows]
 
 
+def _hist_line(pp):
+    """19.11.: the members' own history against the pump record (wallets/povijest.py; only reported, never a rule)."""
+    h = (pp or {}).get("povijest") or {}
+    if not h or "groups" not in h:
+        return "Povijest članova (novčanici povijest): još nema."
+    return (f"Povijest članova (novčanici povijest, samo izvještaj, nije pravilo odabira): od {h['groups']} grupa "
+            f"{h['with_history']} ima ocijenjenu povijest barem jednog člana; povijest se slaže s rekordom pumpi kod "
+            f"{h['agree']}, ne slaže kod {h['disagree']}.")
+
+
 def markdown(pp, con, helius_today=0, helius_cap=0):
     L = ["# Novčanici koji kupuju prije pumpe", "",
          f"Prolaz {_t((pp or {}).get('ts'))} UTC. Statistika, ne optužba: „kupuje prije pumpe” znači samo da je grupa "
@@ -587,6 +628,7 @@ def markdown(pp, con, helius_today=0, helius_cap=0):
     cls = (pp or {}).get("classes") or {}
     L += ["", "Isključeno (razlog): " + (", ".join(f"{CLS_HR.get(k, k)} {v}" for k, v in sorted(cls.items())
                                                    if k not in ("prije_pumpe",)) or "—"), "",
+          _hist_line(pp), "",
           "## Kopiranje (walk-forward: odabir samo iz prošlosti, trošak nikad ispod 3 %, promašaji brojani)", "",
           "| varijanta | skupina | kupnji | kopija | tokena | grupa | promašeno % | prosjek % | 95 % od | 95 % do "
           "| uz 0,5 SOL % |",

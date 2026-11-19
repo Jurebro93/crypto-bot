@@ -429,6 +429,20 @@ def _activity_rows(n=40, hours=48, now=None):
     return rd.rows(items, empty=f"Praćeni novčanici u zadnjih {hours} h nisu ništa kupili ni prodali.")
 
 
+def _vrijedi_pratiti():
+    """19.11. (vlasnik: "The ordinary user should only be informed: follow this wallet because of this and this"): the
+    card of confirmed groups that buy before a pump (ui/novkartice.py), every user; the owner's dashboard one tap away
+    (adm-only: stripped from the copy a non-admin gets; the page itself admits the owner only)."""
+    try:
+        from ui import novkartice
+        card = novkartice.card_html()
+    except Exception as e:  # noqa: BLE001 - the list below never depends on it
+        print(f"novčanici: kartica nije prikazana: {type(e).__name__}: {e}", flush=True)
+        card = ""
+    return rd.raw(card + '<p class="ms-hint adm-only" style="margin:-6px 0 14px"><a href="/novcanici-admin">'
+                  'Novčanici: administracija (grupe, bundle, test kopiranja, povijest) →</a></p>')
+
+
 def wallets(qs):
     """Novčanici: Za kopiranje (the copy list) · Svi (every wallet) · Aktivnost (who just bought or sold); ?v=tablica
     keeps the old table with every column one tap away (prijedlog 6: "tablice sa svim stupcima na računalu")."""
@@ -484,7 +498,7 @@ def wallets(qs):
         if few:
             more = ('<details class="ms-more" style="margin-top:14px"><summary>Još nisu dokazani (manje od 10 zatvorenih) · '
                     f'{rd.num(len(few))}</summary>{rangtable.table(few, "wallet", now, tags=tags)}</details>')
-        body = (rd.top("Novčanici", sub) + hero + sw + fld + str(tbl) + more + str(rangtable.note("wallet"))
+        body = (rd.top("Novčanici", sub) + hero + _vrijedi_pratiti() + sw + fld + str(tbl) + more + str(rangtable.note("wallet"))
                 + _wallets_foot(scored, marks, now) + _wallets_hint())
         return "Novčanici", W_CSS + f'<div class="ms-page ms-wide">{body}</div>' + _W_JS
     srt = qs.get("s") if qs.get("s") in {k for k, _, _ in SORTS} else "copy"

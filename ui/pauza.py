@@ -25,6 +25,10 @@ TEXT = {
     "en": ("Autopilot is currently paused while we change the strategy. All resources now go to finding wallets that "
            "buy before a rise. We will notify users when Autopilot resumes."),
 }
+# 19.11. (vlasnik: "while real money is off, do as many demo trades as possible with wallet following"): one sentence
+# under the notice on the public /autopilot page, as state-driven as the notice
+DEMO = {"hr": "U međuvremenu testiramo praćenje novčanika na demo računu.",
+        "en": "Meanwhile we are testing wallet following on a demo account."}
 _lock = threading.Lock()
 _CACHE = {"ts": 0.0, "val": False}
 
@@ -81,3 +85,12 @@ def notice_html(lang="hr", notr=True):
     from ops import drustveni
     return drustveni.block_html(TEXT["en" if lang == "en" else "hr"], cls="ap-pauza", style=drustveni.PUBLIC_STYLE,
                                 notr=notr)
+
+
+def demo_html(lang="hr", notr=True):
+    """The extra sentence under the notice, or "" while Autopilot is not paused."""
+    if not on():
+        return ""
+    from html import escape
+    t = DEMO["en" if lang == "en" else "hr"]
+    return f'<p class="ms-hint ap-pauza-demo"{" translate=no" if notr else ""} style="margin:-12px 0 18px">{escape(t)}</p>'

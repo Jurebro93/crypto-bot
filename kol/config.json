@@ -110,13 +110,14 @@
   "min_score": 20
  },
  "chain": {
-  "max_wallets": 100,
+  "max_wallets": 300,
+  "_max_wallets_1911": "19.11. vlasnik: dok je pravi novac isključen, što više demo tradeova s praćenjem novčanika: 100 -> 300 novčanika (Helius webhook ~1 kredit po događaju); insajderi 0.2 -> 0.45 (grupe koje kupuju prije pumpe, bundle, kandidati, stari insajderi: insajderi/live.webhook_wallets), javne KOL ljestvice 0.4 -> 0.2",
   "resync_h": 24,
   "share": {
-   "ids": 0.4,
-   "copy": 0.3,
+   "ids": 0.2,
+   "copy": 0.25,
    "signal": 0.1,
-   "insajderi": 0.2
+   "insajderi": 0.45
   },
   "min_copy": 35
  },

@@ -1,6 +1,7 @@
 """Demo kopije dokazanih novčanika (16.11.2026, vlasnik: "Nađi mi profitabilnu strategiju ... sve resurse"): the
-prospective half of wallets/kopija.py. The DEMO account (trade/settings.PAPER_USER, hard-coded below: no switch, no
-order and no flag mode ever makes this module trade another account) copies every fresh buy of a wallet that is
+prospective half of wallets/kopija.py. The DEMO account (19.11.: league/store.WALLET_DEMO_USER "autopilot-novcanici",
+the one account of every wallet-following demo; until 19.11. trade/settings.PAPER_USER, whose open copies still exit
+there; hard-coded below: no switch, no order and no flag mode ever makes this module trade another account) copies every fresh buy of a wallet that is
 "dokazan dvaput" and "kopirljiv" right now, and each copy keeps the wallet, his price and ours and the delay, so the
 report can put his trade next to ours.
 
@@ -12,7 +13,8 @@ off / shadow = nothing is entered (open copies still close by their exits).
             bots. The same list the Helius webhook already follows (kol/chainwatch.wanted), so NO new paid volume.
   entry     a buy of such a wallet in hype.db chain_trades (the webhook; PumpPortal's mirror) at most FRESH_S old, the
             first copy per token, behind the hard rules of konsenzus/live.guards (bonded, MC >= 30k, liquidity >= 15k,
-            not rugged, not in the rug archive). DEMO-ONLY EXCEPTION: trade/capgate (MC >= 5M) is NOT asked here, so
+            not rugged, not in the rug archive); 19.11. (rule change): from MC 2M veliki/live.guards instead (no
+            "liquidity >= 3 % of MC"; guards() below). DEMO-ONLY EXCEPTION: trade/capgate (MC >= 5M) is NOT asked here, so
             the copy is measured under 5M too; the real account's gate and every real path are untouched (this module
             never calls them and never trades LEAGUE_USER).
   caps      DEMO_SOL (0.1 SOL, the real stake) a copy, MAX_OPEN open, PER_DAY a Zagreb day, one position a token
@@ -33,8 +35,9 @@ FLAG = "kopija_dokazani"
 SRC = "kopija dokazanih"
 PREFIX = "kopija dokazanih: "
 DEMO_SOL = 0.1
-MAX_OPEN = 10
-PER_DAY = 30
+# 19.11. (vlasnik: dok je pravi novac isključen "što više demo tradeova s praćenjem novčanika"): 10 / 30 -> 40 / 200
+MAX_OPEN = 40
+PER_DAY = 200
 FRESH_S = 180          # the replay's largest delay: an older buy is somebody else's trade by now
 STOP = 0.20
 HOLD_H = 24
@@ -72,9 +75,17 @@ def mode():
 
 
 def demo_user():
-    """The only account this module trades: the demo account. Never LEAGUE_USER."""
+    """The only account this module trades NEW copies on: the wallet-following demo account (19.11.: league/store.
+    WALLET_DEMO_USER, autopilot-novcanici; before 19.11. the demo account PAPER_USER, where copies opened then still
+    exit by their own rules: exits() and sync_closed() follow every open row whatever its user). Never LEAGUE_USER."""
+    from league import store as lstore
+    return lstore.WALLET_DEMO_USER
+
+
+def demo_users():
+    """Every account this module's rows can be on: the wallet demo account and, before 19.11., PAPER_USER."""
     from trade import settings
-    return settings.PAPER_USER
+    return (demo_user(), settings.PAPER_USER)
 
 
 def _ro(path):
@@ -211,9 +222,22 @@ def fresh_buys(wallets, now, fresh_s=FRESH_S, hype_db=None):
     return sorted(out, key=lambda r: r[1])
 
 
+GUARD_MID_MC = 2e6   # 19.11.: from this MC the midcap guards (veliki/live.guards), under it konsenzus/live.guards
+
+
+def guards(tok, mq):
+    """19.11. (rule change; copies before and after differ): a token with MC >= GUARD_MID_MC (2M) gets
+    veliki/live.guards (bonded, MC >= 30k, liquidity >= 15k, no fake pool, not rugged, not archived: no "liquidity
+    >= 3 % of MC", which kept most midcaps out); under 2M konsenzus/live.guards as before. Shared with insajderi/live."""
+    if mq and len(mq) > 3 and mq[0] and (mq[3] or 0) >= GUARD_MID_MC:
+        from veliki import live as vlive
+        return vlive.guards(tok, mq)
+    from konsenzus import live as klive
+    return klive.guards(tok, mq)
+
+
 def enter(con, tok, wallet, sig, buy_ts, his_sol, mq, now, sol, plan, hype_db=None):
     """One demo copy on the demo account; (text or None, why not or None)."""
-    from konsenzus import live as klive
     from league import auto, copy as lcopy, store as lstore
     user = demo_user()
     if con.execute("SELECT 1 FROM kopija_trades WHERE user=? AND token=?", (user, tok)).fetchone():
@@ -227,7 +251,7 @@ def enter(con, tok, wallet, sig, buy_ts, his_sol, mq, now, sol, plan, hype_db=No
                         (user, lcopy._day_start(int(now)))).fetchone()[0]
     if n_day >= PER_DAY:
         return None, f"dnevni strop ({PER_DAY}) potrošen"
-    why = klive.guards(tok, mq)
+    why = guards(tok, mq)
     if why:
         return None, why
     price, liq, _url, mcap = mq[:4]
@@ -357,7 +381,7 @@ def stats(lcon=None, now=None, path=None):
         lcon = _ro(path or lstore.DB)
     try:
         rows = _q(lcon, "SELECT status, pnl_usd, ret, closed_ts, delay_s, his_px_sol, our_px_sol, his_sell_px_sol, "
-                        "exit_reason FROM kopija_trades WHERE user=?", (demo_user(),))
+                        "exit_reason FROM kopija_trades WHERE user IN (?, ?)", demo_users())
         if not rows and not _q(lcon, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='kopija_trades'"):
             return None
     finally:

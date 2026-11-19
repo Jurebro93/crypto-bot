@@ -12,6 +12,12 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB = os.environ.get("LEAGUE_DB", os.path.join(HERE, "league.db"))
 START_USD = float(os.environ.get("LEAGUE_START_USD", "1000"))
+# 19.11. (vlasnik: "što više demo tradeova s praćenjem novčanika"): every wallet-following demo (kopija dokazanih,
+# insajderi2, prije pumpe / bundle) enters on ONE bot account; its caps (40 + 30 + 40 open x 0.1 SOL) need more than the
+# $1000 every other account starts with, so this account alone starts with START_OVERRIDE (an existing row of it with a
+# smaller start is raised once, in account())
+WALLET_DEMO_USER = "autopilot-novcanici"
+START_OVERRIDE = {WALLET_DEMO_USER: float(os.environ.get("LEAGUE_WALLET_DEMO_START_USD", "5000"))}
 FEE = 0.01
 
 # 10.11. (Grok MCP audit 1): what the MCP API (ui/mcpdata, another agent's code) reads of every demo trade, written at
@@ -204,12 +210,15 @@ def impact(usd, liq):
 
 def account(con, user):
     """Cash, money in open positions and realized PnL; creates the account on first use."""
+    start0 = START_OVERRIDE.get(user, START_USD)
     try:
-        con.execute("INSERT OR IGNORE INTO accounts VALUES (?,?,?)", (user, START_USD, int(time.time())))
+        con.execute("INSERT OR IGNORE INTO accounts VALUES (?,?,?)", (user, start0, int(time.time())))
+        if user in START_OVERRIDE:
+            con.execute("UPDATE accounts SET start_usd=? WHERE user=? AND start_usd < ?", (start0, user, start0))
     except sqlite3.OperationalError:   # disk full or locked: show the default account instead of failing the page
         pass
     row = con.execute("SELECT start_usd FROM accounts WHERE user=?", (user,)).fetchone()
-    start = row[0] if row else START_USD
+    start = row[0] if row else start0
     from league import rekt   # after a rekt only the current round counts (league/rekt.py)
     since = rekt.since(con, user)
     realized, in_use = con.execute(

@@ -108,6 +108,8 @@ CREATE TABLE IF NOT EXISTS i2_pp (owner TEXT PRIMARY KEY, members TEXT, n_member
 CREATE TABLE IF NOT EXISTS i2_pp_copy (variant TEXT, owner TEXT, token TEXT, buy_ts INTEGER, entry_ts INTEGER,
     mcap REAL, bucket TEXT, ret REAL, ret_big REAL, exit TEXT, miss TEXT, day TEXT,
     PRIMARY KEY (variant, owner, token));
+CREATE TABLE IF NOT EXISTS i2_pp_hist (owner TEXT PRIMARY KEY, cls TEXT, confirmed INTEGER, n_members INTEGER,
+    n_scored INTEGER, realized_sol REAL, profitable_share REAL, pump_pnl_sol REAL, agrees INTEGER, updated INTEGER);
 CREATE TABLE IF NOT EXISTS i2_bundle (bid TEXT PRIMARY KEY, kind TEXT, members TEXT, n_members INTEGER,
     n_pumps INTEGER, n_pumps15 INTEGER, share_med REAL, sold_into INTEGER, tokens TEXT, last_seen INTEGER,
     updated INTEGER);

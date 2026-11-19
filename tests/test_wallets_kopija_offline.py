@@ -32,7 +32,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from wallets import dokazani, kopija, kopija_demo, rang, store as wstore  # noqa: E402
-from tests.test_pravi_novac_sve_offline import LU, PU, SwitchBase, tok  # noqa: E402
+from tests.test_pravi_novac_sve_offline import LU, SwitchBase, tok  # noqa: E402
+WU = "autopilot-novcanici"   # 19.11.: league/store.WALLET_DEMO_USER
 from trade import settings  # noqa: E402
 
 D, H = 86400, 3600
@@ -610,8 +611,8 @@ class Demo(SwitchBase):
         self.assertEqual(settings.FLAG_DEFAULTS[kopija_demo.FLAG], "paper")
         with self.assertRaises(ValueError):
             settings.set_flag(self.con, kopija_demo.FLAG, "live", "Jure")
-        self.assertEqual(kopija_demo.demo_user(), PU)
-        self.assertEqual((kopija_demo.DEMO_SOL, kopija_demo.MAX_OPEN, kopija_demo.STOP), (0.1, 10, 0.20))
+        self.assertEqual(kopija_demo.demo_user(), WU)   # 19.11.: the wallet-following demo account
+        self.assertEqual((kopija_demo.DEMO_SOL, kopija_demo.MAX_OPEN, kopija_demo.STOP), (0.1, 40, 0.20))   # 19.11.: 10 -> 40
 
     def test_copies_a_proven_copyable_wallet_under_5m_on_the_demo_account_only(self):
         from trade import capgate
@@ -625,12 +626,12 @@ class Demo(SwitchBase):
         with mock.patch.object(capgate, "check", side_effect=AssertionError("capgate")), \
                 mock.patch.object(capgate, "allow_entry", side_effect=AssertionError("capgate")):
             got = self.go()
-        self.assertEqual([u for u, _t in got], [PU])                                     # MC $100k < 5M: entered on the demo
+        self.assertEqual([u for u, _t in got], [WU])                                     # MC $100k < 5M: entered on the demo
         r = self.lg.execute("SELECT user, wallet, buy_sig, buy_ts, his_sol, his_px_sol, delay_s, our_px_usd, our_px_sol, "
                             "exit_plan, status, size_usd, entry_mcap FROM kopija_trades").fetchall()
         self.assertEqual(len(r), 1)
         r = r[0]
-        self.assertEqual(tuple(r)[:5], (PU, self.wa, "s1", int(self.now) - 40, 1.0))
+        self.assertEqual(tuple(r)[:5], (WU, self.wa, "s1", int(self.now) - 40, 1.0))
         self.assertAlmostEqual(r[5], 1.0 / 2_000_000)                                    # his fill: SOL per token
         self.assertTrue(38 <= r[6] <= 45)                                                # our delay in seconds
         self.assertAlmostEqual(r[8], r[7] / 150.0)                                       # our price in SOL per token
@@ -638,7 +639,7 @@ class Demo(SwitchBase):
         self.assertAlmostEqual(r[11], 0.1 * 150.0)                                       # the real stake
         self.assertEqual(r[12], 100_000.0)
         t = self.lg.execute("SELECT user, source, auto FROM trades WHERE token=?", (tok(1),)).fetchone()
-        self.assertEqual(t[0], PU)
+        self.assertEqual(t[0], WU)
         self.assertTrue(t[1].startswith("kopija dokazanih"))
         self.assertEqual(json.loads(t[2])["sl"], "-20%")
         self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades WHERE user=?", (LU,)).fetchone()[0], 0)

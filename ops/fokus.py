@@ -95,7 +95,12 @@ EXCEPTIONS = (
     # webhook the proven wallets are already on (no new paid volume) and trade the demo account only
     (("run_wallets", "kopija"), "kopija",
      "Kopija dokazanih novčanika: povijesni test kopiranja (samo baze, noću) i demo kopije njihovih kupnji i ispod 5M "
-     "(samo demo račun: 0,1 SOL, 10 otvorenih, 30 dnevno; bez novog plaćenog prometa)"),
+     "(samo demo račun: 0,1 SOL, 40 otvorenih, 200 dnevno od 19.11.; bez novog plaćenog prometa)"),
+    # 19.11. (vlasnik: "povijesni profit i gubitak za sve novčanike ... posebno rani kupci tokena koji su skočili";
+    # wallets/povijest.py): the history queue, the scorer's own Helius call within its own day cap and deadline
+    (("run_wallets", "povijest"), "povijest",
+     "Povijest novčanika: članovi grupa koje kupuju prije pumpe, bundle, rani kupci pumpi, veliki holderi, stari "
+     "registar; Helius do 60.000 kr. dnevno (5 stranica po novčaniku), noću do 60 min, danju 5 min svaka 2 h"),
 )
 _OFF_KEYS = {key for _m, key, _w in OFF}
 # what each OFF / RETARGET job cost, from its own caps in the code and start.sh (Pretpostavka: the caps, not a measured

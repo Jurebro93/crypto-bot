@@ -256,7 +256,7 @@ if __name__ == "__main__":
 
 # ---------- the extension and the wiring ------------------------------------------------------------------------------
 from insajderi import live as ilive, report, smart, trending  # noqa: E402
-from tests.test_pravi_novac_sve_offline import LU, PU, SwitchBase, tok  # noqa: E402
+from tests.test_pravi_novac_sve_offline import LU, SwitchBase, tok  # noqa: E402
 from trade import settings  # noqa: E402
 from unittest import mock  # noqa: E402
 
@@ -343,9 +343,9 @@ class Demo(SwitchBase):
     def test_entry_on_their_buy_and_exit_when_the_group_sells(self):
         self.chain("s1", self.wa, tok(1), "buy", self.now - 20)
         got = self.go()
-        self.assertEqual([u for u, _t in got], [PU])             # the demo account only, never the real one
+        self.assertEqual([u for u, _t in got], ["autopilot-novcanici"])   # 19.11.: the wallet demo account, never real
         row = self.lg.execute("SELECT user, owner, status FROM insajderi2_trades WHERE token=?", (tok(1),)).fetchone()
-        self.assertEqual(tuple(row), (PU, "O1", "open"))
+        self.assertEqual(tuple(row), ("autopilot-novcanici", "O1", "open"))
         self.assertTrue(self.lg.execute("SELECT source FROM trades WHERE token=?", (tok(1),)).fetchone()[0]
                         .startswith("insajderi2"))
         self.chain("s2", self.wb, tok(1), "sell", self.now + 60)  # the OTHER wallet of the group sells (rotation)

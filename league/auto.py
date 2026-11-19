@@ -589,6 +589,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"insajderi2 ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 19.11. (flag insajderi2, insajderi/pp_live.py): the pump groups' and the bundles' buys ->
+                from insajderi import pp_live   # demo entries on its own demo account (autopilot-novcanici), exit when
+                for user, what in pp_live.run_once(con):   # they sell; NEVER_LIVE, no real path; not behind fokus_midcap
+                    print(f"{user}: {what}", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"prije pumpe demo: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # 16.11. (flag kopija_dokazani, wallets/kopija_demo.py): the proven-twice copyable wallets' buys ->
                 from wallets import kopija_demo   # demo copies with his price, ours and the delay; NEVER_LIVE (the demo
                 for user, what in kopija_demo.run_once(con):   # account only); not behind fokus_midcap (a measurement)
