@@ -690,7 +690,7 @@ class EvReport(Env):
         for i in range(0, 40, 2):   # the rule would have skipped every losing entry
             self.lc.execute("INSERT INTO shadow_decisions (ts, flag, token, old_action, new_action) VALUES (?,?,?,?,?)",
                             (t0 + i * 600 + 30, "confluence", f"T{i:02d}" + "x" * 38, "ulaz", "preskočeno"))
-        s.put(self.tc, "flag:dca_guard", {"mode": "paper", "since": NOW - 5 * DAY})
+        s.put(self.tc, "flag:stop_grace", {"mode": "paper", "since": NOW - 5 * DAY})
         self._trades(s.PAPER_USER, [0.1] * 5, t0)
         self.lc.commit()
         out = tempfile.mkdtemp()
@@ -704,7 +704,7 @@ class EvReport(Env):
         self.assertEqual(c["delta_ev_pct"], 30.0)
         self.assertIn("shadow → paper", c["proposal"])
         self.assertIn("ručno", c["proposal"])
-        p = rows[("dca_guard", "flag")]
+        p = rows[("stop_grace", "flag")]
         self.assertEqual((p["n"], p["ev_pct"], p["baseline_ev_pct"]), (5, 10.0, 0.0))
         self.assertIsNone(p["proposal"])                         # n < 20
         self.assertEqual(self.econ.execute("SELECT COUNT(*) FROM ev_report").fetchone()[0], len(rep["rows"]))

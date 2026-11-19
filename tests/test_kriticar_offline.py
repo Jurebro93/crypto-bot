@@ -820,10 +820,13 @@ class DeepReview(Base):
         self.assertEqual(self.con.execute("SELECT COUNT(*), SUM(cost_usd) FROM critic_calls WHERE kind='deep'").fetchone()[0], 2)
         self.assertEqual(cstore.kv_get(self.con, "deep_last")["upita"], 2)
         self.assertTrue(any(x.startswith("kritičar: dubinski pregled spremljen, 1 nalaza, upita 2, trošak") for x in self.logs))
-        # once: the next look is not due (48 h, then only in the night window)
+        # once: the next look is not due (19.11.: daily, was 48 h; then only in the night window)
+        self.assertEqual(deep_mod.EVERY_H, 24)
         self.assertEqual(deep_mod.due(self.con, NOW + 3600, lambda: True), (False, None))
-        self.assertEqual(deep_mod.due(self.con, NOW + 49 * 3600, lambda: False), (False, None))
-        self.assertEqual(deep_mod.due(self.con, NOW + 49 * 3600, lambda: True)[0], True)
+        self.assertEqual(deep_mod.due(self.con, NOW + 22 * 3600, lambda: True), (False, None))
+        self.assertEqual(deep_mod.due(self.con, NOW + 23 * 3600, lambda: False), (False, None))
+        self.assertEqual(deep_mod.due(self.con, NOW + 23 * 3600, lambda: True)[0], True)   # no drift out of the window
+        self.assertEqual(deep_mod.due(self.con, NOW + 25 * 3600, lambda: True)[0], True)
 
     def test_context_blocks_and_learned_exits(self):
         self.assertIsNone(deep_mod.learned_exits(self.con, NOW, self.dbs))

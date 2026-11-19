@@ -34,6 +34,10 @@ NIGHT = dict(CFG, minute=dict(CFG.get("minute") or {}, extra_hours=[0, 24]))   #
 DAY = dict(CFG, minute=dict(CFG.get("minute") or {}, extra_hours=[0, 0]))      # ... and never
 NOW = int(time.time()) // 60 * 60
 MINT = "So1aNaMint1111111111111111111111111111111pump"
+REMOVED_1911 = ("auto_exit_data", "sl_default_v2", "dca_guard", "latency_entry", "holder_hard", "proof_v2", "survivor_fix",
+                "zombie_guard", "organic_volume", "xhook_fast", "helius_streams", "holder_snap", "clusters_ext",
+                "junk_skip", "junk_flags", "event_flags", "grok_features_fit", "regime_sizing", "time_filter",
+                "caller_decay", "ladder_exit", "early_score", "early_persist", "wallet_stream", "sender_exec", "demo_grok")
 
 
 class Base(unittest.TestCase):
@@ -79,46 +83,44 @@ class Flags(Base):
                                                   "openai_kritika": "live", "mikrokap_moonshot": "paper",
                                                   "insajderi_kol": "shadow", "kopija_dokazani": "paper"})
         self.assertEqual(settings.flag("x_call_scalp"), "shadow")
-        self.assertEqual(settings.flag("dca_guard"), "off")
-        for name in ("auto_exit_data", "sl_default_v2", "dca_guard", "caller_ev_rank", "latency_entry", "runup_default",
-                     "holder_hard", "proof_v2", "survivor_fix", "xhook_fast", "helius_streams", "holder_snap",
-                     "clusters_ext", "x_features_ingest", "junk_skip", "junk_flags", "event_flags", "grok_predictions",
-                     "grok_features_fit", "regime_sizing", "time_filter", "caller_decay", "ladder_exit",
-                     "zombie_guard", "organic_volume", "early_score", "early_persist", "smart_discovery",
-                     "wallet_stream", "sender_exec", "demo_grok", "stop_grace", "caller_weights", "dca_cap",
-                     "require_signal"):
+        self.assertEqual(settings.flag("stop_grace"), "off")
+        for name in ("caller_ev_rank", "runup_default", "x_features_ingest", "grok_predictions", "smart_discovery",
+                     "stop_grace", "caller_weights", "dca_cap", "require_signal"):
             self.assertIn(name, settings.FLAGS)
+        # 19.11.: the flags no code read are gone (vlasnik: "Ukloniti dvadesetak prekidača koji ništa ne rade? Da.")
+        for name in REMOVED_1911:
+            self.assertNotIn(name, settings.FLAGS)
         with self.assertRaises(KeyError):
             settings.flag("nema_je")
         with self.assertRaises(ValueError):
             settings.set_flag(self.con, "nema_je", "shadow")
         with self.assertRaises(ValueError):
-            settings.set_flag(self.con, "dca_guard", "turbo")
+            settings.set_flag(self.con, "stop_grace", "turbo")
 
     def test_shadow_and_paper_are_free_live_needs_backtest_and_seven_days_of_paper_in_the_plus(self):
-        settings.set_flag(self.con, "dca_guard", "shadow", "Jure", now=NOW)
-        self.assertEqual(settings.flag("dca_guard", con=self.con), "shadow")
+        settings.set_flag(self.con, "stop_grace", "shadow", "Jure", now=NOW)
+        self.assertEqual(settings.flag("stop_grace", con=self.con), "shadow")
         with self.assertRaisesRegex(ValueError, "backtest"):
-            settings.set_flag(self.con, "dca_guard", "live", "Jure", now=NOW)
-        self.pass_backtest("dca_guard")
+            settings.set_flag(self.con, "stop_grace", "live", "Jure", now=NOW)
+        self.pass_backtest("stop_grace")
         with self.assertRaisesRegex(ValueError, "paper"):
-            settings.set_flag(self.con, "dca_guard", "live", "Jure", now=NOW)
-        settings.set_flag(self.con, "dca_guard", "paper", "Jure", now=NOW)
+            settings.set_flag(self.con, "stop_grace", "live", "Jure", now=NOW)
+        settings.set_flag(self.con, "stop_grace", "paper", "Jure", now=NOW)
         with self.assertRaisesRegex(ValueError, "od 7 dana"):
-            settings.set_flag(self.con, "dca_guard", "live", "Jure", paper={"n": 5, "pnl": 3.0}, now=NOW + 3 * 86400)
+            settings.set_flag(self.con, "stop_grace", "live", "Jure", paper={"n": 5, "pnl": 3.0}, now=NOW + 3 * 86400)
         later = NOW + 8 * 86400
         with self.assertRaisesRegex(ValueError, "minusu"):
-            settings.set_flag(self.con, "dca_guard", "live", "Jure", paper={"n": 9, "pnl": -1.0}, now=later)
+            settings.set_flag(self.con, "stop_grace", "live", "Jure", paper={"n": 9, "pnl": -1.0}, now=later)
         with self.assertRaisesRegex(ValueError, "zatvoren"):
-            settings.set_flag(self.con, "dca_guard", "live", "Jure", paper={"n": 0, "pnl": 0.0}, now=later)
-        settings.set_flag(self.con, "dca_guard", "live", "Jure", paper={"n": 9, "pnl": 4.5}, now=later)
-        self.assertEqual(settings.flag("dca_guard", con=self.con), "live")
-        settings.set_flag(self.con, "dca_guard", "off", "Jure", now=later)   # going down is always allowed
-        self.assertEqual(settings.flag("dca_guard", con=self.con), "off")
+            settings.set_flag(self.con, "stop_grace", "live", "Jure", paper={"n": 0, "pnl": 0.0}, now=later)
+        settings.set_flag(self.con, "stop_grace", "live", "Jure", paper={"n": 9, "pnl": 4.5}, now=later)
+        self.assertEqual(settings.flag("stop_grace", con=self.con), "live")
+        settings.set_flag(self.con, "stop_grace", "off", "Jure", now=later)   # going down is always allowed
+        self.assertEqual(settings.flag("stop_grace", con=self.con), "off")
 
     def test_a_backtest_that_did_not_pass_is_no_pass(self):
-        settings.put(self.con, "backtest:proof_v2", {"pass": False, "ev_lo": -0.4, "n": 70})
-        self.assertIn("backtest", settings.live_refusal(self.con, "proof_v2", {"n": 20, "pnl": 9}, NOW))
+        settings.put(self.con, "backtest:stop_grace", {"pass": False, "ev_lo": -0.4, "n": 70})
+        self.assertIn("backtest", settings.live_refusal(self.con, "stop_grace", {"n": 20, "pnl": 9}, NOW))
 
     def test_a_data_flag_is_on_in_any_mode_and_needs_no_backtest(self):
         settings.set_flag(self.con, "grok_predictions", "live", "Jure", now=NOW)
@@ -126,26 +128,60 @@ class Flags(Base):
         self.assertFalse(settings.flag_on("x_features_ingest"))
 
     def test_the_read_only_flag_is_cached_briefly_and_a_change_clears_it(self):
-        self.assertEqual(settings.flag("ladder_exit"), "off")
-        settings.set_flag(self.con, "ladder_exit", "shadow", "Jure")
-        self.assertEqual(settings.flag("ladder_exit"), "shadow")
-        settings.put(self.con, "flag:ladder_exit", {"mode": "paper"})   # a write that skips set_flag
-        self.assertEqual(settings.flag("ladder_exit"), "shadow")       # ... is seen after FLAG_CACHE_S
+        self.assertEqual(settings.flag("caller_ev_rank"), "off")
+        settings.set_flag(self.con, "caller_ev_rank", "shadow", "Jure")
+        self.assertEqual(settings.flag("caller_ev_rank"), "shadow")
+        settings.put(self.con, "flag:caller_ev_rank", {"mode": "paper"})   # a write that skips set_flag
+        self.assertEqual(settings.flag("caller_ev_rank"), "shadow")       # ... is seen after FLAG_CACHE_S
         settings._FLAG_CACHE.clear()
-        self.assertEqual(settings.flag("ladder_exit"), "paper")
+        self.assertEqual(settings.flag("caller_ev_rank"), "paper")
         self.assertTrue(settings.any_paper())
 
     def test_a_missing_database_reads_as_off(self):
-        self.assertEqual(settings.flag("dca_guard", path=os.path.join(self.tmp.name, "nema.db")), "off")
+        self.assertEqual(settings.flag("stop_grace", path=os.path.join(self.tmp.name, "nema.db")), "off")
+
+
+class Removed1911(Base):
+    """19.11.: 26 flags no code read were removed. A row of one of them already in trade.db is ignored; the real-money
+    switches, the pause and set_flag's owner rules are exactly as before."""
+
+    def test_a_stored_row_of_a_removed_flag_is_ignored(self):
+        for name in REMOVED_1911:
+            settings.put(self.con, f"flag:{name}", {"mode": "live", "since": NOW})
+        st = settings.flag_state(self.con)
+        self.assertFalse(set(REMOVED_1911) & set(st))
+        self.assertEqual(set(st), set(settings.FLAGS))
+        self.assertFalse(set(REMOVED_1911) & settings.DATA_FLAGS)
+        with self.assertRaises(KeyError):
+            settings.flag("dca_guard", con=self.con)
+        with self.assertRaises(ValueError):
+            settings.set_flag(self.con, "dca_guard", "off", "Jure")
+        self.assertFalse(settings.any_paper())                     # a stale live/paper row counts for nothing
+
+    def test_the_real_money_switches_and_the_pause_are_unchanged(self):
+        self.assertEqual(settings.REAL_SWITCHES, ("pravi_novac_veliki", "pravi_novac_nauceno", "pravi_novac_sve",
+                                                  "pravi_novac_izvori", "pravi_novac_oscilator"))
+        self.assertEqual(settings.PAUZA_KEY, "pravi_novac_pauza")
+        for name in settings.REAL_SWITCHES:
+            self.assertIn(name, settings.FLAGS)
+            self.assertEqual(settings.flag(name, con=self.con), "off")
+        settings.pauza_set(self.con, True, "Jure", "test", now=NOW)
+        self.assertTrue(settings.pauza(self.con)["on"])
+        with self.assertRaises(ValueError):                        # nobody but the owner turns real money on
+            settings.set_flag(self.con, settings.VEL_SWITCH, "live", "grok")
+        self.assertTrue(settings.pauza(self.con))
+        settings.set_flag(self.con, settings.VEL_SWITCH, "live", "Jure")   # his own tap ends the pause
+        self.assertIsNone(settings.pauza(self.con))
+        self.assertEqual(settings.flag(settings.VEL_SWITCH, con=self.con), "live")
 
 
 class WhoGetsTheNewRule(Base):
     def test_live_is_both_autopilot_accounts_paper_only_the_paper_account_players_never(self):
         au, pu = settings.LEAGUE_USER, settings.PAPER_USER
-        self.assertEqual([flags.applies("dca_guard", u, "live") for u in (au, pu, "Ivan")], [True, True, False])
-        self.assertEqual([flags.applies("dca_guard", u, "paper") for u in (au, pu, "Ivan")], [False, True, False])
-        self.assertEqual([flags.applies("dca_guard", u, "shadow") for u in (au, pu, "Ivan")], [False, False, False])
-        self.assertEqual([flags.shadowing("dca_guard", u, m) for u, m in ((au, "shadow"), (au, "paper"), (au, "live"),
+        self.assertEqual([flags.applies("stop_grace", u, "live") for u in (au, pu, "Ivan")], [True, True, False])
+        self.assertEqual([flags.applies("stop_grace", u, "paper") for u in (au, pu, "Ivan")], [False, True, False])
+        self.assertEqual([flags.applies("stop_grace", u, "shadow") for u in (au, pu, "Ivan")], [False, False, False])
+        self.assertEqual([flags.shadowing("stop_grace", u, m) for u, m in ((au, "shadow"), (au, "paper"), (au, "live"),
                                                                           (au, "off"), (pu, "shadow"))],
                          [True, True, False, False, False])
 
@@ -487,14 +523,14 @@ class Page(Base):
         self.assertIn("pravila, sva isključena", body)
         self.assertIn("action=/pravi-trade/flag", body)
         self.assertIn("Demo naspram pravog izlaza", body)
-        loc = pravitrade.post("/pravi-trade/flag", {"name": "dca_guard", "mode": "shadow"}, "Jure")
+        loc = pravitrade.post("/pravi-trade/flag", {"name": "stop_grace", "mode": "shadow"}, "Jure")
         self.assertIn("ok=", loc)
-        self.assertEqual(settings.flag("dca_guard", con=self.con), "shadow")
-        loc = unquote(pravitrade.post("/pravi-trade/flag", {"name": "dca_guard", "mode": "live"}, "Jure"))
+        self.assertEqual(settings.flag("stop_grace", con=self.con), "shadow")
+        loc = unquote(pravitrade.post("/pravi-trade/flag", {"name": "stop_grace", "mode": "live"}, "Jure"))
         self.assertIn("err=", loc)
         self.assertIn("backtest", loc)
-        self.assertIn("err=", pravitrade.post("/pravi-trade/flag", {"name": "dca_guard", "mode": "live"}, "netko"))
-        self.assertEqual(settings.flag("dca_guard", con=self.con), "shadow")
+        self.assertIn("err=", pravitrade.post("/pravi-trade/flag", {"name": "stop_grace", "mode": "live"}, "netko"))
+        self.assertEqual(settings.flag("stop_grace", con=self.con), "shadow")
         _, body = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn("1 od", body)
 

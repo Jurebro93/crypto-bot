@@ -327,7 +327,7 @@ JOBS = [
     # (first right after a start when today has none, then 06:40 Zagreb); both wait on the API: light
     ("kriticar", every, (["run_critic.py", "trades"], float(os.environ.get("KRITICAR_EVERY_MIN", "5")), True)),
     ("kriticar_dan", daily_local_first, (["run_critic.py", "daily"], _env_hour("KRITICAR_DAILY_HOUR", 6), True, 40)),
-    # 15.11. navečer: the deep session (critic/deep.py decides: the first right after this deploy, then every 48 h in
+    # 15.11. navečer: the deep session (critic/deep.py decides: the first right after this deploy, then every 24 h in
     # the night window); the SQL is read-only, paced and capped per query
     ("kriticar_dubinski", every, (["run_critic.py", "deep", "--auto"], 10.0, True)),
     # 15.11. (vlasnik: "kritičar može interpretirati te podatke ... u malim boksevima"): the critic's public reads of
