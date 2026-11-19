@@ -270,9 +270,11 @@ class DeployWindow(IconsBase):
         self.assertEqual(page("/en")[0], "en")
         self.assertEqual(page("/coin/bonk")[0], "en")
         self.assertEqual(page("/hrvatska")[0], "en")
-        self.assertEqual(page("/hr"), ("hr", "Deploy u tijeku · MemeSonar"))
-        self.assertEqual(page("/hr/blog?x=1")[0], "hr")
-        self.assertEqual(page("/", {"Cookie": "a=1; cb_lang=hr"})[0], "hr")
+        # 19.11. (vlasnik: the page was still Croatian on his own devices): English for everybody by default, also for
+        # a /hr address and for a browser whose cb_lang cookie says hr
+        self.assertEqual(page("/hr"), ("en", "Deploy in progress · MemeSonar"))
+        self.assertEqual(page("/hr/blog?x=1")[0], "en")
+        self.assertEqual(page("/", {"Cookie": "a=1; cb_lang=hr"})[0], "en")
         self.assertEqual(page("/", {"Cookie": "cb_lang=en"})[0], "en")
         self.assertEqual(page("/", {"Accept-Language": "hr-HR,hr;q=0.9"})[0], "en")   # the browser language alone: no
 
@@ -280,10 +282,14 @@ class DeployWindow(IconsBase):
 class DeployPageLanguage(unittest.TestCase):
     def test_rule(self):
         L = deploypage.lang_for
-        self.assertEqual([L("/"), L("/en"), L("/en/autopilot"), L("/hr"), L("/hr/"), L("/hr/coin/x"), L("/hrk")],
-                         ["en", "en", "en", "hr", "hr", "hr", "en"])
-        self.assertEqual(L("/", "cb_lang=hr"), "hr")
-        self.assertEqual(L("/", "cb_lang=hrx"), "en")
+        # 19.11.: the default is English for every request, whatever the address or the cookie
+        self.assertEqual([L("/"), L("/en"), L("/hr"), L("/hr/coin/x"), L("/", "cb_lang=hr")], ["en"] * 5)
+        self.assertEqual(deploypage.forced_lang(), "en")
+        with mock.patch.dict(os.environ, {"DEPLOY_LANG": "auto"}):   # the per-request rule of 15.11., on request
+            self.assertEqual([L("/"), L("/en"), L("/en/autopilot"), L("/hr"), L("/hr/"), L("/hr/coin/x"), L("/hrk")],
+                             ["en", "en", "en", "hr", "hr", "hr", "en"])
+            self.assertEqual(L("/", "cb_lang=hr"), "hr")
+            self.assertEqual(L("/", "cb_lang=hrx"), "en")
         with mock.patch.dict(os.environ, {"DEPLOY_LANG": "hr"}):
             self.assertEqual(L("/"), "hr")
 
@@ -297,7 +303,11 @@ class DeployPageLanguage(unittest.TestCase):
         self.assertIn("location.pathname", en)              # the stored copy of the service worker picks by address
         self.assertIn("cb_lang=hr", en)
         self.assertNotIn("navigator.language", en)          # never the browser language alone
-        self.assertIn('"lang": "auto"', en)
+        self.assertIn('"lang": "en"', en)                   # 19.11.: English is fixed in the page, so the copy the
+        deploypage._cache.clear()                           # service worker stored shows English on any device
+        with mock.patch.dict(os.environ, {"DEPLOY_LANG": "auto"}):
+            self.assertIn('"lang": "auto"', deploypage.html("en"))
+        deploypage._cache.clear()
 
 
 class ServiceWorker(unittest.TestCase):
