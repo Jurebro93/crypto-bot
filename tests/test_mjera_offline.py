@@ -316,21 +316,24 @@ class Pages(Base):
         with mock.patch.object(pauza, "on", return_value=True), \
                 mock.patch("ui.novpodaci.league_db", return_value=self.db):
             empty = novmjera.autopilot_html(True, NOW)
-            self.assertIn("Mjerenje još nije zabilježilo nijedan signal", empty)
+            self.assertIn("Mjerenje još nije zabilježilo nijednu kupnju", empty)
             self.seed()
             html = novmjera.autopilot_html(True, NOW + 60)
         self.assertIn("Praćenje novčanika: mjerenje po ulazu (bez pravog novca)", html)
-        self.assertIn('title="premalo podataka: n=1 od potrebnih 100 token-dana">premalo</span>', html)
-        self.assertIn("Kapacitet", html)
+        self.assertIn('title="premalo: 1 od potrebnih 100 dana s kupnjama">premalo</span>', html)
+        self.assertIn("<details class=nm-det><summary>Detalji</summary>", html)   # 20.11.: the answer first
+        self.assertRegex(html, r"<p class=nm-ans>Od \d+\.\d+\. smo izmjerili \d+ kupnj[aeiu] praćenih novčanika: u prosjeku "
+                               r"[+−][\d,]+\xa0% po kupnji nakon troška\. Premalo je za zaključak")
+        self.assertIn("Koliko bismo stigli", html)
         self.assertIn("&lt;script&gt;", html)
         self.assertNotIn("<script>alert", html)
-        self.assertNotIn(" $</td>", html.split("Zadnji signali")[1])      # no demo dollars in the rows
+        self.assertNotIn(" $</td>", html.split("Zadnje kupnje")[1])      # no demo dollars in the rows
         self.assertIn('action=/pravi-trade/mjera-nacin', html)
         with mock.patch.object(pauza, "on", return_value=False):
             self.assertEqual(novmjera.autopilot_html(True, NOW), "")
         with mock.patch.object(pauza, "on", return_value=True), \
                 mock.patch("ui.novpodaci.league_db", return_value=os.path.join(self.d, "nema.db")):
-            self.assertIn("nijedan signal", novmjera.autopilot_html(False, NOW))
+            self.assertIn("nijednu kupnju", novmjera.autopilot_html(False, NOW))
 
     def test_admin_section(self):
         from ui import novmjera
@@ -339,8 +342,8 @@ class Pages(Base):
         self.seed()
         with mock.patch("ui.novpodaci.league_db", return_value=self.db):
             html = novmjera.admin_html(NOW + 60)
-        for s in ("Dokaz za pravi novac", "Promašaji po razlogu", "Mjerenje i demo:", "Po grupi i novčaniku",
-                  "upareno 0", "način auto"):
+        for s in ("Dokaz za pravi novac", "promašaji), po razlogu", "Mjerenje i demo:", "Po skupini i novčaniku",
+                  "uparenih kupnji 0", "način auto"):
             self.assertIn(s, html)
         self.assertNotIn("<script>alert", html)
 
