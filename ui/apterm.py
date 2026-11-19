@@ -2863,9 +2863,10 @@ def lazy(name, user, qs=None):
             return ostalo_html(tcon, cfg, owner, now, (qs.get("ekipa") or "").strip())
         if name in ("eventi", "preshill"):
             return card_html(name, tcon, owner)
-        if name == "demonov":   # 19.11.: display only; "" while real money is not paused (the page hides the card)
-            from ui import novkartice
-            return pt._safe(name, novkartice.demo_html, owner) or ""
+        if name == "demonov":   # 19.11.: display only; "" while real money is not paused (the page hides the card).
+            # 19.11. (vlasnik: "mjeri svaki ulaz u postocima"): the measurement per entry (ui/novmjera), no demo dollars
+            from ui import novmjera
+            return pt._safe(name, novmjera.autopilot_html, owner) or ""
         return ""
     finally:
         tcon.close()

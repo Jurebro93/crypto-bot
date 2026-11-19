@@ -27,8 +27,8 @@ TEXT = {
 }
 # 19.11. (vlasnik: "while real money is off, do as many demo trades as possible with wallet following"): one sentence
 # under the notice on the public /autopilot page, as state-driven as the notice
-DEMO = {"hr": "U međuvremenu testiramo praćenje novčanika na demo računu.",
-        "en": "Meanwhile we are testing wallet following on a demo account."}
+DEMO = {"hr": "U međuvremenu mjerimo svaki ulaz praćenih novčanika u postocima, bez pravog novca.",
+        "en": "Meanwhile we measure every entry of the followed wallets in percent, with no real money."}
 _lock = threading.Lock()
 _CACHE = {"ts": 0.0, "val": False}
 

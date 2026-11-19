@@ -595,6 +595,11 @@ def loop(market, every=EVERY_S):
                     print(f"{user}: {what}", flush=True)
             except Exception as e:  # noqa: BLE001
                 print(f"prije pumpe demo: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 19.11. (vlasnik: "mjeri svaki ulaz u postocima", league/mjera.py): the open measurement rows
+                from . import mjera   # priced (bounded: MAX_ROWS rows, MAX_PASS_S s, every EVERY_S), the daily line
+                mjera.tick(con)
+            except Exception as e:  # noqa: BLE001
+                print(f"mjerenje praćenja novčanika: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # 16.11. (flag kopija_dokazani, wallets/kopija_demo.py): the proven-twice copyable wallets' buys ->
                 from wallets import kopija_demo   # demo copies with his price, ours and the delay; NEVER_LIVE (the demo
                 for user, what in kopija_demo.run_once(con):   # account only); not behind fokus_midcap (a measurement)

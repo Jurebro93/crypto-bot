@@ -267,6 +267,33 @@ def seed(paths, empty=False, now=None, n_groups=40, paused=True):
                        "entry_mcap, mc_bucket, liq, status, closed_ts, ret) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (pp_live.USER, tok, None, kind, gid, out["members"][i + 1], opened - 4, opened, cur.lastrowid, 15.0,
                         mc, pp_live.bucket(mc), 5e5, st_, None if st_ == "open" else opened + 2 * H, ret))
+    # league.db signal_mjera (league/mjera.py): the measurement per entry of every wallet-following signal
+    from league import mjera
+    mjera.ensure(lc)
+    lc.execute("DELETE FROM signal_mjera")
+    if not empty:
+        srcs = mjera.SOURCES
+        for i in range(60):
+            src = srcs[i % len(srcs)]
+            mc = [40e6, 8e6, 120e6, 1.5e6, 17e6, 300e6][i % 6]
+            seen = now - (60 - i) * 2 * H
+            st_ = "open" if i >= 54 else ("miss" if i % 9 == 0 else "closed")
+            g = R.uniform(-0.3, 0.6)
+            gid = out["groups"][i % len(out["groups"])] if src != "kopija" else out["members"][i]
+            sym = [HOSTILE_SYM, "WIF", "GIGA", "MEW", "SPX", "FWOG"][i % 6]
+            lc.execute("INSERT INTO signal_mjera (source, kind, gid, wallet, members, token, symbol, their_buy_ts, "
+                       "seen_ts, delay_s, entry_ts, entry_price, entry_mcap, mc_bucket, liq, guard, status, exit_ts, "
+                       "exit_price, exit_reason, ret_gross, cost_01, cost_05, ret_net_01, ret_net_05, token_day) "
+                       "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (src, mjera.LABEL[src], gid, out["members"][i], "[]", b58(f"mt{i % 25}", 40) + "pump", sym,
+                        seen - 4, seen, 4 + i % 9, None if st_ == "miss" else seen, None if st_ == "miss" else 0.01, mc,
+                        mjera.bucket(mc), 4e5, ("MC ispod 30k" if i % 2 else "lažni pool (likvidnost veća od MC-a)")
+                        if st_ == "miss" else "ok", st_, None if st_ != "closed" else seen + 3 * H,
+                        None if st_ != "closed" else 0.01 * (1 + g),
+                        "nije kopirljivo" if st_ == "miss" else (["prodali su", "stop", "vrijeme"][i % 3] if st_ == "closed"
+                                                                  else None),
+                        g if st_ == "closed" else None, 0.03, 0.06, g - 0.03 if st_ == "closed" else None,
+                        g - 0.06 if st_ == "closed" else None, mjera.day(seen)))
     lc.commit()
     lc.close()
 

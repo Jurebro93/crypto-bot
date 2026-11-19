@@ -201,6 +201,26 @@ def now(now_ts=None, trade_db=None, env=None):
         f = _flag(need(), "fokus_midcap")
         return _row("fokus_midcap", "live" if f["mode"] == "live" else "off", f["since"], f["who"])
 
+    def measure():
+        from league import mjera
+        from league import store as lstore
+        m = mjera.mode()
+        sw = None
+        lc = _ro(lstore.DB)
+        if lc is not None:
+            try:
+                r = lc.execute("SELECT v FROM mjera_kv WHERE k='prebaceno'").fetchone()
+                import json as _json
+                sw = _json.loads(r[0]) if r else None
+            except sqlite3.Error:
+                sw = None
+            finally:
+                lc.close()
+        state = "<switched>" if m == "auto" and sw else m
+        det = (f"prebačeno: {sw.get('n')} parova, medijan razlike {sw.get('median_pp')} pp" if sw else
+               "mjerenje teče u svakom načinu")
+        return _row("wallet_measure_mode", state, (sw or {}).get("ts"), None, det)
+
     def social():
         from ops import drustveni
         st = drustveni.state(t, create=False)
@@ -219,7 +239,8 @@ def now(now_ts=None, trade_db=None, env=None):
                         ("exit_plans_pause", plans), ("mcp_access", mcp), ("mcp_client", client),
                         ("bot_heartbeat", heart),
                         ("veliki_proof", proof), ("btc_regime", btc), ("macro_regime", macro), ("fokus_midcap", fokus),
-                        ("social_window", social), ("flag", flags)):
+                        ("social_window", social), ("wallet_measure_mode", measure),
+                        ("flag", flags)):
             _try(rows, key, fn)
     finally:
         if con is not None:

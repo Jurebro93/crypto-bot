@@ -335,9 +335,9 @@ class Demo(Base):
         apjavno.reset_cache()
         with mock.patch.dict(sys.modules, {"trade.equity": None, "trade.aplog": None, "ui.apchart": None}):
             html = apjavno.guest_html({}, "hr")
-        self.assertIn("U međuvremenu testiramo praćenje novčanika na demo računu.", html)
-        self.assertLess(html.index("pauziran zbog promjene strategije"), html.index("U međuvremenu testiramo"))
-        self.assertEqual(pauza.DEMO["en"], "Meanwhile we are testing wallet following on a demo account.")
+        self.assertIn("U međuvremenu mjerimo svaki ulaz praćenih novčanika u postocima, bez pravog novca.", html)
+        self.assertLess(html.index("pauziran zbog promjene strategije"), html.index("U međuvremenu mjerimo"))
+        self.assertEqual(pauza.DEMO["en"], "Meanwhile we measure every entry of the followed wallets in percent, with no real money.")
 
 
 class MissingTables(Base):

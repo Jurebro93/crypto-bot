@@ -70,7 +70,7 @@ DEFAULT = {
     # 19.11. (the 18.11. problem: a pass held the heavy-job lock for hours): a wall-clock budget per pass; every long
     # stage asks the same Clock and stops cleanly (what was done is saved, the rest waits for the next pass). incr runs
     # the list and the bundles only when that stage took under incr_list_max_s on the last full pass
-    "pass_max_s": {"once": 900, "incr": 420, "night": 5400}, "rest_time_share": 0.5, "rest_credit_share": 1.0, "incr_list_max_s": 60,
+    "pass_max_s": {"once": 900, "incr": 420, "night": 5400}, "rest_time_share": 0.5, "pump_time_share": 0.65, "rest_credit_share": 1.0, "incr_list_max_s": 60,
     # 19.11. navečer (vlasnik: "zašto ne možeš provjeriti povijesne podatke, više tokena koji su pumpali i tko je kupio
     # prije, a prodao u pumpi?"): pumps also from the DAILY candles (pump_days_1d back: +mkt_x1d in a day or +mkt_x3d
     # within 3 days), the tiered events kept and scored over pump_days (the call events keep `days`), a deeper Helius
@@ -80,6 +80,9 @@ DEFAULT = {
     "pump_days": 180, "pump_days_1d": 180, "mkt_x1d": 0.50, "mkt_x3d": 1.00, "pump_sell_pages": 20,
     "pump_pre_pages": 20, "pump_lookups": 40, "pump_acct_pages": 2, "pump_event_max_credits": 2000,
     "pump_slices_pre": 10, "pump_slices_jump": 10, "pump_pre_h": 24, "pump_pre_h_1d": 72,
+    # 19.11. navečer (2): the deep read's calls on pump_fetch_workers threads (1 = sequential), all of this process's
+    # Helius calls under helius_rps requests a second (wallets/rpc.LIMIT)
+    "pump_fetch_workers": 6, "helius_rps": 8,
     "backfill": {"from": "2026-11-19", "until": "2026-11-25", "helius_day": 250000, "once_s": 1800, "incr_share": 0.2},
 }
 

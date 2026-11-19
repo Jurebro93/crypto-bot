@@ -64,6 +64,8 @@ def time_line(kind, clk):
     900 s: <what was left>]"."""
     parts = [f"{hr} {clk.stages[k]:.0f} s" for k, hr in STAGE_HR if k in clk.stages]
     out = f"{store.PREFIX}prolaz {kind}: trajanje: " + (", ".join(parts) or "—")
+    if chain.LAST_POOL.get("line"):   # 19.11. navečer (2): "dohvat: N poziva, R/s prosjek, radnika W, 429: K"
+        out += "; " + chain.LAST_POOL["line"]
     if clk.cuts:
         out += f"; prekinuto na vremenskoj granici {clk.max_s:.0f} s: " + "; ".join(clk.cuts)
     return out
@@ -80,6 +82,12 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
     p = store.paths(**over)
     con = store.connect(p.get("insajderi_db"))
     clk = store.Clock(kind, c, clock)
+    chain.LAST_POOL["line"] = None
+    try:   # 19.11. navečer (2): one rate for every thread of this process (wallets/rpc.LIMIT)
+        from wallets import rpc
+        rpc.LIMIT.set_rps(float(c.get("helius_rps") or 8))
+    except Exception:  # noqa: BLE001
+        pass
     try:
         if kind == "night":
             last = int(float(store.kv(con, "night_last") or 0))
@@ -134,7 +142,17 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                     # so the list and the copy tests always get their turn
                     pumps = [e for e in evs if e.get("tier")]
                     rest = [e for e in evs if not e.get("tier")]
-                    n_f, spent = chain.fetch_due(con, p, c, pumps, now, budget, fetch=fetch, log=log, stop=clk.over)
+                    # 19.11. 19:56 (the first deep pass: 1444 s of Helius for 79 pumps, the 1800 s were over and the
+                    # list was again not computed): the pumps read until pump_time_share of the pass time, never to
+                    # its end, so the list and the funnel are computed in EVERY pass from what has been read so far
+                    share_p = float(c.get("pump_time_share", 0.65))
+
+                    def pump_stop():
+                        return clk.over() or (clk.max_s is not None and clk.elapsed() >= clk.max_s * share_p)
+                    n_f, spent = chain.fetch_due(con, p, c, pumps, now, budget, fetch=fetch, log=log, stop=pump_stop)
+                    if not clk.over() and pump_stop():
+                        _log(log, f"Helius za pumpe stao na {share_p:.0%} vremena prolaza (ostatak vremena je za popis "
+                                  f"i lijevak): ostaje {_unfetched(con, c, now)}")
                     share_t = float(c.get("rest_time_share", 0.5))
 
                     def rest_stop():

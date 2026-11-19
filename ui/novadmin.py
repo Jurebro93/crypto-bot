@@ -247,6 +247,44 @@ def _hist_cell(h):
             f'<span class={tone}>{rd.h(word)}</span>')
 
 
+def _mjera_html(now):
+    from ui import novmjera
+    return novmjera.admin_html(now)
+
+
+def _mjera_groups(now):
+    """{gid: {"n", "measured", "mean01"}} of the "prije pumpe" sources from league/mjera.per_group ({} without data)."""
+    try:
+        from league import mjera
+        con = P.ro(P.league_db())
+        if con is None or not P.has_table(con, "signal_mjera"):
+            return {}
+        try:
+            out = {}
+            for (src, gid), d in mjera.per_group(con, now).items():
+                if src in ("prije_pumpe", "prije_pumpe_kandidat"):
+                    o = out.setdefault(gid, {"n": 0, "measured": 0, "_s": 0.0})
+                    o["n"] += d["n"]
+                    o["measured"] += d["measured"]
+                    o["_s"] += (d["mean01"] or 0) * d["measured"]
+            for o in out.values():
+                o["mean01"] = o.pop("_s") / o["measured"] if o["measured"] else None
+            return out
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _mjera_sentence(mj, owner):
+    d = mj.get(owner)
+    if not d or not d["n"]:
+        return "još nijedan signal (bilježi se svaka kupnja grupe)."
+    mean = rd.pct(d["mean01"], 1, sign=True, frac=True) if d["mean01"] is not None else rd.DASH
+    return (f"{rd.num(d['n'])} signala, izmjereno {rd.num(d['measured'])}, srednje neto uz 0,1 SOL {mean} "
+            "(30 dana).")
+
+
 def groups_html(con, qs, now):
     conf_only = qs.get("f") == "potvrdeni"
     tier = qs.get("t") if qs.get("t") in ("15", "2") else None
@@ -270,6 +308,7 @@ def groups_html(con, qs, now):
     gs = P.groups(con, conf_only, tier, PAGE_N, (page - 1) * PAGE_N)
     pumps = P.pumps_of(con, [g["owner"] for g in gs])
     hist = P.hist_of(con, [g["owner"] for g in gs])
+    mj = _mjera_groups(now)
     head = [("w", "Novčanici", "s"), ("p15", "Pumpe ≥ 15 M $", "n"), ("p2", "2–15 M $", "n"), ("tok", "Tokena", "n"),
             ("lead", "Vodstvo (medijan)", "n"), ("pnl", "Ostvareno", "n"), ("hist", "Povijest članova", "n"),
             ("st", "Status", "n"), ("last", "Zadnji put", "n")]
@@ -298,6 +337,7 @@ def groups_html(con, qs, now):
             f'<tr class=rt-d hidden><td colspan={len(head)}><div class=na-in>'
             f'<p><b>Zašto:</b> {rd.h(g.get("why") or K.reason(g))}</p>'
             f'<p><b>Povijest članova:</b> {rd.h(hist_sentence(h, len(g["members"])))}</p>'
+            f'<p><b>Mjerenje po ulazu:</b> {rd.h(_mjera_sentence(mj, g["owner"]))}</p>'
             f'<p><b>Pumpe</b> ({rd.num(len(ps))})</p>{_pump_rows(ps, now)}'
             f'<p><b>Novčanici grupe</b> ({rd.num(len(g["members"]))})</p><ul>'
             + "".join(f'<li><code translate=no>{rd.h(w)}</code> <button type=button class=nk-cp data-cp="{rd.h(w)}">Kopiraj'
@@ -539,6 +579,7 @@ def page(qs=None, user=None, now=None):
             ("iskljuceni", "Isključeni i zašto", _safe("iskljuceni", excluded_html, con, pp) if con is not None
              else _empty(EMPTY_NIGHT + ".")),
             ("kopija", "Test kopiranja", _safe("kopija", copy_html, pp)),
+            ("mjerenje", "Mjerenje po ulazu", _safe("mjerenje", _mjera_html, now)),
             ("pnl", "Povijesni PnL novčanika", _safe("pnl", history_html, con, now)),
             ("holderi", "Veliki holderi s dugom poviješću", _safe("holderi", holders_html, now)),
         ]

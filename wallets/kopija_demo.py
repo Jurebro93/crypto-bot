@@ -331,15 +331,23 @@ def run_once(con, market_fn=None, now=None, sol=None, force=False, hype_db=None,
     if force or time.monotonic() - _LAST["fill"] >= FILL_EVERY_S:
         _LAST["fill"] = time.monotonic()
         fill_his(con, wallet_db)
-    if mode() != "paper":
-        return done
     if not force and time.monotonic() - _LAST["ts"] < RUN_EVERY_S:
         return done
     _LAST["ts"] = time.monotonic()
     who = targets(now, wallet_db)
     if not who:
         return done
-    buys = [b for b in fresh_buys(who, now, FRESH_S, hype_db) if b[0] not in _TRIED]
+    fresh = fresh_buys(who, now, FRESH_S, hype_db)
+    # 19.11. (league/mjera.py): every buy we SEE is measured first, before the flag, caps and guards of the demo
+    from league import copy as lcopy, mjera
+    new = [b for b in fresh if mjera.is_new(con, "kopija", b[2], b[0], now)]
+    if new:
+        mq = (market_fn or lcopy.market)(sorted({b[0] for b in new})) or {}
+        for tok, ts, w, _sig, _sol in new:
+            mjera.record(con, "kopija", w, w, tok, ts, now, mq.get(tok))
+    if mode() != "paper" or not mjera.demo_entries_ok(con):
+        return done
+    buys = [b for b in fresh if b[0] not in _TRIED]
     if not buys:
         return done
     if sol is None:

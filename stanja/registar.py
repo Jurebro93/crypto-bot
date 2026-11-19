@@ -397,6 +397,21 @@ MACHINES = [
       {"live": "uključen: mikrokap poslovi ne rade", "off": "isključen"}, who="vlasnik", also=("ops/fokus.py",),
       board=True),
     # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, sve resurse na novčanike; ops/drustveni.py)
+    # 19.11. (vlasnik: "Demo money maybe no longer makes sense ... Yes, start with both steps"; league/mjera.py)
+    M("wallet_measure_mode", "Praćenje novčanika: demo novac ili mjerenje po ulazu", "strategije",
+      "trade.db settings 'mjera_nacin' (auto / demo / mjera) + league.db mjera_kv 'prebaceno'",
+      {"auto": "auto: demo dok se mjerenje ne potvrdi na istim tradeovima, zatim samo mjerenje",
+       "demo": "demo: demo tradeovi praćenja novčanika teku usporedno s mjerenjem",
+       "mjera": "mjera: samo mjerenje, tri demo izvora ne otvaraju nove tradeove",
+       "<switched>": "auto, prebačeno: mjerenje se slaže s demom, demo ne otvara nove tradeove"},
+      [("-", "auto", "zadano od 19.11. (nalog vlasnika)"),
+       ("auto", "<switched>", "program: jednom, kad se mjerenje i demo slažu (≥ 20 parova, medijan razlike ≤ 1,5 pp)"),
+       ("*", "*", "vlasnik: gumbi auto / demo / mjera na stranici Autopilot")], who="vlasnik",
+      also=("league/mjera.py",),
+      caveats=("Mjerenje teče u svakom načinu; način odlučuje samo otvaraju li tri demo izvora nove demo tradeove.",
+               "Otvoreni demo tradeovi izlaze po svojim pravilima; ništa se ne briše.",
+               "Prebacivanje u autu je jednokratno: kasnije razilaženje ga ne vraća (vlasnik može staviti 'demo')."),
+      board=True),
     M("social_window", "Influenceri i Telegram: prozor osvježavanja", "posao", "DATA_DIR/drustveni.json {prvi, log}",
       {"<open>": "otvoren: influenceri i Telegram se osvježavaju", "<closed>": "zatvoren: poslovi influencera i Telegrama "
        "miruju do sljedećeg prozora", "<first>": "prvi prozor počinje pri sljedećem startu",
