@@ -3963,6 +3963,7 @@ def dca_loop(every=DCA_EVERY_S):
                 assistnotes.owner_once_1111(con)   # 11.11.: waiting caller weights applied, stale Grok requests tidied
                 try:   # 18.11.: Grok's analyst inputs on (once) and the state of every switch in the log at each start
                     assistnotes.owner_grok_analyst(con)
+                    assistnotes.owner_pauza_1911(con)   # 19.11.: real-money buying off (his order), before the next
                     # 18.11.: his order "real money onto the learned rule", conditional on the CORRECTED learner
                     # result: decided here when that result is already stored, else asked again every minute below
                     n_left = not assistnotes.owner_nauceno_real(con)
