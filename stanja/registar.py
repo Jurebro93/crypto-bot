@@ -362,8 +362,10 @@ MACHINES = [
        "adam": "čeka vlasnika (Adam)"},
       scan=(("makroinf/discover.py", "status"),), extra=("aktivan", "neaktivan")),
     M("tg_channel", "Telegram kanal", "podaci", "tg.db channels.status",
-      {"candidate": "kandidat", "active": "aktivan", "quiet": "tih", "slow": "spor", "dead": "mrtav"},
-      scan=(("tg/poll.py", "status"), ("tg/store.py", "status"))),
+      {"active": "aktivan", "quiet": "tih", "slow": "spor"},
+      scan=(("tg/pratitelji.py", "status"),),   # 19.11.: the reader (tg/poll.py) is gone; only the follower count
+      caveats=("Od 19.11. nitko ne mijenja status: popis je zamrznut (bez otkrivanja). Stari retci 'candidate' i 'dead' "
+               "ostaju u bazi, ali se ne prikazuju i ne broje.",)),
     M("zone_alert", "Zonski alarm Grok Botu", "podaci", "zonewatch.db alerts.status",
       {"pending": "čeka slanje", "sent": "poslan", "failed": "nije poslan", "config_error": "greška postavki",
        "not_configured": "webhook nije postavljen", "off": "isključeno", "expired": "istekao"},

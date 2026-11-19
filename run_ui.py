@@ -271,9 +271,9 @@ def route(path, qs):
     if path == "/strategije":
         from ui import strategije
         return strategije.page(qs)
-    if path == "/izvori":
-        from ui import izvori
-        return izvori.page(qs)
+    if path == "/telegram-kanali":   # 19.11. (vlasnik): the informational Telegram list (ui/tgkanali.py), every user
+        from ui import tgkanali
+        return tgkanali.page(qs)
     if path == "/ekipe":   # 9.11.: crews and the minute check (kol/minute.py)
         from ui import ekipe
         return ekipe.page(qs)
@@ -862,6 +862,8 @@ class Handler(BaseHTTPRequestHandler):
             to = tokens.redirect_for(path, qs)
             if to:
                 return self._redirect(to, code=302)
+        if path == "/izvori":   # 19.11. (vlasnik: Telegram out of every calculation): the old page -> the info list
+            return self._redirect("/telegram-kanali", code=301)
         if path == "/":   # the app opens on Pregled (4.11.: one page with the most important things, then Tokeni)
             return self._redirect("/pregled" + (f"?{u.query}" if u.query else ""), code=302)
         key = (path, u.query, None)    # route() pages are the same for every user

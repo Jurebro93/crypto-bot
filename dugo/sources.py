@@ -72,11 +72,11 @@ def universe(cfg, now=None):
     for m in cfg.get("temelj", {}).values():
         out.setdefault(m, "temelj")
     kol = _ro("kol.db")
-    for (m,) in _q(kol, "SELECT DISTINCT token FROM calls WHERE kind IS NULL OR kind NOT IN ('brag','bot','warn')"):
+    # 19.11. (vlasnik, kol/tgout.py): Telegram calls and tg_mentions no longer bring a token into the universe
+    for (m,) in _q(kol, "SELECT DISTINCT token FROM calls WHERE (kind IS NULL OR kind NOT IN ('brag','bot','warn')) "
+                        "AND COALESCE(handle, '') NOT LIKE 'tg:%'"):
         out.setdefault(m, "kol")
     hype = _ro("hype.db")
-    for (m,) in _q(hype, "SELECT DISTINCT ca FROM tg_mentions"):
-        out.setdefault(m, "telegram")
     for (m,) in _q(hype, "SELECT token FROM hype_signals GROUP BY token HAVING MIN(ts) < ? AND MAX(liquidity) >= ?",
                    (now - 7 * D, cfg["hype_min_liq"])):
         out.setdefault(m, "skener")
@@ -159,15 +159,11 @@ def social(mints, now=None):
     kol = _ro("kol.db")
     for m, a, w, n7 in _q(kol, """SELECT token, COUNT(DISTINCT handle),
             COUNT(DISTINCT CASE WHEN ts > ? THEN ts / 604800 END), SUM(ts > ?) FROM calls
-            WHERE kind IS NULL OR kind NOT IN ('brag', 'bot', 'warn') GROUP BY token""", (now - 60 * D, now - 7 * D)):
+            WHERE (kind IS NULL OR kind NOT IN ('brag', 'bot', 'warn')) AND COALESCE(handle, '') NOT LIKE 'tg:%'
+            GROUP BY token""", (now - 60 * D, now - 7 * D)):
         if m in out:
             out[m].update(kol_autora=a or 0, kol_tjedana_60d=w or 0, kol_7d=n7 or 0)
-    hype = _ro("hype.db")
-    t30 = time.strftime("%Y-%m-%dT%H:%M", time.gmtime(now - 30 * D))
-    t7 = time.strftime("%Y-%m-%dT%H:%M", time.gmtime(now - 7 * D))
-    for m, n30, n7 in _q(hype, "SELECT ca, COUNT(*), SUM(time > ?) FROM tg_mentions WHERE time > ? GROUP BY ca", (t7, t30)):
-        if m in out:
-            out[m].update(tg_30d=n30 or 0, tg_7d=n7 or 0)
+    hype = None   # 19.11.: tg_30d / tg_7d stay 0 (Telegram is not counted any more)
     for c in (kol, hype):
         if c:
             c.close()

@@ -354,13 +354,9 @@ class OldDeletesAndWiring(Base):
         self.add([trade("o1", "MINTA", "STRANGER", OLD)])
         lstore.prune(self.hc, NIGHT)
         self.assertEqual(self.count_live(), 1)
-        tg = tstore.connect(self.p["tg"])
-        tg.execute("INSERT INTO posts VALUES ('kanal', 1, ?, ?, 'tekst', '', '', 0, NULL, 'web')", (OLD - 60 * D,) * 2)
-        self.assertEqual(tstore.prune(tg, 30, NIGHT), 0)
-        self.assertEqual(tg.execute("SELECT COUNT(*), MAX(text) FROM posts").fetchone(), (1, "tekst"))
-        tg.close()
-        with open(os.path.join(ROOT, "tg", "config.json"), encoding="utf-8") as f:
-            self.assertNotIn("prune_days", json.load(f))
+        # 19.11.: the Telegram reader (and its tg/store.prune, tg/config.json) is gone; nothing in tg/ deletes posts
+        self.assertFalse(hasattr(tstore, "prune"))
+        self.assertFalse(os.path.exists(os.path.join(ROOT, "tg", "config.json")))
 
     def count_live(self):
         return self.hc.execute("SELECT COUNT(*) FROM live_trades").fetchone()[0]

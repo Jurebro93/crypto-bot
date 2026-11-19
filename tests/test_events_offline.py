@@ -275,9 +275,9 @@ class DualWrite(Env):
         store.flush()
         ev = {(r[0], r[2] or r[1]): r for r in self.events()}
         self.assertEqual(ev[("call", "ansem")][3], "x")
-        self.assertEqual(ev[("call", "tg:ch")][3], "telegram")
+        self.assertNotIn(("call", "tg:ch"), ev)                             # 19.11.: a Telegram call is no event
         self.assertNotIn(("call", "b1"), ev)                                 # a brag is not a call
-        self.assertEqual(len([r for r in self.events("type='call'")]), 2)
+        self.assertEqual(len([r for r in self.events("type='call'")]), 1)   # 19.11.: X only
         self.assertEqual(ev[("wallet_buy", W1)][5], 0.5)
         self.assertEqual(ev[("wallet_buy", W1)][3], "helius")
         self.assertEqual(ev[("wallet_buy", W2)][3], "pumpportal")
@@ -333,8 +333,8 @@ class Parity(Env):
         hc.commit()
         store.flush()
         before = sources.parity(24, NOW, self.econ)
-        self.assertEqual(before["calls"]["expected"], 40)
-        self.assertEqual(before["calls"]["missing"], 20, (before["calls"], len(store._Q), self.events("type='call'")))
+        self.assertEqual(before["calls"]["expected"], 26)    # 19.11.: the 14 Telegram calls are no events any more
+        self.assertEqual(before["calls"]["missing"], 13, (before["calls"], len(store._Q), self.events("type='call'")))
         self.assertEqual(before["chain_trades"]["missing"], 20)
         self.assertEqual(before["hype_snapshots"]["missing"], 40)
         out = sources.sync(self.econ, NOW, log=lambda *a: None)
@@ -342,7 +342,7 @@ class Parity(Env):
         after = sources.parity(24, NOW, self.econ)
         for name in ("calls", "chain_trades", "chain_transfers", "hype_snapshots"):
             self.assertEqual(after[name]["missing"], 0, name)
-            self.assertEqual(after[name]["expected"], 40, name)
+            self.assertEqual(after[name]["expected"], 26 if name == "calls" else 40, name)   # 19.11.: no Telegram
         self.assertEqual(after["calls"]["extra"], 0)
         # a post that turned out to be a bot's after it was logged: the source no longer counts it, events still does
         kc.execute("UPDATE calls SET kind='bot' WHERE tweet_id='t1'")
@@ -508,7 +508,7 @@ class Outcomes(Env):
         self.assertEqual(sc["murad"][2:4], (1, 0))              # counted, not measured
         self.assertIsNone(sc["murad"][5])
         self.assertEqual(sc[W1][0], "wallet")
-        self.assertEqual(sc["tg:ch"][0], "channel")
+        self.assertNotIn("tg:ch", sc)                                       # 19.11.: a Telegram channel gets no score
 
     def test_compute_goes_on_next_night_when_its_time_runs_out(self):
         rows = [store.row("wallet_buy", NOW - 40 * H + i * 60, TOK, "helius", W1, 0.1, key=f"w{i}") for i in range(7)]

@@ -248,7 +248,7 @@ class Sources(unittest.TestCase):
         con.executemany("INSERT INTO calls (tweet_id, token, handle, ts, kind) VALUES (?,?,?,?,?)", [
             ("1", "SWAP", "w:abc", 1000, "buy"), ("2", "KOLBUY", "ansem", 1000, "buy"), ("3", "BOT", "scanner", 1000, "bot"),
             ("4", "CALL", "ansem", 1000, "call"), ("5", "TG", "tg:chan", 1000, "call")])
-        self.assertEqual(sorted(measure.due(con, 100000, 10)), ["CALL", "TG"])
+        self.assertEqual(sorted(measure.due(con, 100000, 10)), ["CALL"])   # 19.11.: a Telegram call is not measured
 
     def test_busy_wallets_leave_the_webhook(self):
         tmp = tempfile.mkdtemp()

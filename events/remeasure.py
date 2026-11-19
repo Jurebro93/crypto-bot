@@ -82,7 +82,7 @@ def queue(kcon, mcon, econ, now, limit=2000):
     try:
         for tid, tok, h, ts in kcon.execute(
                 "SELECT tweet_id, token, handle, ts FROM calls WHERE kind = 'call' AND handle NOT LIKE 'w:%' "
-                "AND COALESCE(source, '') != 'chain' AND r24h IS NULL AND COALESCE(bad, '') = '' "
+                "AND handle NOT LIKE 'tg:%' AND COALESCE(source, '') != 'chain' AND r24h IS NULL AND COALESCE(bad, '') = '' "
                 "AND measured_ts IS NULL AND p0 IS NULL AND ts BETWEEN ? AND ?", (lo, hi)):
             if h not in bots:
                 calls[(tid, tok)] = (h, ts, "never_measured")

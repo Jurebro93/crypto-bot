@@ -21,6 +21,8 @@ import math
 import statistics
 import time
 
+from kol import tgout
+
 H = 3600
 
 
@@ -52,9 +54,11 @@ def mark_first(con):
     con.execute(f"UPDATE calls SET first_by_kol = 1 WHERE COALESCE(first_by_kol, 0) != 1 AND {is_first}")
     con.execute(f"UPDATE calls SET first_by_kol = 0 WHERE COALESCE(first_by_kol, -1) != 0 AND NOT ({is_first})")
     con.execute("DROP TABLE IF EXISTS temp._fo")
-    con.execute("CREATE TEMP TABLE _fo AS SELECT token, MIN(ts) ts FROM calls WHERE kind = 'call' GROUP BY token")
+    # 19.11. (vlasnik, kol/tgout.py): "first overall" is the first X call; a Telegram channel is never first any more
+    con.execute(f"CREATE TEMP TABLE _fo AS SELECT token, MIN(ts) ts FROM calls WHERE kind = 'call' AND {tgout.sql()} "
+                "GROUP BY token")
     con.execute("CREATE INDEX temp._fo_i ON _fo (token)")
-    is_fo = "kind = 'call' AND ts = (SELECT f.ts FROM temp._fo f WHERE f.token = calls.token)"
+    is_fo = f"kind = 'call' AND {tgout.sql()} AND ts = (SELECT f.ts FROM temp._fo f WHERE f.token = calls.token)"
     con.execute(f"UPDATE calls SET first_overall = 1 WHERE COALESCE(first_overall, 0) != 1 AND {is_fo}")
     con.execute(f"UPDATE calls SET first_overall = 0 WHERE COALESCE(first_overall, -1) != 0 AND NOT ({is_fo})")
     con.execute("DROP TABLE IF EXISTS temp._fk")
@@ -151,6 +155,9 @@ def score_kols(con, cfg, now=None, handles=None):
     prior = cfg["prior_score"]
     foll = dict(con.execute("SELECT handle, COALESCE(followers, 0) FROM kols"))
     bots = {h for h, in con.execute("SELECT handle FROM kols WHERE bot = 1")}
+    # 19.11. (vlasnik: Telegram out of every calculation): a Telegram channel gets no score and is not in the baseline;
+    # its numbers stay in stats (tg_score) for nothing but history
+    bots |= {h for h in foll if tgout.is_tg(h)} | {h for h in stats if tgout.is_tg(h)}
     ratios, measured = {}, {}
     if handles is not None:   # the untouched KOLs' saved numbers keep the baseline the same as a full run
         for h, st in con.execute("SELECT handle, stats FROM kols WHERE stats IS NOT NULL"):
@@ -178,7 +185,10 @@ def score_kols(con, cfg, now=None, handles=None):
             score = round(k * raw + (1 - k) * p_h, 1)
             s["raw"], s["prior"], s["confidence"] = round(raw, 1), round(p_h, 1), round(k, 2)
         rel = round(ratios[h] / base_ratio, 2) if h in ratios and base_ratio else None
-        if h in bots:  # automated account: its numbers stay visible on its page, but no score for the leaderboard,
+        if tgout.is_tg(h):
+            s["tg_score"], s["tg_rel"] = score, rel
+            score = rel = None
+        elif h in bots:  # automated account: its numbers stay visible on its page, but no score for the leaderboard,
             s["bot_score"], s["bot_rel"] = score, rel  # watchlist, copy trading or signals
             score = rel = None
         con.execute("UPDATE kols SET score=?, power_rel=?, stats=?, updated=? WHERE handle=?",
@@ -207,7 +217,8 @@ def build_groups(con, cfg):
     from kol import discover
     # a KOL on trial (kol/discover.py) is not a "good KOL" in the group signal until it is proven
     scores = {h: (None if discover.excluded(st) else sc) for h, sc, st in con.execute("SELECT handle, score, stats FROM kols")}
-    calls = con.execute("SELECT token, ts, handle FROM calls WHERE kind = 'call' ORDER BY token, ts").fetchall()
+    calls = con.execute(f"SELECT token, ts, handle FROM calls WHERE kind = 'call' AND {tgout.sql()} "
+                        "ORDER BY token, ts").fetchall()   # 19.11.: groups of X callers only
     con.execute("DELETE FROM groups")
     n = 0
     for token, start, end, hs in find_groups(calls, cfg["group_secs"]):

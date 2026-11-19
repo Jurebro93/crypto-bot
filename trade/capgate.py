@@ -24,7 +24,7 @@ front, no discretionary override, its own measured strategy). An entry under MIN
   3. top-10 holders share <= MOON_TOP10_MAX (45 %, fast/checks top10_max) from the data the system already has
      (topcheck.db RugCheck summary, else rug.db's newest report; topcheck/holders.pumpfun_shape); unknown = no
   4. >= MOON_MIN_CALLERS (4) DISTINCT callers within MOON_WINDOW_H (6 h): X influencers (kol.db calls kind 'call') and
-     Telegram channels (tg.db posts that are not forwards, kol.db 'tg:<channel>' calls); the newest corr.db snapshot's
+     (19.11.: no Telegram channels any more, kol/tgout.py); the newest corr.db snapshot's
      KOL clusters and wallet owner groups count ONCE (konsenzus/research.load_groups, union-find); alert bots
      (kol.db kols.bot), paid shillers (kol/shillers.json) and the shill networks of kol/preshill (early.db
      preshill_networks shill=1) do not count at all; "w:" pseudo-calls (wallet buys) are not callers
@@ -401,25 +401,19 @@ def _excluded(p):
 
 
 def callers(token, now, window_s, p):
-    """[(ts, source)] of every X / Telegram call of the token in the window (first per source), newest data only."""
+    """[(ts, source)] of every X call of the token in the window (first per source), newest data only. 19.11. (vlasnik,
+    kol/tgout.py): Telegram channels (kol.db 'tg:' calls, tg.db posts) are no callers any more."""
+    from kol import tgout
     since = int(now - window_s)
     first = {}
     kc = _ro(p.get("kol"))
-    for h, ts in _q(kc, "SELECT handle, ts FROM calls WHERE token=? AND kind='call' AND ts >= ? AND ts <= ?",
-                    (token, since, int(now))):
-        if h and not str(h).startswith("w:") and ts:
+    for h, ts in _q(kc, f"SELECT handle, ts FROM calls WHERE token=? AND kind='call' AND {tgout.sql()} AND ts >= ? "
+                        "AND ts <= ?", (token, since, int(now))):
+        if h and not str(h).startswith("w:") and not tgout.is_tg(h) and ts:
             s = _norm(h)
             first[s] = min(first.get(s, ts), ts)
     if kc is not None:
         kc.close()
-    tc = _ro(p.get("tg"))
-    for ch, ts, fwd in _q(tc, "SELECT channel, ts, fwd_from FROM posts WHERE ts >= ? AND ts <= ? AND cas LIKE ?",
-                          (since, int(now), f"%{token}%")):
-        if ch and ts and not fwd:
-            s = _norm("tg:" + str(ch))
-            first[s] = min(first.get(s, ts), ts)
-    if tc is not None:
-        tc.close()
     return sorted((ts, s) for s, ts in first.items())
 
 

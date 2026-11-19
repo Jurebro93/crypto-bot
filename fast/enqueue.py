@@ -7,7 +7,7 @@ cached flag read and nothing else; fast.db not there yet: nothing, the worker cr
   live/store.mirror_chain    PumpPortal trades of followed wallets (price_sol of the trade)
   kol/xhook.ingest           X webhook calls (kol.db calls, source x_hook), kind 'call' only
   league/copy.run_once       the copy loop's fresh buys of followed wallets and calls of followed KOLs (kol.db calls,
-                             hype.db kol_mentions, tg.db posts): the catch-all for every source the copy loop reads
+                             hype.db kol_mentions; no Telegram since 19.11.): the catch-all for every source the copy loop reads
   fast/worker.scan           the worker's own read of hype.db chain_trades and kol.db calls since its cursor (insider,
                              pre_shill and group wallets, and anything a hook missed); 11.11.: and kol.db converge
                              (the pseudo-source "konvergencija", kind convergence)
