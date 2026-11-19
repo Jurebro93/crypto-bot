@@ -749,6 +749,11 @@ def markdown(pp, con, helius_today=0, helius_cap=0):
                  f"{_t(b['last_seen'])} |")
     if not bs:
         L.append("| — | | | | | | | |")
+    try:   # 19.11. navečer: Birdeye, a second source (insajderi/birdeye.py)
+        from insajderi import birdeye
+        L += [""] + birdeye.md_section(con) if con is not None else []
+    except Exception:  # noqa: BLE001
+        pass
     L += ["", "## Pretpostavka", "",
           "- „brzo 2 s”: ulaz po vlastitom tradeu tokena unutar 5 s, inače njihova cijena + 1 % (pretpostavka, ne "
           "mjerenje)",

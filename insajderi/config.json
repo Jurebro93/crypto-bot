@@ -6,6 +6,8 @@
   "focus_mcap": 15000000,
   "pump2_mcap": 2000000,
   "pump_min_tokens": 3,
+  "birdeye": {"cu_month": 25000, "cu_call": 30, "rps": 0.7, "pages": 3, "time_frame": "90d", "refresh_d": 14, "max_s": 120},
+  "_note_birdeye": "19.11. navečer: vlasnikov Birdeye ključ (besplatni plan Standard, 30.000 CU mjesečno): najboljih 30 trgovaca po ostvarenoj zaradi za svaki token s pumpom (3 poziva x 30 CU = 90 CU po tokenu; 261 token oko 23.500 CU), najviše 25.000 CU mjesečno, svaki token najviše jednom u 14 dana, najviše 120 s po prolazu. Samo izvještaj i red povijesti novčanika; ne mijenja pravila odabira. Na Renderu: varijabla BIRDEYE_API_KEY.",
   "pump_days": 180,
   "pump_days_1d": 180,
   "pump_sell_pages": 20,

@@ -553,3 +553,37 @@ def i2_group_why(con, owner):
     """The Insajderi 2.0 group's own reason (i2_groups.why), when stored."""
     rows = q(con, "SELECT why, n_hits FROM i2_groups WHERE owner=?", (owner,))
     return rows[0] if rows else None
+
+
+# ---------- Birdeye (insajderi/birdeye.py: a second source, report only) -----------------------------------------------
+
+def birdeye(con, pp=None, now=None, limit=40):
+    """{"key": the key is set in this process, "table": the tables exist, "calls", "cu", "cap" (this month),
+    "tokens" (pump tokens read), "check": the summary block prije_pumpe.birdeye (groups_checked, groups_seen_in_top,
+    share, tag_agree, tag_disagree) or {}, "cand": [{"owner", "n_tokens", "n15", "realized", "tags", "last_ts"}],
+    "smart": [{"owner", "smart_n"}]}. Read-only; nothing is called."""
+    now = int(now or time.time())
+    out = {"key": bool(os.environ.get("BIRDEYE_API_KEY") or os.environ.get("BIRDEYE_PROXY_KEY") == "1"),
+           "table": has_table(con, "be_tok"), "calls": 0, "cu": 0, "cap": None, "tokens": 0, "check": {}, "cand": [],
+           "smart": []}
+    try:
+        from insajderi import birdeye as be, store
+        out["cap"] = int(be.config(store.config()).get("cu_month"))
+    except Exception:  # noqa: BLE001
+        out["cap"] = None
+    month = time.strftime("%Y-%m", time.gmtime(now))
+    r = q(con, "SELECT calls, cu FROM be_usage WHERE month = ?", (month,))
+    if r:
+        out["calls"], out["cu"] = int(r[0][0] or 0), int(r[0][1] or 0)
+    r = q(con, "SELECT COUNT(*) FROM be_tok")
+    out["tokens"] = int(r[0][0] or 0) if r else 0
+    b = (pp or {}).get("birdeye")
+    out["check"] = b if isinstance(b, dict) else {}
+    for o, n, n15, s, tg, last in q(con, "SELECT owner, n_tokens, n15, sum_realized_usd, tags, last_ts FROM be_cand "
+                                         "WHERE n_tokens >= 3 ORDER BY n15 DESC, sum_realized_usd DESC LIMIT ?",
+                                    (int(limit),)):
+        out["cand"].append({"owner": o, "n_tokens": n, "n15": n15, "realized": s, "tags": _json(tg, []) or [],
+                            "last_ts": last})
+    out["smart"] = [{"owner": o, "smart_n": n} for o, n in q(con, "SELECT owner, smart_n FROM be_cand WHERE smart_n >= 2 "
+                                                                  "ORDER BY smart_n DESC LIMIT ?", (int(limit),))]
+    return out

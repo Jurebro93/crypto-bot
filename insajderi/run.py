@@ -25,7 +25,7 @@ def _log(log, msg):
     log(store.PREFIX + msg)
 
 
-STAGE_HR = (("dogadaji", "događaji"), ("lanac", "lanac"), ("popis", "popis"), ("kopija", "kopija"),
+STAGE_HR = (("dogadaji", "događaji"), ("lanac", "lanac"), ("popis", "popis"), ("birdeye", "birdeye"), ("kopija", "kopija"),
             ("ostalo", "ostalo"), ("kol", "kol"))
 
 
@@ -347,6 +347,15 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
         return summary
     cats = cats if cats is not None else prev.get("catalysts")
     n_groups = n_groups if n_groups is not None else prev.get("groups_stored")
+    pp_fresh = bool(pp) and pp is not prev_pp   # the list was computed in this pass (the copy walk needs it)
+    if not clk.over():   # 19.11. navečer: Birdeye, a bounded second source (report only; insajderi/birdeye.py)
+        with clk.stage("birdeye"):
+            try:
+                from insajderi import birdeye
+                b = birdeye.run(con, c, evs, now, stop=clk.over, log=log)
+                pp = dict(pp or prev_pp or {}, birdeye=b)
+            except Exception as e:  # noqa: BLE001 - a second source never costs the pass
+                _log(log, f"birdeye ({type(e).__name__}: {e})")
     cs, ok, why = prev.get("copy"), prev.get("copyable"), prev.get("verdict")
     if not light and (clk.over() or cut_at or bad is None or ft is None):
         clk.cut("kopija nije izračunata (ostaju brojke zadnjeg punog prolaza)")
@@ -364,7 +373,7 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
                 copy.save(con, rows)
                 cs = copy.summarize(rows)
                 ok, why = copy.verdict(cs)
-            if pp and mm is not None and pp is not prev_pp:
+            if pp_fresh and mm is not None:
                 try:
                     res = prijepumpe.walk(con, p, c, evs, parts, now, bad, ft, mm, trades=trades, sel=psel,
                                           stop=stop)[0] if psel is not None else None
