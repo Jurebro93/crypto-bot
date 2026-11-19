@@ -26,7 +26,7 @@ def page(qs):
     b.append("""<div class=card><b>Tok podataka</b><ol>
 <li><b>Kalendar</b>: nadolazeći događaji, hype ocjena 0-100, ključne riječi.</li>
 <li><b>DexScreener</b>: za svaki event traži tokene po ključnim riječima, odvaja pravi od kopija.</li>
-<li><b>Hype skener</b> (svake 2 min): rani signali tokena koji rastu, neovisno o kalendaru.</li>
+<li><b>Hype skener</b> (do 15.11. svake 2 min; od tada isključen, fokus na midcapove): rani signali tokena koji rastu, neovisno o kalendaru.</li>
 <li><b>Rug filter</b>: Helius + RugCheck provjera holdera, deva, bundlea, lažnog volumena.</li>
 <li><b>Walleti</b>: rani kupci pobjedničkih tokena ulaze u registar, ocjenjuju se po PnL-u, najbolji idu na copy listu.</li>
 </ol></div>""")

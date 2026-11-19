@@ -115,7 +115,7 @@ class Register(unittest.TestCase):
         self.assertEqual(code, 303)
         from league import profiles
         self.assertEqual(profiles.get("Marko")["email"], "marko@mail.hr")   # saved to the profile
-        self.assertTrue(hdr["Location"].startswith("/natjecanje?ok="))
+        self.assertEqual(hdr["Location"], "/pregled")                    # 19.11.: a new user lands on Pregled
         cookie = hdr["Set-Cookie"].split(";")[0]
         self.assertEqual(run_ui.cookie_user(cookie.split("=", 1)[1]), (True, "Marko"))
         self.assertEqual(run_ui.check_password("marko", "tajna12tajna"), (True, "Marko"))

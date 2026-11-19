@@ -99,12 +99,12 @@ class Roles(unittest.TestCase):
                                         login("Claude", "gledam"))
             # basic user: core pages yes, spend/admin/AI-cost pages and paid actions no
             for p in ("/korisnici", "/usage", "/analitika", "/zahtjevi", "/outputs", "/learn", "/criteria",
-                      "/izvjestaj", "/nas-token", "/whatsapp"):
+                      "/izvjestaj", "/nas-token"):   # 19.11.: /whatsapp is gone (303 to Pregled, ui/maknuto)
                 code, _, body = call(p, cookie=novi)
                 self.assertEqual(code, 403, p)
                 self.assertIn("Ovo nije za tvoj račun", body)
             for p in ("/run/wallets", "/korisnici/uloga", "/natjecanje/pozivnica/nova", "/paper/izlaz",
-                      "/nas-token/rpc", "/prijedlozi/status"):
+                      "/nas-token/rpc"):   # 19.11.: /prijedlozi/* answer 410 (ui/maknuto)
                 self.assertEqual(call(p, {"x": "1"}, novi)[0], 403, p)
             code, hdr, body = call("/postavke", cookie=novi)
             self.assertEqual(code, 200)

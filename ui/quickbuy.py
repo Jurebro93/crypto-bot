@@ -162,12 +162,21 @@ def token_box(mint, symbol, locked=None):
             '🔄 Pokreni DCA</button></a>' + copy_btn(mint) + '</div>')
 
 
-def buy_sheet(mint, symbol, locked=None, stake=50):
-    """10.11. (Jure, prijedlog 4.3: blok Natjecanje → list "Kupi"): the token page's Kupi opens this sheet instead of
-    the box with three buttons at the bottom of the page. Demo on Natjecanje (the same /natjecanje/buy form and checks
-    as token_box), DCA, and for the owner the Autopilot's manual buy (a link: real money is bought only on the Autopilot
-    page with its confirmation; class adm-only, removed for everyone else by ui/admstrip). The page is cached for
-    everyone, so a guest who taps Kupi gets the normal "prijavi se" answer from Natjecanje. Needs tokens.SHEET_CSS."""
+def _manual_label():
+    """19.11.: the owner's manual buy stays while automatic real-money buying is paused (ui/pauza); the row says so."""
+    try:
+        from ui import pauza
+        paused = pauza.on()
+    except Exception:  # noqa: BLE001
+        paused = False
+    return ("Autopilot, ručno (pravi novac; automatske kupnje su pauzirane)" if paused
+            else "Autopilot, ručno (pravi novac)")
+
+
+def buy_sheet(mint, symbol, locked=None, stake=50):  # noqa: ARG001 - stake: callers' old argument
+    """The token page's "Kupi" sheet. 19.11. (vlasnik: "Makni natjecanje"): only the owner's manual buy on the Autopilot
+    is left (a link: real money is bought only on that page, with its confirmation; class adm-only, removed for
+    everyone else by ui/admstrip). Needs tokens.SHEET_CSS."""
     if not MINT.fullmatch(mint or ""):
         return ""
     sym = symbol or mint[:6]
@@ -176,20 +185,12 @@ def buy_sheet(mint, symbol, locked=None, stake=50):
     if locked:
         return (head + f'<p class="qb-note">Kupnja je zaključana: {esc(locked)}.</p>'
                 '<button type="button" class="tk-done" data-close>Zatvori</button></dialog>')
-    form = ('<form method="post" action="/natjecanje/buy" class="qb-form">'
-            f'<input type="hidden" name="token" value="{esc(mint)}"><input type="hidden" name="symbol" value="{esc(symbol or "")}">'
-            '<input type="hidden" name="source" value="stranica tokena">'
-            f'<input type="hidden" name="back" value="/token/{esc(mint)}">'
-            '<label class="tk-o">Ulog u demu<span class="qb-amt"><input name="size" type="number" inputmode="numeric" '
-            f'min="1" step="1" value="{int(stake)}" aria-label="Ulog u dolarima"> $</span></label>'
-            '<button class="tk-done">Kupi na Natjecanju</button></form>')
-    return (head + '<div class="tk-gl">Demo na Natjecanju, po živoj cijeni (1 % naknade)</div>'
-            f'<div class="tk-grp2">{form}</div>'
-            '<div class="tk-gl">Drugi načini</div><div class="tk-grp2">'
-            f'<a class="tk-o" href="/natjecanje?dca={esc(mint)}#dca">DCA na Natjecanju<span class="ms-chev"></span></a>'
-            '<a class="tk-o adm-only" href="/pravi-trade#kupi-odmah">Autopilot, ručno (pravi novac)<span class="ms-chev"></span></a>'
-            '</div><p class="qb-note">Za demo kupnju moraš biti prijavljen svojim imenom. Adresu možeš i kopirati pa je '
-            'zalijepiti u svoj wallet.</p><button type="button" class="tk-done qb-x" data-close>Zatvori</button></dialog>')
+    # 19.11. (vlasnik: "Makni natjecanje"): no personal demo buy and no DCA any more; the owner's manual buy on the
+    # Autopilot (a link: real money is bought only on that page, with its confirmation) is what remains
+    return (head + '<div class="tk-grp2">'
+            f'<a class="tk-o adm-only" href="/pravi-trade#kupi-odmah">{esc(_manual_label())}<span class="ms-chev"></span></a>'
+            '</div><p class="qb-note">Adresu možeš kopirati i zalijepiti u svoj wallet.</p>'
+            '<button type="button" class="tk-done qb-x" data-close>Zatvori</button></dialog>')
 
 
 SHEET_CSS = """

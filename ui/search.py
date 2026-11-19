@@ -188,7 +188,7 @@ def page(qs):
             'novčanik ili stranica…" autofocus><button type=submit>Traži</button></form>')
     if not q:
         return "Traži", ("<h1>Traži</h1>" + form + "<p class=mut>Upiši ime ili ticker tokena (npr. Fartcoin), adresu tokena "
-                         "ili novčanika, ime KOL-a ili ime stranice (npr. natjecanje).</p>")
+                         "ili novčanika, ime KOL-a ili ime stranice (npr. tokeni).</p>")
     r = search(q)
     b = ["<h1>Traži</h1>", form]
     n = 0

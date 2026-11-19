@@ -234,6 +234,10 @@ def login_page(qs, err=""):
 
 
 def route(path, qs):
+    from ui import umirovljeno   # 19.11.: pages of the stopped microcap strategies answer with one line
+    gone = umirovljeno.page(path, qs)
+    if gone:
+        return gone
     if path == "/pregled":
         from ui import pocetna
         return pocetna.page(qs)
@@ -271,11 +275,11 @@ def route(path, qs):
         return pages.wallet(path[len("/wallet/"):], qs)
     if path == "/tokens":
         return tokens.page(qs)
-    if path == "/tokens/jaki":
-        return tokens.page(qs, view="jaki")
+    if path == "/tokens/jaki":   # 19.11.: the old Jaki view; do_GET redirects it to /tokens (tokens.redirect_for)
+        return tokens.page({})
     if path.startswith("/token/"):
         return pages.token(path[len("/token/"):], qs)
-    if path == "/events":
+    if path == "/events":   # 19.11.: do_GET redirects it (ui/maknuto); kept for callers of route()
         return pages.events(qs)
     if path == "/watch":
         return watch.page(qs)
@@ -426,7 +430,7 @@ def _building_html(path):
     page for 10 min and the only way on was to keep clicking)."""
     body = (f"<h1>Stranica se trenutno slaže</h1><p>Poslužitelj je zauzet drugim poslom; stranica se gradi u pozadini "
             f"i ova se sama osvježava za {BUILDING_REFRESH_S} s. Pokušaj ponovno za minutu ako se ne pojavi.</p>"
-            f"<p><a href=/pravi-trade>Autopilot</a> · <a href=/natjecanje>Natjecanje</a> · <a href=/>Na pregled</a></p>")
+            f"<p><a href=/wallets>Novčanici</a> · <a href=/tokens>Tokeni</a> · <a href=/>Na pregled</a></p>")
     html = page("Stranica nije dostupna", body, path)
     meta = f'<meta http-equiv="refresh" content="{BUILDING_REFRESH_S}">'
     html = html.replace("<head>", "<head>" + meta, 1) if "<head>" in html else meta + html
@@ -573,6 +577,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
         if path == "/jezik":
             return self._lang_switch(qs)
+        from ui import maknuto   # 19.11. (vlasnik): Eventi, Zadnji sken, Za WhatsApp, Ideje, Natjecanje are gone
+        to = maknuto.redirect(path)
+        if to:
+            return self._redirect(to, code=303)
         if path in ("/sw.js", deploypage.PATH, "/healthz"):   # deploy page + its service worker, every host, no login
             if path == "/sw.js":
                 return self._send(200, deploypage.sw_js().encode("utf-8"), "text/javascript")
@@ -790,16 +798,6 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
-        if path in ("/natjecanje", "/prijedlozi", "/copy-trading"):
-            SHOW_ALL.set(qs.get("sve") == "1")
-            from ui import copytrade
-            fn = {"/natjecanje": league.page, "/prijedlozi": league.ideas_page,
-                  "/copy-trading": copytrade.page}[path]
-            try:
-                html = page(*fn(qs, self.user), path)
-            except Exception:
-                html = page("Greška", _error_html(), path)
-            return self._send(200, html.encode("utf-8"))
         if path == "/nas-token/launch.js":
             with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "nastoken_launch.js"), "rb") as f:
                 return self._send(200, f.read(), "text/javascript")
@@ -814,13 +812,6 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200 if res else 404, html.encode("utf-8"))
-        if path == "/whatsapp":
-            from ui import whatsapp
-            try:
-                html = page(*whatsapp.page(qs, self.user), path)
-            except Exception:
-                html = page("Greška", _error_html(), path)
-            return self._send(200, html.encode("utf-8"))
         if path.startswith("/izvjestaj/raw/"):
             from ui import reportpage
             body = reportpage.raw(path[len("/izvjestaj/raw/"):])
@@ -849,8 +840,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 frag = _error_html()
             return self._send(200, frag.encode("utf-8"))
-        if path == "/watch":   # Prije eventa is a section of Eventi since 4.11.
-            return self._redirect("/events#prije", code=301)
+        if path in ("/tokens", "/tokens/jaki"):   # 19.11.: the old Novi / Jaki views move to the new default view
+            to = tokens.redirect_for(path, qs)
+            if to:
+                return self._redirect(to, code=302)
         if path == "/":   # the app opens on Pregled (4.11.: one page with the most important things, then Tokeni)
             return self._redirect("/pregled" + (f"?{u.query}" if u.query else ""), code=302)
         key = (path, u.query, None)    # route() pages are the same for every user
@@ -1143,13 +1136,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, dumps(pravitrade.fetch_answer(to), ensure_ascii=False).encode("utf-8"),
                                   "application/json")
             return self._redirect(to)
-        if same_site and path.startswith(("/natjecanje/", "/prijedlozi/")):
+        from ui import maknuto   # 19.11.: forms of the removed pages do nothing (invite links still work)
+        g = maknuto.gone(path)
+        if g:
+            if g[0] == 303:
+                return self._redirect(g[1])
+            return self._send(410, b"", "text/plain")
+        if same_site and path.startswith("/natjecanje/pozivnica/"):   # invite links (ui/register.post_invite)
             n = int(self.headers.get("Content-Length") or 0)
             form = dict(parse_qsl(self.rfile.read(min(n, 100_000)).decode("utf-8", "replace")))
             self.send_response(303)
-            from ui import copytrade
-            handler = copytrade.post if path.startswith("/natjecanje/copy/") else league.post
-            self.send_header("Location", handler(path, form, self.user))
+            self.send_header("Location", league.post(path, form, self.user))
             self.end_headers()
             return
         if same_site and (path == "/nas-token/rpc" or path.endswith("/pump-tx")) and path.startswith("/nas-token/"):
@@ -1173,12 +1170,6 @@ class Handler(BaseHTTPRequestHandler):
             from ui import landing
             form = dict(parse_qsl(self._read_body(10_000).decode("utf-8", "replace")))
             return self._redirect(landing.admin_post(path, self.user, form))
-        if same_site and path == "/whatsapp/poslano":   # the update was copied or shared to the group
-            from ui import whatsapp
-            whatsapp.post_shared()
-            self.send_response(204)
-            self.end_headers()
-            return
         if same_site and path == "/paper/izlaz":  # sell an open demo position by hand
             n = int(self.headers.get("Content-Length") or 0)
             form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
@@ -1270,9 +1261,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _login(self, qs):
-        """/prijava: login form. A logged-in player goes on to the competition unless switching (?kao=<name>)."""
+        """/prijava: login form. A logged-in player goes on to Pregled unless switching (?kao=<name>)."""
         if self.user and self.user != qs.get("kao") and not qs.get("next"):
-            return self._redirect("/natjecanje")
+            return self._redirect("/pregled")
         return self._send(200, login_page(qs).encode("utf-8"))
 
     def _login_post(self):
@@ -1349,7 +1340,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._redirect(loc)
 
     def _register_post(self):
-        """Invite link form: makes the player, logs them in and opens the competition."""
+        """Invite link form: makes the player, logs them in and opens Pregled (19.11.: no competition page)."""
         from ui import register
         n = int(self.headers.get("Content-Length") or 0)
         form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
@@ -1364,8 +1355,7 @@ class Handler(BaseHTTPRequestHandler):
         cookie = (f"{COOKIE}={make_cookie(name)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                   f"SameSite=Lax{secure}")
         from urllib.parse import quote
-        msg = f"Dobrodošao, {name}! Tvoj demo račun od ${league_store.START_USD:,.0f} je spreman. Kupi prvi token ispod."
-        return self._redirect(f"/natjecanje?ok={quote(msg)}#kupi", cookie=cookie)
+        return self._redirect("/pregled", cookie=cookie)
 
     def _request_post(self):
         """'Zatraži pristup' on the public page: stored for the organiser (/zahtjevi)."""

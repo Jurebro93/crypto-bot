@@ -114,23 +114,24 @@ class Navigation(unittest.TestCase):
         out = html.page("x", "<h1>x</h1>", "/pregled")
         bar = out[out.index("class=bbar"):]
         bar = bar[:bar.index("</nav>")]
-        self.assertIn('href="/pravi-trade" class="adm-only', bar)
-        self.assertIn('href="/wallets" class="nadm', bar)
+        # 19.11. (vlasnik: "Autopilot stavi u drugi plan"): Pregled, Novčanici, Tokeni, Influenceri, Više for every role
+        self.assertNotIn('href="/pravi-trade"', bar)
+        self.assertIn('href="/wallets"', bar)
+        self.assertIn('href="/kol"', bar)
         self.assertIn('href="/vise" class="vise', bar)
         self.assertNotIn("data-nav", bar)                              # Više is a page, not the drawer
         other = admstrip.strip(bar)
-        self.assertNotIn("/pravi-trade", other)                        # a non-admin's copy has no trace of it
-        self.assertIn('href="/wallets"', other)
+        self.assertEqual(other, bar)                                   # the same bar for every role
         self.assertNotIn("menu-btn", out[out.index("<header"):out.index("</header>")])   # no ☰
         self.assertIn('class="on"><span class=bi>', html.bottom_bar("/tokens"))
         self.assertIn('class="vise on"', html.bottom_bar("/events"))          # pages under Više light it
-        self.assertIn('class="adm-only on"', html.bottom_bar("/pravi-trade"))
+        self.assertIn('class="vise on"', html.bottom_bar("/pravi-trade"))   # the Autopilot lives under Više
         self.assertNotIn(" on", html.bottom_bar("/")[html.bottom_bar("/").index('href="/vise"'):][:30])
 
     def test_vise_has_17_rows_and_every_page_stays_reachable(self):
         _, body = html.vise_page({})
         rows = body[:body.index("ms-note")].count("<a href=")
-        self.assertEqual(rows, 18)   # 4 + 5 + 4 + 2 + Sustav, Postavke, Odjava; 10.11. (Jure): + Autopilot uživo (javno)
+        self.assertEqual(rows, 13)   # 19.11.: 1 + 2 + 3 + 4 + Sustav, Postavke, Odjava
         _, sub = html.vise_page({}, "sustav")
         sustav = next(items for s, items in html.SECTIONS if s == "Sustav")
         for p in sustav:

@@ -233,9 +233,29 @@ def _ticker(text):
     return "$" + found[0] if len({x.upper() for x in found}) == 1 else None
 
 
-def calls_table(con, where="1=1", args=(), limit=300, tid="calls", show_kol=True):
+NO_TG = "handle NOT LIKE 'tg:%'"   # 19.11. (vlasnik: "Telegram KOLs makni iz izračuna"): Telegram callers not listed
+
+
+def hidden_calls(rows_html, n):
+    """The one collapsed line under a call list: "još N poziva na tokene koji danas vrijede ispod 30.000 $" (the rows
+    stay one tap away; display only, every statistic still counts them)."""
+    from ui import midcaplist
+    if not n:
+        return ""
+    return (f'<details class="kl-dead"><summary class=ms-hint>{esc(midcaplist.hidden_line(n))}</summary>'
+            f'{rows_html}</details>')
+
+
+def calls_table(con, where="1=1", args=(), limit=300, tid="calls", show_kol=True, mc_filter=True):
+    """19.11.: without Telegram callers; with mc_filter only calls whose token is worth >= 30k $ now (ui/midcaplist:
+    tracked midcaps first), the rest in one collapsed line."""
     syms, fl, gs = _syms(con), _flows(con), _groupsize(con)
-    rows = _rows(con, f"SELECT * FROM calls WHERE ({where}) AND {POSTS} ORDER BY ts DESC LIMIT ?", (*args, limit))
+    rows = _rows(con, f"SELECT * FROM calls WHERE ({where}) AND {POSTS} AND {NO_TG} ORDER BY ts DESC LIMIT ?",
+                 (*args, limit))
+    hidden = []
+    if mc_filter:
+        from ui import midcaplist
+        rows, hidden = midcaplist.split_calls(rows, lambda c: c["token"])
     head = ["Vrijeme"] + (["Račun", ("Pratitelji", "n")] if show_kol else []) + [
         "Token", "Vrsta poziva", "Post", ("Mcap u pozivu", "n"), ("2 h prije", "n"), ("1 h", "n"), ("6 h", "n"),
         ("24 h", "n"), ("Max 24 h", "n"), ("Volumen ×", "n"), ("Grupa", "n"), ("Prodaja u poziv", "n"), ("Tekst", "wrap")]
@@ -248,7 +268,15 @@ def calls_table(con, where="1=1", args=(), limit=300, tid="calls", show_kol=True
             lift(c["vol_lift"]), _gcell(gs, c["token"], c["ts"]), _flowcell(fl.get((c["tweet_id"], c["token"]))),
             (f'<span class=mut>{esc((c["text"] or "")[:160])}</span>', "", "wrap")]
         out.append(r)
-    return table(head, out, tid=tid, empty="Još nema poziva. Bot ih skuplja sam iz X pretraga koje ionako plaća.")
+    tab = table(head, out, tid=tid, empty=("Nijedan poziv nije na token koji danas vrijedi 30.000 $ ili više." if hidden
+                                           else "Još nema poziva."))
+    if hidden:
+        dead = [[ts(c["ts"])] + ([klink(c["handle"])] if show_kol else []) + [
+            tlink(c["token"], syms.get(c["token"]) or c["symbol"] or _ticker(c["text"])), usd(c["mcap0"]), post(c["url"])]
+            for c in hidden]
+        tab += hidden_calls(table(["Vrijeme"] + (["Račun"] if show_kol else []) + ["Token", ("Mcap u pozivu", "n"), "Post"],
+                                  dead, tid=tid + "-dead"), len(hidden))
+    return tab
 
 
 def trades_table(con, where="1=1", args=(), limit=200, tid="trades", show_who=True):
@@ -751,10 +779,18 @@ def _recent_html(con, vs, now):
     try:
         rows = con.execute("SELECT c.token, c.handle, c.ts, c.mcap0, c.r1h, c.r6h, c.r24h, COALESCE(t.symbol, c.symbol), "
                            "c.text FROM calls c LEFT JOIN tokens t ON t.token = c.token WHERE c.kind = 'call' "
-                           "AND c.first_by_kol = 1 ORDER BY c.ts DESC LIMIT ?", (RECENT_N,)).fetchall()
+                           "AND c.first_by_kol = 1 AND c.handle NOT LIKE 'tg:%' ORDER BY c.ts DESC LIMIT ?",
+                           (RECENT_N * 10,)).fetchall()
     except sqlite3.Error:
         rows = []
+    from ui import midcaplist
+    rows, hidden = midcaplist.split_calls(rows, lambda r: r[0])
+    rows = rows[:RECENT_N]
     items = []
+    dead = []
+    for tok, hnd, t, mc, r1, r6, r24, sym, text in hidden:
+        dead.append(R.row(sym or _ticker(text) or tok[:6], R.cat(kname(hnd), " · ", R.ago(t, now)),
+                          R.usd(mc) if mc else "–", "mcap kod poziva", href=f"/token/{quote(tok)}", muted=True))
     for tok, hnd, t, mc, r1, r6, r24, sym, text in rows:
         v = low.get(hnd.lower()) or {}
         ch, lab = next(((x, l) for x, l in ((r24, "24 h"), (r6, "6 h"), (r1, "1 h")) if x is not None), (None, None))
@@ -766,7 +802,9 @@ def _recent_html(con, vs, now):
         items.append(R.row(sym or _ticker(text) or tok[:6], R.cat(R.dot(v.get("dot", "")), kname(hnd), " · ", R.ago(t, now)),
                            val, "ispod 30k $" if small else sub, href=f"/token/{quote(tok)}", value_tone=vt,
                            sub_tone="warn" if small else "mut"))
-    return (R.rows(items, empty="Još nema poziva. Bot ih skuplja sam iz X pretraga i Telegram kanala.")
+    return (R.rows(items, empty=("Nijedan od zadnjih poziva nije na token koji danas vrijedi 30.000 $ ili više." if hidden
+                                 else "Još nema poziva."))
+            + R.raw(hidden_calls(R.rows(dead), len(hidden)))
             + R.raw('<p class=ms-hint><a class=ms-acc href="/kol/analize#pozivi">Svi pozivi s objavom i brojkama</a></p>'))
 
 
@@ -797,14 +835,82 @@ def _hero(ranked14, follows):
 # tab "Makro" (makroinf/web.py) for every logged-in user. Its list is fetched when the tab opens (/kol-makro/lista,
 # rebuilt after every macro scoring), so /kol itself (a heavy child build kept as a snapshot) never waits for it.
 # Four tabs fit a 390-px phone with the short labels (the long ones from 430 px of page width up, KL_CSS).
-TABS = [("#ljestvica", "Ljestvica", None), ("#kopiranje", "Za kopiranje", "Kopiranje"), ("#pozivi", "Upravo zvali", "Pozivi"),
-        ("#makro", "Makro", None)]
+# 19.11. (vlasnik: "Kod influencera naglasak na makro i to je prva kartica"): Makro first and open by default; the
+# other tabs stay (#ljestvica, #kopiranje, #pozivi links keep working) until the owner decides on the cleanup list
+TABS = [("#makro", "Makro", None), ("#ljestvica", "Ljestvica", None), ("#kopiranje", "Za kopiranje", "Kopiranje"),
+        ("#pozivi", "Upravo zvali", "Pozivi")]
+DEFAULT_TAB = "makro"
 
 
 def _tabs():
     from ui import redak as R
-    return R.seg([(href, R.raw(f"<span class=tl>{esc(long)}</span><span class=ts>{esc(short)}</span>") if short
-                   else long) for href, long, short in TABS], "#ljestvica")
+    return R.raw('<div class=kl-tabs>' + R.seg([(href, R.raw(f"<span class=tl>{esc(long)}</span><span class=ts>{esc(short)}</span>") if short
+                   else long) for href, long, short in TABS], "#" + DEFAULT_TAB) + "</div>")
+
+
+def _zg(ts):
+    import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        d = datetime.datetime.fromtimestamp(int(ts), ZoneInfo("Europe/Zagreb"))
+    except Exception:  # noqa: BLE001
+        d = datetime.datetime.fromtimestamp(int(ts))
+    return f"{d.day}.{d.month}.{d.year}. u {d:%H:%M}"
+
+
+def _social_live():
+    """True while the influencer jobs run (ops/drustveni: a 6-h window every 5 days since 19.11.)."""
+    try:
+        from ops import drustveni
+        return drustveni.state(create=False)["open"]
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def makro_sentence(v=None, now=None):
+    """The page's one sentence (19.11.): what the macro index says now, when it was computed, the next refresh (the
+    5-day window of ops/drustveni). v: makroinf.web.view() (test seam); False = no macro data."""
+    now = now or time.time()
+    if v is None:
+        try:
+            from makroinf import web as miweb
+            v = miweb.view(fresh=True, now=now) or False
+        except Exception:  # noqa: BLE001
+            v = False
+    nxt = ""
+    try:
+        from ops import drustveni
+        _last, n = drustveni.notice_dates(now)
+        if n:
+            nxt = f" Sljedeće osvježavanje: {drustveni._day(n, False)}"
+    except Exception:  # noqa: BLE001
+        pass
+    if not v:
+        return "Makro influenceri još nemaju ocjene: prve stižu nakon prvog izračuna." + (nxt + "." if nxt else "")
+    ix = v.get("index")
+    when = _zg(v["ts"]) if v.get("ts") else None
+    old = bool(v.get("ts")) and now - float(v["ts"]) > 6 * 86400
+    if ix and ix.get("n"):
+        word = {"bull": "bikovski", "bear": "medvjeđi", "neutral": "neutralan"}.get(ix.get("lean"), "neutralan")
+        from ui import redak as R
+        s = (f"Konsenzus najtočnijih makro influencera o BTC-u je {word} ({R.num(ix['v'], 2, sign=True)}, "
+             f"{ix['n']} {'račun' if ix['n'] % 10 == 1 and ix['n'] % 100 != 11 else 'računa'} sa stavom).")
+    else:
+        s = "Najtočniji makro influenceri još nemaju zajednički stav o BTC-u."
+    if when:
+        s += (f" Podaci su stari: zadnji izračun {when}." if old else f" Izračun {when}.")
+    return s + (nxt + "." if nxt else "")
+
+
+def makro_pane(now=None):
+    """The Makro tab, rendered in the page (it is the default tab now); the old fetch stays as the fallback."""
+    try:
+        from makroinf import web as miweb
+        inner = miweb.tab_html(now)
+        return f'<div class=kl-pane data-pane=makro id=makro data-ok=1>{inner}</div>'
+    except Exception as e:  # noqa: BLE001 - the tab loads itself then
+        print(f"kol: makro: {type(e).__name__}: {e}"[:200], flush=True)
+        return MAKRO_PANE.replace(" hidden", "")
 
 
 MAKRO_PANE = ('<div class=kl-pane data-pane=makro id=makro hidden data-src="/kol-makro/lista">'
@@ -838,11 +944,14 @@ def page(qs):
     top = R.top("Influenceri")   # bez ikone povećala: tražilica je u zaglavlju svake stranice
     soc = _social_note()
     if con is None:
-        return "Influenceri", f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}{soc}<p class=ms-hint>Još nema podataka.</p></div>'
+        return "Influenceri", (f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}'
+                               f'<p class="kl-ans">{esc(makro_sentence())}</p>{soc}{_tabs()}{makro_pane()}'
+                               '<p class=ms-hint>KOL ljestvica još nema podataka.</p></div>')
     now = time.time()
     try:
         kols = []
-        for k in _rows(con, "SELECT handle, name, followers, score, stats FROM kols WHERE score IS NOT NULL"):
+        for k in _rows(con, "SELECT handle, name, followers, score, stats FROM kols WHERE score IS NOT NULL "
+                            "AND handle NOT LIKE 'tg:%'"):   # 19.11.: Telegram channels are not listed
             k["s"] = json.loads(k["stats"] or "{}")
             kols.append(k)
         last = {}
@@ -858,7 +967,7 @@ def page(qs):
         star_of = {k["handle"]: is_star(k, stars) for k in kols}
         vss = {d: kolsummary.verdict_stats(d) for d in BOARD_DAYS}
         recent = _recent_html(con, vss[BOARD_DEFAULT], now)
-        n_all = con.execute("SELECT COUNT(*) FROM kols").fetchone()[0]
+        n_all = con.execute("SELECT COUNT(*) FROM kols WHERE handle NOT LIKE 'tg:%'").fetchone()[0]
     finally:
         con.close()
     follows = ap_follows()
@@ -889,15 +998,18 @@ def page(qs):
                   f"24 h: koliko ih je u plusu dan kasnije. Ocjena 0–100 ostaje na profilu i u stupcima na računalu. "
                   f"Ljestvica od {built:%H:%M}.")
     analize = R.rows([R.row(t, s, value=str(len(CURIOUS)) if sid == "znatizeljne" else None, value_tone="mut",
-                            href=f"/kol/analize#{sid}") for sid, t, s in ANALIZE])
-    body = (f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}{soc}'
-            f'<p class=ms-sub>{esc(R.num(n_all))} računa · svaki poziv mjeren nakon 1 h i 24 h</p>'
-            + _hero(ranked14, follows)
+                            href=f"/kol/analize#{sid}") for sid, t, s in ANALIZE if sid != "tgpovijest"])
+    upd = R.hint(f"Ljestvica i pozivi: zadnji spremljeni poziv {_zg(max(last.values()))}." if last else
+                 "Ljestvica i pozivi: nema izmjerenih poziva u zadnjih 30 dana.")
+    body = (f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}'
+            f'<p class="kl-ans">{esc(makro_sentence(now=now))}</p>{soc}'
             + _tabs()
-            + f'<div class=kl-pane data-pane=ljestvica id=ljestvica>{ctl}{th}{"".join(sets)}{hint}</div>'
-            + f'<div class=kl-pane data-pane=kopiranje id=kopiranje hidden>{rang_pane(now)}</div>'
-            + f'<div class=kl-pane data-pane=pozivi id=pozivi hidden>{recent}</div>'
-            + MAKRO_PANE
+            + makro_pane(now)
+            + f'<div class=kl-pane data-pane=ljestvica id=ljestvica hidden>{upd}'
+            f'<p class=ms-sub>{esc(R.num(n_all))} računa · svaki poziv mjeren nakon 1 h i 24 h</p>'
+            + _hero(ranked14, follows) + f'{ctl}{th}{"".join(sets)}{hint}</div>'
+            + f'<div class=kl-pane data-pane=kopiranje id=kopiranje hidden>{upd}{rang_pane(now)}</div>'
+            + f'<div class=kl-pane data-pane=pozivi id=pozivi hidden>{upd}{recent}</div>'
             + R.section("Analize", sid="analize") + analize + INSIDER_ROW + "</div>"
             + KL_JS.replace("__OLD__", json.dumps(list(OLD_IDS))))
     return "Influenceri", _calm(body)
@@ -929,8 +1041,8 @@ const hs=decodeURIComponent(location.hash.slice(1));if(__OLD__.includes(hs)){loc
 const load=p=>{const e=q('.kl-pane[data-pane="'+p+'"][data-src]');if(!e||e.dataset.ok)return;e.dataset.ok=1;
 fetch(e.dataset.src,{credentials:'same-origin'}).then(r=>r.ok?r.text():Promise.reject(r.status)).then(t=>{e.innerHTML=t})
 .catch(()=>{e.dataset.ok='';e.innerHTML='<p class=ms-hint>Makro influenceri se trenutno ne mogu učitati. Pokušaj ponovno za minutu.</p>'})};
-const pane=p=>{qa('.kl-pane').forEach(e=>e.hidden=e.dataset.pane!==p);qa('.kl .ms-seg a').forEach(a=>a.classList.toggle('on',a.getAttribute('href')==='#'+p));load(p)};
-qa('.kl .ms-seg a').forEach(a=>a.onclick=e=>{e.preventDefault();const p=a.getAttribute('href').slice(1);pane(p);history.replaceState(null,'','#'+p)});
+const pane=p=>{qa('.kl-pane').forEach(e=>e.hidden=e.dataset.pane!==p);qa('.kl-tabs .ms-seg a').forEach(a=>a.classList.toggle('on',a.getAttribute('href')==='#'+p));load(p)};
+qa('.kl-tabs .ms-seg a').forEach(a=>a.onclick=e=>{e.preventDefault();const p=a.getAttribute('href').slice(1);pane(p);history.replaceState(null,'','#'+p)});
 const g=q('#kl-g'),d=q('#kl-d'),so=q('#kl-so');if(!g)return;
 const show=()=>qa('.kl-set').forEach(e=>e.hidden=!(e.dataset.g===g.value&&e.dataset.d===d.value));
 qa('.kl-sel select').forEach(x=>x.addEventListener('change',()=>{x.previousElementSibling.textContent=x.selectedOptions[0].text}));
@@ -938,13 +1050,15 @@ g.addEventListener('change',show);d.addEventListener('change',show);qa('[data-d3
 so.addEventListener('change',()=>{const k=so.value;qa('.kl-top').forEach(l=>{const rs=[...l.children];rs.sort((a,b)=>(+b.dataset[k])-(+a.dataset[k]));
 rs.forEach((r,i)=>{l.appendChild(r);const n=r.querySelector('.rk');if(n)n.textContent=i+1})})});
 qa('.kl-more').forEach(b=>b.onclick=()=>{b.previousElementSibling.classList.add('open');b.remove()});
-if(hs==='pozivi'||hs==='kopiranje'||hs==='makro')pane(hs);if(hs==='zvijezde'){g.value='stars';g.dispatchEvent(new Event('change'))}})()</script>"""
+if(hs==='pozivi'||hs==='kopiranje'||hs==='makro'||hs==='ljestvica')pane(hs);if(hs==='zvijezde'){g.value='stars';g.dispatchEvent(new Event('change'))}})()</script>"""
 
 # Vrijednosti iz maketa influenceri-ljestvica.html i influencer.html (prefiks kl-, uz ui/html.MS_CSS i ui/kolchart.CSS).
 # Stupci za računalo idu po širini stranice (container query), ne prozora: s bočnim izbornikom (1001 px+) sadržaj je
 # uži od 900 px, pa bi prozor od 1050 px stisnuo ime na 20 px.
 KL_CSS = """
 .kl{container-type:inline-size}
+.kl-ans{font-size:17px;line-height:1.45;margin:14px 0 0}
+.kl-dead{margin:6px 0 0}.kl-dead>summary{cursor:pointer;list-style:none}.kl-dead>summary::-webkit-details-marker{display:none}
 .kl .ms-seg .ts{display:none}
 @container (max-width:430px){.kl .ms-seg .tl{display:none}.kl .ms-seg .ts{display:inline}}
 .kl-tg{font-size:13px;font-weight:400;color:var(--mut);margin-left:4px}
@@ -1060,7 +1174,11 @@ def _last_calls(con, handle, now, n=5):
     from kol import minute
     rows = _rows(con, "SELECT c.tweet_id, c.token, c.ts, c.mcap0, c.r1h, c.r24h, c.text, COALESCE(t.symbol, c.symbol) sym "
                       "FROM calls c LEFT JOIN tokens t ON t.token = c.token WHERE c.handle = ? AND c.kind IN ('call', 'bot') "
-                      "ORDER BY c.ts DESC LIMIT ?", (handle, n))
+                      "ORDER BY c.ts DESC LIMIT ?", (handle, 1000))
+    # 19.11.: only calls on tokens worth >= 30k $ now (tracked midcaps first); the rest in one collapsed line
+    from ui import midcaplist
+    rows, hidden = midcaplist.split_calls(rows, lambda c: c["token"])
+    rows = rows[:n]
     mrows = {}
     mcon = minute.ro()
     if mcon is not None and rows:
@@ -1079,7 +1197,12 @@ def _last_calls(con, handle, now, n=5):
         mc = f" · na {R.usd(c['mcap0'])}" if c["mcap0"] else ""
         items.append(R.row(c["sym"] or _ticker(c["text"]) or c["token"][:6], f"{kolchart.when(c['ts'], now)}{mc}",
                            val, sub, href=f"/token/{quote(c['token'])}", value_tone=vt, sub_tone=st or "mut"))
-    return R.rows(items, empty="Još nema njegovih poziva s adresom tokena.")
+    dead = [R.row(c["sym"] or _ticker(c["text"]) or c["token"][:6], kolchart.when(c["ts"], now),
+                  R.usd(c["mcap0"]) if c["mcap0"] else "–", "mcap kod poziva", href=f"/token/{quote(c['token'])}",
+                  muted=True) for c in hidden[:50]]
+    return (R.rows(items, empty=("Nijedan njegov poziv nije na token koji danas vrijedi 30.000 $ ili više." if hidden
+                                 else "Još nema njegovih poziva s adresom tokena."))
+            + R.raw(hidden_calls(R.rows(dead), len(hidden))))
 
 
 def profile(con, k, handle, now=None):
@@ -1124,7 +1247,9 @@ def profile(con, k, handle, now=None):
         R.row("Nakon 24 h", "u plusu dan kasnije", R.share(v["plus24"], n24) if n24 else "–",
               f"{n24 - v['plus24']} u minusu" if n24 else "još se ne zna", sub_tone="neg" if n24 > v["plus24"] else "mut"),
         R.row("10 $ u svaki poziv", "brzi izlaz · drži 24 h", money, "prije naknada", sub_tone="mut"),
-        R.row("Stižemo li ga", "pratimo ga uživo, 1–2 s" if con_live else "vidimo ga tek pri pretrazi, sporije",
+        R.row("Stižemo li ga", ("pratimo ga uživo, 1–2 s" if _social_live() else
+                                "na brzoj listi; uživo samo dok traje osvježavanje (jednom u 5 dana)")
+              if con_live else "vidimo ga tek pri pretrazi, sporije",
               "Da" if con_live else "Sporije",
               (f"+10 % za {R.num(med, 0)} min" if med else "+10 % u prvoj minuti") if med is not None else "–", sub_tone="mut"),
     ], cls="kl-key")
@@ -1301,8 +1426,7 @@ def analize_page(qs):
                  + _star_tabs(con, minf, minc))
 
         for name, fn in (("zajedno", lambda: kolsummary.together_html(con, cfg, tog)),
-                         ("shilleri", lambda: kolsummary.shill_html(con, cfg)),
-                         ("tg povijest", kolsummary.tg_history_html)):
+                         ("shilleri", lambda: kolsummary.shill_html(con, cfg))):   # 19.11.: no Telegram history
             try:
                 b.append(fn())
             except Exception as e:  # noqa: BLE001
@@ -1567,10 +1691,10 @@ def token_section(mint):
                 f"{sessions.NAMES[s]} <b>{sh[s]:.0%}</b>" for s, _, _ in sessions.SESSIONS) + "</p>"
         out = ""
         if has_posts:
-            out += ("<h2 id=kol>Tko ga je zvao na X-u i Telegramu</h2>" + tdesc(
+            out += ("<h2 id=kol>Tko ga je zvao na X-u</h2>" + tdesc(
                 "KOL postovi s ovim CA, najnoviji prvi, i što je cijena napravila nakon svakog. Link „post“ otvara "
                 "sam post. Više na stranici KOL-ovi. Volumen po sesijama: udio trgovanja u satima Azije (00-08 UTC), "
-                "Europe (08-14) i SAD-a (14-24).") + vol + calls_table(con, "token = ?", (mint,), 100, "tcalls"))
+                "Europe (08-14) i SAD-a (14-24).") + vol + calls_table(con, "token = ?", (mint,), 100, "tcalls", mc_filter=False))
         if has_trades:
             out += ("<h2 id=kol-novcanici>Koji su ga KOL novčanici kupili ili prodali</h2>" + tdesc(
                 "Kupnje i prodaje novčanika KOL-ova koje pratimo, najnovije prve. To nisu postovi: link otvara "

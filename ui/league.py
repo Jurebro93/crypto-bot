@@ -272,29 +272,6 @@ def page(qs, user):
         con.close()
 
 
-def ideas_page(qs, user):
-    con = store.connect()
-    try:
-        b = ["<h1>Prijedlozi za nove mogućnosti</h1><p class=mut>Što bi alat trebao raditi bolje ili drugačije? "
-             "Sve ideje se spremaju ovdje i svi ih vide.</p>", _who(user), _err(qs)]
-        if user:
-            b.append('<form method=post action="/prijedlozi/add" class=card><textarea name=text rows=4 required '
-                     'style="width:100%;font:inherit;background:var(--card);color:var(--fg);border:1px solid var(--line);'
-                     'border-radius:6px;padding:8px" placeholder="npr. upozori me kad token iz mojih pozicija padne 30%…">'
-                     f'</textarea><p><button>Pošalji prijedlog</button> <span class=mut>kao {esc(user)}</span></p></form>')
-        rows = []
-        for i in store.ideas(con):
-            sel = "".join(f'<option{" selected" if s == i["status"] else ""}>{s}</option>' for s in STATUS)
-            change = _form("/prijedlozi/status", {"id": i["id"]}, "Spremi", f"<select name=status>{sel}</select>") \
-                if user else ""
-            rows.append([ts(i["ts"]), esc(i["user"]), (esc(i["text"]).replace("\n", "<br>"), "", "wrap"),
-                         badge(i["status"], STATUS.get(i["status"], "")) + " " + change])
-        b.append(table(["Kada", "Tko", ("Prijedlog", "wrap"), "Status"], rows, empty="Još nema prijedloga."))
-        return "Prijedlozi", "".join(b)
-    finally:
-        con.close()
-
-
 def _kupnji(n):
     """4 kupnje, 5 kupnji, 21 kupnja."""
     return f"{n} " + ("kupnja" if n % 10 == 1 and n % 100 != 11 else

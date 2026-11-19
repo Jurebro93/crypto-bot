@@ -141,14 +141,16 @@ class Golden(unittest.TestCase):
         from ui import pocetna
         by = {label: c for _, label, _, c in pocetna.metrics(NOW)}
         self.assertEqual(by["Influenceri (X)"][0], TRUTH["x_accounts"])
-        self.assertEqual(by["Pozivi influencera (X + Telegram)"][0], TRUTH["calls_all_kinds"])
-        self.assertEqual(by["Kupnje i prodaje svih webhook novčanika"][0], TRUTH["wallet_swaps"])   # 9.11. (audit P70)
-        self.assertEqual(by["Aktivni Telegram kanali"][0], TRUTH["tg_channels"])
-        # the same number on /izvori ("aktivnih Telegram kanala"): one truth, two pages
+        # 19.11. (vlasnik: "Telegram KOLs makni iz izračuna"): Pregled counts X calls only and no Telegram channels
         import sqlite3
-        st = dict(sqlite3.connect(self.p["tg"]).execute("SELECT status, COUNT(*) FROM channels GROUP BY status"))
-        self.assertEqual(st["active"], by["Aktivni Telegram kanali"][0])
-        self.assertEqual(by["Telegram poruke"][0], TRUTH["tg_posts"])
+        k = sqlite3.connect(self.p["kol"])
+        x_calls = k.execute("SELECT COUNT(*) FROM calls WHERE kind = 'call' AND handle NOT LIKE 'tg:%'").fetchone()[0]
+        k.close()
+        self.assertEqual(by["Pozivi influencera (X)"][0], x_calls)
+        self.assertLess(x_calls, TRUTH["calls_all_kinds"])
+        self.assertEqual(by["Kupnje i prodaje svih webhook novčanika"][0], TRUTH["wallet_swaps"])   # 9.11. (audit P70)
+        self.assertNotIn("Aktivni Telegram kanali", by)
+        self.assertNotIn("Telegram poruke", by)
         self.assertEqual(by["Novčanici u registru"][0], TRUTH["wallets"])
         self.assertEqual(by["Rug provjere"][0], 0) if "Rug provjere" in by else None
         # "this week" = everything (all rows are 1-3 days old), last week = 0

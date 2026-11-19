@@ -460,7 +460,7 @@ class Notice(Base):
             self.assertIn("Zadnje osvježavanje: 17.11.2026. Sljedeće: 22.11.2026.", html)
             note = re.search(r'<div class="[^"]*soc-note"[^>]*>(.*?)</div>', html, re.S).group(1)
             self.assertIsNone(FORBIDDEN.search(note), note)
-        self.assertLess(html_kol.index("soc-note"), html_kol.index("Još nema podataka"))   # at the top of the card
+        self.assertLess(html_kol.index("soc-note"), html_kol.index("još nema podataka"))   # at the top of the card
         tok = i18n.LANG.set("en")
         try:
             with mock.patch.object(i18n, "_start_worker"), mock.patch.object(drustveni.time, "time", return_value=T0 + D):
