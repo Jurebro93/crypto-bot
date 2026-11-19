@@ -662,6 +662,8 @@ def line(pp, helius_today=0, helius_cap=0):
     head = (f"{PREFIX}{pp.get('covered15', 0)} pumpi ≥ 15M i {pp.get('covered2', 0)} pumpi 2-15M pokriveno "
             f"(od {pp.get('pumps15', 0)} + {pp.get('pumps2', 0)}), {pp.get('groups', 0)} grupa kupuje prije pumpe "
             f"({pp.get('confirmed', 0)} potvrđeno), bundle grupa {pp.get('bundles', 0)}")
+    if pp.get("copy_progress"):   # 19.11. navečer (2): the incremental walk has not reached today yet
+        return head + f"; {pp['copy_progress']}, brojke kad dođe do danas; {heli}"
     if not pp.get("confirmed") or (a.get("n") or 0) < int(pp.get("min_n") or 20):
         return (head + f"; premalo podataka za kopiju: {a.get('n', 0)} kopija od {a.get('n_buys', 0)} kupnji (treba "
                 f"{pp.get('min_n', 20)}; grupa treba {pp.get('min_tokens', 3)} pumpe i potvrdu na novijim danima); "

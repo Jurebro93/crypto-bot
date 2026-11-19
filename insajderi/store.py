@@ -171,6 +171,7 @@ class Clock:
         self.max_s = float(lim[kind]) if isinstance(lim, dict) and lim.get(kind) else None
         self.cuts, self.stages = [], {}
         self.sub = {}   # 19.11. navečer: the list stage's steps (seconds), run.analyze
+        self.copy_sub = {}   # 19.11. navečer (2): the copy stage's walks ("pp", "ins")
 
     def elapsed(self):
         return self.fn() - self.t0

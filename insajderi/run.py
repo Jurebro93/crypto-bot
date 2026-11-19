@@ -66,6 +66,9 @@ def time_line(kind, clk):
     out = f"{store.PREFIX}prolaz {kind}: trajanje: " + (", ".join(parts) or "—")
     if clk.sub:   # 19.11. navečer: the list stage's steps ("popis: vlasnici 12 s, botovi 40 s, ...")
         out += "; popis: " + ", ".join(f"{k} {v:.0f} s" for k, v in clk.sub.items())
+    if clk.copy_sub:   # 19.11. navečer (2): the copy stage split ("kopija prije pumpe 90 s, kopija insajderi 30 s")
+        hr = {"pp": "kopija prije pumpe", "ins": "kopija insajderi"}
+        out += "; " + ", ".join(f"{hr.get(k, k)} {v:.0f} s" for k, v in clk.copy_sub.items())
     if chain.LAST_POOL.get("line"):   # 19.11. navečer (2): "dohvat: N poziva, R/s prosjek, radnika W, 429: K"
         out += "; " + chain.LAST_POOL["line"]
     if clk.cuts:
@@ -357,32 +360,44 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
             except Exception as e:  # noqa: BLE001 - a second source never costs the pass
                 _log(log, f"birdeye ({type(e).__name__}: {e})")
     cs, ok, why = prev.get("copy"), prev.get("copyable"), prev.get("verdict")
+    ins_progress = prev.get("copy_progress")
     if not light and (clk.over() or cut_at or bad is None or ft is None):
         clk.cut("kopija nije izračunata (ostaju brojke zadnjeg punog prolaza)")
     elif not light:
+        # 19.11. navečer (2): the walks are incremental (insajderi/walkcache.py): a walked day is kept and only what
+        # changed is walked again; a walk cut by the deadline resumes in the next pass; the numbers are published only
+        # when a walk reached today. The pump walk first, the old insider walk with what time remains.
         with clk.stage("kopija"):
-            csel = copy.selection(c, evs, parts, now, bad, ft, stop)
-            psel = prijepumpe.selection(c, evs, parts, now, bad, ft, mm, True, stop) if pp else None
-            members = (csel[2] if csel else set()) | (psel[3] if psel else set())
-            trades = copy.wallet_trades(con, p, members) if members and not stop() else []
-            rows = copy.walk(con, p, c, evs, parts, now, bad, ft, trades=trades, sel=csel, stop=stop)[0] \
-                if csel is not None else None
-            if rows is None:
-                clk.cut("kopija insajdera nije dovršena (ostaju zadnje brojke)")
-            else:
-                copy.save(con, rows)
-                cs = copy.summarize(rows)
-                ok, why = copy.verdict(cs)
-            if pp_fresh and mm is not None:
+            from insajderi import walkcache
+
+            def timer(name, fn):
+                t0 = clk.fn()
                 try:
-                    res = prijepumpe.walk(con, p, c, evs, parts, now, bad, ft, mm, trades=trades, sel=psel,
-                                          stop=stop)[0] if psel is not None else None
-                    if res is None:
-                        clk.cut("kopija novčanika prije pumpe nije dovršena (ostaju zadnje brojke)")
-                    else:
-                        pp = prijepumpe.run_copy(con, p, c, now, evs, parts, pp, res)
-                except Exception as e:  # noqa: BLE001
-                    _log(log, f"novčanici prije pumpe: kopija ({type(e).__name__}: {e})")
+                    return fn()
+                finally:
+                    clk.copy_sub[name] = round(clk.copy_sub.get(name, 0.0) + clk.fn() - t0, 1)
+            walks = ("pp", "ins") if (pp_fresh and mm is not None) else ("ins",)
+            try:
+                wres = walkcache.run(con, p, c, evs, parts, now, bad, ft, mm or frozenset(), stop=stop, walks=walks,
+                                     timer=timer)
+            except Exception as e:  # noqa: BLE001 - the copy test never costs the pass
+                _log(log, f"kopija ({type(e).__name__}: {e})")
+                wres = {}
+            r_pp, r_ins = wres.get("pp"), wres.get("ins")
+            if r_pp is not None:
+                if r_pp["done"]:
+                    pp = dict(pp, copy=r_pp["summary"], copy_ts=int(now), copy_progress=None)
+                else:
+                    pp = dict(pp, copy_progress=walkcache.progress(r_pp))
+                    clk.cut(f"kopija prije pumpe: {walkcache.progress(r_pp)} (nastavlja sljedeći prolaz)")
+            if r_ins is not None:
+                if r_ins["done"]:
+                    cs = r_ins["summary"]
+                    ok, why = copy.verdict(cs)
+                    ins_progress = None
+                else:
+                    ins_progress = walkcache.progress(r_ins)
+                    clk.cut(f"kopija insajdera: {ins_progress} (zaostaje, nastavlja sljedeći prolaz)")
     sellers = {r[1] for r in parts if r[9]}
     before = {r[1] for r in parts if r[9] and r[8]}
     conf = score.confirmed(stats)
@@ -394,7 +409,7 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
                "covered": sum(1 for e in evs if e.get("n_part")), "fetched": sum(1 for e in evs if e.get("fetched")),
                "sellers": len(sellers), "bought_before": len(before), "groups_stored": n_groups,
                "confirmed": len(conf), "classes": cls, "relayers": len(relay), "bots": len(bad),
-               "catalysts": cats, "copy": cs, "copyable": ok, "verdict": why,
+               "catalysts": cats, "copy": cs, "copyable": ok, "verdict": why, "copy_progress": ins_progress,
                "helius_today": store.helius_spent(con, now),
                "helius_cap": store.helius_cap(c, now, p.get("usage_db"))[0]}
     if pp:
