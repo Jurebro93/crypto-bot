@@ -443,6 +443,33 @@ class TimeBudget(unittest.TestCase):
         self.assertTrue(any(x.startswith("insajderi2: prolaz once: trajanje: događaji") and "kopija" in x
                             for x in lines2), lines2)
 
+    def test_call_events_get_half_the_pass_time_so_the_list_is_computed(self):
+        """19.11. (the first production pass spent all 900 s on Helius for untiered call events): the rest stops at
+        rest_time_share of the pass time; the pass is NOT cut, the list and the copy tests run."""
+        s, lines = self.go(limit=20000)            # every Helius call is 1000 s: the calls stop at 10 000 s
+        n1 = self.fetched()
+        self.assertGreaterEqual(n1, 1)
+        self.assertLess(n1, 6)
+        stop = [x for x in lines if "Helius za pozive stao na 50% vremena prolaza" in x]
+        self.assertEqual(len(stop), 1, lines)
+        self.assertIn(f"ostaje {6 - n1} događaja", stop[0])
+        self.assertFalse([x for x in lines if "prekinuto na vremenskoj granici" in x], lines)
+        self.assertIn("popis", s["trajanje"])      # the list stage ran
+        self.assertTrue(any(x.startswith("novčanici prije pumpe:") for x in lines), lines)
+
+    def test_pump_events_keep_the_whole_deadline(self):
+        s, _l = self.go(limit=20000)               # build the events first
+        con = store.connect(self.p["insajderi_db"])
+        con.execute("UPDATE i2_events SET fetched = 0, tier = 'pumpa15'")
+        con.execute("DELETE FROM i2_fetch")
+        con.commit()
+        con.close()
+        self.t[0] = 0.0
+        from insajderi import events as ev
+        with mock.patch.object(ev, "mark_tiers", lambda *a, **k: None):
+            s2, lines = self.go(limit=20000)
+        self.assertGreater(self.fetched(), 2)      # pumps were read past the half-time mark
+
     def test_incr_is_light_and_the_trades_are_read_once(self):
         n_reads = []
         real = copy.wallet_trades
