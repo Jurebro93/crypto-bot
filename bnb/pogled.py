@@ -4,7 +4,7 @@
                        "groups": int, "confirmed": int, "trades": int, "db_mb": float, "last_pass": str|None,
                        "calls": {"rpc": str, "free": {source: int}}|None}
     funnel()       -> {"pumpe15_1h", "pumpe15_1d", "pumpe2_1h", "pumpe2_1d", "duboko", "procitano", "izvan_dosega",
-                       "rani", "rani_prodali", "blizu_praga", "grupe", "potvrdjeno": int,
+                       "prazno", "rani", "rani_prodali", "blizu_praga", "grupe", "potvrdjeno": int,
                        "pokrivenost_pre_med", "pokrivenost_skok_med": float|None, "n_pokrivenost": int,
                        "klase": {cls: int}}   ({} before the first pass)
     groups(cls="prije_pumpe", limit=50)
@@ -26,7 +26,8 @@ import json
 
 from bnb import store
 
-FUNNEL_KEYS = ("pumpe15_1h", "pumpe15_1d", "pumpe2_1h", "pumpe2_1d", "duboko", "procitano", "izvan_dosega", "rani",
+FUNNEL_KEYS = ("pumpe15_1h", "pumpe15_1d", "pumpe2_1h", "pumpe2_1d", "duboko", "procitano", "izvan_dosega", "prazno",
+               "rani",
                "rani_prodali", "blizu_praga", "grupe", "potvrdjeno", "pokrivenost_pre_med", "pokrivenost_skok_med",
                "n_pokrivenost", "klase")
 

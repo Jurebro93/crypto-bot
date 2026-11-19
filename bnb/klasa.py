@@ -188,11 +188,12 @@ def funnel(con, c, events, ps, st, now):
     from insajderi import events as iev
     from insajderi import prijepumpe
     out = {k: 0 for k in ("pumpe15_1h", "pumpe15_1d", "pumpe2_1h", "pumpe2_1d", "duboko", "rani", "rani_prodali",
-                          "blizu_praga", "grupe", "potvrdjeno", "izvan_dosega", "procitano")}
+                          "blizu_praga", "grupe", "potvrdjeno", "izvan_dosega", "procitano", "prazno")}
     tiered = {e["eid"]: e for e in events if e.get("tier") in ("pumpa15", "pumpa2")}
     for e in tiered.values():
         out[f"pumpe{'15' if e['tier'] == 'pumpa15' else '2'}_{iev.res_of(e)}"] += 1
         out["izvan_dosega"] += e.get("reach") == "izvan dosega"
+        out["prazno"] += e.get("reach") == "prazno"
     cov = {eid: (d, pc, jc) for eid, d, pc, jc in store.q(con, "SELECT eid, depth, pre_cov, jump_cov FROM bnb_cover")}
     deep = [cov[eid] for eid in tiered if eid in cov and (cov[eid][0] or 0) >= store.FETCH_DEPTH]
     out["duboko"] = out["procitano"] = len(deep)
@@ -225,6 +226,6 @@ def funnel_line(f):
            f"{f['n_pokrivenost']} pumpi)" if f.get("pokrivenost_pre_med") is not None else "još nema čitanja")
     return (f"{store.PREFIX}lijevak: pumpi ≥ 15M {f['pumpe15_1h'] + f['pumpe15_1d']} (1h {f['pumpe15_1h']}, 1d "
             f"{f['pumpe15_1d']}), 2-15M {f['pumpe2_1h'] + f['pumpe2_1d']} (1h {f['pumpe2_1h']}, 1d {f['pumpe2_1d']}); "
-            f"izvan besplatne povijesti {f['izvan_dosega']}; pročitano {f['duboko']}; ranih kupaca {f['rani']}, od "
+            f"izvan besplatne povijesti {f['izvan_dosega']}; prazno {f.get('prazno', 0)}; pročitano {f['duboko']}; ranih kupaca {f['rani']}, od "
             f"njih prodali u pumpu {f['rani_prodali']}; blizu praga (2 pumpe) {f['blizu_praga']}; grupa s 3+ pumpe "
             f"{f['grupe']}; potvrđeno {f['potvrdjeno']}; pokrivenost prozora prije skoka: {cov}")

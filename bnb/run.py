@@ -25,6 +25,10 @@ def _rpc(c):
     return brpc.Rpc(c["rpc_logs"], gap=float(c["rpc_gap_s"]))
 
 
+def _misc(c):
+    return brpc.Rpc(c.get("rpc_misc") or c["rpc_logs"], gap=float(c["rpc_gap_s"]))
+
+
 def fill(con, c, now, clock, log=print, kind="backfill", max_events=None, gt_budget=None):
     """Steps 1-3 once. -> summary dict."""
     out = {"kind": kind}
@@ -76,7 +80,7 @@ def fill(con, c, now, clock, log=print, kind="backfill", max_events=None, gt_bud
         if kind == "backfill" and read:   # a list after every round: partial results are on disk
             evs = pumpe.load(con)
             chain.build_parts(con, c, evs)
-            _st, f = klasa.run(con, c, evs, now, rpc)
+            _st, f = klasa.run(con, c, evs, now, _misc(c))
             store.kv_json(con, "last", dict(out, lijevak=f, read=read))
             con.commit()
             log(klasa.funnel_line(f))
@@ -86,7 +90,7 @@ def fill(con, c, now, clock, log=print, kind="backfill", max_events=None, gt_bud
     out["read"] = read
     events = pumpe.load(con)
     chain.build_parts(con, c, events)
-    st, f = klasa.run(con, c, events, now, rpc)
+    st, f = klasa.run(con, c, events, now, _misc(c))
     out["lijevak"] = f
     out["secs"] = round(time.monotonic() - t0, 1)
     out["calls"] = {"rpc": brpc.calls_line(), "free": dict(izvor.CALLS)}

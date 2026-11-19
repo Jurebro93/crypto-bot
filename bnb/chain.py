@@ -207,6 +207,11 @@ def fetch_event(con, c, e, rpc, blocks, px, now, clock=None, log=print):
             con.commit()
         cover[name] = (span, round(min(1.0, got / span), 4))
     reach = "puno" if not out_reach else ("izvan dosega" if out_reach >= 2 else "djelomično")
+    if complete and total_sw == 0:
+        # a pump with no swap at all in its windows is a source that answered empty (19.11. 23:00: publicnode returned
+        # [] for logs older than ~10 h without an error), or a token that moved pools: never counted as read
+        reach, complete = "prazno", False
+        log(f"{store.PREFIX}{e.get('symbol') or e['token'][:8]}: 0 swapova u prozorima pumpe, nije uračunato (prazno)")
     con.execute("UPDATE bnb_events SET reach = ? WHERE eid = ?", (reach, e["eid"]))
     if complete:
         (ps, pc), (js, jc) = cover["pre"], cover["jump"]
@@ -225,12 +230,14 @@ def order_key(e):
 
 def due(con, events, now, c):
     """Tiered events not read at FETCH_DEPTH whose window ended and whose jump window is still within the free history
-    (an event entirely out of reach is marked once and skipped)."""
+    (an event entirely out of reach is marked once and skipped; an event read empty, reach "prazno", is not read
+    again)."""
     deep = {eid: d for eid, d in store.q(con, "SELECT eid, depth FROM bnb_cover")}
     oldest = int(now) - int(c["archive_s"])
     out = []
     for e in events:
-        if not e.get("tier") or e["win_end"] > now or (deep.get(e["eid"]) or 0) >= store.FETCH_DEPTH:
+        if (not e.get("tier") or e["win_end"] > now or (deep.get(e["eid"]) or 0) >= store.FETCH_DEPTH
+                or e.get("reach") == "prazno"):
             continue
         if e["win_end"] <= oldest:
             if e.get("reach") != "izvan dosega":

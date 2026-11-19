@@ -349,6 +349,17 @@ class Chain(Db):
         self.assertEqual(store.q(self.con, "SELECT COUNT(*) FROM bnb_cover")[0][0], 0)
         self.assertEqual(len(chain.due(self.con, pumpe.load(self.con), self.now, self.c)), 1)
 
+    def test_an_empty_read_is_never_counted(self):
+        t0 = self.fc.ts(18_000)
+        e = self.event(t0, self.fc.ts(19_500))
+        pumpe.save_events(self.con, [e], self.now)
+        rpc = self.rpc()
+        r = chain.fetch_event(self.con, self.c, e, rpc, chain.Blocks(rpc, 0.45), chain.Px(self.con), self.now,
+                              log=lambda *_: None)
+        self.assertEqual((r["complete"], r["reach"]), (False, "prazno"))
+        self.assertEqual(chain.due(self.con, pumpe.load(self.con), self.now, self.c), [])
+        self.assertEqual(klasa.funnel(self.con, self.c, pumpe.load(self.con), [], {}, self.now)["prazno"], 1)
+
     def test_out_of_reach(self):
         old = self.now - 10 * 86400
         e = self.event(old, old + 7200)

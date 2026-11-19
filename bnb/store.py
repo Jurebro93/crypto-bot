@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHAIN = "bsc"
 PREFIX = "bnb: "
 # the version of a deep read (bnb_cover.depth): an event read below it is read again (as insajderi/store.FETCH_DEPTH)
-FETCH_DEPTH = 1
+FETCH_DEPTH = 2   # 19.11. 23:00: 2 = read on rpc-bsc.48.club (publicnode returned EMPTY logs past ~10 h, silently)
 
 DEFAULT = {
     # the universe (the same band as Solana: 15-200 M first, 2-15 M second; CLAUDE.md: never under 30k)
@@ -29,9 +29,13 @@ DEFAULT = {
     # the pump rules (insajderi/store.DEFAULT: the SAME numbers)
     "mkt_x6": 0.50, "mkt_x24": 1.00, "mkt_x1d": 0.50, "mkt_x3d": 1.00, "after_peak_s": 3600,
     "pump_pre_h": 24, "pump_pre_h_1d": 72,
-    # who traded: the public RPC (logs ~24 days back, 50k blocks a call, 20k results a call, batch 200)
-    "rpc_logs": ["https://bsc-rpc.publicnode.com"], "rpc_poll": ["https://rpc-bsc.48.club", "https://bsc.drpc.org"],
-    "block_s": 0.45, "max_range": 50_000, "rpc_gap_s": 0.35, "archive_s": 23 * 86400,
+    # who traded: the public RPC. rpc_logs: the logs (rpc-bsc.48.club: 5,000 blocks a call, real logs ~145 h back,
+    # "header not found" past it); rpc_misc: heads, block times, eth_call, eth_getCode, receipts (publicnode: batch 200).
+    # 19.11. 23:00: publicnode answers eth_getLogs older than ~10 h with an EMPTY list (no error) up to ~24 days, so it
+    # is never used for logs (bnb/izvori.md)
+    "rpc_logs": ["https://rpc-bsc.48.club"], "rpc_misc": ["https://bsc-rpc.publicnode.com"],
+    "rpc_poll": ["https://rpc-bsc.48.club", "https://bsc.drpc.org"],
+    "block_s": 0.45, "max_range": 5_000, "rpc_gap_s": 0.5, "archive_s": 132 * 3600,
     # the class (insajderi/prijepumpe.py: the same names and numbers); min_sol: 0.05 SOL at the SOL/USD of the day
     "min_sol": 0.05, "pump_min_tokens": 3, "min_confirm": 1, "min_lead_min": 2, "sniper_secs": 60,
     "sniper_share": 0.5, "busy_events_share": 0.6, "mm_min_side": 3, "mm_min_events": 2, "bot_tx_min": 50,
