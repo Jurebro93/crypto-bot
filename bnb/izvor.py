@@ -81,11 +81,15 @@ def pool_row(x):
 
 def gt_lists(c, log=print):
     """[pool row] from GeckoTerminal's BSC lists: top pools by 24 h volume (gt_volume_pages), trending (1 h / 6 h /
-    24 h, gt_trend_pages each). ~16 calls."""
+    24 h, gt_trend_pages each), the top pools of each gt_dexes DEX (gt_dex_pages each). ~31 calls."""
     out = []
     for page in range(1, int(c["gt_volume_pages"]) + 1):
         d = gt("/networks/bsc/pools", {"page": page, "sort": "h24_volume_usd_desc"}, ttl=3600)
         out += [r for r in (pool_row(x) for x in (d or {}).get("data") or []) if r]
+    for dex in c.get("gt_dexes") or ():   # per DEX: a deeper list than the network's top 200
+        for page in range(1, int(c.get("gt_dex_pages") or 0) + 1):
+            d = gt(f"/networks/bsc/dexes/{dex}/pools", {"page": page, "sort": "h24_volume_usd_desc"}, ttl=3600)
+            out += [r for r in (pool_row(x) for x in (d or {}).get("data") or []) if r]
     for dur in ("1h", "6h", "24h"):
         for page in range(1, int(c["gt_trend_pages"]) + 1):
             d = gt("/networks/bsc/trending_pools", {"page": page, "duration": dur}, ttl=3600)

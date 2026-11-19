@@ -21,7 +21,8 @@ DEFAULT = {
     "min_mcap": 30_000, "max_mcap": 200_000_000, "min_liq": 25_000, "focus_mcap": 15_000_000,
     "pump2_mcap": 2_000_000, "max_tokens": 400,
     # discovery (free): GeckoTerminal pages and DexScreener queries
-    "gt_volume_pages": 10, "gt_trend_pages": 3, "ds_queries": ["bsc", "wbnb", "bnb meme", "pancakeswap", "four meme",
+    "gt_volume_pages": 10, "gt_trend_pages": 3, "gt_dex_pages": 5,
+    "gt_dexes": ["pancakeswap_v2", "pancakeswap-v3-bsc", "pancakeswap-infinity-clmm"], "ds_queries": ["bsc", "wbnb", "bnb meme", "pancakeswap", "four meme",
                                                              "binance", "cz", "usd1", "usdt bsc"],
     # candles: 180 daily, 45 days hourly (only for tokens whose daily candles moved >= hour_gate in a day or two)
     "days_1d": 180, "days_1h": 45, "hour_gate": 0.5,
