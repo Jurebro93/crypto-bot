@@ -530,7 +530,7 @@ class Config(unittest.TestCase):
     def test_values(self):
         c = store.config()
         self.assertEqual((c["helius_day"], c["kol_helius_share"], c["focus_mcap"], c["pump2_mcap"]),
-                         (60000, 0.0, 15_000_000, 2_000_000))
+                         (60000, 0.1, 15_000_000, 2_000_000))   # 19.11. navečer: 0 -> 0.1
         with open(os.path.join(ROOT, "wallets", "config.json")) as f:
             k = json.load(f)["kopija"]
         self.assertEqual((k["kredita_dan"], k["najvise_novcanika"]), (6000, 300))

@@ -1,7 +1,8 @@
 """Daily morning report by e-mail. 16.11. (vlasnik: "Sada idemo s mid cap tokenima"): the midcap trading (demo and real
 by rule, the rules' out-of-sample EV, the wallet, the caps), the market (BTC, the macro regime, the macro influencers,
 the midcap universe), the research (Insajderi 2.0, holders / listing, the critic), yesterday's cost per source; the old
-microcap sections only while the switch fokus_midcap is off. Claude writes the interpretation (ANTHROPIC_API_KEY).
+microcap sections only while the switch fokus_midcap is off; 19.11.: every Monday, and in the first report after a
+deploy when none went out for 7 days, the weekly cost per source and what it brought (report/tjedni.py). Claude writes the interpretation (ANTHROPIC_API_KEY).
 
     python3 run_report.py build             # build today's report -> output/report-YYYY-MM-DD.html, no e-mail
     python3 run_report.py send              # build and e-mail now (REPORT_EMAIL_TO + SMTP_* or RESEND_API_KEY)
@@ -20,7 +21,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from report import ai, collect, dump, mail, render  # noqa: E402
+from report import ai, collect, dump, mail, render, tjedni  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "output")
@@ -67,9 +68,14 @@ def prune(keep=None):
             pass
 
 
-def build(use_ai=True, now=None):
+def build(use_ai=True, now=None, weekly=None):
+    """weekly (19.11.): add the section "Tjedni trošak po izvoru" (report/tjedni.py); None = decide by tjedni.due."""
     now = now or time.time()
     data = collect.collect(now)
+    if weekly is None:
+        weekly = tjedni.due(now, load_state(), local_now(now).weekday())[0]
+    if weekly:
+        data["tjedni_trosak"] = tjedni.collect(now)
     interp, source = ai.interpret(data) if use_ai else (ai.fallback(data), "pravila")
     html = render.render(data, interp, source)
     day = local_now(now).strftime("%Y-%m-%d")
@@ -89,12 +95,17 @@ def subject(day, interp):
 
 def send_today(use_ai=True, now=None):
     st = load_state()
-    day, path, html, interp, source = build(use_ai, now)
+    weekly, why = tjedni.due(now or time.time(), st, local_now(now).weekday())
+    day, path, html, interp, source = build(use_ai, now, weekly=weekly)
     st["built"] = day
     st["source"] = source
     try:
         how = mail.send(subject(day, interp), html)
         st.update(sent=day, sent_ts=int(time.time()), error=None, how=how)
+        # 19.11.: the weekly cost section and the deploy it was built under count only once the e-mail went out
+        st["report_commit"] = tjedni.commit()
+        if weekly and "Tjedni trošak po izvoru" in html:
+            st.update(tjedni_ts=int(now or time.time()), tjedni_zasto=why)
         print(f"izvještaj {day} poslan ({how}) na {', '.join(mail.recipients())}")
     except Exception as e:
         st["error"] = f"{type(e).__name__}: {e}"

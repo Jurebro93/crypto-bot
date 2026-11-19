@@ -34,8 +34,9 @@ from urllib.parse import quote
 
 from ui.html import ago as _html_ago, esc, short
 
-PATH = "/autopilot"
-PATH_EN = "/en/autopilot"
+PATH = "/autopilot"            # 19.11. (vlasnik 13.11.: "za svaku stranicu ... hrvatska i engleska verzija"): the public
+PATH_HR = "/hr/autopilot"      # site's scheme, "/x" = English (canonical, x-default) and "/hr/x" = Croatian
+PATH_EN = "/en/autopilot"      # the old English address: 301 to PATH
 CHAT_PATH = "/autopilot/chat"
 TITLE = "Autopilot uživo"
 MAX_LEN = 500
@@ -433,7 +434,7 @@ def _chat_box(user, qs, lang="hr", logged_in=None):
                  f'<a href="{home}#pristup">Zatraži pristup</a>.</p>')
     b.append('<div class=apj-seg data-sort><button type=button class=on data-s=new>Najnovije</button>'
              '<button type=button data-s=top>Najviše +1</button></div>')
-    src = "" if older else f' data-src="{CHAT_PATH}{"?l=en" if lang == "en" and not user else ""}"'
+    src = "" if older else f' data-src="{CHAT_PATH}{"?l=" + lang if not user else ""}"'
     b.append(f'<div id=apj-chat-list{src}>{chat_fragment(user, qs, err=qs.get("e") or "")}</div>')
     if older:
         b.append(f'<p class=apj-more><a href="{PATH}#chat">Na najnovije poruke</a></p>')
@@ -1231,7 +1232,7 @@ def page(qs, user, lang="hr", logged_in=None):
     paused = _paused()
     title = "Autopilot (pauziran)" if paused else TITLE if s["state"]["live"] else "Autopilot (probni rad)"
     parts = dict(_parts(s, lang))
-    src = LIVE_PATH + ("?l=en" if lang == "en" else "")
+    src = LIVE_PATH + f"?l={'en' if lang == 'en' else 'hr'}"   # 19.11.: always explicit (a guest's default is en)
     own = ""
     try:   # 10.11. (Jure: "zašto preko mobitela ne mogu na autopilotu kupiti token?"): this page only shows; the
         # owner gets the way to the trading page (quick buy) right under the value. Never for anybody else.
@@ -1294,7 +1295,7 @@ GUEST_WORDS = {
 def guest_html(qs=None, lang="hr"):
     """The whole page for a visitor without a login: a light frame with the app's own colours (so the chart looks the
     same as inside the app), no app menu, links back to the public site and to the login. Croatian; run_ui translates
-    it for /en/autopilot. The plain view is kept GUEST_TTL_S (the same for every visitor)."""
+    it for English, the public default at /autopilot (Croatian at /hr/autopilot since 19.11.). The plain view is kept GUEST_TTL_S (the same for every visitor)."""
     qs = qs or {}
     plain = not qs.get("prije") and not qs.get("e")
     key = ("page", lang)
@@ -1307,7 +1308,7 @@ def guest_html(qs=None, lang="hr"):
     title, body = page(qs, None, lang)
     svg, name = H.logo(28)
     home = "/" if lang == "en" else "/hr"
-    here = PATH_EN if lang == "en" else PATH
+    here = PATH if lang == "en" else PATH_HR
     desc = (GUEST_DESC_PAUSED if _paused() else GUEST_DESC)[lang]
     base = urls.site()
     og = ""
@@ -1326,8 +1327,8 @@ def guest_html(qs=None, lang="hr"):
         _warn("og", e)
     # 13.11. (SEO audit): both copies name each other, so Google shows the visitor's language and never counts them as
     # duplicates (they had a canonical each but no hreflang)
-    alts = (f'<link rel=alternate hreflang=en href="{esc(base + PATH_EN)}"><link rel=alternate hreflang=hr '
-            f'href="{esc(base + PATH)}"><link rel=alternate hreflang=x-default href="{esc(base + PATH_EN)}">')
+    alts = (f'<link rel=alternate hreflang=en href="{esc(base + PATH)}"><link rel=alternate hreflang=hr '
+            f'href="{esc(base + PATH_HR)}"><link rel=alternate hreflang=x-default href="{esc(base + PATH)}">')
     try:
         from ui import public
         tail = public._ga_tag(lang)   # the public pages' visit counter + the friendly deploy page
@@ -1338,8 +1339,9 @@ def guest_html(qs=None, lang="hr"):
     links = ((home, w["home"]), ("/influencers" if lang == "en" else "/hr/influenceri", w["kols"]),
              ("/solana-meme-coins" if lang == "en" else "/hr/solana-meme-coini", w["coins"]),
              ("/blog" if lang == "en" else "/hr/blog", "Blog"))
-    other = (f'<a class="lnk x" href="{PATH}" hreflang=hr translate=no>HR</a>' if lang == "en" else
-             f'<a class="lnk x" href="{PATH_EN}" hreflang=en translate=no>EN</a>')
+    # 19.11.: through /jezik, so the choice is remembered (the cookie) and an hr cookie never sends the EN click back
+    other = (f'<a class="lnk x" href="/jezik?l=hr&amp;next={PATH_HR}" hreflang=hr translate=no>HR</a>' if lang == "en"
+             else f'<a class="lnk x" href="/jezik?l=en&amp;next={PATH}" hreflang=en translate=no>EN</a>')
     out = (f'<!doctype html><html lang=hr><head><meta charset=utf-8><meta name=viewport content="width=device-width,'
            f'initial-scale=1,viewport-fit=cover"><meta name=color-scheme content=light><title>{esc(title)} · {esc(name)}</title>'
            f'<meta name=description content="{esc(desc)}"><link rel=canonical href="{esc(base + here)}">{alts}{og}'
@@ -1373,7 +1375,7 @@ def banner_html(user=None, path=""):
     and is left out on that page itself. "" otherwise. live_state() is kept 30 s, so this costs nothing per page.
     A page kept by ui/pagecache keeps the line it was built with until it is rebuilt (at most UI_CACHE_STALE_S);
     the owner's switch is a POST, and every POST clears that cache, so switching off takes the line down at once."""
-    if path in (PATH, PATH_EN) or not live_state()["live"] or _paused():   # 19.11.: not "live" while paused
+    if path in (PATH, PATH_EN, PATH_HR) or not live_state()["live"] or _paused():   # 19.11.: not "live" while paused
         return ""
     return (f'{BANNER_CSS}<a class=apj-ban href="{PATH}"><span class=d></span><span class=t><b>Autopilot je live:</b> podacima '
             'alata tradamo pravim novcem. <span class=x>Uđi, pogledaj statistiku i dodaj svoj prijedlog.</span></span>'
@@ -1423,7 +1425,7 @@ def landing_strip(lang="hr"):
             tot = s["eq"].get("pnl_sol")
             tot = st["pnl"] if tot is None else tot
             nums.append(f'<span><b>{tot:+.3f} SOL</b>{l_pnl}</span>')
-        return (f'{STRIP_CSS}<a class=apj-strip href="{PATH_EN if lang == "en" else PATH}"><span class=a><span class=lv><i></i>{live}</span>'
+        return (f'{STRIP_CSS}<a class=apj-strip href="{PATH if lang == "en" else PATH_HR}"><span class=a><span class=lv><i></i>{live}</span>'
                 f'<b class=h>{head}</b><span class=s>{sub}</span>'
                 + (f'<span class=n>{"".join(nums)}</span>' if nums else "") + f'</span><span class=go>{go}</span></a>')
     except Exception as e:  # noqa: BLE001 - the front page must never fail because of this block

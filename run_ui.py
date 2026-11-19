@@ -45,11 +45,16 @@ if APP_URL:
 SHARED_PATH = re.compile(r"^/(static/landing/.*|hook/.*|nas-token/\d+/meta\.json|jezik|sw\.js|cekamo-deploy|healthz|"
                          r"img/t/[1-9A-HJ-NP-Za-km-z]{32,44}\.webp|"   # 15.11.: token icons (ui/tokenicons)
                          r"favicon\.ico|favicon\.svg|apple-touch-icon\.png|icon-(192|512)\.png|site\.webmanifest|"
-                         r"(en/)?autopilot|autopilot/chat)$")   # served on every host
+                         r"(en/|hr/)?autopilot|autopilot/chat)$")   # served on every host
 
 
 def _host(url_or_host):
     return (url_or_host or "").split("://", 1)[-1].split("/")[0].split(":")[0].lower()
+
+
+def _has_lang_cookie(cookie):
+    """True when the visitor chose a language (cb_lang cookie present), not only the default."""
+    return any(p.strip().startswith(i18n.COOKIE + "=") for p in (cookie or "").split(";"))
 
 
 def is_public(path):
@@ -102,7 +107,7 @@ def on_site_host(host):
 
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qsl, quote, unquote, urlsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -612,7 +617,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=600")
             self.end_headers()
             return self.wfile.write(body)
-        if path in ("/autopilot", "/en/autopilot", "/autopilot/chat", "/autopilot/zivo"):   # 10.11. (Jure): public Autopilot page, its chat and its live parts
+        if path in ("/autopilot", "/en/autopilot", "/hr/autopilot", "/autopilot/chat", "/autopilot/zivo"):   # 10.11. (Jure): public Autopilot page, its chat and its live parts
             return self._autopilot(path, qs, ok)
         m = re.fullmatch(r"/nas-token/(\d+)/meta\.json", path)
         if m:   # public token metadata: wallets, pump.fun and explorers read it without logging in
@@ -1377,18 +1382,30 @@ class Handler(BaseHTTPRequestHandler):
 
     def _autopilot(self, path, qs, ok):
         """10.11. (Jure): /autopilot is readable without a login on every host. A visitor gets it in a light public
-        frame (Croatian, /en/autopilot through ui/i18n); a logged-in player gets it inside the app, where the chat
+        frame (English at /autopilot through ui/i18n, Croatian at /hr/autopilot); a logged-in player gets it inside the app, where the chat
         form and +1 work. /autopilot/chat is the message list alone, re-fetched by the page every 15 s."""
         from ui import apjavno
-        if ok and path == apjavno.PATH_EN:   # inside the app the language is the player's own setting
+        if ok and path in (apjavno.PATH_EN, apjavno.PATH_HR):   # inside the app the language is the player's own setting
             return self._redirect(apjavno.PATH)
         if not ok and qs.get("prijava") == "1":   # "Prijavi se" on the public copy: only a visitor needs the form
             return self._redirect("/prijava?next=" + apjavno.PATH)
+        # 19.11. (vlasnik 13.11.: every public page in Croatian and English; he shows the site to foreigners): the public
+        # site's scheme, "/autopilot" = English (canonical, x-default), "/hr/autopilot" = Croatian; the old English
+        # address moves for good, and a visitor whose cookie says hr is sent from the English address to the Croatian one
+        if not ok and path == apjavno.PATH_EN:
+            return self._redirect(apjavno.PATH + (f"?{urlencode(qs)}" if qs else ""), code=301)
+        if not ok and path == apjavno.PATH and self.lang == "hr" and _has_lang_cookie(self.headers.get("Cookie")):
+            return self._redirect(apjavno.PATH_HR + (f"?{urlencode(qs)}" if qs else ""), code=302)
         user = self.user if ok else None
-        lang = self.lang if ok else ("en" if path == apjavno.PATH_EN or qs.get("l") == "en" else "hr")
+        if ok:
+            lang = self.lang
+        elif path in (apjavno.CHAT_PATH, apjavno.LIVE_PATH):
+            lang = "hr" if qs.get("l") == "hr" else "en"
+        else:
+            lang = "hr" if path == apjavno.PATH_HR else "en"
         self._public = not ok   # a visitor gets no app cookies; a player's copy carries the form token cookie
         # 10.11. (Jure: "da", u Google): the visitor's copy of the page is indexable; the chat fragment and the in-app copy are not
-        self._index = not ok and path in (apjavno.PATH, apjavno.PATH_EN)
+        self._index = not ok and path in (apjavno.PATH, apjavno.PATH_HR)
         try:
             if path == apjavno.CHAT_PATH:
                 html = apjavno.chat_fragment(user, qs)
