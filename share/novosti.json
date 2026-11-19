@@ -1,5 +1,35 @@
 [
  {
+  "datum": "2026-11-20",
+  "naslov": "Aplikacija je presložena oko novčanika",
+  "tekst": "donja traka je sada Pregled, Novčanici, Tokeni, Influenceri i Više. Pregled počinje novčanicima koji kupuju prije skoka cijene, zatim slijede tokeni koji su nedavno skočili i makro influenceri."
+ },
+ {
+  "datum": "2026-11-20",
+  "naslov": "Nova stranica Tokeni",
+  "tekst": "stranica Tokeni sada prikazuje midcap tokene koje pratimo, u tri kartice: od 15 M $, od 2 do 15 M $ i oni koji su nedavno skočili. Uz token koji je skočio piše koliko je skupina novčanika kupilo prije skoka."
+ },
+ {
+  "datum": "2026-11-20",
+  "naslov": "Influenceri: makro na prvom mjestu",
+  "tekst": "na stranici Influenceri prva kartica je sada Makro. Pozivi na tokene koji danas vrijede manje od 30.000 $ skupljeni su u jedan redak. Telegram kanali su samo informativni popis s brojem pratitelja koji se osvježava jednom tjedno, a pozivi s Telegrama više ne ulaze ni u jedan izračun."
+ },
+ {
+  "datum": "2026-11-20",
+  "naslov": "Autopilot je u drugom planu",
+  "tekst": "dok se aplikacija preslaguje, Autopilot se nalazi pod Više. Kupnje pravim novcem su i dalje pauzirane. Javit ćemo kad se Autopilot nastavi."
+ },
+ {
+  "datum": "2026-11-20",
+  "naslov": "Maknute stranice",
+  "tekst": "stranice Eventi, Zadnji sken, Za WhatsApp, Ideje za alat i Natjecanje su maknute jer više ne služe novom fokusu. Stare poveznice vode na Pregled ili na Tokene."
+ },
+ {
+  "datum": "2026-11-20",
+  "naslov": "Nova naslovnica",
+  "tekst": "javna naslovnica sada u tri koraka objašnjava što alat radi: prati tokene od 2 do 200 milijuna dolara, traži tko je kupio prije rasta i mjeri isplati li se takve novčanike pratiti."
+ },
+ {
   "datum": "2026-11-19",
   "naslov": "Novčanici koje vrijedi pratiti",
   "tekst": "na stranici Novčanici je nova kartica: novčanici i skupine povezanih novčanika koji su više puta kupili prije skoka cijene i prodali u rast, svaki s jednom rečenicom razloga. Na popis ulaze samo oni koje potvrde i noviji podaci, pa je prvih dana prazan dok se dokazi skupljaju. To je statistika iz javnih podataka s lanca, a ne financijski savjet."
