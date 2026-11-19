@@ -323,7 +323,7 @@ class Chain(Db):
         self.assertTrue(r["complete"])
         self.assertEqual(r["swaps"], 2)
         rows = store.q(self.con, "SELECT trader, side, usd, round(sol_eq, 3), how FROM bnb_trades ORDER BY ts")
-        self.assertEqual(rows, [(self.W, "buy", 20.0, 0.2, "transfer"), (self.W, "sell", 60.0, 0.6, "transfer")])
+        self.assertEqual(rows, [(self.W, "buy", 20.0, 0.2, None), (self.W, "sell", 60.0, 0.6, None)])
         cov = store.q(self.con, "SELECT depth, pre_cov, jump_cov FROM bnb_cover")[0]
         self.assertEqual(cov[0], store.FETCH_DEPTH)
         self.assertGreater(cov[1], 0.99)

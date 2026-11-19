@@ -138,9 +138,12 @@ def store_trades(con, e, quote, trades, px):
         qusd = px.at(qser, t["ts"]) if t["ts"] else None
         usd = t["qamt"] * qusd if qusd is not None else None
         su = px.at("sol", t["ts"]) if t["ts"] else None
-        rows.append((store.CHAIN, e["token"], e["pool"], t["tx"], t["li"], t["block"], t["ts"], t["trader"], t["side"],
-                     t["amt"], quote, t["qamt"], usd, (usd / su) if usd is not None and su else None, t["how"],
-                     t.get("recip")))
+        # pool, quote and the Swap's recipient are not stored a row (the pool / quote are the token's, bnb_tokens; the
+        # recipient was only needed for the attribution measurement): ~130 bytes less a swap, the 400 MB cap holds
+        # ~1 M swaps
+        rows.append((store.CHAIN, e["token"], None, t["tx"], t["li"], t["block"], t["ts"], t["trader"], t["side"],
+                     t["amt"], None, t["qamt"], usd, (usd / su) if usd is not None and su else None,
+                     None if t["how"] == "transfer" else t["how"], None))
     con.executemany("INSERT OR IGNORE INTO bnb_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     return len(rows)
 
