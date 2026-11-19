@@ -108,12 +108,58 @@ def compute():
         v["players"] = len(store.users())
     except Exception:  # noqa: BLE001
         pass
+    try:   # 20.11. (vlasnik 19.11.: novi fokus): the wallet search's public aggregates, read with the other numbers
+        v["nov"] = wallet_numbers()
+    except Exception as e:  # noqa: BLE001
+        print(f"naslovnica: brojke novčanika nisu pročitane: {type(e).__name__}: {e}", flush=True)
     try:   # 10.11.: the site log rows (a few rows by primary key) are kept with the numbers, so a visit reads no database
         from ui import sitelog
         v["log"] = sitelog.recent(LOG_READ)
     except Exception as e:  # noqa: BLE001
         print(f"naslovnica: dnevnik weba nije pročitan: {type(e).__name__}: {e}", flush=True)
     return {k: x for k, x in v.items() if x}
+
+
+def wallet_numbers(now=None):
+    """Public-safe aggregates of the wallet search (no address, no name of a wallet, no cost): {"rises" (token rises
+    reviewed), "found" (wallets or groups that bought before and sold into 3+ rises), "confirmed", "examples" (up to 3
+    of the best confirmed: members, tokens, tokens worth 15 M $+), "meas" (the per-entry measurement of those groups:
+    n, mean, lo, hi, token-days, verdict word), "tokens" (tracked midcap pages: slug, symbol, mcap)}."""
+    from ui import novjasno as J
+    from ui import novpodaci as NP
+    out = {"rises": None, "found": None, "confirmed": None, "examples": [], "meas": None, "tokens": []}
+    con = NP.ins_con()
+    if con is not None:
+        try:
+            _s, pp = NP.summary(con)
+            if pp:
+                out["rises"] = int(pp.get("covered15") or 0) + int(pp.get("covered2") or 0)
+            n, c, _k = J._counts(con)
+            if pp or n:
+                out["found"], out["confirmed"] = n, c
+            for g in NP.confirmed_groups(con, 3):
+                out["examples"].append({"k": len(g["members"]) or 1, "n": int(g.get("n_tokens") or 0),
+                                        "b": int(g.get("n_pumps15") or 0)})
+        finally:
+            con.close()
+    st, _first = J.mjera_stats(now=now)
+    if st is not None and st.get("signals"):
+        from league import mjera
+        out["meas"] = {"n": int(st.get("measured") or 0), "mean": st.get("mean01"), "lo": st.get("lo"),
+                       "hi": st.get("hi"), "td": int(st.get("token_days") or 0), "verdict": mjera.verdict(st)}
+    try:
+        from tokenstranice import store as TS
+        tc = TS.ro()
+        if tc is not None:
+            try:
+                out["tokens"] = [{"slug": sl, "symbol": sy, "mcap": mc} for sl, sy, mc in tc.execute(
+                    "SELECT slug, symbol, mcap FROM pages WHERE active=1 AND enough=1 AND slug IS NOT NULL AND "
+                    "COALESCE(mcap, 0) >= 2e6 ORDER BY (mcap >= 15e6 AND mcap <= 200e6) DESC, vol24 DESC LIMIT 8")]
+            finally:
+                tc.close()
+    except Exception:  # noqa: BLE001 - the section says the list is filling up
+        pass
+    return out
 
 
 def _refresh():
@@ -188,50 +234,21 @@ def _pct(x):
 # ---------- page ---------------------------------------------------------------------------------------------------
 
 SHOTS = {   # file -> alt text (HR files; the English page uses the same names with an "en-" prefix)
-    "mob-tokeni.jpg": "Prijedlozi tokena na mobitelu: Novi, Jaki, Dugoročni",
-    "mob-token.jpg": "Analiza tokena: Šansa, presuda u jednoj rečenici, Za i Protiv",
-    "mob-kol-profil.jpg": "Profil influencera: moć poziva, pogodak, hvalisanje",
-    "mob-novcanici.jpg": "Praćenje novčanika: tko je upravo kupio ili prodao",
-    "mob-eventi.jpg": "Event tokeni: događaji i najizgledniji token",
-    "mob-dugorocni.jpg": "Dugoročni tokeni",
-    "tokeni.jpg": "Prijedlozi tokena", "token-detalj.jpg": "Analiza tokena", "influenceri.jpg": "Ljestvica influencera",
-    "kol-profil.jpg": "Profil influencera", "novcanici.jpg": "Praćenje novčanika", "dugorocni-lista.jpg": "Dugoročni tokeni",
+    # 20.11. (vlasnik 19.11.: "promijeniti fokus"): screens of what the tool does now, made from the local fixture
+    # (scripts/seed_novcanici.py + audit/2026-11-10/seed_app.py), never from production data
+    "novcanici.jpg": "Novčanici koje vrijedi pratiti: svaka skupina jednom rečenicom",
+    "mjerenje.jpg": "Mjerenje praćenja novčanika: svaka kupnja u postocima, nakon troška",
+    "token-midcap.jpg": "Stranica praćenog tokena: cijena, market cap, likvidnost i graf",
+    "tokeni.jpg": "Tokeni",
+    "mob-novcanici.jpg": "Novčanici koje vrijedi pratiti na mobitelu",
+    "mob-mjerenje.jpg": "Mjerenje praćenja novčanika na mobitelu",
 }
-SHOTS.update({"en-" + k: v for k, v in SHOTS.items()})
-
-FEATURES = [
-    ("🪙", "Prijedlozi tokena", "Novi, jaki i dugoročni tokeni na jednom popisu, najjači gore, s razlozima običnim riječima."),
-    ("📣", "Ocjena influencera", "Za svaki poziv izmjerimo što je cijena napravila. Vidiš tko pomiče tržište, a tko samo viče."),
-    ("👛", "Praćenje novčanika", "Tko je upravo kupio ili prodao: KOL novčanici i pametni novčanici, uživo."),
-    ("📅", "Event tokeni", "Događaji iz kalendara, Polymarketa i Wikipedije i token koji je oko njih najizgledniji."),
-    ("🛡", "Štit od ruga", "Mint, freeze, likvidnost, top holderi i dev provjereni prije nego ti token pokažemo."),
-    ("🌱", "Dugoročni tokeni", "Stariji tokeni koji su preživjeli i imaju stalan volumen, za mirniji dio portfelja."),
-    ("🤖", "Demo bot i copy trading", "Bot trguje i kopira influencere na demo računu. Vidiš bi li zaradio, bez pravog novca."),
-    ("✨", "Što je novo", "Alat dobiva nove mogućnosti svaki tjedan. Sve novosti su u aplikaciji, po datumima."),
-]
-
-GALLERY = [("tokeni.jpg", "Prijedlozi tokena"), ("token-detalj.jpg", "Analiza tokena"), ("influenceri.jpg", "Ljestvica influencera"),
-           ("kol-profil.jpg", "Profil influencera"), ("novcanici.jpg", "Praćenje novčanika"), ("dugorocni-lista.jpg", "Dugoročni tokeni")]
-
-# "Kako izgleda": one row per core feature, a real phone screenshot next to a short text
-TOUR = [
-    ("mob-tokeni.jpg", "Prijedlozi tokena", "Najjači tokeni, upravo sada.",
-     "Novi, Jaki i Dugoročni na jednom popisu. Svaki token ima ocjenu i razloge zašto je gore.",
-     ["Confidence i Šansa za skok za svaki token", "Zašto: razlozi običnim riječima", "Rug oznaka: prolazi, oprez ili odbačen"]),
-    ("mob-token.jpg", "Analiza tokena", "Presuda u jednoj rečenici.",
-     "Otvoriš token i odmah vidiš Šansu, Za i Protiv te gumb za kopiranje adrese.",
-     ["Svježa provjera svake 3 minute za vodeće prijedloge", "Upozori kad je token na vrhu pumpe",
-      "Rug check: mint, freeze, likvidnost, top holderi, dev"]),
-    ("mob-kol-profil.jpg", "Analiza influencera", "Tko stvarno pogađa.",
-     "Za svaki poziv izmjerimo što je cijena napravila u satu i danu nakon poziva.",
-     ["Moć poziva, pogodak, rugovi i hvalisanje", "Rastuće zvijezde i velika imena odvojeno", "Što je koji influencer upravo zvao"]),
-    ("mob-novcanici.jpg", "Praćenje novčanika", "Tko je upravo kupio.",
-     "Kupnje i prodaje KOL novčanika i pametnih novčanika, uživo, s iznosom u SOL-u.",
-     ["Popis novčanika koje se isplati pratiti", "Klik vodi na token ili profil", "Grupe novčanika koje kupuju zajedno"]),
-    ("mob-eventi.jpg", "Event tokeni", "Token prije vijesti.",
-     "Događaji iz kalendara, Polymarketa i Wikipedije, s tokenima koji nastaju oko njih.",
-     ["Hype ocjena 0–100 za svaki događaj", "Najizgledniji token po eventu, s razlozima", "Prati kreće li token prije događaja"]),
-]
+SHOTS_EN = {"en-novcanici.jpg": "Wallets worth following: every group in one sentence",
+            "en-mjerenje.jpg": "Wallet following measured: every buy in percent, after costs",
+            "en-token-midcap.jpg": "A tracked token's page: price, market cap, liquidity and chart",
+            "en-tokeni.jpg": "Tokens", "en-mob-novcanici.jpg": "Wallets worth following on a phone",
+            "en-mob-mjerenje.jpg": "Wallet following measured, on a phone"}
+SHOTS.update(SHOTS_EN)
 
 CSS = """
 :root{--bg:#fff;--soft:#f6f7fb;--fg:#0b1220;--mut:#5b6474;--line:#e8ebf2;--acc:#4f46e5;--acc2:#0fb5a0;--good:#16a34a}
@@ -381,6 +398,21 @@ dialog#lb img{max-width:96vw;max-height:94vh;border-radius:12px}
 @media(max-width:600px){.lgr{grid-template-columns:1fr;gap:6px;padding:14px 0}.lgr time{padding-top:0;font-size:13px}}
 .lgt a.lgm{color:var(--mut);font-weight:500;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
 .apst{margin-top:14px}.apst+.hero{padding-top:56px}@media(max-width:760px){.apst+.hero{padding-top:36px}}
+.steps{list-style:none;padding:0;margin:8px auto 0;display:grid;grid-template-columns:repeat(3,1fr);gap:18px;max-width:1000px}
+.steps li{background:#fff;border:1px solid var(--line);border-radius:22px;padding:24px}
+.steps li b{display:inline-flex;width:34px;height:34px;border-radius:50%;background:var(--fg);color:#fff;align-items:center;
+justify-content:center;font-size:16px}.steps h3{font-size:19px;letter-spacing:-.02em;margin:14px 0 6px;line-height:1.25}
+.steps p{margin:0;color:var(--mut);font-size:15.5px}
+@media(max-width:860px){.steps{grid-template-columns:1fr;gap:12px}}
+.wx{list-style:none;padding:0;margin:0 0 6px;display:grid;gap:10px;max-width:760px}
+.wx li{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 18px;font-size:16px;line-height:1.45}
+.tk{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;max-width:900px}
+.tk a{display:block;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:#fff}
+.tk a:hover{border-color:#c7cbf5}.tk b{display:block;font-size:17px}.tk span{color:var(--mut);font-size:13.5px}
+@media(max-width:760px){.tk{grid-template-columns:1fr 1fr}}
+.lk{color:var(--acc);font-weight:650}
+.apb{max-width:760px;margin:0 auto;border:1px solid var(--line);border-radius:20px;padding:22px 24px;background:#fff}
+.apb>div[role]{margin:0}
 .mcta{position:fixed;left:14px;right:14px;bottom:14px;z-index:30;display:none;transition:opacity .2s,transform .2s}
 .mcta.h{opacity:0;transform:translateY(20px);pointer-events:none}
 @media(max-width:760px){.gsec{display:none}body{font-size:16px}.hero{padding:56px 0 8px}section{padding:64px 0}.hm{display:none}.mcta{display:flex}
@@ -388,8 +420,6 @@ dialog#lb img{max-width:96vw;max-height:94vh;border-radius:12px}
 """
 
 JS = """
-const lb=document.getElementById('lb');document.querySelectorAll('img[data-zoom]').forEach(i=>i.onclick=()=>{
- lb.querySelector('img').src=i.src;lb.querySelector('img').alt=i.alt;lb.showModal()});lb.onclick=()=>lb.close();
 const nav=document.querySelector('nav.top'),cta=document.querySelector('.mcta'),form=document.getElementById('pristup');
 const tick=()=>{nav.classList.toggle('s',scrollY>8);const r=form.getBoundingClientRect();
  cta.classList.toggle('h',scrollY<300||(r.top<innerHeight&&r.bottom>0))};addEventListener('scroll',tick,{passive:true});tick();
@@ -423,126 +453,140 @@ def _img(name, eager=False):
             f'{"" if eager else "loading=lazy "}decoding=async>')
 
 
-FEATURES_EN = [
-    ("🪙", "Token picks", "New, strong and long-term tokens in one list, best first, with the reasons in plain words."),
-    ("📣", "Influencer scores", "We measure what the price did after every call. See who moves the market and who just shouts."),
-    ("👛", "Wallet tracking", "Who just bought or sold: influencer wallets and smart wallets, live."),
-    ("📅", "Event tokens", "Events from calendars, Polymarket and Wikipedia, and the token most likely to run on each."),
-    ("🛡", "Rug shield", "Mint, freeze, liquidity, top holders and the dev are checked before a token is shown to you."),
-    ("🌱", "Long-term tokens", "Older tokens that survived and keep steady volume, for the calmer part of your portfolio."),
-    ("🤖", "Demo bot and copy trading", "The bot trades and copies influencers on a demo account. See if it would profit, no real money."),
-    ("✨", "What's new", "New features land every week. Every update is listed in the app, by date."),
-]
-GALLERY_EN = [("en-tokeni.jpg", "Token picks"), ("en-token-detalj.jpg", "Token analysis"), ("en-influenceri.jpg", "Influencer leaderboard"),
-              ("en-kol-profil.jpg", "Influencer profile"), ("en-novcanici.jpg", "Wallet tracking"), ("en-dugorocni-lista.jpg", "Long-term tokens")]
-TOUR_EN = [
-    ("en-mob-tokeni.jpg", "Token picks", "The strongest tokens, right now.",
-     "New, Strong and Long-term in one list. Every token has a score and the reasons it is on top.",
-     ["Confidence and breakout chance for every token", "Why: the reasons in plain words", "Rug label: passes, caution or rejected"]),
-    ("en-mob-token.jpg", "Token analysis", "The verdict in one sentence.",
-     "Open a token and you see its chance, the case for and against, and a button to copy the address.",
-     ["Fresh re-check every 3 minutes for the top picks", "Warns you when a token is at the top of a pump",
-      "Rug check: mint, freeze, liquidity, top holders, dev"]),
-    ("en-mob-kol-profil.jpg", "Influencer analysis", "Who actually gets it right.",
-     "For every call we measure what the price did in the hour and the day after it.",
-     ["Call power, hit rate, rugs and bragging", "Rising stars and big names kept apart", "What each influencer just called"]),
-    ("en-mob-novcanici.jpg", "Wallet tracking", "Who just bought.",
-     "Buys and sells of influencer wallets and smart wallets, live, with the size in SOL.",
-     ["A list of wallets worth following", "Tap through to the token or the profile", "Groups of wallets that buy together"]),
-    ("en-mob-eventi.jpg", "Event tokens", "The token before the news.",
-     "Events from calendars, Polymarket and Wikipedia, with the tokens that spring up around them.",
-     ["Hype score 0–100 for every event", "Most likely token per event, with reasons", "Watches whether a token moves before the event"]),
-]
-
 T = {
     "hr": dict(
-        title="MemeSonar · pametniji ulaz u Solana tokene",
-        desc="Prijedlozi Solana tokena, analiza influencera, praćenje novčanika i event tokeni. Za sada besplatno, pristup na zahtjev.",
-        pill="Za sada besplatno · pristup na zahtjev", h1a="Pametniji ulaz u", h1b="Solana tokene.",
-        sub="MemeSonar prati nove tokene, influencere i pametne novčanike i pokaže ti samo ono što ima smisla.",
-        req="Zatraži pristup", login="Prijava", app="Otvori aplikaciju", nav_feat="Funkcije", nav_inf="Influenceri", ex_eye="Istraži besplatno", ex_h="Javni podaci MemeSonara",
-        n_tokens="tokena provjereno", n_wallets="novčanika praćeno", n_kols="influencera ocijenjeno",
-        n_calls="poziva izmjereno", live="Uživo iz baze · osvježeno", badge="Uživo", badge_t="Brojevi se sami osvježavaju iz baze svakih 30 minuta", feat_eye="Funkcije", feat_h="Sve bitno, ništa viška.",
-        feat_lead="Alati koji rade 24/7, da ti ne moraš.",
-        tour_eye="Kako izgleda", tour_h="Prave slike iz aplikacije.", tour_p="Ovako alat izgleda na mobitelu, danas.",
-        free_eye="Cijena", free_h="Za sada besplatno.", free_big="0 €",
-        free_p="Alat je u ranoj fazi i za sada ga ne naplaćujemo. Pristup dobiješ na zahtjev: ostavi ime i e-mail i pošaljemo ti osobni link za registraciju.",
-        free_li=["Bez kartice i plaćanja", "Nikad ne tražimo seed frazu ni privatni ključ", "Radi na mobitelu i računalu"],
-        pw_h="Veća šansa za udvostručenje kad token zove 3+ influencera u 15 minuta.",
-        pw_p="Alat to vidi u trenutku i javi ti, prije nego cijena ode.",
-        pw_m="Izmjereno na {g} tokena s 3+ pozivatelja naspram {s} s manje.", pw_wait="Još se mjeri: premalo tokena s 3+ pozivatelja za pouzdan broj.",
-        pw_a="3+ influencera", pw_b="1 ili 2 influencera",
-        inf_eye="Javno", inf_h="Ljestvica influencera.", inf_p="Pogledaj kako su prošli pozivi najpoznatijih "
-        "crypto influencera na Solani. Besplatno, bez prijave.", inf_btn="Otvori ljestvicu",
-        gal_eye="Iznutra", gal_h="Pogledaj kako izgleda.", gal_p="Prave slike iz aplikacije. Povuci lijevo za još.",
+        title="MemeSonar · novčanici koji kupuju prije skoka Solana tokena",
+        desc="Tražimo novčanike koji kupuju prije skoka Solana tokena i mjerimo isplati li se pratiti ih, nakon "
+             "stvarnog troška. Besplatno, pristup na zahtjev.",
+        pill="Za sada besplatno · pristup na zahtjev", h1a="Novčanici koji kupuju", h1b="prije skoka.",
+        sub="Tražimo novčanike koji kupuju prije nego što token skoči i mjerimo isplati li se pratiti ih.",
+        req="Zatraži pristup", login="Prijava", app="Otvori aplikaciju", ex_eye="Istraži besplatno",
+        ex_h="Javni podaci MemeSonara",
+        how_eye="Kako radi", how_h="Tri koraka, svaki dan.",
+        steps=[("Pratimo tokene od 2 do 200 milijuna dolara",
+                "Gledamo Solana tokene vrijedne od 2 do 200 milijuna dolara, najviše one od 15 milijuna naviše, i "
+                "bilježimo svaki nagli rast."),
+               ("Tražimo tko je kupio prije rasta",
+                "Za svaki rast gledamo tko je kupio prije njega i prodao dok je rastao. Zadržavamo samo novčanike koji "
+                "su to napravili opet i opet; botove, market makere i novčanike koji se pojave samo jednom izbacujemo."),
+               ("Mjerimo i objavljujemo",
+                "Svaku novu kupnju tih novčanika mjerimo u postocima, nakon stvarnog troška, i objavljujemo što "
+                "nađemo, i kad je rezultat negativan.")],
+        live_eye="Uživo", live_h="Što smo dosad našli.", live_wait="Prvi rezultati se upravo računaju.",
+        live_upd="Brojke se osvježavaju iz baze svakih 30 minuta.",
+        n_rises="rasta tokena pregledano", n_found="novčanika ili skupina pronađeno",
+        n_conf="potvrđeno na novijim podacima", n_meas="isplati li se pratiti ih",
+        meas_early="prerano za reći", meas_none="—",
+        meas_n="izmjereno {n} kupnji",
+        wal_eye="Novčanici koje vrijedi pratiti", wal_h="Ovako izgleda jedan nalaz.",
+        wal_p="Primjeri iz popisa, bez adresa. Popis s adresama je u aplikaciji.",
+        wal_wait="Prvi nalazi stižu nakon noćne obrade.",
+        wal_one="Kupio je prije rasta {n} tokena i prodao dok su rasli",
+        wal_grp="Skupina od {k} povezanih novčanika kupila je prije rasta {n} tokena i prodala dok su rasli",
+        wal_big=" ({b} od njih vrijedilo je 15 milijuna dolara ili više)",
+        wal_conf="; potvrđeno na novijim podacima.", wal_unc="; još se potvrđuje na novijim podacima.",
+        disclaimer="To je statistika iz javnih podataka s lanca, a ne financijski savjet.",
+        tok_eye="Tokeni", tok_h="Tokeni koje pratimo.",
+        tok_p="Svaki praćeni token od 2 milijuna dolara naviše ima svoju javnu stranicu: cijena, likvidnost, vlasnici "
+              "i tko ga je zvao.", tok_all="Svi meme coini", tok_wait="Popis tokena se puni.",
+        mak_eye="Influenceri", mak_h="Makro influenceri.",
+        mak_p="Računi koji pišu o smjeru cijelog tržišta, svaka izjava izmjerena po tome što je tržište napravilo "
+              "poslije.", mak_btn="Otvori makro influencere",
+        ap_eye="Autopilot", ap_h="Autopilot", ap_on="Rezultati Autopilota su javni.", ap_btn="Pogledaj Autopilot",
         rq_eye="Pristup na zahtjev", rq_h="Zatraži pristup.",
         rq_p="Besplatno je. Pristup otvaramo postupno: ostavi ime i e-mail i javimo ti se s osobnim linkom.",
+        free_eye="Cijena", free_h="Za sada besplatno.", free_big="0 €", free_sub="za sada",
+        free_p="Alat je u ranoj fazi i za sada ga ne naplaćujemo. Pristup dobiješ na zahtjev: ostavi ime i e-mail i "
+               "pošaljemo ti osobni link za registraciju.",
+        free_li=["Bez kartice i plaćanja", "Nikad ne tražimo seed frazu ni privatni ključ", "Radi na mobitelu i računalu"],
         f_name="Ime", f_ph_name="Marko", f_contact="E-mail (javljamo ti se njime)", f_ph_contact="marko@mail.com",
         f_exp="Koliko tradaš?", f_opts=("Odaberi", "Tek počinjem", "Povremeno", "Aktivno", "Svaki dan"),
         f_fine="Bez novca, kartice i seed fraze. Kontakt koristimo samo za pozivnicu.",
         f_ok="<b>Zahtjev je poslan.</b> Javit ćemo ti se s osobnim linkom za registraciju.",
         faq_h="Pitanja", faq=[
-            ("Trebam li pravi novac?", "Ne. Dobiješ demo račun od $1.000 i trguješ po živim cijenama. Ako kasnije želiš "
-             "pravi novac, to radiš u svom novčaniku, a alat ti samo da adresu tokena."),
+            ("Što znači „kupuje prije skoka”?", "Da je novčanik ili skupina novčanika više puta kupila token prije "
+             "naglog rasta i prodala dok je rastao. To je statistika iz javnih podataka s lanca, a ne optužba i ne "
+             "tvrdnja o tome tko su."),
             ("Je li ovo financijski savjet?", "Nije. Alat mjeri i pokazuje podatke. Memecoini su vrlo rizični i odluka je "
              "uvijek tvoja."),
             ("Koliko košta?", "Za sada ništa. Alat je besplatan dok je u ranoj fazi."),
-            ("Kako dobijem pristup?", "Ispuni kratki obrazac na ovoj stranici (ime i e-mail). Kad ti otvorimo mjesto, dobiješ osobni link za registraciju."),
+            ("Kako dobijem pristup?", "Ispuni kratki obrazac na ovoj stranici (ime i e-mail). Kad ti otvorimo mjesto, "
+             "dobiješ osobni link za registraciju."),
             ("Radi li na mobitelu?", "Da. Otvoriš link, prijaviš se jednom i alat te pamti 60 dana.")],
         log_eye="Dnevnik", log_h="MemeSonar je live {n}.", log_h0="MemeSonar je live od danas.",
-        log_p="Svake noći u 02:00 osvježimo <a href=/hr/influenceri>ljestvicu influencera</a>, "
-              "<a href=/hr/solana-meme-coini>meme coine</a> i brojke na <a href=/hr/blog>blogu</a>. Ovdje piše što je novo.",
+        log_p="Svake noći u 02:00 osvježimo <a href=/hr/solana-meme-coini>meme coine</a>, "
+              "<a href=/hr/influenceri>influencere</a> i brojke na <a href=/hr/blog>blogu</a>. Ovdje piše što je novo.",
         log_wait="Prvi zapis stiže nakon sljedećeg noćnog osvježavanja.",
         log_k=dict(kols="Influenceri", calls="Izmjereni pozivi", channels="Telegram kanali", wallets="Novčanici",
                    trades="Tradeovi novčanika", coins="Meme coini", tokens="Provjereni tokeni"),
         log_blogs="Blogovi s novim podacima", log_posts="Novi članci", log_more="i još {n}",
-        foot="Nije financijski savjet. Kripto nosi visok rizik.", feats=FEATURES, gallery=GALLERY,
-        fallback=[("2 min", "novi sken"), ("24/7", "radi bez pauze"), ("7", "slojeva provjere"), ("0 €", "za sada")],
-        tour=TOUR),
+        foot="Nije financijski savjet. Kripto nosi visok rizik."),
     "en": dict(
-        title="MemeSonar · smarter entries into Solana tokens",
-        desc="Solana token picks, influencer analysis, wallet tracking and event tokens. Free for now, access on request.",
-        pill="Free for now · access on request", h1a="Smarter entries into", h1b="Solana tokens.",
-        sub="MemeSonar tracks new tokens, influencers and smart wallets, and shows you only what makes sense.",
-        req="Request access", login="Log in", app="Open the app", nav_feat="Features", nav_inf="Influencers", ex_eye="Explore for free", ex_h="Public MemeSonar data",
-        n_tokens="tokens checked", n_wallets="wallets tracked", n_kols="influencers scored", n_calls="calls measured",
-        live="Live from the database · updated", badge="Live", badge_t="These numbers refresh from the database every 30 minutes", feat_eye="Features", feat_h="Everything that matters. Nothing else.",
-        feat_lead="Tools working 24/7, so you don't have to.",
-        tour_eye="How it looks", tour_h="Real screenshots from the app.", tour_p="This is what the tool looks like on a phone, today.",
-        free_eye="Price", free_h="Free for now.", free_big="$0",
-        free_p="The tool is at an early stage and we don't charge for it for now. Access is on request: leave your name and e-mail and we'll send you a personal sign-up link.",
-        free_li=["No card, no payment", "We never ask for a seed phrase or private key", "Works on phone and desktop"],
-        pw_h="Higher chance of a 2× when 3+ influencers call a token within 15 minutes.",
-        pw_p="The tool sees it the moment it happens and tells you, before the price runs.",
-        pw_m="Measured on {g} tokens with 3+ callers against {s} with fewer.", pw_wait="Still measuring: too few tokens with 3+ callers for a reliable number.",
-        pw_a="3+ influencers", pw_b="1 or 2 influencers",
-        inf_eye="Public", inf_h="Influencer leaderboard.", inf_p="See how the calls of well-known Solana crypto "
-        "influencers actually played out. Free, no login.", inf_btn="Open the leaderboard",
-        gal_eye="Inside", gal_h="See what it looks like.", gal_p="Real screenshots from the app. Swipe for more.",
+        title="MemeSonar · wallets that buy before Solana tokens jump",
+        desc="We look for the wallets that buy before a Solana token jumps and measure whether following them pays, "
+             "after real costs. Free for now, access on request.",
+        pill="Free for now · access on request", h1a="Wallets that buy", h1b="before the jump.",
+        sub="We look for the wallets that buy before a token jumps, and measure whether following them pays.",
+        req="Request access", login="Log in", app="Open the app", ex_eye="Explore for free", ex_h="Public MemeSonar data",
+        how_eye="How it works", how_h="Three steps, every day.",
+        steps=[("We watch tokens worth 2 to 200 million dollars",
+                "We watch Solana tokens worth 2 to 200 million dollars, most closely those from 15 million up, and note "
+                "every sharp rise."),
+               ("We find who bought before the rise",
+                "For each rise we look at who bought before it and sold into it. We keep only wallets that did so again "
+                "and again; bots, market makers and one-off wallets are left out."),
+               ("We measure and publish",
+                "Every new buy of those wallets is measured in percent after real costs, and we publish what we find, "
+                "also when it is negative.")],
+        live_eye="Live", live_h="What we have found so far.", live_wait="The first results are being computed.",
+        live_upd="These numbers refresh from the database every 30 minutes.",
+        n_rises="token rises reviewed", n_found="wallets or groups found",
+        n_conf="confirmed on newer data", n_meas="does following them pay",
+        meas_early="too early to say", meas_none="—",
+        meas_n="{n} buys measured",
+        wal_eye="Wallets worth following", wal_h="What one finding looks like.",
+        wal_p="Examples from the list, without addresses. The list with addresses is in the app.",
+        wal_wait="The first findings arrive after the nightly run.",
+        wal_one="Bought before the rise of {n} tokens and sold into it",
+        wal_grp="A group of {k} linked wallets bought before the rise of {n} tokens and sold into it",
+        wal_big=" ({b} of them worth 15 million dollars or more)",
+        wal_conf="; confirmed on newer data.", wal_unc="; still being confirmed on newer data.",
+        disclaimer="These are statistics from public on-chain data, not financial advice.",
+        tok_eye="Tokens", tok_h="The tokens we track.",
+        tok_p="Every tracked token from 2 million dollars up has its own public page: price, liquidity, holders and "
+              "who called it.", tok_all="All meme coins", tok_wait="The token list is filling up.",
+        mak_eye="Influencers", mak_h="Macro influencers.",
+        mak_p="Accounts that write about the direction of the whole market, each statement measured against what the "
+              "market did afterwards.", mak_btn="Open macro influencers",
+        ap_eye="Autopilot", ap_h="Autopilot", ap_on="Autopilot's results are public.", ap_btn="See Autopilot",
         rq_eye="Access on request", rq_h="Request access.",
         rq_p="It's free. We open access gradually: leave your name and e-mail and we'll send you a personal link.",
+        free_eye="Price", free_h="Free for now.", free_big="$0", free_sub="for now",
+        free_p="The tool is at an early stage and we don't charge for it for now. Access is on request: leave your name "
+               "and e-mail and we'll send you a personal sign-up link.",
+        free_li=["No card, no payment", "We never ask for a seed phrase or private key", "Works on phone and desktop"],
         f_name="Name", f_ph_name="Alex", f_contact="E-mail (we reply there)", f_ph_contact="alex@mail.com",
         f_exp="How often do you trade?", f_opts=("Choose", "Just starting", "Now and then", "Actively", "Every day"),
         f_fine="No money, no card, no seed phrase. We use your contact only to send the invite.",
         f_ok="<b>Request sent.</b> We'll get back to you with a personal sign-up link.",
         faq_h="Questions", faq=[
-            ("Do I need real money?", "No. You get a $1,000 demo account and trade at live prices. If you later want to "
-             "use real money, you do it in your own wallet; the tool only gives you the token address."),
+            ("What does “buys before a jump” mean?", "That a wallet or a group of wallets bought a token before a sharp "
+             "rise and sold while it was rising, again and again. It is a statistic from public on-chain data, not an "
+             "accusation and not a statement about who they are."),
             ("Is this financial advice?", "No. The tool measures and shows data. Memecoins are very risky and the "
              "decision is always yours."),
             ("How much does it cost?", "Nothing for now. The tool is free while it is at an early stage."),
-            ("How do I get access?", "Fill in the short form on this page (name and e-mail). When we open a spot for you, you get a personal sign-up link."),
+            ("How do I get access?", "Fill in the short form on this page (name and e-mail). When we open a spot for "
+             "you, you get a personal sign-up link."),
             ("Does it work on my phone?", "Yes. Open the link, log in once and the app remembers you for 60 days.")],
         log_eye="Site log", log_h="MemeSonar has been live for {n}.", log_h0="MemeSonar went live today.",
-        log_p="Every night at 02:00 (Zagreb time) we refresh the <a href=/influencers>influencer leaderboard</a>, the "
-              "<a href=/solana-meme-coins>meme coins</a> and the numbers on the <a href=/blog>blog</a>. This is what was new.",
+        log_p="Every night at 02:00 (Zagreb time) we refresh the <a href=/solana-meme-coins>meme coins</a>, the "
+              "<a href=/influencers>influencers</a> and the numbers on the <a href=/blog>blog</a>. This is what was new.",
         log_wait="The first entry appears after the next nightly refresh.",
         log_k=dict(kols="Influencers", calls="Calls measured", channels="Telegram channels", wallets="Wallets",
                    trades="Wallet trades", coins="Meme coins", tokens="Tokens checked"),
         log_blogs="Blog posts with new data", log_posts="New posts", log_more="and {n} more",
-        foot="Not financial advice. Crypto carries a high risk.", feats=FEATURES_EN, gallery=GALLERY_EN,
-        fallback=[("2 min", "new scan"), ("24/7", "always on"), ("7", "layers of checks"), ("$0", "for now")],
-        tour=TOUR_EN),
+        foot="Not financial advice. Crypto carries a high risk."),
 }
 
 
@@ -671,38 +715,46 @@ def log_html(rows, lang="hr", days=None):
 _STRIP_ERR = [0.0]
 
 
-def _ap_strip(lang):
-    """The highlighted "trading with real money is live" block of another group (ui/apjavno.landing_strip, 10.11.).
-    '' while that module does not exist, while the Autopilot is not live, or when it fails: this page never
-    depends on it."""
+def ap_block(lang):
+    """20.11. (vlasnik 19.11.: "Autopilot stavi u drugi plan dok rekonstruiramo app"): one short block low on the page.
+    While paused: the public pause notice of ui/pauza (the single source of that wording) and its demo sentence; else
+    one plain line with a link to the public results. Never raises."""
+    t = T["en" if lang == "en" else "hr"]
+    href = "/autopilot" if lang == "en" else "/hr/autopilot"
     try:
-        from ui import apjavno
-        html = apjavno.landing_strip(lang)
-    except ImportError:
-        return ""
+        from ui import pauza
+        if pauza.on():
+            body = pauza.notice_html(lang, notr=True) + pauza.demo_html(lang, notr=True).replace("margin:-12px 0 18px",
+                                                                                             "margin:8px 0 0")
+        else:
+            body = f"<p class=lead style='margin:0'>{t['ap_on']}</p>"
     except Exception as e:  # noqa: BLE001
-        if time.time() - _STRIP_ERR[0] > 3600:   # one line an hour, not one per visit
+        if time.time() - _STRIP_ERR[0] > 3600:
             _STRIP_ERR[0] = time.time()
-            print(f"naslovnica: traka Autopilota nije prikazana: {type(e).__name__}: {e}", flush=True)
+            print(f"naslovnica: blok Autopilota nije prikazan: {type(e).__name__}: {e}", flush=True)
         return ""
-    return f"<div class='w apst'>{html}</div>" if html and isinstance(html, str) else ""
+    return (f"<section id=autopilot style='padding:40px 0'><div class=w><div class=apb><div class=eyebrow>{t['ap_eye']}"
+            f"</div>{body}<p style='margin:14px 0 0'><a class=lk href={href}>{t['ap_btn']} →</a></p></div></div></section>")
 
 
-SHOW = [   # the hero's "mini video": (file, tab, caption, address shown in the frame); real screenshots of the app
-    ("tokeni.jpg", "Tokeni", "Novi, jaki i dugoročni tokeni na jednom popisu, s razlozima.", "app.memesonar.app/tokens"),
-    ("token-detalj.jpg", "Analiza tokena", "Šansa, Za i Protiv i rug provjera za svaki token.", "app.memesonar.app/token"),
-    ("influenceri.jpg", "Influenceri", "Tko stvarno pogađa: svaki poziv izmjeren.", "app.memesonar.app/kol"),
-    ("kol-profil.jpg", "Profil influencera", "Moć poziva, pogodak, rugovi i zadnji pozivi.", "app.memesonar.app/kol/profil"),
-    ("novcanici.jpg", "Novčanici", "Tko je upravo kupio ili prodao, uživo.", "app.memesonar.app/wallets"),
-    ("dugorocni-lista.jpg", "Dugoročni", "Stariji tokeni koji su preživjeli i imaju stalan volumen.", "app.memesonar.app/dugorocni"),
+SHOW = [   # the hero's "mini video": (file, tab, caption, address shown in the frame); real screens of the app (fixture)
+    ("novcanici.jpg", "Novčanici", "Novčanici koji kupuju prije skoka, svaka skupina jednom rečenicom.",
+     "app.memesonar.app/wallets"),
+    ("mjerenje.jpg", "Mjerenje", "Svaka nova kupnja tih novčanika izmjerena u postocima, nakon troška.",
+     "app.memesonar.app"),
+    ("token-midcap.jpg", "Stranica tokena", "Svaki praćeni token od 2 milijuna dolara naviše ima svoju stranicu.",
+     "memesonar.app/hr/coin"),
+    # 20.11.: the Tokeni page is being rebuilt in another branch; this slot is re-shot after the merge
+    ("tokeni.jpg", "Tokeni", "Tokeni koje pratimo, na jednom popisu.", "app.memesonar.app/tokens"),
 ]
 SHOW_EN = [
-    ("en-tokeni.jpg", "Tokens", "New, strong and long-term tokens on one list, with the reasons.", "app.memesonar.app/tokens"),
-    ("en-token-detalj.jpg", "Token analysis", "Chance, pros and cons and a rug check for every token.", "app.memesonar.app/token"),
-    ("en-influenceri.jpg", "Influencers", "Who actually hits: every call measured.", "app.memesonar.app/kol"),
-    ("en-kol-profil.jpg", "Influencer profile", "Call power, hit rate, rugs and the latest calls.", "app.memesonar.app/kol/profile"),
-    ("en-novcanici.jpg", "Wallets", "Who just bought or sold, live.", "app.memesonar.app/wallets"),
-    ("en-dugorocni-lista.jpg", "Long-term", "Older tokens that survived and keep steady volume.", "app.memesonar.app/long-term"),
+    ("en-novcanici.jpg", "Wallets", "Wallets that buy before a jump, every group in one sentence.",
+     "app.memesonar.app/wallets"),
+    ("en-mjerenje.jpg", "Measured", "Every new buy of those wallets measured in percent, after costs.",
+     "app.memesonar.app"),
+    ("en-token-midcap.jpg", "Token page", "Every tracked token from 2 million dollars up has its own page.",
+     "memesonar.app/coin"),
+    ("en-tokeni.jpg", "Tokens", "The tokens we track, on one list.", "app.memesonar.app/tokens"),
 ]
 
 
@@ -725,11 +777,10 @@ def showcase(lang):
 
 
 def data_ctas(lang, v):
-    """Four buttons at the top (15.11., vlasnik: "4 call to action buttona ... pogledajte kako naši podaci mogu biti
-    korisni"): the free public data pages, each with its newest number when the market snapshot has one."""
+    """Four buttons to the free public data (15.11.; 20.11.: the call and leaderboard buttons gave way to the midcap
+    focus: the market, the macro influencers, the meme coins, the hours), each with its newest number when known."""
     en = lang == "en"
-    num = _n_en if en else _n
-    idx = calls = peak = None
+    idx = peak = None
     try:
         from ui import marketpub as M
         d = M.snapshot()
@@ -737,30 +788,119 @@ def data_ctas(lang, v):
             if d.get("regime"):
                 sc = d["regime"][-1][1]
                 idx = f"{sc:.0f}/100 · {M.label(sc, lang)}"
-            c = d.get("calls")
-            if c and (c["x"].get(c["day"]) or {}).get("calls"):
-                calls = num(c["x"][c["day"]]["calls"])
             h = d.get("hours")
             if h and h.get("vol"):
                 b = max(range(24), key=lambda i: h["vol"][i])
                 peak = f"{b:02d}:00 UTC"
     except Exception as e:  # noqa: BLE001 - the buttons stand without numbers
         print(f"naslovnica: podaci za gumbe nedostupni: {type(e).__name__}: {e}", flush=True)
-    kols = num(v["kols"]) if v.get("kols") else None
     if en:
-        head = "See what our data can do for you. Free, no account:"
+        head = "Free public data, no account:"
         items = [("/solana-market", idx or "Market today", "Meme coin season index: is the market hot or cold?", "Market today"),
-                 ("/crypto-influencer-calls", calls or "Calls today", "influencer calls on X yesterday, and how many worked" if calls else "How many calls influencers make and how many work", "Influencer calls"),
-                 ("/influencers", kols or "Ranking", "influencers scored by what the price did after their calls" if kols else "Influencers scored by what the price did after their calls", "Influencer ranking"),
-                 ("/best-time-to-trade-crypto", peak or "By the hour", "the hour meme coin volume peaks" if peak else "When meme coins trade and when calls work", "Best time to trade")]
+                 ("/macro-influencers", "Macro", "Statements about the whole market, measured against what it did", "Macro influencers"),
+                 ("/solana-meme-coins", "Top 100", "Solana meme coins by market cap, with a rug check", "Meme coins"),
+                 ("/best-time-to-trade-crypto", peak or "By the hour", "the hour meme coin volume peaks" if peak else "When meme coins trade", "Best time to trade")]
     else:
-        head = "Pogledaj kako ti naši podaci mogu koristiti. Besplatno, bez računa:"
+        head = "Besplatni javni podaci, bez računa:"
         items = [("/hr/solana-trziste", idx or "Tržište danas", "Indeks sezone meme coina: je li tržište vruće ili hladno?", "Tržište danas"),
-                 ("/hr/pozivi-kripto-influencera", calls or "Pozivi danas", "poziva influencera na X-u jučer i koliko ih je prošlo" if calls else "Koliko poziva objave influenceri i koliko ih prolazi", "Pozivi influencera"),
-                 ("/hr/influenceri", kols or "Ljestvica", "influencera ocijenjeno po tome što je cijena napravila nakon poziva" if kols else "Influenceri ocijenjeni po tome što je cijena napravila nakon poziva", "Ljestvica influencera"),
-                 ("/hr/najbolje-vrijeme-za-trgovanje-kriptom", peak or "Po satu", "sat u kojem je volumen meme coina najveći" if peak else "Kad se meme coini trguju i kad pozivi prolaze", "Najbolje vrijeme")]
+                 ("/hr/makro-influenceri", "Makro", "Izjave o cijelom tržištu, izmjerene po tome što je napravilo", "Makro influenceri"),
+                 ("/hr/solana-meme-coini", "Top 100", "Solana meme coini po market capu, s provjerom ruga", "Meme coini"),
+                 ("/hr/najbolje-vrijeme-za-trgovanje-kriptom", peak or "Po satu", "sat u kojem je volumen meme coina najveći" if peak else "Kad se meme coini trguju", "Najbolje vrijeme")]
     cards = "".join(f"<a href={h}><b>{esc(b)}</b><span>{esc(sub)}</span><em>{esc(lab)} →</em></a>" for h, b, sub, lab in items)
     return f"<div class=dcta><p>{head}</p><div>{cards}</div></div>"
+
+
+def _pct1(x, en):
+    s = f"{x * 100:+.1f} %"
+    return s if en else s.replace(".", ",")
+
+
+def live_html(lang, nv, age=""):
+    """The live numbers of the wallet search (server-rendered, fixed slots: no layout shift when they change)."""
+    en = lang == "en"
+    t = T["en" if en else "hr"]
+    num = _n_en if en else _n
+    nv = nv or {}
+    dash = t["meas_none"]
+
+    def val(x):
+        return num(x) if isinstance(x, (int, float)) and x is not None else dash
+    m = nv.get("meas")
+    if m and m.get("n"):
+        if str(m.get("verdict") or "").startswith("premalo"):
+            mv, ms = t["meas_early"], t["meas_n"].format(n=num(m["n"]))
+        else:
+            rng = (f" ({_pct1(m['lo'], en)} … {_pct1(m['hi'], en)})" if m.get("lo") is not None and m.get("hi") is not None
+                   else "")
+            mv = _pct1(m.get("mean") or 0, en)
+            ms = (("per buy after costs" if en else "po kupnji nakon troška") + rng)
+    elif m:
+        mv, ms = t["meas_early"], t["meas_n"].format(n="0")
+    else:
+        mv, ms = dash, t["n_meas"]
+    tiles = [(val(nv.get("rises")), t["n_rises"]), (val(nv.get("found")), t["n_found"]),
+             (val(nv.get("confirmed")), t["n_conf"]), (mv, ms if m else t["n_meas"])]
+    empty = nv.get("rises") is None and nv.get("found") is None
+    foot = t["live_wait"] if empty else (t["live_upd"] + (f" · {age}" if age else ""))
+    return (f"<section id=brojke style='padding:56px 0 24px'><div class=w><div class=center><div class=eyebrow>{t['live_eye']}"
+            f"</div><h2>{t['live_h']}</h2></div><div class=nums style='--n:4'>"
+            + "".join(f"<div class=num><b>{esc(x)}</b><span>{esc(lab)}</span></div>" for x, lab in tiles)
+            + f"</div><div class=live><span class=pulse></span>{esc(foot)}</div></div></section>")
+
+
+def wallets_html(lang, nv, app_href, app_label):
+    """Two or three example sentences of the kind the app's card shows, WITHOUT addresses, and the way into the app."""
+    en = lang == "en"
+    t = T["en" if en else "hr"]
+    num = _n_en if en else _n
+    rows = []
+    for e in (nv or {}).get("examples") or []:
+        head = (t["wal_one"].format(n=num(e["n"])) if e["k"] <= 1 else
+                t["wal_grp"].format(k=num(e["k"]), n=num(e["n"])))
+        big = t["wal_big"].format(b=num(e["b"])) if e.get("b") and e["n"] > 1 else ""
+        rows.append(f"<li>{esc(head + big + t['wal_conf'])}</li>")
+    lst = f"<ul class=wx>{''.join(rows)}</ul>" if rows else f"<p class=small>{t['wal_wait']}</p>"
+    return (f"<section id=novcanici class=soft><div class=w><div class=eyebrow>{t['wal_eye']}</div><h2>{t['wal_h']}</h2>"
+            f"<p class=lead>{t['wal_p']}</p>{lst}<p class=fine style='text-align:left'>{t['disclaimer']}</p>"
+            f"<div class=ctas style='justify-content:flex-start;margin-top:22px'><a class='btn p' href=#pristup>{t['req']}</a>"
+            f"<a class='btn g' href={app_href}>{app_label}</a></div></div></section>")
+
+
+def tokens_html(lang, nv):
+    en = lang == "en"
+    t = T["en" if en else "hr"]
+    pre = "/coin/" if en else "/hr/coin/"
+    toks = (nv or {}).get("tokens") or []
+    links = "".join(f"<a href={pre}{quote(x['slug'])}><b translate=no>{esc(x['symbol'] or x['slug'])}</b>"
+                    f"<span>{esc(_usd_short(x.get('mcap')))}</span></a>" for x in toks)
+    allh = "/solana-meme-coins" if en else "/hr/solana-meme-coini"
+    body = f"<div class=tk>{links}</div>" if links else f"<p class=small>{t['tok_wait']}</p>"
+    return (f"<section id=tokeni style='padding-top:64px'><div class=w><div class=eyebrow>{t['tok_eye']}</div>"
+            f"<h2>{t['tok_h']}</h2><p class=lead>{t['tok_p']}</p>{body}"
+            f"<p style='margin:18px 0 0'><a class=lk href={allh}>{t['tok_all']} →</a></p></div></section>")
+
+
+def _usd_short(x):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return ""
+    return f"{v / 1e6:.0f} M $" if v >= 1e7 else f"{v / 1e6:.1f} M $"
+
+
+def macro_html(lang):
+    """One secondary section linking to the public macro pages (only while they are published)."""
+    t = T["en" if lang == "en" else "hr"]
+    try:
+        from makroinf import public as MP
+        if not MP.nav_items(lang):
+            return ""
+    except Exception:  # noqa: BLE001
+        return ""
+    href = "/macro-influencers" if lang == "en" else "/hr/makro-influenceri"
+    return (f"<section id=makro style='padding-top:24px'><div class=w><div class=eyebrow>{t['mak_eye']}</div>"
+            f"<h2>{t['mak_h']}</h2><p class=lead>{t['mak_p']}</p><a class='btn g' href={href}>{t['mak_btn']} →</a>"
+            f"</div></section>")
 
 
 def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
@@ -779,46 +919,14 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
     app_href, app_label = (urls.app_link("/"), t["app"]) if logged_in else (urls.app_link("/prijava"), t["login"])
     num = _n_en if en else _n
 
-    nums = [(v.get(k), t["n_" + k]) for k in ("tokens", "wallets", "kols", "calls")]
-    nums = [(x, lab) for x, lab in nums if x]
-    nums = [(num(x), lab) for x, lab in nums] if len(nums) >= 2 else t["fallback"]
-    nums_html = (f"<div class=nums style='--n:{min(4, len(nums))}'>"
-                 + "".join(f"<div class=num><b>{x}</b><span>{lab}</span></div>" for x, lab in nums[:4]) + "</div>")
     age = ""
     if ts and v:
         age = ago(ts)[0]
         if en:
             age = age.replace("prije ", "").replace(" min", " min ago").replace(" h", " h ago").replace(" d", " d ago")
-        nums_html = (f"<div class=lvhead><span class=lvb title='{t['badge_t']}'><span class=pulse></span>{t['badge']}</span></div>"
-                     + nums_html + f"<div class=live>{t['live']} {age}</div>")
-
-    # audit 4.11. (evening): no made-up fallback (57/33 looked like a measurement), and the sample is the comparison's
-    # own (tokens with 3+ callers vs tokens with fewer), not every measured call
-    g, s = v.get("group_rate"), v.get("solo_rate")
-    live_pw = (f"<div class=lv><span class='lvb dk'><span class=pulse></span>{t['badge']}</span>{t['live']} {age}</div>"
-               if g and ts else "")
-    if g and s:
-        measured = " " + t["pw_m"].format(g=num(v.get("group_n") or 0), s=num(v.get("solo_n") or 0))
-        power = (f"<div class=hl><div class=big><span class=g>{g / s:.1f}×</span></div><div>"
-                 f"<h3>{t['pw_h']}</h3><p>{t['pw_p']}{measured}</p><div class=bars>"
-                 f"<div class=bar><div>{t['pw_a']}<i><em style='width:{min(100, g * 100):.0f}%;"
-                 f"background:linear-gradient(90deg,#818cf8,#2dd4bf)'></em></i></div><b>{_pct(g)}</b></div>"
-                 f"<div class=bar><div>{t['pw_b']}<i><em style='width:{min(100, s * 100):.0f}%;background:#56627d'>"
-                 f"</em></i></div><b>{_pct(s)}</b></div></div>{live_pw}</div></div>")
-    else:   # not measured yet (or too few tokens): say so instead of drawing a number
-        power = (f"<div class=hl><div class=big><span class=g>…</span></div><div>"
-                 f"<h3>{t['pw_h']}</h3><p>{t['pw_p']} {t['pw_wait']}</p></div></div>")
-
-    px = "en-" if en else ""
-    tour = "".join(
-        f"<div class=tr><div class='ph tph'>{_img(img)}</div><div class=tt><div class=eyebrow>{esc(eye)}</div><h3>{esc(h)}</h3>"
-        f"<p>{esc(d)}</p><ul>{''.join(f'<li>{esc(x)}</li>' for x in li)}</ul></div></div>"
-        for img, eye, h, d, li in t["tour"])
+    nv = v.get("nov") or {}
+    steps = "".join(f"<li><b>{k}</b><h3>{esc(h)}</h3><p>{esc(d)}</p></li>" for k, (h, d) in enumerate(t["steps"], 1))
     free_li = "".join(f"<li>{esc(x)}</li>" for x in t["free_li"])
-    feats = "".join(f"<div class=f><div class=i>{i}</div><h3>{a}</h3><p>{d}</p></div>" for i, a, d in t["feats"])
-    gal = "".join(f"<figure><img src=\"/static/landing/{f}\" alt=\"{esc(c)}\" data-zoom loading=lazy "
-                  f"decoding=async><figcaption>{esc(c)}</figcaption></figure>" for f, c in t["gallery"])
-    inf_href = "/influencers" if en else "/hr/influenceri"
 
     msg = f"<div class=ok>{t['f_ok']}</div>" if ok else (f"<div class=err>{esc(err)}</div>" if err else "")
     fv = {k: esc(form.get(k, "")) for k in ("name", "contact")}
@@ -842,7 +950,13 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
     except Exception as e:  # noqa: BLE001
         print(f"naslovnica: dnevnik nije prikazan: {type(e).__name__}: {e}", flush=True)
         site_log = ""
-    ap_strip = _ap_strip(lang)
+
+    def part(name, fn, *a):
+        try:
+            return fn(*a)
+        except Exception as e:  # noqa: BLE001 - one block never costs the front page
+            print(f"naslovnica: {name}: {type(e).__name__}: {e}", flush=True)
+            return ""
 
     og_img, og_alt = P.og_card("/", lang)
     og_img = base + og_img
@@ -866,41 +980,29 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <nav class=top><div class=w><a class=brand href={home}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {P.nav_links(lang)}{switch}
 <a class=lnk href={app_href}>{app_label}</a><a class='btn p sm' href=#pristup>{t['req']}</a>{P.mobile_menu(lang)}</div></nav>
-{ap_strip}
-<header class=hero><div class=hbg style="background-image:url(/static/landing/{px}tokeni.jpg)"></div><div class=w>
+<header class=hero><div class=hbg style="background-image:url(/static/landing/{'en-' if en else ''}token-midcap.jpg)"></div><div class=w>
 <span class=pill><span class=dot></span>{t['pill']}</span>
 <h1>{t['h1a']} <span class=g>{t['h1b']}</span></h1>
 <p class=sub>{t['sub']}</p>
 <div class=ctas><a class='btn p' href=#pristup>{t['req']}</a><a class='btn g' href={app_href}>{app_label}</a></div>
-{data_ctas(lang, v)}
 {showcase(lang)}
 </div></header>
 
-<section style='padding-top:40px'><div class=w>{nums_html}</div></section>
+<section id=kako style='padding-top:56px'><div class=w><div class=center><div class=eyebrow>{t['how_eye']}</div>
+<h2>{t['how_h']}</h2></div><ol class=steps>{steps}</ol></div></section>
+{part("brojke", live_html, lang, nv, age)}
+{part("novcanici", wallets_html, lang, nv, app_href, app_label)}
+{part("tokeni", tokens_html, lang, nv)}
+{part("makro", macro_html, lang)}
+
+<section style='padding-top:40px'><div class=w><div class=eyebrow>{t['ex_eye']}</div><h2>{t['ex_h']}</h2>
+{part("gumbi", data_ctas, lang, v)}{P.explore(lang)}</div></section>
 {site_log}
-<section class=soft id=funkcije><div class=w><div class=center><div class=eyebrow>{t['feat_eye']}</div>
-<h2>{t['feat_h']}</h2><p class=lead>{t['feat_lead']}</p></div>
-<div class=feats>{feats}</div></div></section>
-
-<section id=izgled><div class=w><div class=center><div class=eyebrow>{t['tour_eye']}</div>
-<h2>{t['tour_h']}</h2><p class=lead>{t['tour_p']}</p></div>{tour}</div></section>
-
-<section id=moc><div class=w>{power}</div></section>
-
-<section style='padding-top:0'><div class='w center'><div class=eyebrow>{t['inf_eye']}</div><h2>{t['inf_h']}</h2>
-<p class=lead>{t['inf_p']}</p><a class='btn g' href={inf_href}>{t['inf_btn']} →</a></div></section>
-
-<section style='padding-top:0'><div class=w><div class=eyebrow>{t['ex_eye']}</div><h2>{t['ex_h']}</h2>
-{P.explore(lang)}</div></section>
-
-<section style='padding-top:0'><div class=w>{SN.coin_board(lang)}</div></section>
-
-<section class='soft gsec' style='padding-bottom:64px'><div class=w><div class=eyebrow>{t['gal_eye']}</div>
-<h2>{t['gal_h']}</h2><p class=lead>{t['gal_p']}</p><div class=gal>{gal}</div></div></section>
+{part("autopilot", ap_block, lang)}
 
 <section class=soft id=cijena><div class=w><div class=free><div class=fl><div class=eyebrow>{t['free_eye']}</div>
 <h2>{t['free_h']}</h2><p>{t['free_p']}</p><ul>{free_li}</ul><a class='btn p' href=#pristup>{t['req']}</a></div>
-<div class=fbig><b>{t['free_big']}</b><span>{t['fallback'][3][1]}</span></div></div></div></section>
+<div class=fbig><b>{t['free_big']}</b><span>{t['free_sub']}</span></div></div></div></section>
 
 <section id=pristup><div class='w center'><div class=eyebrow>{t['rq_eye']}</div><h2>{t['rq_h']}</h2>
 <p class=lead>{t['rq_p']}</p><div class=req>{request_form}</div></div></section>
@@ -911,7 +1013,7 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <footer><div class=w>{P._foot_links(lang)}<p style='margin:0 0 10px'>{switch.replace("class=lnk ", "")}</p>
 © {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
 <div class='mcta h'><a class='btn p' href=#pristup>{t['req']}</a></div>
-<dialog id=lb><img alt=""></dialog><script>{JS}</script>{P._ga_tag(lang)}</body></html>"""
+<script>{JS}</script>{P._ga_tag(lang)}</body></html>"""
 
 
 def _n_en(x):
@@ -976,7 +1078,7 @@ def submit(form, ip=""):
     except sqlite3.OperationalError as e:
         print(f"zahtjev za pristup nije spremljen: {e}", flush=True)
         return False, "Zahtjev trenutno nije moguće spremiti. Pokušaj ponovno za par minuta."
-    print(f"natjecanje: zahtjev za pristup od {name}", flush=True)
+    print(f"pristup: zahtjev za pristup od {name}", flush=True)
     return True, None
 
 
@@ -1100,7 +1202,7 @@ def admin_page(qs, user):
     from ui import register
     title = "Pozivnice i zahtjevi"
     if not register.can_invite(user):
-        return title, ("<h1>Zahtjevi za pristup</h1><div class=card>Ovu stranicu vidi samo organizator natjecanja. "
+        return title, ("<h1>Zahtjevi za pristup</h1><div class=card>Ovu stranicu vidi samo administrator. "
                        "<a href=/prijava>Prijavi se svojim imenom</a>.</div>")
     try:
         con = _con()
@@ -1201,7 +1303,7 @@ def admin_post(path, user, form=None):
                 return "/zahtjevi"
         finally:
             con.close()
-        print(f"natjecanje: {user} pozivnica {path.rsplit('/', 1)[1]}", flush=True)
+        print(f"pristup: {user} pozivnica {path.rsplit('/', 1)[1]}", flush=True)
         return f"/zahtjevi?ok={quote(msg)}#pozivnice"
     if path == "/zahtjevi/nova":   # invite someone who never filled in the form
         name = (form or {}).get("name", "").strip()[:60]
@@ -1219,7 +1321,7 @@ def admin_post(path, user, form=None):
             con.commit()
         finally:
             con.close()
-        print(f"natjecanje: {user} ručna pozivnica za {name}", flush=True)
+        print(f"pristup: {user} ručna pozivnica za {name}", flush=True)
         return f"/zahtjevi?ok={quote(f'Pozivnica za {name} je spremna: pošalji je ispod.')}#pozivnice"
     m = re.fullmatch(r"/zahtjevi/(\d+)/(pozovi|odbij)", path)
     if not m:
@@ -1243,5 +1345,5 @@ def admin_post(path, user, form=None):
         con.commit()
     finally:
         con.close()
-    print(f"natjecanje: {user} zahtjev {rid} {act}", flush=True)
+    print(f"pristup: {user} zahtjev {rid} {act}", flush=True)
     return f"/zahtjevi?ok={quote(msg)}"

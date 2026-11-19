@@ -321,8 +321,8 @@ OG_PREFIX = (("kols", ("/influencer", "/macro-influencer")),   # 15.11.: the mac
              ("coins", ("/solana-meme-coins", "/coin/", "/how-to-buy", "/rug-check", "/solana-", "/meme-coin", "/best-time")),
              ("tools", ("/best-crypto-tools",)),
              ("learn", ("/blog", "/glossary")))
-OG_ALT = {"home": ("MemeSonar: token picks, influencer scores and wallet tracking for Solana",
-                   "MemeSonar: prijedlozi tokena, ocjena influencera i praćenje novčanika za Solanu"),
+OG_ALT = {"home": ("MemeSonar: wallets that buy before a Solana token jumps, measured after real costs",   # 20.11.
+                   "MemeSonar: novčanici koji kupuju prije skoka Solana tokena, izmjereno nakon stvarnog troška"),
           "kols": ("Crypto influencer leaderboard on MemeSonar", "Ljestvica kripto influencera na MemeSonaru"),
           "coins": ("Top 100 Solana meme coins, live, on MemeSonar", "Top 100 Solana meme coina uživo na MemeSonaru"),
           "tools": ("Best crypto tools compared on MemeSonar", "Usporedba kripto alata na MemeSonaru"),
