@@ -83,6 +83,9 @@ DEFAULT = {
     # 19.11. navečer (2): the deep read's calls on pump_fetch_workers threads (1 = sequential), all of this process's
     # Helius calls under helius_rps requests a second (wallets/rpc.LIMIT)
     "pump_fetch_workers": 6, "helius_rps": 8,
+    # 19.11. navečer (3): the list stage alone stops at its next step after list_max_s seconds (a hard guard: the pass
+    # deadline is the other)
+    "list_max_s": 600,
     "backfill": {"from": "2026-11-19", "until": "2026-11-25", "helius_day": 250000, "once_s": 1800, "incr_share": 0.2},
 }
 
@@ -102,6 +105,7 @@ CREATE TABLE IF NOT EXISTS i2_part (eid TEXT, wallet TEXT, owner TEXT, buy_ts IN
     sol_out REAL, first_sell_ts INTEGER, bought_before INTEGER, sold_into INTEGER, lead_s INTEGER, src TEXT,
     PRIMARY KEY (eid, wallet));
 CREATE INDEX IF NOT EXISTS i2_part_owner ON i2_part (owner);
+CREATE INDEX IF NOT EXISTS i2_part_wallet ON i2_part (wallet);
 CREATE TABLE IF NOT EXISTS i2_groups (owner TEXT PRIMARY KEY, members TEXT, n_members INTEGER, cls TEXT, why TEXT,
     n_hits INTEGER, n_early INTEGER, n_callers INTEGER, lift REAL, med_lead_min REAL, pnl_sol REAL, tokens TEXT,
     callers TEXT, crews TEXT, first_ts INTEGER, confirmed_ts INTEGER, score REAL, updated INTEGER);
@@ -162,6 +166,7 @@ class Clock:
         lim = (c.get("pass_max_s") or {})
         self.max_s = float(lim[kind]) if isinstance(lim, dict) and lim.get(kind) else None
         self.cuts, self.stages = [], {}
+        self.sub = {}   # 19.11. navečer: the list stage's steps (seconds), run.analyze
 
     def elapsed(self):
         return self.fn() - self.t0

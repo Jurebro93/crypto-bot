@@ -418,7 +418,8 @@ def due_events(con, events, now):
             (not e.get("fetched") or (e.get("tier") and (deep.get(e["eid"]) or 0) < store.FETCH_DEPTH))]
 
 
-LAST_POOL = {"line": None}   # the last fetch_due's "dohvat: ..." (run.time_line)
+LAST_POOL = {"line": None}
+LAST_FETCHED = []   # eids fetch_due read in this pass (run.run resets it): only these are rebuilt after the fetch   # the last fetch_due's "dohvat: ..." (run.time_line)
 
 
 def fetch_due(con, p, c, events, now, budget, fetch=None, log=print, stop=None, pool=None):
@@ -437,6 +438,7 @@ def fetch_due(con, p, c, events, now, budget, fetch=None, log=print, stop=None, 
             left = budget - total
             if left < 10 or (stop is not None and stop()):
                 break
+            LAST_FETCHED.append(e["eid"])   # 19.11. navečer: the pass rebuilds only what it read (run.py)
             if e.get("tier"):
                 got = fetch_event_deep(con, p, c, e, now, left, fetch=fetch, seller_events=rec, log=log, pool=pool,
                                        stop=stop)
@@ -512,8 +514,17 @@ def assign_owners(con, p, c):
     wallets = {w for (w,) in store.q(con, "SELECT DISTINCT wallet FROM i2_part")}
     mints = {m for (m,) in store.q(con, "SELECT DISTINCT token FROM i2_events")}
     own, relay = owners(con, p, c, wallets, mints)
-    con.executemany("UPDATE i2_part SET owner = ? WHERE wallet = ?",
-                    [(own.get(w, w) if w not in relay else "relayer:" + w, w) for w in wallets])
+    # 19.11. navečer (production: the list stage sat 21 min here): one UPDATE per wallet on i2_part, which had no
+    # index on wallet (the key is eid, wallet), was a full scan per wallet: 150k wallets x 700k rows. Now the owner
+    # map goes into a temp table and ONE set-based UPDATE writes only the rows whose owner changed (plus the index
+    # i2_part_wallet in store.SCHEMA for every other lookup by wallet).
+    con.execute("DROP TABLE IF EXISTS temp.i2_own")
+    con.execute("CREATE TEMP TABLE i2_own (wallet TEXT PRIMARY KEY, owner TEXT)")
+    con.executemany("INSERT INTO temp.i2_own VALUES (?, ?)",
+                    [(w, own.get(w, w) if w not in relay else "relayer:" + w) for w in wallets])
+    con.execute("UPDATE i2_part SET owner = m.owner FROM temp.i2_own m WHERE m.wallet = i2_part.wallet AND "
+                "i2_part.owner IS NOT m.owner")
+    con.execute("DROP TABLE temp.i2_own")
     con.commit()
     return own, relay
 
