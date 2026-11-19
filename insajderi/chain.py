@@ -19,6 +19,7 @@ import json
 from collections import Counter, defaultdict
 
 from insajderi import store
+from wallets.helpool import Pool  # 19.11. navečer (2): the bounded fetch pool (also wallets/povijest.py)
 
 DUST_SOL = 0.001
 
@@ -269,7 +270,31 @@ def depth(con, eid):
     return int(r[0][0] or 0) if r else 0
 
 
-def fetch_event_deep(con, p, c, e, now, budget, fetch=None, seller_events=None, log=print):
+class _CallError(Exception):
+    def __init__(self, err, credits):
+        super().__init__(str(err))
+        self.err, self.credits = err, credits
+
+
+def _fetch_call(fetch, mint):
+    """The worker's job: one fetch (network) + the pure parse -> ((txs_meta, rows), credits). No SQLite here."""
+    def call(t):
+        got = [0]
+
+        def on_credits(n):
+            got[0] += n
+        try:
+            txs, complete = fetch(t["address"], since_ts=t["since"], until_ts=t["until"], max_pages=t["pages"],
+                                  oldest_first=True, on_credits=on_credits)
+        except Exception as e:  # noqa: BLE001
+            raise _CallError(e, got[0])
+        times = [int(x.get("blockTime") or 0) for x in txs or [] if x.get("blockTime")]
+        return ({"n": len(txs or []), "complete": bool(complete), "max_ts": max(times) if times else None,
+                 "rows": _rows_of(txs, mint)}, got[0])
+    return call
+
+
+def fetch_event_deep(con, p, c, e, now, budget, fetch=None, seller_events=None, log=print, pool=None, stop=None):
     """19.11. navečer: the DEEP read of a tiered (pump) event, spread over its windows instead of pages from one end.
     getTransactionsForAddress (wallets/rpc.fetch) filters by blockTime (gt / lte), sorts asc / desc and pages by a
     pagination token, so a window can be read slice by slice: the pre window [t0 - pump_pre_h (24 h; 72 h for a 1d
@@ -279,56 +304,68 @@ def fetch_event_deep(con, p, c, e, now, budget, fetch=None, seller_events=None, 
     back). At most pump_event_max_credits an event. Coverage: per window the seconds the fetched transactions span in
     each slice (a complete slice: all of it) over the window's seconds -> i2_cover (depth = store.FETCH_DEPTH, pre_cov,
     jump_cov, n_tx, credits). i2_trades is keyed by (sig, wallet, mint): a re-read never counts a trade twice.
-    Marked fetched (and the depth stored) only when the event was read to its end. -> credits spent."""
+    Marked fetched (and the depth stored) only when the event was read to its end. -> credits spent.
+    19.11. navečer (2): the calls run on `pool` (Pool: pump_fetch_workers threads, one shared rate limiter); a failed
+    slice / lookup is tried once more, then left due (not covered: the event is not marked); stop() (the pass's
+    deadline) stops dispatching, the calls in flight finish and are saved."""
     from insajderi import events as iev
     if fetch is None:
         from wallets import rpc
         fetch = rpc.fetch
+    own = pool is None
+    pool = pool or Pool(1, log, prefix=store.PREFIX)
     budget = min(int(budget), int(c["pump_event_max_credits"]))
     spent = [0]
-
-    def on_credits(n):
-        spent[0] += n
     tok, t0, end = e["token"], int(e["t0"]), int(e["win_end"])
     pre_h = float(c["pump_pre_h_1d"] if iev.res_of(e) == "1d" else c["pump_pre_h"])
     wins = (("pre", t0 - int(pre_h * 3600), t0, int(c["pump_pre_pages"]), int(c["pump_slices_pre"])),
             ("jump", t0, end, int(c["pump_sell_pages"]), int(c["pump_slices_jump"])))
-    cover, n_tx, short = {}, 0, False
+    covered = {name: 0 for name, *_r in wins}
+    n_tx = [0]
+    tasks = []
     for name, lo, hi, pages, k in wins:
         sl = slices(lo, hi, min(k, max(1, pages)))
         per = max(1, pages // len(sl))
-        covered = 0
         for i, (a, b) in enumerate(sl):
             key = f"deep{store.FETCH_DEPTH}:{name}:{e['eid']}:{i}"
-            done = store.q(con, "SELECT credits, n_tx, complete FROM i2_fetch WHERE key = ?", (key,))
+            done = store.q(con, "SELECT n_tx FROM i2_fetch WHERE key = ?", (key,))
             if done:   # read in an earlier, cut pass: its covered seconds are in the companion row "<key>:cov" (ts)
                 cov = store.q(con, "SELECT ts FROM i2_fetch WHERE key = ?", (key + ":cov",))
-                covered += int(cov[0][0]) if cov else 0
-                n_tx += int(done[0][1] or 0)
+                covered[name] += int(cov[0][0]) if cov else 0
+                n_tx[0] += int(done[0][0] or 0)
                 continue
-            if spent[0] + 10 * per > budget:
-                short = True
-                break
-            before = spent[0]
-            try:
-                txs, complete = fetch(tok, since_ts=a, until_ts=b, max_pages=per, oldest_first=True,
-                                      on_credits=on_credits)
-            except Exception as e2:  # noqa: BLE001 - one slice fails, the rest go on
-                log(f"{store.PREFIX}{tok[:6]}… Helius {type(e2).__name__}: {str(e2)[:80]}")
-                short = True
-                continue
-            times = [int(t.get("blockTime") or 0) for t in txs or [] if t.get("blockTime")]
-            got = (b - a) if complete else ((max(times) - a) if times else 0)
-            covered += max(0, min(b - a, got))
-            n_tx += len(txs or [])
-            con.executemany("INSERT OR IGNORE INTO i2_trades VALUES (?,?,?,?,?,?,?,?,?,?)", _rows_of(txs, tok))
-            con.execute("INSERT OR REPLACE INTO i2_fetch VALUES (?,?,?,?,?)",
-                        (key, int(now), spent[0] - before, len(txs or []), int(bool(complete))))
-            con.execute("INSERT OR REPLACE INTO i2_fetch VALUES (?,?,?,?,?)", (key + ":cov", int(max(0, got)), 0, 0, 0))
-            con.commit()
-        cover[name] = (hi - lo, round(covered / (hi - lo), 4) if hi > lo else None)
-        if short:
-            break
+            tasks.append({"win": name, "key": key, "address": tok, "since": a, "until": b, "pages": per,
+                          "cost": 10 * per, "tries": 0})
+    failed = [False]
+
+    def on_slice(t, res, err):
+        if err is not None:
+            if t["tries"] < 1:
+                return dict(t, tries=t["tries"] + 1)
+            log(f"{store.PREFIX}{tok[:6]}… Helius {type(getattr(err, 'err', err)).__name__}: {str(err)[:80]}")
+            failed[0] = True
+            return None
+        span = t["until"] - t["since"]
+        got = span if res["complete"] else ((res["max_ts"] - t["since"]) if res["max_ts"] else 0)
+        got = max(0, min(span, got))
+        covered[t["win"]] += got
+        n_tx[0] += res["n"]
+        con.executemany("INSERT OR IGNORE INTO i2_trades VALUES (?,?,?,?,?,?,?,?,?,?)", res["rows"])
+        con.execute("INSERT OR REPLACE INTO i2_fetch VALUES (?,?,?,?,?)",
+                    (t["key"], int(now), t.get("credits", 0), res["n"], int(res["complete"])))
+        con.execute("INSERT OR REPLACE INTO i2_fetch VALUES (?,?,?,?,?)", (t["key"] + ":cov", int(got), 0, 0, 0))
+        con.commit()
+        return None
+
+    call = _fetch_call(fetch, tok)
+
+    def counted(t):
+        res, cr = call(t)
+        t["credits"] = cr
+        return res, cr
+    ok = pool.run(tasks, counted, budget, spent, stop, on_slice) and not failed[0]
+    short = not ok
+    cover = {name: (hi - lo, round(covered[name] / (hi - lo), 4) if hi > lo else None) for name, lo, hi, *_r in wins}
     # the sellers' token accounts (as fetch_event, more of them, more pages)
     if not short:
         src = sources(con, p, [tok]).get(tok) or []
@@ -338,35 +375,39 @@ def fetch_event_deep(con, p, c, e, now, budget, fetch=None, seller_events=None, 
                                          (tok,))}
         rec = seller_events or {}
         sellers.sort(key=lambda x: (-rec.get(x[0], 0), -(x[1]["sol_out"] or 0), -x[1]["n_sells"]))
-        looked = 0
+        looks = []
         for w, _o in sellers:
-            if looked >= int(c["pump_lookups"]):
+            if len(looks) >= int(c["pump_lookups"]):
                 break
             a = acct.get(w)
             key = f"acct:{a}:{t0}"
             if not a or _fetched(con, key):
                 continue
-            if spent[0] + 10 * int(c["pump_acct_pages"]) > budget:
-                short = True
-                break
-            before = spent[0]
-            try:
-                txs, complete = fetch(a, since_ts=t0 - int(c["pre_days"]) * 86400, until_ts=t0,
-                                      max_pages=int(c["pump_acct_pages"]), oldest_first=True, on_credits=on_credits)
-            except Exception as e2:  # noqa: BLE001
-                log(f"{store.PREFIX}{a[:6]}… Helius {type(e2).__name__}: {str(e2)[:80]}")
-                continue
-            con.executemany("INSERT OR IGNORE INTO i2_trades VALUES (?,?,?,?,?,?,?,?,?,?)", _rows_of(txs, tok))
+            pg = int(c["pump_acct_pages"])
+            looks.append({"key": key, "address": a, "since": t0 - int(c["pre_days"]) * 86400, "until": t0,
+                          "pages": pg, "cost": 10 * pg, "tries": 0})
+
+        def on_look(t, res, err):
+            if err is not None:
+                if t["tries"] < 1:
+                    return dict(t, tries=t["tries"] + 1)
+                log(f"{store.PREFIX}{t['address'][:6]}… Helius {type(getattr(err, 'err', err)).__name__}: "
+                    f"{str(err)[:80]}")
+                return None   # a lookup that fails twice is left (as before: the event still completes)
+            con.executemany("INSERT OR IGNORE INTO i2_trades VALUES (?,?,?,?,?,?,?,?,?,?)", res["rows"])
             con.execute("INSERT OR REPLACE INTO i2_fetch VALUES (?,?,?,?,?)",
-                        (key, int(now), spent[0] - before, len(txs), int(bool(complete))))
+                        (t["key"], int(now), t.get("credits", 0), res["n"], int(res["complete"])))
             con.commit()
-            looked += 1
+            return None
+        short = not pool.run(looks, counted, budget, spent, stop, on_look)
     if not short:
         pre, jmp = cover.get("pre", (None, None)), cover.get("jump", (None, None))
         con.execute("INSERT OR REPLACE INTO i2_cover VALUES (?,?,?,?,?,?,?,?,?)",
-                    (e["eid"], store.FETCH_DEPTH, pre[0], pre[1], jmp[0], jmp[1], n_tx, spent[0], int(now)))
+                    (e["eid"], store.FETCH_DEPTH, pre[0], pre[1], jmp[0], jmp[1], n_tx[0], spent[0], int(now)))
         con.execute("UPDATE i2_events SET fetched = 1 WHERE eid = ?", (e["eid"],))
     con.commit()
+    if own:
+        pool.close()
     return spent[0]
 
 
@@ -377,7 +418,10 @@ def due_events(con, events, now):
             (not e.get("fetched") or (e.get("tier") and (deep.get(e["eid"]) or 0) < store.FETCH_DEPTH))]
 
 
-def fetch_due(con, p, c, events, now, budget, fetch=None, log=print, stop=None):
+LAST_POOL = {"line": None}   # the last fetch_due's "dohvat: ..." (run.time_line)
+
+
+def fetch_due(con, p, c, events, now, budget, fetch=None, log=print, stop=None, pool=None):
     """Helius for the events not fetched yet, pump tiers first then best prio (order_key), within `budget`.
     stop() true (19.11.: the pass's time budget): no further event; what was read is saved, the rest stays unfetched
     and comes first, in the same order, in the next pass. 19.11. navečer: a tiered event is read DEEP
@@ -385,15 +429,26 @@ def fetch_due(con, p, c, events, now, budget, fetch=None, log=print, stop=None):
     todo = sorted(due_events(con, events, now), key=order_key)
     rec = Counter(w for (w,) in store.q(con, "SELECT wallet FROM i2_part WHERE sold_into = 1"))
     total, n = 0, 0
-    for e in todo[:int(c["max_events_pass"])]:
-        left = budget - total
-        if left < 10 or (stop is not None and stop()):
-            break
-        fn = fetch_event_deep if e.get("tier") else fetch_event
-        got = fn(con, p, c, e, now, left, fetch=fetch, seller_events=rec, log=log)
-        store.add_spent(con, now, got)
-        total += got
-        n += 1
+    own = pool is None
+    if own and any(e.get("tier") for e in todo):
+        pool = Pool(int(c.get("pump_fetch_workers") or 1), log, prefix=store.PREFIX)
+    try:
+        for e in todo[:int(c["max_events_pass"])]:
+            left = budget - total
+            if left < 10 or (stop is not None and stop()):
+                break
+            if e.get("tier"):
+                got = fetch_event_deep(con, p, c, e, now, left, fetch=fetch, seller_events=rec, log=log, pool=pool,
+                                       stop=stop)
+            else:
+                got = fetch_event(con, p, c, e, now, left, fetch=fetch, seller_events=rec, log=log)
+            store.add_spent(con, now, got)
+            total += got
+            n += 1
+    finally:
+        if own and pool is not None:
+            LAST_POOL["line"] = pool.line()
+            pool.close()
     return n, total
 
 

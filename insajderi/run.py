@@ -64,6 +64,8 @@ def time_line(kind, clk):
     900 s: <what was left>]"."""
     parts = [f"{hr} {clk.stages[k]:.0f} s" for k, hr in STAGE_HR if k in clk.stages]
     out = f"{store.PREFIX}prolaz {kind}: trajanje: " + (", ".join(parts) or "—")
+    if chain.LAST_POOL.get("line"):   # 19.11. navečer (2): "dohvat: N poziva, R/s prosjek, radnika W, 429: K"
+        out += "; " + chain.LAST_POOL["line"]
     if clk.cuts:
         out += f"; prekinuto na vremenskoj granici {clk.max_s:.0f} s: " + "; ".join(clk.cuts)
     return out
@@ -80,6 +82,12 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
     p = store.paths(**over)
     con = store.connect(p.get("insajderi_db"))
     clk = store.Clock(kind, c, clock)
+    chain.LAST_POOL["line"] = None
+    try:   # 19.11. navečer (2): one rate for every thread of this process (wallets/rpc.LIMIT)
+        from wallets import rpc
+        rpc.LIMIT.set_rps(float(c.get("helius_rps") or 8))
+    except Exception:  # noqa: BLE001
+        pass
     try:
         if kind == "night":
             last = int(float(store.kv(con, "night_last") or 0))

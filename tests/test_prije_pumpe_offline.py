@@ -468,7 +468,9 @@ class TimeBudget(unittest.TestCase):
         self.t[0] = 0.0
         from insajderi import events as ev
         with mock.patch.object(ev, "mark_tiers", lambda *a, **k: None):   # one slice a window: one call a window
-            s2, lines = self.go(limit=20000, pump_slices_pre=1, pump_slices_jump=1)
+            # 19.11. navečer (2): the deadline now also stops dispatch INSIDE an event (a cut event stays due), so the
+            # bound is set where three whole events fit
+            s2, lines = self.go(limit=40000, pump_slices_pre=1, pump_slices_jump=1, pump_fetch_workers=1)
         self.assertGreater(self.fetched(), 2)      # pumps were read past the half-time mark
 
     def test_incr_is_light_and_the_trades_are_read_once(self):

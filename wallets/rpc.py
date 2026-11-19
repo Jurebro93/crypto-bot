@@ -9,7 +9,10 @@ Docs: https://www.helius.dev/docs/rpc/gettransactionsforaddress
 import hashlib
 import json
 import os
+import random
+import threading
 import time
+import urllib.error
 import urllib.request
 
 from event_calendar import http
@@ -26,6 +29,73 @@ def credits_for(n_tx):
     return max(10, -(-n_tx // 100) * 10)
 
 
+# 19.11. navečer (the deep pump read and the history job run several calls at once): ONE limiter for every thread of
+# this process. Token bucket at HELIUS_RPS requests a second (default 8: well under the Developer plan's documented
+# 50 RPC requests a second; Pretpostavka: the plan, not a measurement, and other processes share the account: holderi,
+# kopija osvjezi, the webhook sync), burst 1 (calls are spaced). A 429 pauses EVERY thread of the process until its
+# Retry-After (else 2^attempt s) with jitter, then the call is retried, at most RETRY_429 times; STATS counts calls and
+# 429s for the pass line (chain.fetch_stats).
+class Limiter:
+    def __init__(self, rps=8.0, fn=None, sleep=None):
+        self.rps = float(rps)
+        self.fn = fn or time.monotonic
+        self.sleep = sleep or time.sleep
+        self.lock = threading.Lock()
+        self.next = 0.0
+        self.paused = 0.0
+
+    def set_rps(self, rps):
+        with self.lock:
+            self.rps = max(0.1, float(rps))
+
+    def wait(self):
+        """Block until this thread may send one request (slots spaced 1 / rps apart, after any pause)."""
+        with self.lock:
+            now = self.fn()
+            start = max(now, self.next, self.paused)
+            self.next = start + 1.0 / self.rps
+        if start > now:
+            self.sleep(start - now)
+
+    def pause(self, secs):
+        """A 429: no thread sends before now + secs."""
+        with self.lock:
+            self.paused = max(self.paused, self.fn() + float(secs))
+
+
+LIMIT = Limiter(float(os.environ.get("HELIUS_RPS", "8")))
+RETRY_429 = 4
+STATS = {"calls": 0, "e429": 0}
+_STATS_LOCK = threading.Lock()
+
+
+def _count(k, n=1):
+    with _STATS_LOCK:
+        STATS[k] = STATS.get(k, 0) + n
+
+
+def _send(req):
+    """http._fetch without its own retries, under LIMIT, with the 429 / 5xx back-off above."""
+    for attempt in range(RETRY_429 + 1):
+        LIMIT.wait()
+        _count("calls")
+        try:
+            return http._fetch(req, 60, retries=0)
+        except urllib.error.HTTPError as e:
+            if e.code != 429 and e.code < 500:
+                raise
+            if e.code == 429:
+                _count("e429")
+            try:
+                after = float(e.headers.get("Retry-After") or 0)
+            except (TypeError, ValueError, AttributeError):
+                after = 0.0
+            if attempt == RETRY_429:
+                raise
+            delay = min(60.0, max(after, 2.0 ** attempt)) * (1 + random.uniform(0, 0.3))
+            LIMIT.pause(delay)
+
+
 def _rpc(method, params, ttl=CACHE_TTL):
     key = os.environ.get("HELIUS_API_KEY")
     if not key:
@@ -37,7 +107,7 @@ def _rpc(method, params, ttl=CACHE_TTL):
             return json.load(f), True
     req = urllib.request.Request(f"{URL}?api-key={key}", data=body, method="POST",
                                  headers={"Content-Type": "application/json", "User-Agent": http.USER_AGENT})
-    data = http._fetch(req, 60)
+    data = _send(req)
     if "error" in data:
         raise RuntimeError(f"Helius {method}: {data['error']}")
     os.makedirs(http.CACHE_DIR, exist_ok=True)

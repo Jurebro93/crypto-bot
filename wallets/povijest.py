@@ -46,7 +46,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PREFIX = "novčanici povijest: "
 METHOD = "povijest"
-DEFAULT = {"kredita_dan": 60000, "najvise_stranica": 5, "pass_max_s": {"day": 300, "night": 3600}, "refresh_d": 7,
+DEFAULT = {"workers": 6, "helius_rps": 8, "kredita_dan": 60000, "najvise_stranica": 5, "pass_max_s": {"day": 300, "night": 3600}, "refresh_d": 7,
            "lookback_d": 90, "dan_udio": 0.4, "holder_min_usd": 50000, "holder_min_days": 30, "red_max": 20000}
 SOURCES = ("prije_pumpe", "prije_pumpe_kandidat", "bundle", "rani_pumpa15", "rani_pumpa2", "rani_bez_prodaje", "holder",
            "registar")
@@ -364,9 +364,62 @@ class Clock:
         return self.max_s is not None and self.elapsed() >= self.max_s
 
 
-def run(kind="day", now=None, con=None, cfg=None, score=None, clock=None, log=print, **over):
-    """One pass. score(con, wallet, max_pages, method, lookback_d) -> (stats, tier, positions) (default:
-    run_wallets.score_one). -> the run dict (also povijest_runs)."""
+def _pooled(con, c, now, todo, left, per, clk, swaps=None, log=print):
+    """19.11. navečer (2): the queue on wallets/helpool.Pool (workers, default 6; 1 = one at a time): a worker runs
+    run_wallets.fetch_swaps (the Helius pages: network only), this thread runs score_one(fetched=...) (wallets.db,
+    the DexScreener prices of open positions, the scoring). Each wallet reserves its worst case (per credits) before
+    it is dispatched, so `left` is never overshot; no dispatch after the deadline. -> (n, scored, profitable, credits,
+    cut, the "dohvat: ..." text)."""
+    import run_wallets as rw
+    from wallets.helpool import Pool
+    pool = Pool(int(c.get("workers") or 1), log, prefix=PREFIX)
+    spent = [0]
+    st = {"n": 0, "scored": 0, "plus": 0}
+    pages, lookback = int(c["najvise_stranica"]), int(c["lookback_d"])
+    tasks = []
+    for w, _src in todo:
+        tasks.append({"wallet": w, "plan": rw.swap_plan(con, w, pages, now, lookback), "cost": per})
+
+    def call(t):   # a worker: the network only (fetch_swaps attaches the credits of a failed call to its error)
+        res = rw.fetch_swaps(t["plan"], swaps)
+        return res, sum(res["credits"])
+
+    def done(t, res, err):
+        w = t["wallet"]
+        st["n"] += 1
+        if err is not None:
+            for x in getattr(err, "credits_list", []) or []:
+                rw.wstore.log_credits(con, METHOD, x, w)
+            con.execute("UPDATE povijest_queue SET status=?, done_ts=? WHERE wallet=?",
+                        (f"greška: {type(err).__name__}"[:60], now, w))
+            con.commit()
+            return None
+        try:
+            s, _t, _pos = rw.score_one(con, w, pages, now=now, method=METHOD, lookback_d=lookback, fetched=res)
+        except Exception as e:  # noqa: BLE001
+            con.execute("UPDATE povijest_queue SET status=?, done_ts=? WHERE wallet=?",
+                        (f"greška: {type(e).__name__}"[:60], now, w))
+            con.commit()
+            return None
+        got = sum(res["credits"])
+        if s and s.get("closed"):
+            st["scored"] += 1
+            st["plus"] += int((s.get("realized_sol") or 0) > 0)
+        con.execute("UPDATE povijest_queue SET status='ocijenjen', done_ts=?, credits=credits+? WHERE wallet=?",
+                    (now, got, w))
+        con.commit()
+        return None
+    try:
+        pool.run(tasks, call, left, spent, clk.over, done)
+    finally:
+        pool.close()
+    return st["n"], st["scored"], st["plus"], spent[0], clk.over(), pool.line()
+
+
+def run(kind="day", now=None, con=None, cfg=None, score=None, clock=None, log=print, swaps=None, **over):
+    """One pass. score(con, wallet, max_pages, method, lookback_d) -> (stats, tier, positions): a sequential test hook
+    (each wallet its own call); default (19.11. navečer (2)): the bounded pool of _pooled with run_wallets.fetch_swaps
+    (swaps: a fake wallets/rpc.wallet_swaps for tests). -> the run dict (also povijest_runs)."""
     from wallets import store as wstore
     now = int(now or time.time())
     c = cfg or config()
@@ -379,15 +432,20 @@ def run(kind="day", now=None, con=None, cfg=None, score=None, clock=None, log=pr
         hinfo = holders(con, c, now, p.get("holderi_db"))
         build_queue(con, p, c, now)
         todo = due(con, c, now)
-        if score is None:
-            import run_wallets as rw
-
-            def score(con_, w, pages, method, lookback_d):
-                return rw.score_one(con_, w, pages, now=now, method=method, lookback_d=lookback_d)
         left = budget(con, c, now, kind)
         per = 10 * (int(c["najvise_stranica"]) + 2)
         n = n_scored = n_plus = spent = 0
         cut = False
+        pool_line = None
+        if score is None:   # 19.11. navečer (2): the Helius calls on a bounded pool, the scoring here
+            try:
+                from wallets import rpc
+                rpc.LIMIT.set_rps(float(c.get("helius_rps") or 8))
+            except Exception:  # noqa: BLE001
+                pass
+            r = _pooled(con, c, now, todo, left, per, clk, swaps, log)
+            n, n_scored, n_plus, spent, cut, pool_line = r
+            todo = []
         for w, src in todo:
             if clk.over():
                 cut = True
@@ -423,7 +481,8 @@ def run(kind="day", now=None, con=None, cfg=None, score=None, clock=None, log=pr
         ln = (f"{PREFIX}obrađeno {n} (red {len(rest)}: prije pumpe {by.get('prije pumpe', 0)}, rani kupci "
               f"{by.get('rani kupci', 0)}, holderi {by.get('holderi', 0)}), u plusu {n_plus} od {n_scored} ocijenjenih, "
               f"Helius {used:,}/{int(c['kredita_dan']):,}, trajanje {secs:.0f} s"
-              + (f"; prekinuto na vremenskoj granici {clk.max_s:.0f} s" if cut else ""))
+              + (f"; prekinuto na vremenskoj granici {clk.max_s:.0f} s" if cut else "")
+              + (f"; {pool_line}" if pool_line else ""))
         con.execute("INSERT INTO povijest_runs VALUES (?,?,?,?,?,?,?,?,?)",
                     (now, kind, n, n_scored, n_plus, spent, secs, int(cut), ln))
         con.commit()

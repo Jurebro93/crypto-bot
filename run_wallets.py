@@ -146,20 +146,53 @@ def cmd_harvest(a):
 
 # ---------- scoring ----------
 
-def score_one(con, wallet, max_pages=3, now=None, verbose=False, method="wallet_history", lookback_d=LOOKBACK_D):
-    """19.11.: method (the helius_credits row name: "povijest" for wallets/povijest.py, so its day cap is its own) and
-    lookback_d (how far back a first look reads, newest first, within max_pages) are the caller's; the defaults are the
-    scorer's own."""
+def swap_plan(con, wallet, max_pages=3, now=None, lookback_d=LOOKBACK_D):
+    """19.11. navečer (2): what score_one would ask Helius for this wallet (main thread: reads wallets.db) ->
+    {"wallet", "since_ts", "max_pages", "oldest_first", "recheck"}. A recheck reads only what is new since the last
+    stored tx (oldest first, max_pages + 2); a first look lookback_d back, newest first."""
     now = int(now or time.time())
     row = con.execute("SELECT last_tx_ts, history_from FROM wallets WHERE wallet=?", (wallet,)).fetchone()
+    if row and row[0]:
+        return {"wallet": wallet, "since_ts": row[0], "max_pages": max_pages + 2, "oldest_first": True, "recheck": True}
+    return {"wallet": wallet, "since_ts": now - lookback_d * 86400, "max_pages": max_pages, "oldest_first": False,
+            "recheck": False}
+
+
+def fetch_swaps(plan, swaps=None):
+    """The network half of score_one (no SQLite: safe on a worker thread) -> {"rows", "complete", "newest", "oldest",
+    "credits": [credits of each page]}."""
+    got = []
+    try:
+        rows, complete, newest, oldest = (swaps or rpc.wallet_swaps)(plan["wallet"], since_ts=plan["since_ts"],
+                                                                     max_pages=plan["max_pages"],
+                                                                     oldest_first=plan["oldest_first"],
+                                                                     on_credits=got.append)
+    except Exception as e:  # noqa: BLE001 - the pages paid before the failure are still the caller's to log
+        e.credits_list = got
+        e.credits = sum(got)
+        raise
+    return {"rows": rows, "complete": complete, "newest": newest, "oldest": oldest, "credits": got}
+
+
+def score_one(con, wallet, max_pages=3, now=None, verbose=False, method="wallet_history", lookback_d=LOOKBACK_D,
+              fetched=None):
+    """19.11.: method (the helius_credits row name: "povijest" for wallets/povijest.py, so its day cap is its own) and
+    lookback_d (how far back a first look reads, newest first, within max_pages) are the caller's; the defaults are the
+    scorer's own. fetched (19.11. navečer (2)): fetch_swaps' result for swap_plan(...) made on a worker thread; its
+    credits are logged here, on this thread, as if this function had paid them."""
+    now = int(now or time.time())
     log = _credit_logger(con, method, wallet)
-    if row and row[0]:  # recheck: only what's new since the last tx we stored
-        rows, complete, newest, _ = rpc.wallet_swaps(wallet, since_ts=row[0], max_pages=max_pages + 2,
-                                                     oldest_first=True, on_credits=log)
+    plan = swap_plan(con, wallet, max_pages, now, lookback_d)
+    if fetched is None:   # here, as before: each page's credits logged as it is paid
+        r, cpl, nw, od = rpc.wallet_swaps(wallet, since_ts=plan["since_ts"], max_pages=plan["max_pages"],
+                                          oldest_first=plan["oldest_first"], on_credits=log)
+        fetched = {"rows": r, "complete": cpl, "newest": nw, "oldest": od, "credits": []}
+    for n in fetched["credits"]:
+        log(n)
+    rows, complete, newest, oldest = fetched["rows"], fetched["complete"], fetched["newest"], fetched["oldest"]
+    if plan["recheck"]:  # recheck: only what's new since the last tx we stored
         history_from = None
     else:
-        rows, complete, newest, oldest = rpc.wallet_swaps(wallet, since_ts=now - lookback_d * 86400,
-                                                          max_pages=max_pages, on_credits=log)
         history_from = now - lookback_d * 86400 if complete else oldest
     wstore.save_trades(con, wallet, rows)
     hist = con.execute("SELECT history_from FROM wallets WHERE wallet=?", (wallet,)).fetchone()[0] or history_from or 0
