@@ -4,7 +4,8 @@ Windows (the Solana deep read's): pre = [t0 - pump_pre_h (24 h; 72 h for a 1d pu
 peak + 1 h). Each window is turned into blocks (block_at: the head and its time, 0.45 s a block, corrected with
 eth_getBlockByNumber until within a few seconds) and read in slices of <= max_range blocks: the pool's Swap logs and
 the token's Transfer logs of the same blocks (swaps.parse: the trader is the address the tokens end at / came from).
-A slice is read whole or not at all (eth_getLogs has no partial page), so coverage = the seconds of the slices read
+A slice (on a global grid of max_range blocks, stored per token: overlapping windows of one token are read once) is
+read whole or not at all (eth_getLogs has no partial page), so coverage = the window's seconds inside the slices read
 / the window's seconds, per window (bnb_cover pre_cov / jump_cov, as i2_cover). Slices before the free RPC's history
 (archive_s, ~23 days measured) cannot be read: the event's `reach` says "izvan dosega" (all of it) / "djelomično".
 
@@ -165,7 +166,7 @@ def fetch_event(con, c, e, rpc, blocks, px, now, clock=None, log=print):
     dec, is0, pools, kind = token_meta(con, rpc, e["token"], e["pool"], dex, quote)
     qdec = (swaps.QUOTES.get(quote) or ("?", 18))[1]
     oldest = int(now) - int(c["archive_s"])
-    cover, total_sw, complete, out_reach = {}, 0, True, 0
+    cover, total_sw, complete, out_reach, seen = {}, 0, True, 0, set()
     for name, lo_ts, hi_ts in windows(e, c):
         span = max(1, hi_ts - lo_ts)
         got = 0
@@ -178,14 +179,17 @@ def fetch_event(con, c, e, rpc, blocks, px, now, clock=None, log=print):
             out_reach += 0.5
         b0, b1 = blocks.at(a_ts), blocks.at(hi_ts)
         step = int(c["max_range"])
-        for i, a in enumerate(range(b0, b1 + 1, step)):
-            b = min(b1, a + step - 1)
-            key = f"d{store.FETCH_DEPTH}:{e['eid']}:{name}:{i}"
-            sec = int(round((b - a + 1) * blocks.bs))
+        # 19.11. 23:40: slices on a GLOBAL grid of `step` blocks, keyed by token (not by event): two pumps of one
+        # token whose windows overlap (a 1h pump 6 h after another: 18 h of the same pre window) read it once
+        for a in range(b0 - b0 % step, b1 + 1, step):
+            b = a + step - 1
+            key = f"g{store.FETCH_DEPTH}:{e['token']}:{a}"
+            sec = int(round((min(b, b1) - max(a, b0) + 1) * blocks.bs))
             done = store.q(con, "SELECT n FROM bnb_fetch WHERE key = ? AND ok = 1", (key,))
             if done:
                 got += sec
-                total_sw += done[0][0] or 0
+                total_sw += 0 if key in seen else (done[0][0] or 0)
+                seen.add(key)
                 continue
             if clock is not None and clock.over():
                 complete = False
@@ -201,6 +205,7 @@ def fetch_event(con, c, e, rpc, blocks, px, now, clock=None, log=print):
                 continue
             tr = swaps.parse(sl, tl, e["token"], quote, pools, dec, qdec, is0)
             n = store_trades(con, e, quote, tr, px)
+            seen.add(key)
             total_sw += n
             got += sec
             con.execute("INSERT OR REPLACE INTO bnb_fetch VALUES (?,?,?,?,?)", (key, int(now), n, st.get("calls", 0), 1))
