@@ -13,7 +13,9 @@ foreigners, and memesonar.app/ served the Croatian page during a deploy): Englis
 request is clearly Croatian: the path is /hr or /hr/..., or the cb_lang cookie says hr (lang_for; never the browser
 language alone). The server renders the right language (deploy_wait.py, /cekamo-deploy) and the page's script decides
 again from its own address and cookie, so the service worker's one stored copy shows the right language as well.
-DEPLOY_LANG=hr|en forces one language. DEPLOY_SW=0 turns the service worker off everywhere (kill switch).
+19.11. (vlasnik: still Croatian on his own devices, whose cb_lang cookie says hr): ENGLISH for everybody by default
+(forced_lang); DEPLOY_LANG=hr forces Croatian, DEPLOY_LANG=auto brings the per-request rule above back.
+DEPLOY_SW=0 turns the service worker off everywhere (kill switch).
 15.11. (vlasnik: "slike se ne učitavaju"): during a deploy deploy_wait.py serves images (static_answer) normally; only
 pages get this page. The service worker stores a copy only when it is a real 200 page (never a 503 / deploy answer).
 """
@@ -187,9 +189,14 @@ _cache = {}
 
 
 def forced_lang():
-    """DEPLOY_LANG=hr|en forces one language; anything else (the default) decides per request (lang_for)."""
+    """19.11. (vlasnik: "rekao sam da se prevede na engleski stranica dok se radi novi deploy. Vidim da nije to
+    napravljeno": the rule of 15.11. still showed Croatian on HIS devices, because his own cb_lang cookie says hr, and
+    those are the devices he shows the site to foreigners on): ENGLISH for everybody by default. DEPLOY_LANG=hr forces
+    Croatian; DEPLOY_LANG=auto brings back the per-request rule of 15.11. (lang_for: Croatian for /hr or cb_lang=hr)."""
     v = (os.environ.get("DEPLOY_LANG") or "").strip().lower()
-    return v if v in ("hr", "en") else ""
+    if v == "auto":
+        return ""
+    return "hr" if v == "hr" else "en"
 
 
 def lang_for(path="/", cookie=""):
