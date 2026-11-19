@@ -1,5 +1,25 @@
 [
  {
+  "datum": "2026-11-19",
+  "naslov": "Novčanici koje vrijedi pratiti",
+  "tekst": "na stranici Novčanici je nova kartica: novčanici i skupine povezanih novčanika koji su više puta kupili prije skoka cijene i prodali u rast, svaki s jednom rečenicom razloga. Na popis ulaze samo oni koje potvrde i noviji podaci, pa je prvih dana prazan dok se dokazi skupljaju. To je statistika iz javnih podataka s lanca, a ne financijski savjet."
+ },
+ {
+  "datum": "2026-11-19",
+  "naslov": "Sav fokus na novčanike koji kupuju prije rasta",
+  "tekst": "alat od danas najviše resursa troši na traženje novčanika koji kupuju prije skoka cijene i prodaju u rast, na tokenima od 2 M $ market capa naviše, s prednošću za one od 15 do 200 M $. Za svaki takav novčanik računa se i povijest njegovih tradeova te provjerava bi li se njegovo kopiranje isplatilo nakon troška i kašnjenja."
+ },
+ {
+  "datum": "2026-11-19",
+  "naslov": "Autopilot je pauziran",
+  "tekst": "zbog promjene strategije Autopilot trenutno ne otvara nove pozicije pravim novcem. Već otvorene pozicije izlaze po svojim pravilima, a u međuvremenu se praćenje novčanika testira na demo računu, što se vidi na stranici Autopilot. Javit ćemo kad se Autopilot nastavi."
+ },
+ {
+  "datum": "2026-11-19",
+  "naslov": "Influenceri i Telegram: osvježavanje jednom u 5 dana",
+  "tekst": "ljestvice influencera, Telegram kanala i poziva od danas se osvježavaju jednom u 5 dana. Na vrhu tih stranica piše datum zadnjeg i sljedećeg osvježavanja."
+ },
+ {
   "datum": "2026-11-14",
   "naslov": "Povijest Telegram kanala za ocjene callera",
   "tekst": "alat je dobio 11.547 povijesnih poziva iz 210 Telegram kanala (zadnjih 6 mjeseci). Server ih mjeri besplatnim izvorima cijena, uvijek tek nakon svježih poziva, pa se ocjene kanala iz zadnjih 50 poziva pune kroz par dana."
