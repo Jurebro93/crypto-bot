@@ -91,7 +91,7 @@ class Honest(unittest.TestCase):
             self.assertEqual(s["worst"]["r24h"], -0.6)
             self.assertTrue(s["months"])
             base = KS.baseline(con, cache={})
-            self.assertEqual(base["accounts"], 2)                       # goodguy and the Telegram channel
+            self.assertEqual(base["accounts"], 1)                       # goodguy; 19.11.: Telegram channels are out
             self.assertFalse(KS.stats(KS.clean_calls(con, "thinguy"))["enough"])
         finally:
             con.close()
@@ -131,37 +131,30 @@ class Honest(unittest.TestCase):
         self.assertNotIn("FAQPage", html)
         self.assertIn("Premalo podataka", public.route("/hr/influencer/thinguy")[1].decode())
 
-    def test_telegram_hub_and_profiles(self):
+    def test_telegram_hub_is_the_follower_list(self):
+        """19.11. (vlasnik): the channels are no longer ranked by their calls; the URL stays (tests/test_telegram_1911
+        covers the list itself with a tg.db)."""
         code, raw, _ = public.route("/telegram-channels")
         html = raw.decode()
         self.assertEqual(code, 200)
-        self.assertIn("/telegram/alphacalls", html)
-        self.assertNotIn("/telegram/smallchan", html)                     # too few calls for the hub
-        self.assertIn("ItemList", html)
+        self.assertIn("no longer measure", html)
+        self.assertNotIn("/telegram/alphacalls", html)                    # no channel ranking by calls any more
         self.assertIn('hreflang=hr href="https://example.com/hr/telegram-kanali"', html)
-        p = public.route("/telegram/alphacalls")[1].decode()
-        self.assertIn("t.me/alphacalls", p)
-        self.assertIn("FAQPage", p)
-        self.assertNotIn("noindex", p)
-        self.assertIn("Alpha Calls", p)
-        thin = public.route("/telegram/smallchan")[1].decode()
-        self.assertIn("noindex", thin)
-        self.assertEqual(public.route("/telegram/nope")[0], 404)
+        self.assertIn("više ne mjerimo", public.route("/hr/telegram-kanali")[1].decode())
+        self.assertEqual(public.route("/telegram/alphacalls")[0], 404)   # not on the channel list (no tg.db here)
         self.assertEqual(public.route("/telegram/<script>")[0], 404)
-        self.assertIn("Zadnji pozivi", public.route("/hr/telegram/alphacalls")[1].decode())
 
     def test_sitemap_and_robots_follow_the_threshold(self):
         sm = public.route("/sitemap.xml")[1].decode()
         self.assertIn("https://example.com/influencer/goodguy", sm)
         self.assertNotIn("https://example.com/influencer/thinguy", sm)
         self.assertIn("https://example.com/telegram-channels", sm)
-        self.assertIn("https://example.com/telegram/alphacalls", sm)
-        self.assertNotIn("https://example.com/telegram/smallchan", sm)
-        self.assertIn("https://example.com/hr/telegram/alphacalls", sm)
+        self.assertNotIn("https://example.com/telegram/alphacalls", sm)  # 19.11.: channel pages are noindex
+        self.assertNotIn("https://example.com/hr/telegram/alphacalls", sm)
         r = public.route("/robots.txt")[1].decode()
         self.assertIn("Allow: /telegram/", r)
         self.assertIn("Allow: /hr/telegram-kanali", r)
-        self.assertEqual(telegrampub.urls()[0], ("/telegram-channels", "/hr/telegram-kanali", "0.8"))
+        self.assertEqual(telegrampub.urls()[0][:3], ("/telegram-channels", "/hr/telegram-kanali", "0.6"))
 
 
 class Posts(unittest.TestCase):

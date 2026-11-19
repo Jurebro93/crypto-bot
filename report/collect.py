@@ -115,8 +115,8 @@ def kols(now, top=10):
     if con is None:
         return {"top": [], "watch": [], "best_calls": [], "new_kols": 0, "calls_24h": 0}
     best = []
-    for r in _q(con, "SELECT handle, score, followers, stats FROM kols WHERE score IS NOT NULL ORDER BY score DESC "
-                     "LIMIT 60"):
+    for r in _q(con, "SELECT handle, score, followers, stats FROM kols WHERE score IS NOT NULL AND handle NOT LIKE 'tg:%' "
+                     "ORDER BY score DESC LIMIT 60"):   # 19.11. (vlasnik, kol/tgout.py): X influencers only
         s = json.loads(r["stats"] or "{}")
         if (s.get("measured") or 0) < 3:
             continue
@@ -128,9 +128,9 @@ def kols(now, top=10):
             break
     watch = [r["handle"] for r in _q(con, "SELECT handle FROM watch ORDER BY score DESC")]
     calls = _q(con, "SELECT handle, symbol, token, url, ts, followers, views, r1h, r6h, max24, mcap0 FROM calls "
-                    "WHERE kind = 'call' AND first_by_kol = 1 AND bad IS NULL AND ts >= ? ORDER BY COALESCE(max24, r6h, r1h, -1) DESC "
+                    "WHERE kind = 'call' AND first_by_kol = 1 AND bad IS NULL AND handle NOT LIKE 'tg:%' AND ts >= ? ORDER BY COALESCE(max24, r6h, r1h, -1) DESC "
                     "LIMIT 8", (now - 2 * DAY,))
-    n24 = _q(con, "SELECT COUNT(*) n FROM calls WHERE kind = 'call' AND ts >= ?", (now - DAY,))
+    n24 = _q(con, "SELECT COUNT(*) n FROM calls WHERE kind = 'call' AND handle NOT LIKE 'tg:%' AND ts >= ?", (now - DAY,))
     new = _q(con, "SELECT COUNT(*) n FROM kols WHERE first_seen >= ?", (now - DAY,))
     con.close()
     return {"top": best, "watch": watch, "best_calls": calls, "calls_24h": n24[0]["n"] if n24 else 0,

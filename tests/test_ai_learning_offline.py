@@ -74,20 +74,21 @@ class PostAI(unittest.TestCase):
         con = postai.connect(db)
         client = ns(messages=ns(batches=FakeBatches(label)))
         cfg = {**postai.DEFAULT}
-        self.assertEqual(postai.submit(con, client, NOW, cfg, kdb, tdb), 4)
+        # 19.11. (vlasnik): the Telegram post is no longer labelled (3 X posts, not 4)
+        self.assertEqual(postai.submit(con, client, NOW, cfg, kdb, tdb), 3)
         self.assertEqual(postai.submit(con, client, NOW, cfg, kdb, tdb), 0)  # in flight: never sent twice
-        self.assertEqual(postai.collect(con, client, NOW), 4)
+        self.assertEqual(postai.collect(con, client, NOW), 3)
         self.assertEqual(postai.submit(con, client, NOW, cfg, kdb, tdb), 0)  # labelled: never sent again
         f = postai.features("TOK", NOW, con=con)
-        self.assertAlmostEqual(f["ai_poziv"], 2 / 3)  # alice + tg call; bob warned
+        self.assertAlmostEqual(f["ai_poziv"], 1 / 3)  # alice called (one call of 3); no Telegram post since 19.11.
         self.assertEqual(f["ai_upozorenje"], 1.0)
         self.assertEqual(f["ai_kupio"], 1.0)
         self.assertEqual(f["ai_uvjerenje"], 1.0)
         self.assertEqual(postai.features("TOK", NOW - 3700, con=con), {})  # nothing written before then
         con.close()
         sp = postai.spend(30, NOW, db)
-        self.assertEqual(sp["posts"], 4)
-        self.assertAlmostEqual(sp["usd"], round(4 * (500 * 0.10 + 60 * 0.50) / 1e6 * 0.5, 2))
+        self.assertEqual(sp["posts"], 3)
+        self.assertAlmostEqual(sp["usd"], round(3 * (500 * 0.10 + 60 * 0.50) / 1e6 * 0.5, 2))
 
 
 class PostAIErrors(unittest.TestCase):
@@ -107,8 +108,8 @@ class PostAIErrors(unittest.TestCase):
                     yield r
         fb.results = results
         client = ns(messages=ns(batches=fb))
-        self.assertEqual(postai.submit(con, client, NOW, {**postai.DEFAULT}, kdb, tdb), 4)
-        self.assertEqual(postai.collect(con, client, NOW), 3)
+        self.assertEqual(postai.submit(con, client, NOW, {**postai.DEFAULT}, kdb, tdb), 3)   # 19.11.: X posts only
+        self.assertEqual(postai.collect(con, client, NOW), 2)
         self.assertEqual(postai.submit(con, client, NOW, {**postai.DEFAULT}, kdb, tdb), 0)
         con.close()
 

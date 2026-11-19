@@ -57,7 +57,7 @@ def seed(d, kols=4, wallets=30, trades=200, channels=5, tokens=50, rugs=7):
     con.close()
     con = tstore.connect(os.path.join(d, "tg.db"))
     for i in range(channels):
-        con.execute("INSERT OR REPLACE INTO channels (name, status) VALUES (?, 'active')", (f"ch{i}",))
+        con.execute("INSERT OR REPLACE INTO channels (name, status, subs) VALUES (?, 'active', ?)", (f"ch{i}", 1000 * (i + 1)))
     con.execute("INSERT OR REPLACE INTO channels (name, status) VALUES ('kandidat', 'candidate')")
     con.commit()
     con.close()
@@ -125,7 +125,8 @@ class Counting(Base):
         seed(self.d)
         coins.connect().close()
         c = sitelog.counts()
-        self.assertEqual(c, {"kols": 4, "calls": 4 * 12 + 11, "channels": 5, "wallets": 30, "trades": 200, "coins": 0,
+        # 19.11.: the 11 Telegram calls are out of the measured-calls count
+        self.assertEqual(c, {"kols": 4, "calls": 4 * 12, "channels": 5, "wallets": 30, "trades": 200, "coins": 0,
                              "tokens": 57})
         self.assertEqual(c["kols"], len(public.influencers()))              # the public leaderboard, row for row
 
@@ -232,7 +233,8 @@ class BlogLive(Base):
         seed(self.d)
         m = bloglive.measure()
         self.assertEqual(m["kol"], {"x_accounts": 4, "x_measured": 48, "board": 4, "x_clean10": 4})
-        self.assertEqual(m["telegram"], {"tg_channels": 5, "tg_measured": 11, "tg_clean10": 1})
+        # 19.11.: the Telegram block is the follower list (no measured calls any more)
+        self.assertEqual(m["telegram"], {"tg_channels": 5, "tg_followers": 15000})
         self.assertEqual(m["wallets"], {"wallets": 30, "scored": 15, "trades": 200, "kol_wallets": 1})
         self.assertEqual(m["rugs"], {"tokens": 57, "rugs": 7})
 

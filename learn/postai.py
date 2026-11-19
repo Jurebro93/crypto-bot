@@ -120,8 +120,8 @@ def pending_posts(con, now, cfg, kol_db=KOL_DB, tg_db=TG_DB):
             except Exception:  # noqa: BLE001
                 bots = set()
             for tid, token, handle, ts, text in k.execute(
-                    "SELECT tweet_id, token, handle, ts, text FROM calls WHERE ts >= ? AND text IS NOT NULL AND text != ''",
-                    (since,)):
+                    "SELECT tweet_id, token, handle, ts, text FROM calls WHERE ts >= ? AND text IS NOT NULL AND text != '' "
+                    "AND handle NOT LIKE 'tg:%'", (since,)):
                 if handle in bots:
                     continue
                 key = ("x", str(tid))
@@ -134,24 +134,7 @@ def pending_posts(con, now, cfg, kol_db=KOL_DB, tg_db=TG_DB):
             print(f"postai: kol.db: {e}")
         finally:
             k.close()
-    t = _ro(tg_db)
-    if t is not None:
-        try:
-            for ch, post, ts, text, cas in t.execute(
-                    "SELECT channel, post, ts, text, cas FROM posts WHERE ts >= ? AND cas IS NOT NULL AND cas != '' "
-                    "AND (fwd_from IS NULL OR fwd_from = '') AND text IS NOT NULL", (since,)):
-                key = ("tg", f"{ch}/{post}")
-                if key in done or key in inflight:
-                    continue
-                try:
-                    toks = json.loads(cas) if cas.strip().startswith("[") else [c for c in cas.split(",") if c]
-                except ValueError:
-                    toks = [c for c in cas.split(",") if c]
-                out[key] = ["tg", f"{ch}/{post}", ts, f"tg:{ch}", text, toks]
-        except sqlite3.OperationalError as e:
-            print(f"postai: tg.db: {e}")
-        finally:
-            t.close()
+    # 19.11. (vlasnik: Telegram out of every calculation): no AI label for Telegram posts any more (tg.db unread)
     return sorted(out.values(), key=lambda r: -r[2])
 
 

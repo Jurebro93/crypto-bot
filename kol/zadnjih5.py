@@ -72,6 +72,8 @@ import time
 import zlib
 from zoneinfo import ZoneInfo
 
+from kol import tgout
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VERSION = 2
 TZ = "Europe/Zagreb"
@@ -649,8 +651,8 @@ def kol_events(p, now, lag, sl, tx_sol, days=DAYS, log=print):
         for r in got:
             row = dict(zip(cols + ("lv",), r))
             h = row["handle"] or ""
-            if not h or h.startswith("w:") or h.lower() in bots or h.lower() in shill:
-                continue
+            if not h or h.startswith("w:") or tgout.is_tg(h) or h.lower() in bots or h.lower() in shill:
+                continue   # 19.11. (vlasnik): Telegram channels out of every calculation (kol/tgout.py)
             key = (h, row["token"])
             if key not in first or row["ts"] < first[key]["ts"]:
                 first[key] = row
@@ -883,7 +885,7 @@ def sample_events(kol_db, now=None, sl=0.6, tx_sol=None):
     cov = {"pozivi": 0, "pravila": {}}
     tx = tx_sol or 0.0005
     for h, tok, ts, mc, mx, r24, rug in rows:
-        if not h or h.startswith("w:") or h.lower() in bots or (h, tok) in first:
+        if not h or h.startswith("w:") or tgout.is_tg(h) or h.lower() in bots or (h, tok) in first:
             continue
         first.add((h, tok))
         if mc is not None and mc < MIN_MCAP:

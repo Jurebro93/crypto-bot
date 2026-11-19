@@ -379,9 +379,9 @@ class NoDuplicatesAndLiveTokens(PageBase):
         from ui import pravitrade
         copy.follow(self.lg, settings.LEAGUE_USER, "kol", "Trade_titan1", "", 25, 5, "tpsl", "15%", "-20%")
         copy.follow(self.lg, settings.LEAGUE_USER, "wallet", "W" * 44, "", 25, 5)
-        copy.follow(self.lg, settings.LEAGUE_USER, "ekipa", "tg:alpha, murad", "", 25, 5, "tpsl", "15%", "-20%")
+        copy.follow(self.lg, settings.LEAGUE_USER, "ekipa", "alphax, murad", "", 25, 5, "tpsl", "15%", "-20%")
         self.lg.commit()
-        want = {"Trade_titan1", "W" * 44, "murad,tg:alpha", "murad", "tg:alpha"}
+        want = {"Trade_titan1", "W" * 44, "alphax,murad", "murad", "alphax"}
         self.assertEqual(pravitrade.followed_targets(self.lg), want)
         ro = copy._ro(store.DB)   # the plain read-only connection "Zovu sada" uses: this raised and the set was empty
         try:
@@ -483,7 +483,7 @@ class FollowForms(PageBase):
         f = copy.follows(self.lg, settings.LEAGUE_USER)[0]
         self.assertEqual((f["kind"], f["exit"]["mode"], f["exit"]["max_runup"]), ("kol", "podaci", copy.DATA_MAX_RUNUP))
         self.assertNotIn("tp", f["exit"])
-        loc = pravitrade.post("/pravi-trade/follow", {"kind": "auto", "target": "tg:a, tg:b", "exit": "podaci", "per_day": "3"}, "Jure")
+        loc = pravitrade.post("/pravi-trade/follow", {"kind": "auto", "target": "acall, bcall", "exit": "podaci", "per_day": "3"}, "Jure")
         self.assertIn("ok=", loc)
         f = next(x for x in copy.follows(self.lg, settings.LEAGUE_USER) if x["kind"] == "ekipa")
         self.assertEqual((f["exit"]["mode"], f["exit"]["max_runup"]), ("podaci", copy.DATA_MAX_RUNUP))   # not the crew's 25 %
@@ -518,7 +518,7 @@ class FollowForms(PageBase):
         self.assertIn("sada −60 %", card)
         self.assertIn("-60%", pravitrade._buy_now_card(cfg, True))
         self.assertIn("-60%", pravitrade._buy_form(MINT2, cfg, "tpsl", True))
-        loc = pravitrade.post("/pravi-trade/followall", {"handles": "ansem,tg:alpha"}, "Jure")
+        loc = pravitrade.post("/pravi-trade/followall", {"handles": "ansem,alphax"}, "Jure")
         self.assertIn("stop%20-60%25", loc)
 
     def test_kol_with_mirror_exit_takes_the_default_instead_of_an_error(self):
@@ -531,7 +531,7 @@ class FollowForms(PageBase):
     def test_crew_message_and_copyfollow_keep_the_conditions(self):
         """P72: the confirmation says the saved condition; a copied follow keeps cap, run-up and min_callers."""
         from ui import pravitrade
-        loc = pravitrade.post("/pravi-trade/follow", {"kind": "auto", "target": "tg:a, tg:b, tg:c", "exit": "tpsl", "min_callers": "2",
+        loc = pravitrade.post("/pravi-trade/follow", {"kind": "auto", "target": "acall, bcall, ccall", "exit": "tpsl", "min_callers": "2",
                                                       "max_mcap": "800k", "per_day": "5"}, "Jure")
         self.assertIn("kad%20token%20zovu%202%2B", loc)
         self.assertNotIn("prvi%20od%20njih", loc)
@@ -552,9 +552,9 @@ class FollowForms(PageBase):
         self.assertIn("err=", loc)
         self.assertIn("novčanike prati zasebno", unquote(loc))
         self.assertEqual(copy.follows(self.lg, settings.LEAGUE_USER), [])
-        loc = pravitrade.post("/pravi-trade/followall", {"handles": "w:ABC123,ansem,tg:alpha"}, "Jure")
+        loc = pravitrade.post("/pravi-trade/followall", {"handles": "w:ABC123,ansem,alphax"}, "Jure")
         self.assertIn("ok=", loc)
-        self.assertEqual([f["target"] for f in copy.follows(self.lg, settings.LEAGUE_USER)], ["ansem,tg:alpha"])
+        self.assertEqual([f["target"] for f in copy.follows(self.lg, settings.LEAGUE_USER)], ["alphax,ansem"])
         rows = [(MINT2, [("w:ABC123", "chain", NOW - 100)], NOW - 100, NOW - 100, "AAA", dict(MOVING))]
         g = pravitrade.crew_rows(rows, NOW)[0]
         self.assertEqual(g["key"], "")

@@ -95,7 +95,8 @@ def groups(limit=20, path=None, cls=None):
 def top_events(limit=10, since=None, path=None):
     con = store.ro(path or store.db_path())
     rows = store.q(con, """SELECT eid, kind, token, symbol, t0, handle, n_callers, mcap0, peak_x, catalyst, catalysts,
-        n_part FROM i2_events WHERE t0 >= ? ORDER BY peak_x DESC LIMIT ?""", (int(since or 0), int(limit)))
+        n_part FROM i2_events WHERE t0 >= ? AND NOT (kind = 'call' AND COALESCE(handle, '') LIKE 'tg:%')
+        ORDER BY peak_x DESC LIMIT ?""", (int(since or 0), int(limit)))   # 19.11.: Telegram call events not shown
     early = {}
     for (eid, *_r) in rows:
         early[eid] = store.q(con, """SELECT wallet, owner, buy_ts, sol_in, sold_into, sol_out FROM i2_part WHERE eid = ? AND

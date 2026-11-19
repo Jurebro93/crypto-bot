@@ -648,38 +648,10 @@ def stars(con, cfg, run=None, now=None):
     return save(con, calls)
 
 
-# ---------------- Telegram (tg.db, run_tg.py) and KOL wallets on chain (hype.db chain_trades) ----------------
+# ---------------- KOL wallets on chain (hype.db chain_trades) ----------------
 
-def from_telegram(con, tg_db=None):
-    """Telegram posts with a CA become calls: author 'tg:<channel>', followers = subscribers, views = post views.
-    A forwarded post is kind 'repost' (the original channel made the call; it is a candidate of its own)."""
-    from tg import store as tstore
-    src = tstore.ro(tg_db)
-    if src is None:
-        return 0
-    last = (con.execute("SELECT ts FROM seen_cache WHERE key='tg:posts'").fetchone() or (0,))[0]
-    try:
-        rows = src.execute("""SELECT p.channel, p.post, p.ts, p.seen_ts, p.text, p.cas, p.views, p.fwd_from, p.source,
-                                     c.subs, c.title
-                              FROM posts p LEFT JOIN channels c ON c.name = p.channel
-                              WHERE p.seen_ts >= ? AND p.cas != '' ORDER BY p.seen_ts""", (last,)).fetchall()
-    except sqlite3.OperationalError:
-        rows = []
-    finally:
-        src.close()
-    n, top = 0, last
-    for ch, post, ts, seen, text, cas, views, fwd, source, subs, title in rows:
-        top = max(top, seen)
-        if not ts:
-            continue
-        kind = "repost" if fwd else kind_of(text)
-        base = {"tweet_id": f"tg:{ch}/{post}", "handle": f"tg:{ch}", "ts": ts, "url": f"https://t.me/{ch}/{post}",
-                "text": (text or "")[:600], "followers": subs or 0, "likes": 0, "retweets": 0, "views": views or 0,
-                "kind": kind, "match": "ca", "source": "tg" if source != "tgstat" else "tgstat", "symbol": None,
-                "author": {"name": title, "verified": False}}
-        n += save(con, [dict(base, token=c) for c in cas.split(",") if c])
-    con.execute("INSERT OR REPLACE INTO seen_cache VALUES ('tg:posts', ?)", (top,))
-    return n
+# 19.11. (vlasnik: "Makni Telegram KOL-ove iz izračuna"): from_telegram (tg.db posts -> kol.db calls 'tg:<channel>')
+# is gone; the stored Telegram calls stay and every calculation leaves them out (kol/tgout.py).
 
 
 def wallet_handles(con):

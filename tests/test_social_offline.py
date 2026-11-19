@@ -183,7 +183,7 @@ class GatedCommands(Base):
                     drustveni.gate_main(["python3"] + argv)
                 self.assertEqual(e.exception.code, 0)
         for path in ("run_makroinf.py", "run_konsenzus.py", "kol/zadnjih5.py", "run_veliki.py", "kol/backfill_calls.py",
-                     "run_learn.py", "run_kol.py", "run_tg.py"):
+                     "run_learn.py", "run_kol.py"):   # 19.11.: run_tg.py is the weekly follower count, not gated
             src = open(os.path.join(ROOT, path), encoding="utf-8").read()
             self.assertIn("drustveni.gate_main()", src.split('if __name__ == "__main__":')[-1], path)
 
@@ -358,32 +358,6 @@ class Seams(Base):
         src = open(os.path.join(ROOT, "run_learn.py"), encoding="utf-8").read()
         self.assertIn('if drustveni.gate("detektiv"):\n                print(f"detektiv: {detektiv.propose()}")', src)
 
-    def test_telegram_reader(self):
-        import run_tg
-        for now, want in ((self.closed(), 0), (T0 + 5 * D + 60, 1)):
-            with mock.patch.object(run_tg, "housekeeping", return_value={}) as hk, \
-                    mock.patch.object(run_tg.poll, "tick", return_value=(0, 0)) as tick, \
-                    mock.patch.object(run_tg.store, "connect", return_value=mock.Mock()), \
-                    mock.patch.object(drustveni.time, "time", return_value=now), self.quiet():
-                run_tg.cmd_loop(None, sleep=lambda s: None, rounds=3)
-            self.assertEqual((hk.call_count, min(1, tick.call_count)), (want, want))
-
-    def test_telethon_waits_for_the_window_and_leaves_when_it_closes(self):
-        import run_tg
-        seq = iter([False, False, True, True, False])
-        ran, slept = [], []
-        import threading
-        stop = threading.Event()
-
-        def run(cfg):
-            ran.append(1)
-            stop.wait(5)
-        with mock.patch.object(run_tg, "_social", side_effect=lambda job: next(seq)), self.quiet():
-            self.assertEqual(run_tg.cmd_telethon(None, run=run, sleep=slept.append, check_s=0), 0)
-        stop.set()
-        self.assertEqual(ran, [1])
-        self.assertEqual(slept[:2], [300, 300])
-
     def test_minute_candles_stop_but_the_autopilots_skips_stay(self):
         from kol import minute, preskoceni, store as kstore
         for now, want in ((self.closed(), 0), (T0 + 5 * D + 60, 1)):
@@ -433,8 +407,8 @@ class Notice(Base):
         from tests import test_public_offline as pub
         kol_lb = pub._db()                     # the leaderboard's own fixture (the market one has no kols.name)
         with mock.patch.object(drustveni.time, "time", return_value=T0 + D):
-            for paths in (("/influencers", "/hr/influenceri"), ("/telegram-channels", "/hr/telegram-kanali"),
-                          M.PAGES["calls"]):
+            # 19.11.: the Telegram pages are the weekly follower list now (no 5-day notice; tests/test_telegram_1911)
+            for paths in (("/influencers", "/hr/influenceri"), M.PAGES["calls"]):
                 for path, lang in zip(paths, ("en", "hr")):
                     public._cache.clear()
                     with mock.patch.dict(os.environ, {"KOL_DB": kol_lb} if "influencers" in path or "influenceri" in path
@@ -449,13 +423,12 @@ class Notice(Base):
         public._cache.clear()
 
     def test_app_pages_and_their_english(self):
-        from ui import i18n, izvori, kol as kolpage
+        from ui import i18n, kol as kolpage
         self.open_at(T0)
         with mock.patch.object(drustveni.time, "time", return_value=T0 + D), \
                 mock.patch.object(kolpage.store, "ro", return_value=None):
             _t, html_kol = kolpage.page({})
-            _t, html_izv = izvori.page({})
-        for html in (html_kol, html_izv):
+        for html in (html_kol,):   # 19.11.: /izvori redirects to /telegram-kanali (ui/tgkanali.py)
             self.assertEqual(html.count("soc-note"), 1)
             self.assertIn("Zadnje osvježavanje: 17.11.2026. Sljedeće: 22.11.2026.", html)
             note = re.search(r'<div class="[^"]*soc-note"[^>]*>(.*?)</div>', html, re.S).group(1)

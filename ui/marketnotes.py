@@ -384,7 +384,7 @@ LOCKED = {
               [("Tokens called in the last hour", "Tokeni pozvani u zadnjih sat vremena"),
                ("Tokens several influencers called together", "Tokeni koje je više influencera pozvalo zajedno"),
                ("Each caller's result after costs, not the peak", "Rezultat svakog callera nakon troškova, a ne vrh"),
-               ("Telegram channels that are first, not loudest", "Telegram kanali koji su prvi, a ne najglasniji")]),
+               ("Callers who are first, not loudest", "Calleri koji su prvi, a ne najglasniji")]),
 }
 
 

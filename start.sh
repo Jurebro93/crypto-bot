@@ -461,13 +461,11 @@ if [ -n "${KOL_BACKFILL_USD:-}" ]; then
   ) &
 fi
 
-# Telegram call channels: discovery every hour, hot channels read every 30 s via t.me/s (free) -> tg.db,
-# hype.db tg_mentions, and kol.db calls on the next run_kol round. TGStat (TGSTAT_TOKEN) adds paid search by CA.
-keep tg python3 run_tg.py loop
-# optional live listener on a Telegram account (paid option: needs a phone number), only with its secrets set
-# 19.11. (ops/drustveni): it listens only inside the social refresh window and ends when the window closes; the loop
-# starts it again and it waits for the next window (one line a day)
-if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then ( while true; do python3 run_tg.py telethon || echo "telethon nije uspio"; sleep 60; done ) & fi
+# 19.11. (vlasnik: "Makni Telegram KOL-ove iz izračuna. Ali zadrži popis kanala, osvježen jednom tjedno, samo za broj
+# pratitelja"): the Telegram call reader (run_tg.py loop), the Telethon listener, discovery, history and TGStat are
+# gone. Left: the follower count of the existing channel list, a channel at most once in TG_FOLLOWERS_EVERY_D (7)
+# days (tg/pratitelji.py); asked once a day, it reads only the due channels (one free t.me page each, header only).
+( sleep "${TG_FOLLOWERS_FIRST_S:-2700}"; while true; do low python3 run_tg.py pratitelji || echo "telegram pratitelji nisu uspjeli"; sleep 86400; done ) &
 
 # loops that work only now and then, each run a short process that ends and hands its memory back (run_sched.py):
 #   spend on Helius/Apify every 15 min (warnings on /usage and a banner on every page), correlations every

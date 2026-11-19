@@ -549,10 +549,10 @@ class CopyWithDataExit(unittest.TestCase):
 
     def test_a_crew_is_judged_on_its_members_calls_and_wallets_cannot_use_it(self):
         for i, ch in enumerate("WWWLWWWWLWWWWLW"):
-            put(self.mc, i, "tg:alpha" if i % 2 else "goodkol", WIN if ch == "W" else LOSS,
+            put(self.mc, i, "alphax" if i % 2 else "goodkol", WIN if ch == "W" else LOSS,
                 ts=self.now - 86400 + i * 600, r60=0.25 if ch == "W" else -0.5)
         self.mc.commit()
-        fid = copy.follow(self.con, "Ivan", "ekipa", "goodkol, tg:alpha", "", 25, 10, "podaci")
+        fid = copy.follow(self.con, "Ivan", "ekipa", "goodkol, alphax", "", 25, 10, "podaci")
         f = next(x for x in copy.follows(self.con, "Ivan") if x["id"] == fid)
         d = copy.data_exit(f, self.now)
         self.assertTrue(d["ok"])

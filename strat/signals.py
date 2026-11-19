@@ -109,14 +109,7 @@ class Sources:
             for h, ca, ts in _q(hc, "SELECT handle, ca, ts FROM kol_mentions WHERE ts >= ? AND ca != ''", (since,)):
                 if h not in bad:
                     kols.append((ca, int(ts), h, scores.get(h) or 0))
-            for ch, ts, cas, fwd in _q(tc, "SELECT channel, ts, cas, fwd_from FROM posts WHERE ts >= ? AND cas != ''",
-                                       (since,)):
-                h = f"tg:{ch}"
-                if fwd or h in bad:
-                    continue
-                for ca in (cas or "").split(","):
-                    kols.append((ca, int(ts), h, scores.get(h) or 0))
-                    tg.append((ca, int(ts), h, scores.get(h) or 0))   # 7.11.: Telegram alone (free, 4x the X volume)
+            # 19.11. (vlasnik, kol/tgout.py): Telegram posts are no signal any more; the tg_poziv account gets none
             kols = [k for k in kols if _ok(k[0]) and k[1]]
             tg = [k for k in tg if _ok(k[0]) and k[1]]
 

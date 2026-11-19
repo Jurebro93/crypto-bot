@@ -104,10 +104,8 @@ def payload(d):
     c = d.get("calls")
     if c:
         y = c["x"].get(c["day"]) or {}
-        tg = c["tg"].get(c["day"]) or {}
         out["calls"] = {"x_poziva_zadnji_dan": y.get("calls"), "x_prosjek_7d": _r(c.get("calls_avg7"), 0),
                         "x_callera_zadnji_dan": y.get("callers"), "x_callera_prosjek_7d": _r(c.get("callers_avg7"), 0),
-                        "telegram_objava_s_adresom": tg.get("posts"), "telegram_prosjek_7d": _r(c.get("posts_avg7"), 0),
                         "udio_prvih_poziva_plus50_u_24h_7d": _r(c.get("hit7")), "isto_30d": _r(c.get("hit30")),
                         "napomena": "plus50 je vrh unutar 24 h, ne ostvariva zarada",
                         "medijan_mcap_na_pozivu_7d": _r(c.get("mc7"), 0), "isto_mcap_30d": _r(c.get("mc30"), 0),

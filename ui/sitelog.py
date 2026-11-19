@@ -121,7 +121,8 @@ def counts():
         v["kols"] = len(public.influencers())     # exactly the rows a visitor sees on the public leaderboard
     except Exception as e:  # noqa: BLE001
         print(f"dnevnik weba: ljestvica influencera nije izbrojana: {type(e).__name__}: {e}", flush=True)
-    v["calls"] = _one(kol, "SELECT COUNT(*) FROM calls WHERE kind='call' AND max24 IS NOT NULL")   # measured calls
+    v["calls"] = _one(kol, "SELECT COUNT(*) FROM calls WHERE kind='call' AND max24 IS NOT NULL "
+                           "AND handle NOT LIKE 'tg:%'")   # measured calls (19.11.: X only, kol/tgout.py)
     v["channels"] = _one(_file("TG_DB", "tg.db"), "SELECT COUNT(*) FROM channels WHERE status IN ('active','quiet','slow')")
     v["wallets"] = _one(wal, "SELECT COUNT(*) FROM wallets")
     # MAX(rowid) instead of COUNT over millions of trades. A VACUUM renumbers rowids, so after pruned rows the number

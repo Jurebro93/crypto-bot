@@ -11,9 +11,8 @@ process that ends and gives its memory back; this process only keeps the clock. 
   market  run_market.py collect every MARKET_EVERY_MIN minutes (default 60); light (no heavy lock, 9.11.)
   usage   run_usage.py tick     every USAGE_EVERY_MIN minutes (default 15); light (no heavy lock, 9.11.)
   corr    run_corr.py run       every CORR_EVERY_MIN minutes (default 60)
-  postai  run_learn.py postai   every POSTAI_EVERY_MIN minutes (default 30): AI labels of KOL/TG posts (learn/postai.py)
+  postai  run_learn.py postai   every POSTAI_EVERY_MIN minutes (default 30): AI labels of KOL posts (learn/postai.py; Telegram not since 19.11.)
   shadow  run_learn.py shadow   every SHADOW_EVERY_MIN minutes (default 60): shadow book points + labels (learn/shadow.py)
-  whatsapp run_whatsapp.py due  daily digest to the WhatsApp group at WHATSAPP_HOUR, only with WHATSAPP_* set
   web     run_web.py daily      once a day at 02:00 Zagreb time (WEB_DAILY_HOUR): public tables fresh + site log row; light
   events  run_events.py tick    every EVENTS_EVERY_MIN minutes (default 5): events.db sync, feed health, stale requests; light
   evreport run_events.py ev     once a day at 23:30 Zagreb: the EV report per feature phase (events/evreport.py); light
@@ -264,25 +263,6 @@ def exits_refit():
         return False
 
 
-def whatsapp(name, args, minutes):
-    """Checks the clock itself so nothing starts while WhatsApp sending is not set up (no process every 10 min)."""
-    while True:
-        try:
-            if os.environ.get("WHATSAPP_PROVIDER") and os.environ.get("WHATSAPP_TOKEN"):
-                hour = int(os.environ.get("WHATSAPP_HOUR", "19"))
-                try:
-                    from zoneinfo import ZoneInfo
-                    now = dt.datetime.now(ZoneInfo("Europe/Zagreb"))
-                except Exception:  # noqa: BLE001
-                    now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
-                if now.hour >= hour and _last_day(name) != now.date().isoformat():
-                    if run(name, args) == 0:
-                        _set_last_day(name, now.date().isoformat())
-        except Exception as e:  # noqa: BLE001
-            print(f"{name}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
-        time.sleep(minutes * 60)
-
-
 # 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): everything that recomputes or learns (learn6, exits rollback,
 # shadow, corr) runs only in the night window (ops/heavy.NIGHT, 01-06 Zagreb); the daily fits moved into it
 # (learn/config.json run_at_utc 02:30, exits/config.json 03:30). By day only the light, fresh jobs run: market,
@@ -296,7 +276,7 @@ JOBS = [
     # to 42 min, so the macro gate (market/makro.py, 3 h window) and the spend warnings aged by an hour: light, no lock
     ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")), True)),
     ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")), True)),
-    ("whatsapp", whatsapp, (["run_whatsapp.py", "due"], 10)),
+    # 19.11. (vlasnik: "Makni 'za whatsapp' ... jer je nepotrebno"): the daily WhatsApp digest job is gone
     ("shadow", every, (["run_learn.py", "shadow"], float(os.environ.get("SHADOW_EVERY_MIN", "60")), False, True)),
     # 5.11.: mass shadow book (learn/masovno.py): thousands of invisible trades a day; history at night 01-06 Zagreb
     ("masovno", every, (["run_learn.py", "masovno"], float(os.environ.get("MASOVNO_EVERY_MIN", "30")), True)),

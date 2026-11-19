@@ -84,8 +84,10 @@ def _q(con, sql, args=()):
 # ---------- signals --------------------------------------------------------------------------------------------------
 
 def read_signals(now, window_s, paths=None):
-    """[{ts, token, src, kind}] of the last window_s: X / Telegram calls (kol.db calls kind 'call', tg.db posts that are
-    not forwards) and wallet buys (hype.db chain_trades). Read-only, never raises."""
+    """[{ts, token, src, kind}] of the last window_s: X calls (kol.db calls kind 'call') and wallet buys (hype.db
+    chain_trades). Read-only, never raises. 19.11. (vlasnik: Telegram out of every calculation, kol/tgout.py): no
+    Telegram call and no tg.db post is a signal any more."""
+    from kol import tgout
     from konsenzus.research import norm
     if paths is None:
         from league import copy as lcopy
@@ -93,21 +95,15 @@ def read_signals(now, window_s, paths=None):
     since = int(now - window_s)
     out = []
     kc = _ro(paths.get("kol"))
-    for tok, ts, h in _q(kc, "SELECT token, ts, handle FROM calls WHERE kind='call' AND ts >= ?", (since,)):
-        if h and not str(h).startswith("w:") and _ok(tok) and ts:
-            out.append({"ts": int(ts), "token": tok, "src": norm(h), "kind": "tg" if str(h).startswith("tg:") else "x"})
-    tc = _ro(paths.get("tg"))
-    for ch, ts, cas, fwd in _q(tc, "SELECT channel, ts, cas, fwd_from FROM posts WHERE ts >= ? AND cas != ''", (since,)):
-        if fwd or not ts:
-            continue
-        for ca in (cas or "").split(","):
-            if _ok(ca.strip()):
-                out.append({"ts": int(ts), "token": ca.strip(), "src": norm("tg:" + str(ch)), "kind": "tg"})
+    for tok, ts, h in _q(kc, f"SELECT token, ts, handle FROM calls WHERE kind='call' AND ts >= ? AND {tgout.sql()}",
+                         (since,)):
+        if h and not str(h).startswith("w:") and not tgout.is_tg(h) and _ok(tok) and ts:
+            out.append({"ts": int(ts), "token": tok, "src": norm(h), "kind": "x"})
     hc = _ro(paths.get("hype"))
     for w, m, ts in _q(hc, "SELECT wallet, mint, ts FROM chain_trades WHERE side='buy' AND ts >= ?", (since,)):
         if w and _ok(m) and ts:
             out.append({"ts": int(ts), "token": m, "src": norm(w), "kind": "wallet"})
-    for c in (kc, tc, hc):
+    for c in (kc, hc):
         if c is not None:
             c.close()
     return out

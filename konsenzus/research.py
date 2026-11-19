@@ -229,8 +229,11 @@ def make_events(entries, groups, slip_stop):
     """[event] in time order: per (group, token) the first signal only (an echo of the same group is not a second
     source). event: {i, src, kind, group, tok, sig_ts, ts (our entry = path start), day, r (E result), known, rug,
     mcap, liq, lag, entry}."""
+    from kol import tgout
     first = {}
     for e in sorted(entries, key=lambda e: (e.get("sig_ts") or e["ts"], e["src"])):
+        if tgout.is_tg(e["src"]):   # 19.11. (vlasnik): a Telegram channel is no source of the consensus any more
+            continue
         k = kind_of(e["src"], e["kind"])
         grp = groups.of(e["src"]) if groups is not None else norm(e["src"])
         key = (grp, e["tok"])

@@ -40,9 +40,11 @@ def _q(con, sql, args=()):
 
 
 def events(now, window_s, kol_db=None, tg_db=None, hype_db=None):
-    """[(token, ts, platform, author, kind)] in the window, from every source, plus (scores, wallet->handle)."""
+    """[(token, ts, platform, author, kind)] in the window, from every source, plus (scores, wallet->handle).
+    19.11. (vlasnik, kol/tgout.py): no Telegram source any more (kol.db 'tg:' calls and tg.db posts are not read);
+    tg_db is kept in the signature for the callers."""
+    from kol import tgout
     kc = _ro(kol_db or os.path.join(ROOT, "kol.db"))
-    tc = _ro(tg_db or os.environ.get("TG_DB") or os.path.join(ROOT, "tg.db"))
     hc = _ro(hype_db or os.environ.get("HYPE_DB") or os.path.join(ROOT, "hype.db"))
     since = now - window_s
     ev = []
@@ -60,22 +62,15 @@ def events(now, window_s, kol_db=None, tg_db=None, hype_db=None):
         from kol import bots as _bots
         bots = _bots.handles(kc)   # automated alert accounts post every fresh token: never a KOL call
         for tok, ts, h, kind, src in _q(kc, "SELECT token, ts, handle, kind, source FROM calls WHERE ts >= ? "
-                                            "AND kind = 'call'", (since,)):
-            plat = "tg" if h.startswith("tg:") else "x"   # wallet swaps come from hype.db chain_trades below
-            ev.append((tok, ts, plat, h, kind))
+                                            f"AND kind = 'call' AND {tgout.sql()}", (since,)):
+            ev.append((tok, ts, "x", h, kind))   # wallet swaps come from hype.db chain_trades below
         for h, ca, ts in _q(hc, "SELECT handle, ca, ts FROM kol_mentions WHERE ts >= ? AND ca != ''", (since,)):
             if h not in bots:
                 ev.append((ca, ts, "x", h, "call"))   # live X webhook, before run_kol copies it
-        for ch, ts, cas, fwd in _q(tc, "SELECT channel, ts, cas, fwd_from FROM posts WHERE ts >= ? AND cas != ''",
-                                   (since,)):
-            if f"tg:{ch}" in bots:
-                continue
-            for ca in cas.split(","):
-                ev.append((ca, ts, "tg", f"tg:{ch}", "repost" if fwd else "call"))
         for w, mint, side, ts in _q(hc, "SELECT wallet, mint, side, ts FROM chain_trades WHERE ts >= ?", (since,)):
             ev.append((mint, ts, "chain", who.get(w, "w:" + w[:6]), side))
     finally:
-        for c in (kc, tc, hc):
+        for c in (kc, hc):
             if c is not None:
                 c.close()
     return ev, scores, fac

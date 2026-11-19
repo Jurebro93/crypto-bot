@@ -25,7 +25,7 @@ covers every call of that token within 16 hours.
 
 For the pages: handle_stats (per account), crew_stats (per group of callers, measured from the FIRST call of the
 group so a late echo cannot improve it), crew_detail (members, followers, who calls first, every shared token with
-its path and rug flag), hot() = the small set worth reading every 1-2 s (kv hot_list), read by tg/poll.py and
+its path and rug flag), hot() = the small set worth reading every 1-2 s (kv hot_list; X only since 19.11.), read by
 kol/xhook.py.
 """
 import json
@@ -316,10 +316,10 @@ def _candidates(kcon, c, now):
     return kcon.execute("""
         SELECT c.tweet_id, c.token, c.handle, c.ts,
                (SELECT COUNT(DISTINCT handle) FROM calls x WHERE x.token = c.token AND x.kind = 'call'
-                  AND x.handle NOT LIKE 'w:%') AS n_callers
+                  AND x.handle NOT LIKE 'w:%' AND x.handle NOT LIKE 'tg:%') AS n_callers
           FROM calls c LEFT JOIN kols k ON k.handle = c.handle
           JOIN tokens t ON t.token = c.token AND t.pair IS NOT NULL
-         WHERE c.kind = 'call' AND c.handle NOT LIKE 'w:%' AND COALESCE(k.bot, 0) = 0
+         WHERE c.kind = 'call' AND c.handle NOT LIKE 'w:%' AND c.handle NOT LIKE 'tg:%' AND COALESCE(k.bot, 0) = 0
            AND c.bad IS NULL AND (c.mcap0 IS NULL OR c.mcap0 >= ?) AND c.ts BETWEEN ? AND ?
          ORDER BY (n_callers >= 2) DESC, c.ts DESC""",
                         (MIN_MCAP, now - c["days"] * 86400, now - c["min_age_min"] * 60)).fetchall()
@@ -844,7 +844,8 @@ def hot(mcon, kcon, cfg, now=None, wallet_db=None):
     x, tg = [], []
     for h, s in handle_stats(mcon, c["hot_days"], now, c["hot_min_n"]):
         if s[f"hit{c['hot_tp']}"] >= c["hot_min_hit"] and s["sl"] <= c["hot_max_sl"]:
-            (tg if h.startswith("tg:") else x).append(h)
+            if not h.startswith("tg:"):   # 19.11. (vlasnik, kol/tgout.py): no Telegram channel on the hot list
+                x.append(h)
     wallets = []
     try:
         from wallets import dokazani
