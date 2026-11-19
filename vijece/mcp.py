@@ -180,10 +180,21 @@ def grok_tasks(con, now=None):
     if req:
         out.append({"id": f"smjer:{req['session_ts']}", "kind": "council_direction", "priority": 1, "rank": -100,
                     "why": "the council's direction session is open and your answer is missing",
+                    # 19.11. (vlasnik: "I want OpenAI and Grok bot to focus on working out the strategy for finding
+                    # such wallets ... and which APIs to include"): the question is the wallet strategy
                     "instruction": ("Call get_council_queue: direction_request has the measured state (brief) and the "
-                                    "question (one direction for ALL resources). Answer with at most 3 "
-                                    "submit_suggestion calls whose title starts with \"Smjer: \"; add what you know "
-                                    "from X. OpenAI and Claude then review each one."),
+                                    "question: the owner's first focus is WALLETS that buy before the pump / before "
+                                    "influencer calls and sell into the pump. Work out how to FIND them (which data "
+                                    "sources and APIs to add or drop besides Helius, and their cost; the definition "
+                                    "of a pump and of 'bought before' / 'sold into'; excluding bots, market makers, "
+                                    "team wallets and fresh one-off wallets; clustering by funder), how to PROVE it "
+                                    "on history (point-in-time selection, out-of-sample copy test with 1-2 s delay "
+                                    "and real cost, enough wallets and trades), how to COPY within a second (own "
+                                    "executor vs an external copy tool: fees, custody, latency), the first three "
+                                    "steps and how each raises net profit of real-money trades, measured within 14 "
+                                    "days. Answer with at most 3 submit_suggestion calls whose title starts with "
+                                    "\"Smjer: \"; add what you know from X (who finds such wallets, which tools "
+                                    "they use). OpenAI and Claude then review each one."),
                     "answer_with": req["answer_with"]})
     wait = store.grok_wait_s()
     for k, (n, oc) in enumerate(ceka_groka(con)[:MAX_TASKS]):

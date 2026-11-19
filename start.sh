@@ -46,6 +46,13 @@ python3 -m hype.apify || true
 # fokus_midcap, ops/fokus.py): one line at every start: which microcap jobs are off, which are retargeted, how many
 # midcaps the collector holds and from which sources (reads trade.db / midcap.db, no network)
 python3 -m ops.fokus || true
+# 19.11. (vlasnik: "stop spending resources on scraping influencers and Telegram channels ... refreshed once every 5
+# days. What I want every day is wallets"; ops/drustveni.py): one line at every start with the social refresh window
+# (open / closed, next); the first start after this deploy opens the first window (SOCIAL_EVERY_D 5 days,
+# SOCIAL_WINDOW_H 6 h; state DATA_DIR/drustveni.json). Every influencer / Telegram job below asks the same gate
+# (KOL search round and push rules, minute candles after calls, Telegram reader, makroinf, call power, X momentum, AI
+# labels, zadnjih5, konsenzus); outside the window each says so once a day. SOCIAL_ALWAYS=1 = the old behaviour.
+python3 -m ops.drustveni || true
 
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).
@@ -444,7 +451,9 @@ fi
 # hype.db tg_mentions, and kol.db calls on the next run_kol round. TGStat (TGSTAT_TOKEN) adds paid search by CA.
 keep tg python3 run_tg.py loop
 # optional live listener on a Telegram account (paid option: needs a phone number), only with its secrets set
-if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then python3 run_tg.py telethon & fi
+# 19.11. (ops/drustveni): it listens only inside the social refresh window and ends when the window closes; the loop
+# starts it again and it waits for the next window (one line a day)
+if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then ( while true; do python3 run_tg.py telethon || echo "telethon nije uspio"; sleep 60; done ) & fi
 
 # loops that work only now and then, each run a short process that ends and hands its memory back (run_sched.py):
 #   spend on Helius/Apify every 15 min (warnings on /usage and a banner on every page), correlations every

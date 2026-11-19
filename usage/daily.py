@@ -276,6 +276,28 @@ def vijece(now, paths):
         con.close()
 
 
+def drustveni(now):
+    """19.11. (vlasnik: influenceri i Telegram jednom u 5 dana; ops/drustveni.py): the social refresh window's state,
+    so the saving is visible next to the cost (read-only: it never opens a window)."""
+    from ops import drustveni as soc
+    st = soc.state(now, create=False)
+    return {"stanje": st["mode"], "otvoren": bool(st["open"]), "zadnji": st.get("last"), "sljedeci": st.get("next"),
+            "do": st.get("end")}
+
+
+def drustveni_part(dr):
+    """"društveni izvori: prozor zatvoren (sljedeći 24.11.2026. 14:05 UTC)" / "otvoren (do ...)"."""
+    from ops import drustveni as soc
+    m = dr.get("stanje")
+    if m == "closed":
+        return f"društveni izvori: prozor zatvoren (sljedeći {soc.when(dr.get('sljedeci'))})"
+    if m == "open":
+        return f"društveni izvori: prozor otvoren (do {soc.when(dr.get('do'))}, sljedeći {soc.when(dr.get('sljedeci'))})"
+    if m == "first":
+        return "društveni izvori: otvoren (prvo osvježavanje)"
+    return "društveni izvori: otvoren (uvijek)" if m == "always" else "društveni izvori: otvoren"
+
+
 def collect(now=None, paths=None):
     """Today's (UTC) numbers per source as a dict (JSON-safe)."""
     now = int(now or time.time())
@@ -285,7 +307,8 @@ def collect(now=None, paths=None):
                      ("twitterapi", lambda: twitterapi(now, paths)),
                      ("apify", lambda: apify(now, paths)), ("pumpportal", lambda: pumpportal(now, paths)),
                      ("helius", lambda: helius(now, paths)), ("ai", lambda: ai(now, paths)),
-                     ("openai", lambda: openai(now, paths)), ("vijece", lambda: vijece(now, paths))):
+                     ("openai", lambda: openai(now, paths)), ("vijece", lambda: vijece(now, paths)),
+                     ("drustveni", lambda: drustveni(now))):
         try:
             out[name] = fn()
         except Exception as e:  # noqa: BLE001 - one source costs only its part of the line
@@ -346,6 +369,9 @@ def line(d):
     if vj and not vj.get("greska"):   # 18.11. (vijece/): the council's own calls, reviews, decisions, the work it queued
         parts.append(f"vijeće OpenAI ${_usd(vj.get('openai_usd'))}, Claude ${_usd(vj.get('claude_usd'))}, "
                      f"{_n(vj.get('ocjena'))} ocjena, {_n(vj.get('odluka'))} odluka, za izvedbu {_n(vj.get('za_izvedbu'))}")
+    dr = d.get("drustveni") or {}
+    if dr and not dr.get("greska"):   # 19.11.: influencers and Telegram once in 5 days: is the window open today
+        parts.append(drustveni_part(dr))
     errs = [f"{k}: {v['greska']}" for k, v in d.items() if isinstance(v, dict) and v.get("greska")]
     return f"trošak po izvoru {d.get('day')} (UTC dan): " + " | ".join(parts) + (f" | greške: {'; '.join(errs)}" if errs else "")
 

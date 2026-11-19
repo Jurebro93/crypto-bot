@@ -396,6 +396,20 @@ MACHINES = [
     M("fokus_midcap", "Fokus na midcapove", "posao", "trade.db settings 'flag:fokus_midcap'",
       {"live": "uključen: mikrokap poslovi ne rade", "off": "isključen"}, who="vlasnik", also=("ops/fokus.py",),
       board=True),
+    # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, sve resurse na novčanike; ops/drustveni.py)
+    M("social_window", "Influenceri i Telegram: prozor osvježavanja", "posao", "DATA_DIR/drustveni.json {prvi, log}",
+      {"<open>": "otvoren: influenceri i Telegram se osvježavaju", "<closed>": "zatvoren: poslovi influencera i Telegrama "
+       "miruju do sljedećeg prozora", "<first>": "prvi prozor počinje pri sljedećem startu",
+       "<always>": "uvijek otvoren (SOCIAL_ALWAYS=1, staro ponašanje)",
+       "<nopersist>": "otvoren: nema trajnog stanja (DATA_DIR nije postavljen)"},
+      [("-", "<open>", "prvi start nakon deploya 19.11. (python3 -m ops.drustveni) ili prvi posao koji pita"),
+       ("<open>", "<closed>", "sat: SOCIAL_WINDOW_H (6 h) nakon početka prozora"),
+       ("<closed>", "<open>", "sat: SOCIAL_EVERY_D (5 dana) nakon početka prethodnog prozora")], who="sat",
+      also=("ops/drustveni.py",),
+      caveats=("Noćni poslovi (zadnjih5, konsenzus, makroinf noć) koji prođu vrata u prozoru čekaju noćni prozor i "
+               "rade tada, i ako je društveni prozor već zatvoren.",
+               "Promjena SOCIAL_EVERY_D ili SOCIAL_WINDOW_H računa se od istog prvog početka (ne pomiče ga).",
+               "Računi koje prati pravi novac zadržavaju X webhook pravilo i izvan prozora."), board=True),
     M("heavy_lock", "Brava teških poslova", "posao", "flock /tmp/memesonar-heavy.lock (+ .who, .prio)",
       {"<free>": "slobodna", "<held>": "zauzeta", "<waiting>": "posao čeka"},
       caveats=("Ime držatelja se ne briše nakon otpuštanja, pa log može imenovati posao koji je već gotov.",)),

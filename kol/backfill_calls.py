@@ -160,4 +160,9 @@ if __name__ == "__main__":
         fokus.gate()
     except ImportError:
         pass
+    try:   # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, ops/drustveni.py): outside the window it ends at once
+        from ops import drustveni
+        drustveni.gate_main()
+    except ImportError:
+        pass
     sys.exit(main())

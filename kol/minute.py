@@ -578,6 +578,15 @@ def cooling():
         return 0.0
 
 
+def _social(job, log=print):
+    """The refresh window of ops/drustveni (19.11.); open when it cannot be read (today's behaviour)."""
+    try:
+        from ops import drustveni
+        return drustveni.gate(job, log=None if log is print else log)
+    except ImportError:
+        return True
+
+
 def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
     """`run_kol.py minute-loop`: the only writer of minute.db. Passes of loop_budget_s while there is a backlog
     (crews first), then a short pass whenever new calls are old enough (min_age_min), idle otherwise."""
@@ -601,13 +610,20 @@ def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
                     return
                 continue
             try:
-                t, n, left = run(kcon, mcon, cfg, fetch=fetch, log=log, budget_s=c["loop_budget_s"], per_run=10_000)
+                # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana; ops/drustveni.py): the calls' minute candles
+                # and the TP/SL statistic over them only inside the refresh window; the hot list (local) and the
+                # Autopilot's skipped buys below keep running (real money learns from them)
+                soc = _social("kol_minute", log)
+                if soc:
+                    t, n, left = run(kcon, mcon, cfg, fetch=fetch, log=log, budget_s=c["loop_budget_s"], per_run=10_000)
+                    try:   # 9.11.: which TP/SL pair pays over ALL measured calls (kol/tpsl.py), kept in kv tpsl_pool
+                        from kol import tpsl
+                        tpsl.save_pool(mcon)
+                    except Exception as e:  # noqa: BLE001 - the measuring loop never dies on a statistic
+                        log(f"  tpsl: {type(e).__name__}: {e}")
+                else:
+                    t, n, left = 0, 0, 0
                 hot_ = hot(mcon, kcon, cfg)
-                try:   # 9.11.: which TP/SL pair pays over ALL measured calls (kol/tpsl.py), kept in kv tpsl_pool
-                    from kol import tpsl
-                    tpsl.save_pool(mcon)
-                except Exception as e:  # noqa: BLE001 - the measuring loop never dies on a statistic
-                    log(f"  tpsl: {type(e).__name__}: {e}")
                 # 10.11. (Jure: "12 preskočeno: zašto, i jesu li ipak dosegli +15 %?"): the Autopilot's skipped buys,
                 # measured the same way, AFTER the calls and within their own small budget: unreserved, never waiting
                 # on GeckoTerminal, only a few while calls are still waiting (kol/preskoceni.py)
@@ -619,8 +635,9 @@ def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
                     _late.append(((f"  preskočeni: {type(e).__name__}: {e}",), {}))
             finally:
                 kcon.close()
-            log(f"minute: {t} tokena, {n} poziva po minutnim svijećama, još {left} tokena čeka; vruća lista "
-                f"{len(hot_['x'])} X, {len(hot_['tg'])} TG, {len(hot_['wallets'])} walleta", flush=True)
+            if soc:   # outside the social window the pass measured no call: no line every pass (the gate said it once)
+                log(f"minute: {t} tokena, {n} poziva po minutnim svijećama, još {left} tokena čeka; vruća lista "
+                    f"{len(hot_['x'])} X, {len(hot_['tg'])} TG, {len(hot_['wallets'])} walleta", flush=True)
             for a, k in _late:   # the skips' lines after the pass's own line, which stays the first
                 log(*a, **k)
             _late.clear()

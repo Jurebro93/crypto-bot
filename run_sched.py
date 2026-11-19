@@ -44,6 +44,12 @@ def run(name, args, light=False):
             return 0
     except Exception:  # noqa: BLE001 - unreadable: the old behaviour
         pass
+    try:   # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, ops/drustveni.py): postai and kolfill run only
+        from ops import drustveni   # inside the refresh window; outside it one line a day per job, nothing started
+        if drustveni.skip_cmd(cmd):
+            return 0
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour
+        pass
     # 7.11. 10:45: a "light" job waits on an API (masovno: 500 GeckoTerminal calls at 30/min = 17 min), uses little
     # memory and would otherwise hold the lock most of the time: the token status, shadow, collect and the learning
     # fit all queued behind it for 12+ min after every deploy. Light jobs run without the lock.

@@ -74,3 +74,24 @@ def sync(con, cfg, monitor=None, now=None, log=print):
     if changed:
         log(f"live: pratim uživo {len(watch)} KOL-ova: {', '.join('@' + h for h in watch) or '-'}")
     return True
+
+
+def pause(con, cfg, monitor=None, now=None, log=print):
+    """19.11. (ops/drustveni: influenceri i Telegram jednom u 5 dana): outside the refresh window the paid monitor is
+    stopped once (the same call as an emptied watchlist; it settles the hours watched so far) and its rows cleared, so
+    the next sync inside the window starts it again. False when nothing runs, None without a public URL / Apify."""
+    from hype import apify, sources
+    monitor = monitor or sources.kol_monitor
+    now = now or int(time.time())
+    url = hook_url()
+    if not url or not apify.enabled():
+        return None
+    rows = dict(con.execute("SELECT handle, last_run FROM monitor"))
+    if not rows:
+        return False
+    last = max(rows.values())
+    monitor(list(rows), url, stop=True, hours=round((now - last) / 3600, 2))
+    con.execute("DELETE FROM monitor")
+    con.commit()
+    log(f"live: xquik monitor zaustavljen do sljedećeg društvenog prozora ({len(rows)} računa)")
+    return True

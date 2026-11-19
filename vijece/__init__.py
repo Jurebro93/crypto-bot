@@ -12,8 +12,8 @@ usmjeriti sve resurse, i zašto.").
   odluka.py     the decision after every new review: both reviewers without a "protiv" = accepted (applied through
                 ui/assistnotes.apply when the key is allow-listed and not real money; marked for the coding session
                 otherwise); both "protiv" = rejected; a split, two different refinements or a real-money key = the owner
-  smjer.py      the direction session: what is measured (brief), "one direction for ALL resources" asked of OpenAI and
-                Claude, their proposals stored as notes "Smjer: ..." that go through the same cross-review
+  smjer.py      the direction session: what is measured (brief), the standing question (19.11.: the wallet strategy)
+                asked of OpenAI and Claude, their proposals stored as notes "Smjer: ..." that go through the same cross-review
   sjeme.py      Claude's four proposals of 18.11., stored once
   mcp.py        Grok's side (it has no API here: Grok Bot polls our MCP server): get_council_queue,
                 submit_council_review, get_council, and the tasks of get_grok_tasks

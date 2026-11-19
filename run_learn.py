@@ -38,7 +38,9 @@ def cmd_fit(a):
     if not a.dry:
         try:  # AI detective: judge open hypotheses, propose new ones (learn/detektiv.py); before the model, which uses them
             from learn import detektiv
-            print(f"detektiv: {detektiv.propose()}")
+            from ops import drustveni   # 19.11.: the paid AI reading of posts only inside the social refresh window
+            if drustveni.gate("detektiv"):
+                print(f"detektiv: {detektiv.propose()}")
         except Exception as e:
             print(f"detektiv: {type(e).__name__}: {e}", file=sys.stderr)
     try:  # decision model: champion / challenger on the shadow book (learn/champion.py)
@@ -101,6 +103,9 @@ def cmd_model(a, con=None):
 
 def cmd_postai(a):
     from learn import postai
+    from ops import drustveni   # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana): AI labels only in the window
+    if not drustveni.gate("postai"):
+        return
     print(f"AI čitanje objava: {postai.step()}")
 
 
@@ -181,6 +186,11 @@ if __name__ == "__main__":
     try:   # 15.11. (owner switch fokus_midcap, ops/fokus.py): a microcap job ends at once while it is on
         from ops import fokus
         fokus.gate()
+    except ImportError:
+        pass
+    try:   # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, ops/drustveni.py): outside the window it ends at once
+        from ops import drustveni
+        drustveni.gate_main()
     except ImportError:
         pass
     sys.exit(main())

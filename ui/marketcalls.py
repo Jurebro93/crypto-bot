@@ -256,7 +256,8 @@ def page(lang):
         cards.append(card(num(grad_y), L["grad"]))
     if c["ranges"]:
         cards.append(card(num(c["ranges"]["active"]), L["rng"]))
-    body = [M._head("calls", lang, h1, lead, d), M.subnav("calls", lang),
+    from ops import drustveni   # 19.11. (vlasnik): influencer and Telegram calls refreshed once in 5 days
+    body = [M._head("calls", lang, h1, lead, d), M.subnav("calls", lang), drustveni.public_notice(lang),
             f"<div class=cards>{''.join(cards)}</div>"]
     td = c.get("today")
     if td and c["hours_today"] >= 1:

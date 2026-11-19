@@ -753,6 +753,12 @@ def match_betas(con, cfg, now, checked):
 def x_momentum(con, cfg, now, p, net):
     """X early momentum for the youngest scanner passers and beta passers, x_per_pass a pass, each at most every
     x_every_min, within the scanner's X budget. Returns the USD spent."""
+    try:   # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana; ops/drustveni.py): X searches only in the window
+        from ops import drustveni
+        if not drustveni.gate("xmom", now):
+            return 0.0
+    except ImportError:
+        pass
     rows = con.execute(
         "SELECT token, symbol FROM cand WHERE (x_ts IS NULL OR x_ts < ?) AND ((passed=1 AND first_pass_ts >= ?) OR "
         "(beta_score >= ? AND checked_ts >= ? AND token IN (SELECT token FROM shadow WHERE source='beta'))) "

@@ -96,12 +96,30 @@ def housekeeping(con, cfg, log=print):
     return scores
 
 
-def cmd_loop(a):
+def _social(job):
+    """19.11. (vlasnik: influenceri i Telegram jednom u 5 dana; ops/drustveni.py): inside the refresh window? Open when
+    the gate cannot be read (today's behaviour)."""
+    try:
+        from ops import drustveni
+        return drustveni.gate(job)
+    except ImportError:
+        return True
+
+
+CLOSED_SLEEP_S = 60
+
+
+def cmd_loop(a, sleep=time.sleep, rounds=None):
     cfg = config()
     con = store.connect()
     scores, last_disc = {}, 0
-    while True:
+    while rounds is None or rounds > 0:
+        if rounds is not None:
+            rounds -= 1
         now = int(time.time())
+        if not _social("tg"):   # outside the window: no page read, no discovery, no TGStat (one line a day)
+            sleep(CLOSED_SLEEP_S)
+            continue
         try:
             if now - last_disc >= cfg["discover_every_min"] * 60:
                 scores = housekeeping(con, cfg)
@@ -111,8 +129,28 @@ def cmd_loop(a):
                 print(f"tg: {visited} kanala pročitano, {new} novih objava s CA")
         except Exception as e:
             print(f"tg: {type(e).__name__}: {e}", file=sys.stderr)
-            time.sleep(30)
-        time.sleep(cfg["tick_s"])
+            sleep(30)
+        sleep(cfg["tick_s"])
+
+
+def cmd_telethon(a, run=None, sleep=time.sleep, check_s=60):
+    """The live listener on a Telegram account, only inside the social refresh window (19.11., ops/drustveni): it
+    waits for the window (one line a day), listens in a side thread, and ends when the window closes (start.sh starts
+    it again, and it waits for the next window)."""
+    import threading
+    if run is None:
+        from tg import live
+        run = live.run
+    while not _social("tg_telethon"):
+        sleep(300)
+    t = threading.Thread(target=run, args=(config(),), name="telethon", daemon=True)
+    t.start()
+    while t.is_alive():
+        sleep(check_s)
+        if not _social("tg_telethon"):
+            print("telethon: društveni prozor zatvoren, odspajam se do sljedećeg", flush=True)
+            return 0
+    return 0
 
 
 def cmd_once(a):
@@ -150,8 +188,7 @@ def main(argv=None):
     sub.add_parser("login")
     a = p.parse_args(argv)
     if a.cmd == "telethon":
-        from tg import live
-        return live.run(config())
+        return cmd_telethon(a)
     if a.cmd == "login":
         from tg import live
         return live.login()
@@ -159,4 +196,9 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    try:   # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, ops/drustveni.py): "once" ends outside the window
+        from ops import drustveni
+        drustveni.gate_main()
+    except ImportError:
+        pass
+    sys.exit(main())

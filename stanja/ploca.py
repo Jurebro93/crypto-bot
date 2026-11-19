@@ -194,13 +194,25 @@ def now(now_ts=None, trade_db=None, env=None):
         f = _flag(need(), "fokus_midcap")
         return _row("fokus_midcap", "live" if f["mode"] == "live" else "off", f["since"], f["who"])
 
+    def social():
+        from ops import drustveni
+        st = drustveni.state(t, create=False)
+        m = st["mode"]
+        state = {"open": "<open>", "closed": "<closed>", "first": "<first>", "always": "<always>"}.get(m, "<nopersist>")
+        when = drustveni.when
+        det = (f"zadnji {when(st['last'])}, " if st.get("last") else "") + (
+            f"otvoren do {when(st['end'])}, " if m == "open" else "") + (
+            f"sljedeći {when(st['next'])}" if st.get("next") else "još nije bilo prozora")
+        return _row("social_window", state, st.get("last"), "sat",
+                    f"{det}; svakih {drustveni.days_word()} dana po {drustveni.window_h():g} h")
+
     try:
         for key, fn in (("autopilot_switch", autopilot), ("kill_switch", kill), ("sell_all", sell_all),
                         ("real_money_switch", switches), ("day_loss_stop", day_loss), ("grok_autotrade", grok),
                         ("exit_plans_pause", plans), ("mcp_access", mcp), ("mcp_client", client),
                         ("bot_heartbeat", heart),
                         ("veliki_proof", proof), ("btc_regime", btc), ("macro_regime", macro), ("fokus_midcap", fokus),
-                        ("flag", flags)):
+                        ("social_window", social), ("flag", flags)):
             _try(rows, key, fn)
     finally:
         if con is not None:
