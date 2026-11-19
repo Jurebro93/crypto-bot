@@ -487,6 +487,67 @@ OWNER_SWITCH_NOTES[NAUCENO_SWITCH] = ("Tvoj prekidač: „uživo” = ulaz demo 
                                       "drugi mod = samo demo.")
 
 
+# 19.11. (vlasnik: "Autopilot kupovinu s pravim novcem isključi ... dok je pravi novac isključen radi što više demo
+# tradeova sa praćenjem voleta"): the PAUSE of every AUTOMATIC real-money buy. Set once by his order
+# (ui/assistnotes.owner_pauza_1911: his five real-money switches go off and this key goes on); while it is on,
+# run_trade's mirror refuses every automatic buy of the real account and trade/executor.auto_hard refuses every
+# automatic real buy whatever path asked (copies with a demo proof and Grok autotrade included). NOT touched: every
+# sale and exit of an open real position, the owner's own manual buy and his own DCA / limit orders, every demo
+# account. It ends only when the owner himself turns one of his real-money switches back to "uživo" (set_flag).
+PAUZA_KEY = "pravi_novac_pauza"
+REAL_SWITCHES = (VEL_SWITCH, NAUCENO_SWITCH, SWITCH_ALL, IZVORI, OSC_SWITCH)
+PAUZA_TEXT = ("pravi novac je pauziran (vlasnik 19.11.: promjena strategije): automatske prave kupnje stoje dok vlasnik "
+              "ne uključi svoj prekidač; otvorene pozicije zadržavaju izlaze")
+
+
+def pauza(con):
+    """The stored pause ({"on": True, "ts", "who", "why"}) while it is on, else None. Never raises: a database
+    without the settings table or an unreadable value is "not paused" (the five switches are read separately)."""
+    try:
+        row = con.execute("SELECT v FROM settings WHERE k = ?", (PAUZA_KEY,)).fetchone()
+        v = json.loads(row[0]) if row else None
+    except (sqlite3.Error, ValueError, TypeError):
+        return None
+    return v if isinstance(v, dict) and v.get("on") else None
+
+
+def pauza_set(con, on, who="", why="", now=None):
+    """Turn the pause on / off (the owner's order, or his own tap of a real-money switch)."""
+    put(con, PAUZA_KEY, {"on": bool(on), "ts": int(now or time.time()), "who": who, "why": why}, who)
+
+
+PAUZA_ONCE = "owner_once:pravi_novac_pauza_1911"
+PAUZA_WHY = "vlasnik u chatu 19.11.: Autopilot kupovinu pravim novcem isključi (promjena strategije: novčanici)"
+
+
+def pauza_order_1911(con, now=None):
+    """The owner's order of 19.11., ONCE (both run_trade and the page process ask at their start; whoever is first
+    does it): his five real-money switches go off and the pause goes on. -> [text of each change]; [] when it has
+    already run or the database cannot be read. No position is sold, no cap or stake is touched."""
+    try:
+        if con.execute("SELECT 1 FROM settings WHERE k = ?", (PAUZA_ONCE,)).fetchone():
+            return []
+        done = []
+        for name in REAL_SWITCHES:
+            old = flag_state(con)[name]["mode"]
+            if old == "off":
+                done.append(f"{name}: već off")
+                continue
+            set_flag(con, name, "off", owner(), now=now)   # going down is always allowed
+            done.append(f"{name}: {old} → off")
+        pauza_set(con, True, owner(), PAUZA_WHY, now)
+        put(con, PAUZA_ONCE, {"ts": int(now or time.time()), "promjene": done}, owner())
+    except (sqlite3.Error, ValueError, TypeError):
+        return []
+    return done
+
+
+def pauza_order_line(done):
+    return ("pravi trade: nalog vlasnika 19.11. izvršen: automatske kupnje pravim novcem su ISKLJUČENE ("
+            + "; ".join(done) + "); otvorene prave pozicije ostaju otvorene i zadržavaju izlaze; ručna kupnja vlasnika i "
+            "njegovi DCA / limit nalozi nisu dirani; demo računi rade dalje; uključuje samo vlasnik svojim prekidačem")
+
+
 def pravi_novac_izvori(con=None, path=None):
     """True while the owner's switch pravi_novac_izvori is on (mode "live"); never raises (unreadable = off)."""
     try:
@@ -808,6 +869,8 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     val = {"mode": mode, "since": now, "who": who}
     put(con, f"flag:{name}", val, who)
     _FLAG_CACHE.clear()
+    if mode == "live" and name in REAL_SWITCHES and pauza(con):   # 19.11.: his own tap ends the pause of 19.11.
+        pauza_set(con, False, who, f"vlasnik uključio {name}", now)
     return val
 
 

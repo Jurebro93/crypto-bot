@@ -103,10 +103,17 @@ def now(now_ts=None, trade_db=None, env=None):
 
     def switches():
         out = []
+        try:
+            v = need().get("pravi_novac_pauza")
+            paused = bool(v and v[0] and v[0].get("on"))
+        except Exception:  # noqa: BLE001 - an unreadable pause is shown as none; the switches' own rows stand
+            paused = False
         for name, what in REAL_SWITCHES:
             f = _flag(need(), name)
-            out.append(_row("real_money_switch", "live" if f["mode"] == "live" else "off", f["since"], f["who"],
-                            None if f["mode"] in ("live", "off") else f"spremljeno '{f['mode']}', što znači isključeno",
+            note = None if f["mode"] in ("live", "off") else f"spremljeno '{f['mode']}', što znači isključeno"
+            if paused and f["mode"] != "live":   # 19.11.: the owner's pause of every automatic real buy
+                note = (note + "; " if note else "") + "pauza kupnji pravim novcem (nalog vlasnika 19.11.)"
+            out.append(_row("real_money_switch", "live" if f["mode"] == "live" else "off", f["since"], f["who"], note,
                             sub=what))
         return out
 
