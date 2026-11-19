@@ -2,7 +2,7 @@
 strategy and that users will be notified when it continues"): ui/pauza.py and its places, offline.
 
   - the state: trade.db settings "pravi_novac_pauza" {"on": true}, read-only, never raises, kept 60 s
-  - the notice on /autopilot and /en/autopilot (Croatian page translated by ui/i18n), on the front page's Autopilot
+  - the notice on /autopilot (English) and /hr/autopilot (Croatian page; English through ui/i18n), on the front page's Autopilot
     place in both languages; absent when the key is off or missing; nothing private in it
   - while paused nothing next to it says real money is trading (hero, title, description, the app banner)
   - the copies: the notice is gone within the pause cache (60 s) + the guest copy (10 s) after the pause ends
@@ -99,7 +99,7 @@ class Pages(Base):
             apjavno.reset_cache()
             html = apjavno.guest_html({}, lang)
             if lang == "en":
-                html = self.en(html)        # run_ui translates the Croatian page for /en/autopilot
+                html = self.en(html)        # run_ui translates the Croatian page for /autopilot
             note = note_of(html)
             self.assertEqual(note, EN if lang == "en" else HR)
             self.assertIsNone(FORBIDDEN.search(note))

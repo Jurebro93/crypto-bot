@@ -200,7 +200,7 @@ def lang_of(text):
 
 
 def expected_lang(path):
-    return "hr" if path == "/hr" or path.startswith("/hr/") or path == "/autopilot" else "en"
+    return "hr" if path == "/hr" or path.startswith("/hr/") else "en"   # 19.11.: /autopilot is English, /hr/autopilot Croatian
 
 
 def page_type(path):
@@ -210,7 +210,7 @@ def page_type(path):
         return "home"
     hr = p.startswith("/hr/")
     rest = p[3:] if hr else p
-    if rest in ("/autopilot", "/en/autopilot") or p in ("/autopilot", "/en/autopilot"):
+    if rest == "/autopilot" or p == "/en/autopilot":
         return "autopilot"
     parts = [x for x in rest.split("/") if x]
     head = parts[0] if parts else ""
