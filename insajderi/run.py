@@ -100,7 +100,25 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                 n_f, spent = (0, 0)
                 if budget > 0 and not clk.over():
                     evs = ev.load(con, now - int(c["days"]) * 86400)
-                    n_f, spent = chain.fetch_due(con, p, c, evs, now, budget, fetch=fetch, log=log, stop=clk.over)
+                    # 19.11. (the first production pass: all 900 s went to Helius for 972 untiered call events, so
+                    # the list and the copy tests were never computed): the pump tiers get the whole deadline; the
+                    # rest (call events) only rest_time_share of the pass time (and rest_credit_share of the budget, 1.0 = no cut:
+                    # every pass serves the pumps first anyway),
+                    # so the list and the copy tests always get their turn
+                    pumps = [e for e in evs if e.get("tier")]
+                    rest = [e for e in evs if not e.get("tier")]
+                    n_f, spent = chain.fetch_due(con, p, c, pumps, now, budget, fetch=fetch, log=log, stop=clk.over)
+                    share_t = float(c.get("rest_time_share", 0.5))
+
+                    def rest_stop():
+                        return clk.over() or (clk.max_s is not None and clk.elapsed() >= clk.max_s * share_t)
+                    rb = min(budget - spent, int(budget * float(c.get("rest_credit_share", 1.0))))
+                    if rb >= 10 and not rest_stop():
+                        n2, s2 = chain.fetch_due(con, p, c, rest, now, rb, fetch=fetch, log=log, stop=rest_stop)
+                        n_f, spent = n_f + n2, spent + s2
+                    if not clk.over() and rest_stop():
+                        _log(log, f"Helius za pozive stao na {share_t:.0%} vremena prolaza (pumpe imaju prednost): "
+                                  f"ostaje {_unfetched(con, c, now)}")
                     if n_f:
                         chain.build(con, p, c, [e for e in ev.load(con, now - int(c["days"]) * 86400)
                                                 if e.get("fetched")], stop=clk.over)
