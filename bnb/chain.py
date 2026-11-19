@@ -222,7 +222,7 @@ def fetch_event(con, c, e, rpc, blocks, px, now, clock=None, log=print):
         (ps, pc), (js, jc) = cover["pre"], cover["jump"]
         con.execute("INSERT OR REPLACE INTO bnb_cover VALUES (?,?,?,?,?,?,?,?,?)",
                     (e["eid"], store.FETCH_DEPTH, ps, pc, js, jc, total_sw, rpc.n - calls0, int(now)))
-        con.execute("UPDATE bnb_events SET fetched = 1 WHERE eid = ?", (e["eid"],))
+        con.execute("UPDATE bnb_events SET fetched = 1, n_part = NULL WHERE eid = ?", (e["eid"],))   # parts anew
     con.commit()
     return {"swaps": total_sw, "calls": rpc.n - calls0, "complete": complete, "reach": reach}
 
@@ -298,11 +298,12 @@ def _row():
             "sold_into": 0, "lead_s": None, "usd_in": None, "usd_out": None}
 
 
-def build_parts(con, c, events):
-    """bnb_part of every read event (owner = the address itself: no free funder grouping on BSC). -> events built."""
+def build_parts(con, c, events, force=False):
+    """bnb_part of every read event not built yet (owner = the address itself: no free funder grouping on BSC).
+    A built event is never rebuilt (its raw swaps may be pruned, prune_trades) unless force. -> events built."""
     n = 0
     for e in events:
-        if not e.get("fetched"):
+        if not e.get("fetched") or (e.get("n_part") is not None and not force):
             continue
         (_n, lo, _t0), (_m, _t, end) = windows(e, c)
         rows = store.q(con, "SELECT trader, ts, side, sol_eq, usd FROM bnb_trades WHERE token = ? AND ts BETWEEN ? AND ?",
@@ -317,3 +318,22 @@ def build_parts(con, c, events):
         n += 1
     con.commit()
     return n
+
+
+def prune_trades(con, c, events, now):
+    """Delete the parsed swaps older than keep_trades_days of tokens with no pump still to read (their events' parts
+    are built and the bot / market-maker flags they gave are kept in bnb_flag). -> rows deleted. Keeps bnb.db bounded:
+    ~500 bytes a swap and 10-100k swaps a busy pump."""
+    days = c.get("keep_trades_days")
+    if not days:
+        return 0
+    busy = {e["token"] for e in events if e.get("tier") and (not e.get("fetched") or e.get("n_part") is None)
+            and e.get("reach") not in ("izvan dosega", "prazno")}
+    con.execute("DROP TABLE IF EXISTS temp.bnb_busy")
+    con.execute("CREATE TEMP TABLE bnb_busy (token TEXT PRIMARY KEY)")
+    con.executemany("INSERT INTO temp.bnb_busy VALUES (?)", [(t,) for t in busy])
+    cur = con.execute("DELETE FROM bnb_trades WHERE ts < ? AND token NOT IN (SELECT token FROM temp.bnb_busy)",
+                      (int(now) - int(float(days) * 86400),))
+    con.execute("DROP TABLE temp.bnb_busy")
+    con.commit()
+    return cur.rowcount

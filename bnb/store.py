@@ -42,7 +42,7 @@ DEFAULT = {
     "bot_events": 0.6,
     # the pass (production): wall clock and calls a UTC day; the backfill here has its own
     "pass_max_s": {"pass": 1500, "backfill": 36000, "track": 240}, "calls_day": 40_000, "gt_calls_pass": 120,
-    "max_events_pass": 60, "db_max_mb": 400,
+    "max_events_pass": 60, "db_max_mb": 400, "keep_trades_days": 3,
     # tracking and the measurement (league/mjera.py semantics)
     "track_max_addrs": 200, "track_chunk": 40, "track_blocks": 4000, "stop": 0.25, "hold_h": 24,
     "entry_wait_s": 600, "no_price_s": 6 * 3600, "stakes_usd": [50, 250], "rt_floor": 0.03, "gas_usd": 0.02,
@@ -65,7 +65,6 @@ CREATE TABLE IF NOT EXISTS bnb_trades (chain TEXT, token TEXT, pool TEXT, tx TEX
     ts INTEGER, trader TEXT, side TEXT, amt REAL, quote TEXT, qamt REAL, usd REAL, sol_eq REAL, how TEXT,
     recip TEXT, PRIMARY KEY (tx, li));
 CREATE INDEX IF NOT EXISTS bnb_trades_tok ON bnb_trades (token, ts);
-CREATE INDEX IF NOT EXISTS bnb_trades_trader ON bnb_trades (trader, ts);
 CREATE TABLE IF NOT EXISTS bnb_fetch (key TEXT PRIMARY KEY, ts INTEGER, n INTEGER, calls INTEGER, ok INTEGER);
 CREATE TABLE IF NOT EXISTS bnb_cover (eid TEXT PRIMARY KEY, depth INTEGER, pre_s INTEGER, pre_cov REAL,
     jump_s INTEGER, jump_cov REAL, n_swaps INTEGER, calls INTEGER, ts INTEGER);
@@ -77,6 +76,7 @@ CREATE TABLE IF NOT EXISTS bnb_pp (chain TEXT, owner TEXT, members TEXT, n_membe
     n_pumps15 INTEGER, n_pumps2 INTEGER, n_tokens INTEGER, med_lead_min REAL, pnl_sol REAL, pnl_usd REAL,
     pumps TEXT, confirmed_ts INTEGER, last_seen INTEGER, updated INTEGER, PRIMARY KEY (chain, owner));
 CREATE TABLE IF NOT EXISTS bnb_code (addr TEXT PRIMARY KEY, kind TEXT, ts INTEGER);
+CREATE TABLE IF NOT EXISTS bnb_flag (addr TEXT, kind TEXT, ts INTEGER, PRIMARY KEY (addr, kind));
 CREATE TABLE IF NOT EXISTS bnb_kv (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS bnb_runs (ts INTEGER, kind TEXT, secs REAL, calls TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS bnb_mjera (id INTEGER PRIMARY KEY AUTOINCREMENT, chain TEXT, source TEXT, gid TEXT,

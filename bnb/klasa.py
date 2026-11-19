@@ -131,8 +131,14 @@ def run(con, c, events, now, rpc=None):
     ev = [dict(e, n_part=e.get("n_part")) for e in events if e.get("fetched")]
     ps = parts(con)
     cand = {r[1] for r in ps if r[8]}
+    # the flags found on the swaps still stored, plus every flag found before (bnb_flag: the swaps may be pruned)
     bad = bots(con, c, cand)
     mm = market_makers(con, ev, c)
+    con.executemany("INSERT OR IGNORE INTO bnb_flag VALUES (?,?,?)", [(w, "bot", int(now)) for w in bad] +
+                    [(w, "mm", int(now)) for w in mm])
+    con.commit()
+    bad |= {w for (w,) in store.q(con, "SELECT addr FROM bnb_flag WHERE kind = 'bot'")} & cand
+    mm |= {w for (w,) in store.q(con, "SELECT addr FROM bnb_flag WHERE kind = 'mm'")}
     st = prijepumpe.classify(ps, ev, now + 1, c, bad, first_trades(con), mm)
     hits = hit_counts(ps, ev, c)
     look = sorted(w for w, t in hits.items() if len(t) >= int(c["pump_min_tokens"]) - 1)

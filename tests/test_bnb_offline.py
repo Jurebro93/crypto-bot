@@ -480,6 +480,26 @@ class Klasa(Db):
         self.assertIn("klase", f)
         self.assertIn("prije pumpe", klasa.funnel_line(f) + "prije pumpe")
 
+    def test_prune_keeps_parts_flags_and_busy_tokens(self):
+        evs = self.build(4)
+        chain.build_parts(self.con, self.c, evs)
+        evs = pumpe.load(self.con)
+        st, _f = klasa.run(self.con, self.c, evs, 1_800_000_000, None)
+        self.assertEqual(st["0xbot"]["cls"], "bot")
+        busy = "0x" + "aa" * 20
+        e = self.ev(9, busy, t0=1_790_000_000)
+        pumpe.save_events(self.con, [e], 1_800_000_000)   # not read yet: its swaps stay
+        self.trade(busy, "0xz", 1_790_000_000 - H, "buy", 50)
+        n = chain.prune_trades(self.con, dict(self.c, keep_trades_days=3), pumpe.load(self.con), 1_800_000_000)
+        self.assertGreater(n, 0)
+        self.assertEqual(store.q(self.con, "SELECT COUNT(*) FROM bnb_trades")[0][0], 1)
+        evs = pumpe.load(self.con)
+        self.assertEqual(chain.build_parts(self.con, self.c, evs), 0)   # built events are not rebuilt from nothing
+        st, f = klasa.run(self.con, self.c, evs, 1_800_000_000, None)
+        self.assertEqual(st["0xbot"]["cls"], "bot")                     # the flag outlives its swaps
+        self.assertEqual(st["0xin"]["cls"], "prije_pumpe")
+        self.assertEqual(f["grupe"], 2)   # 0xin and 0xctr: no RPC here, so the contract is not looked up
+
     def test_market_maker(self):
         tok = "0x" + "e1" * 20
         evs = [self.ev(i, tok, t0=1_790_000_000 + i * 86400) for i in range(2)]
