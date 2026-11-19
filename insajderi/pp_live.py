@@ -191,8 +191,6 @@ def run_once(con, market_fn=None, now=None, sol=None, force=False, hype_db=None)
     if con.execute("SELECT 1 FROM pp_trades WHERE status='open' LIMIT 1").fetchone():
         done += exits(con, market_fn, hype_db)
         sync_closed(con)
-    if ilive.mode() not in ("paper", "live"):
-        return done
     if not force and time.monotonic() - _LAST["ts"] < RUN_EVERY_S:
         return done
     _LAST["ts"] = time.monotonic()
@@ -200,11 +198,25 @@ def run_once(con, market_fn=None, now=None, sol=None, force=False, hype_db=None)
     if not groups:
         return done
     c = store.config()
-    who = {}
+    who, members = {}, {}
     for kind, gid, ms in groups:
+        members[gid] = ms
         for w in ms:
             who.setdefault(w, (kind, gid))
-    buys = [b for b in ilive.fresh_buys(set(who), now, int(c["fresh_s"]), hype_db) if b[0] not in _TRIED]
+    fresh = ilive.fresh_buys(set(who), now, int(c["fresh_s"]), hype_db)
+    if not fresh:
+        return done
+    # 19.11. (vlasnik: "mjeri svaki ulaz u postocima"; league/mjera.py): every buy we SEE is measured first, before the
+    # demo's flag, caps, one position per token and guards decide (its first quote is this pass's quote)
+    from league import copy as lcopy, mjera
+    new = [b for b in fresh if mjera.is_new(con, who[b[2]][0], who[b[2]][1], b[0], now)]
+    entries_ok = ilive.mode() in ("paper", "live") and mjera.demo_entries_ok(con)
+    buys = [b for b in fresh if b[0] not in _TRIED] if entries_ok else []
+    toks = sorted({b[0] for b in new} | {b[0] for b in buys})
+    mk = ((market_fn or lcopy.market)(toks) or {}) if toks else {}
+    for tok, ts, w in new:
+        kind, gid = who[w]
+        mjera.record(con, kind, gid, w, tok, ts, now, mk.get(tok), members=members.get(gid))
     if not buys:
         return done
     if sol is None:
@@ -212,8 +224,6 @@ def run_once(con, market_fn=None, now=None, sol=None, force=False, hype_db=None)
         sol = rtrade.sol_usd()
     if not sol:
         return done
-    from league import copy as lcopy
-    mk = (market_fn or lcopy.market)(sorted({b[0] for b in buys})) or {}
     for tok, ts, w in buys:
         kind, gid = who[w]
         text, why = enter(con, tok, kind, gid, w, ts, mk.get(tok), now, sol, c)

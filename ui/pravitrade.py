@@ -5284,6 +5284,14 @@ def post(path, form, user):
             settings.put(tcon, "on", on, user)
             print(f"pravi trade: {user} je {'UKLJUČIO' if on else 'isključio'} prekidač", flush=True)
             return f"{BACK}?ok={qq('Autopilot je uključen.' if on else 'Autopilot je isključen: nove kupnje staju.')}"
+        if path == "/pravi-trade/mjera-nacin":   # 19.11. (league/mjera.py): demo money for wallet following or not
+            from league import mjera
+            v = form.get("nacin") or ""
+            if v not in mjera.MODES:
+                return f"{BACK}?err={qq('način: auto, demo ili mjera')}#apx-demonov"
+            settings.put(tcon, mjera.MODE_KEY, v, user)
+            print(f"{mjera.PREFIX}{user} je postavio način {v}", flush=True)
+            return f"{BACK}?ok={qq(f'Praćenje novčanika: način {v}.')}#apx-demonov"
         if path == "/pravi-trade/tp":   # 9.11.: the exit target for new copies (owner only)
             if not settings.is_owner(user):
                 return f"{BACK}?err={qq('samo vlasnik')}"
