@@ -116,6 +116,7 @@
 "<1>Izbačeno {0} korisnika {1}. (bez posjeta {2} dana).</1>": "<1>{0} users removed on {1} (no visit in {2} days).</1>",
 "<1>Maknute stranice</1><2/><3/>": "<1>Removed pages</1><2/><3/>",
 "<1>Makro influenceri</1><2/><3/>": "<1>Macro influencers</1><2/><3/>",
+"<1>Nova naslovnica</1><2/><3/>": "<1>New home page</1><2/><3/>",
 "<1>Nova stranica Tokeni</1><2/><3/>": "<1>New Tokens page</1><2/><3/>",
 "<1>Novčanici koje vrijedi pratiti</1><2/><3/>": "<1>Wallets worth following</1><2/><3/>",
 "<1>Osnovni</1> <2/>: Gleda tokene, influencere, novčanike i demo bota, igra svojim demo računom u Natjecanju. Ne vidi potrošnju, pravila bota ni izvještaje i ne pokreće ništa što troši novac ili opterećuje server.": "<1>Basic</1> <2/>: Sees tokens, influencers, wallets and the demo bot, plays with their own demo account in the Competition. Does not see spending, the bot's rules or reports and starts nothing that costs money or loads the server.",
