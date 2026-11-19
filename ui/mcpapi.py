@@ -1638,7 +1638,8 @@ TOOLS.append(
 # 15.11. popodne (owner: "izloži listu, kategorije, zone i metrike Groku"; veliki/): the midcap table for Grok, read-only
 TOOLS.append(
     {"name": "get_midcaps", "annotations": _READ,
-     "description": ("MemeSonar's midcap list (Solana memecoins MC $5M-$150M, older than 15 days; veliki/): every token "
+     "description": ("MemeSonar's midcap list (Solana memecoins MC $5M-$200M, older than 15 days; real-money entries "
+                     "from $15M since 19.11.; veliki/): every token "
                      "ranked by category A (old + constant volume + follows BTC) / B / C with its metrics: age and "
                      "age_bucket, pers30 / pers90 (share of days with >= $50k volume), cv30, beta / corr to BTC on daily "
                      "and 4 h returns, dd_ath, btc_up_24h / 72h (mean return after a BTC +3 % day), bounce_n / hit15 / "
@@ -1711,7 +1712,10 @@ TOOLS.append(
                      "n tokens, distinct callers front-run, lift vs chance, median lead, PnL; the copyability "
                      "walk-forward at OUR constraints (bonded, MC >= 5M vs smaller; entry after their buy +60 s, exit "
                      "when they sell / stop / time, net of cost) with n, hit %, EV, CI90 and the verdict; the top jumps "
-                     "with their catalyst and early buyers; the smart-money list. class filters the groups; limit "
+                     "with their catalyst and early buyers; the smart-money list; prije_pumpe (19.11.): owner groups "
+                     "that bought before and sold into pumps of tokens peaking >= 15M / 2-15M, their walk-forward copy "
+                     "test (60 s, 2 s assumed slippage, random-wallet null, misses counted, MC buckets 5M-15M / 15M+) "
+                     "and the bundle wallets (statistics, not accusations). class filters the groups; limit "
                      "1-100. Read-only; never real money."),
      "inputSchema": {"type": "object", "properties": {
          "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},

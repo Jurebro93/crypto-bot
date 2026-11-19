@@ -29,6 +29,7 @@
 - Twitter API krediti (18.11., vlasnik): za midcapove koje pratimo: tko ih zove i gura, izmjerena moć poziva (kretanje
   nakon objave iznad prosjeka tokena), pa praćenje najjačih kad pozovu mali token (demo). Makro influenceri: dohvat
   zaustavljen dok vlasnik ne odobri. Pretraga po midcapu: strop 4 $ dnevno, oko 2,50 $ po tjednom prolazu.
+  (19.11.: zamijenjeno fokusom na novčanike, vidi dolje)
 - Vijeće (18.11., vlasnik: „kad Grok pošalje prijedlog, Claude i OpenAI moraju biti kritični, doraditi ga i prihvatiti
   ako se slažu; isto za OpenAI i Claude”): prijedlog jednog člana (Grok, OpenAI, Claude) ocjenjuju druga dva; kad su oba
   bez „protiv”, prihvaća se sam (dopuštena postavka se primijeni, najviše do sjene; ostalo ide Claude Codeu za izvedbu),
@@ -41,6 +42,12 @@
   (pravi_novac_veliki, pravi_novac_nauceno); nalog iz chata („odmah na naučeno pravilo", 18.11.) izvršava se jednom i
   samo ako ga ispravljeni test učenja (bez curenja budućnosti) potvrdi, inače pravi novac ostaje na dosadašnjem pravilu.
   Mjerenje troška jednim stvarnim krugom pri 0,1 / 0,3 / 0,5 SOL je odobreno (18.11.), jednokratno.
+- Fokus novčanici (19.11., vlasnik: „svi resursi u pronalaženje profitabilnih voleta"): prvo novčanici koji kupuju
+  prije pumpe i prodaju u pumpu (svaki dan; Helius; traženje od 2 M $ naviše, prednost pumpama do 15-200 M $; i bundle
+  novčanici koji pomiču cijenu), drugo ulaz i izlaz za midcapove: novi ulazi pravim novcem samo od 15 M $, demo od 5 M $
+  (otvorene pozicije se ne diraju). Influenceri, Telegram i skeniranje X-a osvježavaju se jednom u 5 dana i ne dobivaju
+  druge resurse. Kopiranje pravim novcem tek kad povijesni test izvan uzorka (odabir samo iz prošlosti, kašnjenje,
+  stvarni trošak, promašene kupnje brojane) bude u plusu s intervalom iznad nule; prekidač pali samo vlasnik.
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.

@@ -303,8 +303,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 # held the heavy-job lock for hours a day (the midcap candles loop waited 52 min behind it on 18.11.). So: ONE pass a
 # night (ops.heavy --night, 01-06 CET), no pass at every start, no pass every 3 h; the day cap is 15,000 credits
 # (insajderi/config.json). Nothing is deleted. Back as before: INSAJDERI_ONCE=1 and INSAJDERI_INCR=1 (and the config).
-( sleep "${INSAJDERI_FIRST_S:-600}"; if [ "${INSAJDERI_ONCE:-0}" = "1" ]; then python3 -m ops.heavy run_insajderi.py once || echo "insajderi2 nije uspio"; fi; while true; do sleep 3600; python3 -m ops.heavy --night run_insajderi.py night || echo "insajderi2 (noć) nije uspio"; done ) &
-if [ "${INSAJDERI_INCR:-0}" = "1" ]; then
+# 19.11. (vlasnik: "svaki dan želim novčanike ... svi resursi u pronalaženje novčanika koji kupuju PRIJE pumpe i prodaju
+# u pumpu"): reversed. Insajderi 2.0 is the daily wallet job again: the pass after a start (INSAJDERI_ONCE default 1,
+# at most 40 % of the cap), the night pass, the light pass every 3 h (INSAJDERI_INCR default 1, at most 10 %); the day
+# cap is 60,000 credits (the monthly plan 10M). Helius goes to pumps peaking >= 15M first, then 2-15M, then calls
+# (insajderi/chain.order_key); the list and the copy test: insajderi/prijepumpe.py, output/novcanici_prije_pumpe.md,
+# one line "novčanici prije pumpe: ...". The influencers' side-wallet search stays paused (kol_helius_share 0).
+( sleep "${INSAJDERI_FIRST_S:-600}"; if [ "${INSAJDERI_ONCE:-1}" = "1" ]; then python3 -m ops.heavy run_insajderi.py once || echo "insajderi2 nije uspio"; fi; while true; do sleep 3600; python3 -m ops.heavy --night run_insajderi.py night || echo "insajderi2 (noć) nije uspio"; done ) &
+if [ "${INSAJDERI_INCR:-1}" = "1" ]; then
 ( sleep "${INSAJDERI_INCR_FIRST_S:-3600}"; while true; do python3 -m ops.heavy run_insajderi.py incr || echo "insajderi2 (3 h) nije uspio"; sleep "${INSAJDERI_INCR_S:-10800}"; done ) &
 fi
 

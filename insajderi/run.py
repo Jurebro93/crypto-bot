@@ -10,7 +10,9 @@
 once / night / incr end with the pass of the influencers' probably linked wallets (insajderi/kolwallets.run_pass: its
 own small share of the Helius day cap, a time bound, one log line "insajderi kol: ...").
 
-Each pass ends with the log line (report.line) and output/insajderi.md + output/pametni_novac.md. Everything runs
+Each pass ends with the log line (report.line) and output/insajderi.md + output/pametni_novac.md; 19.11.: also the
+wallets that buy BEFORE a pump (insajderi/prijepumpe.py, output/novcanici_prije_pumpe.md, one line "novčanici prije
+pumpe: ...") and the pump tiers first in the Helius order (chain.order_key). Everything runs
 under the owner switch fokus_midcap as an explicit, budgeted exception (ops/fokus.EXCEPTIONS).
 """
 import json
@@ -45,6 +47,7 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
             calls = ev.call_events(p, c, now, since)
             jumps = ev.market_events(p, c, now, max(since, now - int(c["mkt_days"]) * 86400))
             new = ev.save(con, ev.merge(calls, jumps), now)
+            ev.mark_tiers(con, c)   # 19.11.: the pump tiers (pumpa15 / pumpa2) of every stored market jump
             evs = ev.load(con, now - int(c["days"]) * 86400)
             todo = [e for e in evs if e["t0"] >= since or not e.get("n_part")]
             chain.build(con, p, c, todo)
@@ -151,6 +154,11 @@ def analyze(con, p, c, now, log=print, light=False):
         summary["smart"] = prev["smart"] if light and prev.get("smart") else smart.run(con, p, c, now, stats, evs, parts)
     except Exception as e:  # noqa: BLE001
         _log(log, f"pametni novac ({type(e).__name__}: {e})")
+    try:   # 19.11. (vlasnik: "svi resursi u pronalaženje novčanika koji kupuju prije pumpe"): insajderi/prijepumpe.py
+        from insajderi import prijepumpe
+        summary["prije_pumpe"] = prijepumpe.run(con, p, c, now, evs, parts, bad, ft, prev.get("prije_pumpe"), light)
+    except Exception as e:  # noqa: BLE001 - one part costs only itself
+        _log(log, f"novčanici prije pumpe ({type(e).__name__}: {e})")
     store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))
     con.commit()
     return summary

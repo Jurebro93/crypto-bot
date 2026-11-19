@@ -125,7 +125,7 @@ def card_html(sec, item, esc, owner=True):
         badges = hview.badges_html(esc)
     except Exception:  # noqa: BLE001
         badges = ""
-    inner = (badges + f"<p><b>Tablica</b> ({len(tab)} tokena, MC 5-150M, 15+ dana; prvih 30):</p><ul>{trs or '<li>još nema</li>'}</ul>"
+    inner = (badges + f"<p><b>Tablica</b> ({len(tab)} tokena, MC 5-200M, 15+ dana; prvih 30):</p><ul>{trs or '<li>još nema</li>'}</ul>"
              f"<p><b>Zone sada</b>:</p><ul>{''.join(zr[:40]) or '<li>još nema</li>'}</ul>"
              f"<p><b>BTC:</b> {esc(str((d.get('btc') or {}).get('state') or '?'))} — {esc(str((d.get('btc') or {}).get('why') or ''))}"
              f"{'' if (d.get('btc') or {}).get('known') else ', cijena po satu nepoznata'}.</p>"

@@ -190,14 +190,43 @@ def find_jumps(closes, x6, x24):
     return out
 
 
+TIER_RANK = {"pumpa15": 0, "pumpa2": 1}
+TIER_HR = {"pumpa15": "pumpa do ≥ 15M", "pumpa2": "pumpa do 2-15M"}
+
+
+def tier_of(peak_mc, c):
+    """19.11.: the pump tier of a market jump by its PEAK market cap: "pumpa15" (>= focus_mcap, 15M), "pumpa2"
+    (>= pump2_mcap, 2M), else None."""
+    if peak_mc is None:
+        return None
+    if peak_mc >= float(c["focus_mcap"]):
+        return "pumpa15"
+    if peak_mc >= float(c["pump2_mcap"]):
+        return "pumpa2"
+    return None
+
+
+def _peak_tokens(con, c, since):
+    """19.11.: [(mint, symbol, mcap)] of the collector's tokens whose highest 1h close since `since` puts them at a peak
+    MC >= pump2_mcap (mcap now x max close / last close), whatever their 24 h volume: max_mkt_tokens never cuts a
+    token that pumped into the tiers off."""
+    return store.q(con, """SELECT t.mint, t.symbol, t.mcap FROM tokens t WHERE t.mcap IS NOT NULL AND
+        t.mcap * (SELECT MAX(c) FROM c1h WHERE token = t.mint AND ts >= ?) /
+        NULLIF((SELECT c FROM c1h WHERE token = t.mint AND ts >= ? ORDER BY ts DESC LIMIT 1), 0) >= ?""",
+                   (since, since, float(c["pump2_mcap"])))
+
+
 def market_events(p, c, now, since=None):
-    """[event dict] of the market jumps of midcap.db tokens (1h closes) since `since` (default mkt_days)."""
+    """[event dict] of the market jumps of midcap.db tokens (1h closes) since `since` (default mkt_days). Each carries
+    peak_mc (the MC at the peak close: today's MC x peak close / last close, = mcap0 x (1 + peak_x)) and its tier."""
     since = int(since if since is not None else now - int(c["mkt_days"]) * 86400)
     con = store.ro(p.get("midcap_db"))
     if con is None:
         return []
     toks = store.q(con, "SELECT mint, symbol, mcap FROM tokens WHERE mcap IS NOT NULL ORDER BY vol24 DESC LIMIT ?",
                    (int(c["max_mkt_tokens"]),))
+    have = {t[0] for t in toks}
+    toks += [t for t in _peak_tokens(con, c, since) if t[0] not in have]
     out = []
     for mint, sym, mcap in toks:
         closes = [(int(ts), float(cl)) for ts, cl in store.q(con, "SELECT ts, c FROM c1h WHERE token = ? AND ts >= ? "
@@ -210,22 +239,30 @@ def market_events(p, c, now, since=None):
             if mc0 is not None and mc0 < c["min_mcap"]:
                 continue
             x = pk / base - 1
+            peak_mc = (mcap * pk / last) if mcap and last else None
             out.append({"eid": f"j:{mint}:{t0}", "kind": "jump", "token": mint, "symbol": sym, "t0": t0, "handle": None,
                         "crew": None, "n_callers": 0, "callers": {}, "mcap0": mc0, "peak_ts": pk_ts,
                         "peak_x": round(x, 4), "win_end": pk_ts + int(c["after_peak_s"]), "src": f"midcap {kind}",
-                        "prio": round(min(x, 10.0) + (1.0 if (mc0 or 0) >= 5e6 else 0.0), 3)})
+                        "prio": round(min(x, 10.0) + (1.0 if (mc0 or 0) >= 5e6 else 0.0), 3),
+                        "peak_mc": peak_mc, "tier": tier_of(peak_mc, c)})
     con.close()
     return out
 
 
 def merge(calls, jumps):
-    """Calls first; a market jump within 6 h of a call event of the same token is dropped (the call event stands)."""
+    """Calls first; a market jump within 6 h of a call event of the same token is dropped (the call event stands).
+    19.11.: the call event takes the dropped jump's pump tier and peak MC (a pump stays a pump, before the call too)."""
     at = defaultdict(list)
     for e in calls:
-        at[e["token"]].append(e["t0"])
+        at[e["token"]].append(e)
     out = list(calls)
     for e in jumps:
-        if any(abs(e["t0"] - t) <= 6 * 3600 for t in at[e["token"]]):
+        near = [x for x in at[e["token"]] if abs(e["t0"] - x["t0"]) <= 6 * 3600]
+        if near:
+            if e.get("tier"):
+                for x in near:
+                    if TIER_RANK.get(e["tier"], 9) < TIER_RANK.get(x.get("tier"), 9):
+                        x["tier"], x["peak_mc"] = e["tier"], e.get("peak_mc")
             continue
         out.append(e)
     return out
@@ -238,30 +275,48 @@ def save(con, events, now):
         cur = con.execute("SELECT 1 FROM i2_events WHERE eid = ?", (e["eid"],)).fetchone()
         if cur:
             con.execute("""UPDATE i2_events SET n_callers = ?, callers = ?, crew = ?, peak_ts = ?, peak_x = ?, win_end = ?,
-                prio = ?, symbol = COALESCE(symbol, ?) WHERE eid = ?""",
+                prio = ?, symbol = COALESCE(symbol, ?), tier = COALESCE(?, tier), peak_mc = COALESCE(?, peak_mc)
+                WHERE eid = ?""",
                         (e["n_callers"], json.dumps(e["callers"]), e["crew"], e["peak_ts"], e["peak_x"], e["win_end"],
-                         e["prio"], e["symbol"], e["eid"]))
+                         e["prio"], e["symbol"], e.get("tier"), e.get("peak_mc"), e["eid"]))
             continue
         con.execute("""INSERT INTO i2_events (eid, kind, token, symbol, t0, handle, crew, n_callers, callers, mcap0, peak_ts,
-            peak_x, win_end, src, prio, built_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            peak_x, win_end, src, prio, built_ts, tier, peak_mc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (e["eid"], e["kind"], e["token"], e["symbol"], e["t0"], e["handle"], e["crew"], e["n_callers"],
                      json.dumps(e["callers"]), e["mcap0"], e["peak_ts"], e["peak_x"], e["win_end"], e["src"], e["prio"],
-                     int(now)))
+                     int(now), e.get("tier"), e.get("peak_mc")))
         n += 1
     con.commit()
     return n
 
 
+def mark_tiers(con, c):
+    """19.11.: tier / peak_mc of the stored MARKET jumps from what is stored (mcap0 x (1 + peak_x): the same number
+    market_events computes), so the events of an existing insajderi.db get their tier on the first pass after the
+    migration. A call event keeps the tier it took from a merged jump (merge). -> {tier: n}."""
+    rows = store.q(con, "SELECT eid, mcap0, peak_x FROM i2_events WHERE kind = 'jump'")
+    upd = []
+    for eid, mc0, px in rows:
+        pk = mc0 * (1 + px) if mc0 is not None and px is not None else None
+        upd.append((tier_of(pk, c), pk, eid))
+    con.executemany("UPDATE i2_events SET tier = ?, peak_mc = ? WHERE eid = ?", upd)
+    con.commit()
+    out = defaultdict(int)
+    for (t, n) in store.q(con, "SELECT tier, COUNT(*) FROM i2_events WHERE tier IS NOT NULL GROUP BY tier"):
+        out[t] = n
+    return dict(out)
+
+
 def load(con, since=None, kind=None):
-    """[event dict] stored, oldest first."""
+    """[event dict] stored, oldest first (19.11.: with tier and peak_mc)."""
     sql = ("SELECT eid, kind, token, symbol, t0, handle, crew, n_callers, callers, mcap0, peak_ts, peak_x, win_end, "
-           "catalyst, catalysts, src, prio, fetched, n_part FROM i2_events WHERE t0 >= ?")
+           "catalyst, catalysts, src, prio, fetched, n_part, tier, peak_mc FROM i2_events WHERE t0 >= ?")
     args = [int(since or 0)]
     if kind:
         sql += " AND kind = ?"
         args.append(kind)
     keys = ("eid", "kind", "token", "symbol", "t0", "handle", "crew", "n_callers", "callers", "mcap0", "peak_ts",
-            "peak_x", "win_end", "catalyst", "catalysts", "src", "prio", "fetched", "n_part")
+            "peak_x", "win_end", "catalyst", "catalysts", "src", "prio", "fetched", "n_part", "tier", "peak_mc")
     out = []
     for r in store.q(con, sql + " ORDER BY t0", args):
         d = dict(zip(keys, r))
