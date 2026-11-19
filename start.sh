@@ -334,7 +334,7 @@ if [ "${INSAJDERI_INCR:-1}" = "1" ]; then
 # bnb_mjera); free sources only (GeckoTerminal, DexScreener, public BSC RPC, Binance market data), analysis only, never
 # trades. Low priority, NOT under the heavy lock (network bound), 30 min after a start then every 3 h, a pass bounded by
 # bnb/config.json pass_max_s.pass and calls_day. BNB_ON=0 turns it off. One line "bnb: ..." and output/bnb_novcanici.md.
-( sleep "${BNB_FIRST_S:-1800}"; while true; do if [ "${BNB_ON:-1}" != "0" ]; then low python3 run_bnb.py pass || echo "bnb nije uspio"; fi; sleep "${BNB_EVERY_S:-10800}"; done ) &
+( sleep "${BNB_FIRST_S:-1800}"; while true; do if [ "${BNB_ON:-1}" != "0" ]; then nice -n 10 python3 run_bnb.py pass || echo "bnb nije uspio"; fi; sleep "${BNB_EVERY_S:-10800}"; done ) &
 fi
 
 # 15.11. (vlasnik: "Slažem se s prijedlogom koraka za plan makroinfluencera s dopunama kritičara"; makroinf/,
