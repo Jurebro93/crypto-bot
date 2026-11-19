@@ -386,6 +386,26 @@ class Chain(Db):
 
 # ---------- the class and the funnel ----------------------------------------------------------------------------------
 
+class Timeouts(unittest.TestCase):
+    def test_a_timed_out_range_is_halved(self):
+        import socket
+        calls = []
+
+        def post(url, body):
+            a, b = int(body["params"][0]["fromBlock"], 16), int(body["params"][0]["toBlock"], 16)
+            calls.append((a, b))
+            if b - a > 1000:
+                raise socket.timeout("timed out")
+            return {"id": 1, "result": [{"n": a}]}
+        r = brpc.Rpc(["https://fake"], post=post, sleep=lambda s: None, retries=4)
+        out = r.logs({"address": "0x1"}, 0, 4999, max_range=5000)
+        self.assertEqual(min(x["n"] for x in out), 0)
+        self.assertEqual(r.retries, 4)
+        from collections import Counter
+        self.assertLessEqual(max(Counter(calls).values()), 2)   # one retry a range, then halved
+        self.assertEqual(sorted({x["n"] for x in out})[-1] + 624, 4999)
+
+
 class Klasa(Db):
     def ev(self, i, tok, tier="pumpa15", t0=None):
         t0 = t0 or 1_790_000_000 + i * 86400 * 3

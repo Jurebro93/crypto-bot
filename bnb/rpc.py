@@ -138,15 +138,19 @@ class Rpc:
                 todo.append((nxt, min(int(hi), nxt + max_range - 1)))
                 nxt = todo[-1][1] + 1
             a, b = todo.pop(0)
+            keep = self.retries
             try:
+                # 19.11. 23:15: a heavy range timed out 4 x 60 s on 48.club; one retry, then the range is halved
+                self.retries = min(keep, 1)
                 got = self.call("eth_getLogs", [dict(flt, fromBlock=hex(a), toBlock=hex(b))]) or []
                 out += got
                 if stats is not None:
                     stats["calls"] = stats.get("calls", 0) + 1
             except RpcError as e:
                 msg = str(e)
-                if ("max results" in msg or "range" in msg or "too many" in msg.lower()
-                        or "limit" in msg.lower()) and "archive" not in msg.lower() and b - a + 1 > min_range:
+                if ("max results" in msg or "range" in msg or "too many" in msg.lower() or "timed out" in msg.lower()
+                        or "timeout" in msg.lower() or "limit" in msg.lower()) and "archive" not in msg.lower() \
+                        and b - a + 1 > min_range:
                     mid = (a + b) // 2
                     hint = _hint(msg)
                     if hint and a <= hint[1] < b:
@@ -154,6 +158,8 @@ class Rpc:
                     todo[:0] = [(a, mid), (mid + 1, b)]
                     continue
                 raise
+            finally:
+                self.retries = keep
         return out
 
 
