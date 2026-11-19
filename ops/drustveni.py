@@ -336,20 +336,29 @@ def notice_text(lang="hr", now=None):
     return head + tail.replace("..", ".")
 
 
-def notice_html(lang="hr", now=None, cls="ms-hint", style="", notr=True):
-    """One small notice block, escaped. notr (the public pages, already in their language): marked translate=no. The
-    app's pages are Croatian and translated on the way out (ui/i18n, the sentences are in ui/i18n_en.json): notr=False."""
+# the public notices' one look (the influencer / Telegram notice and ui/pauza's "Autopilot is paused"): a light card
+PUBLIC_STYLE = ("margin:0 0 20px;padding:14px 16px;font-size:14px;line-height:1.5;border:1px solid #e5e7eb;"
+                "border-radius:18px;background:#fff;color:#111827")
+
+
+def block_html(text, cls="ms-hint", style="", notr=True):
+    """One small notice block of the family (class soc-note), the text escaped. notr: marked translate=no (a public
+    page already in its language); the app's Croatian pages are translated on the way out (ui/i18n): notr=False."""
     from html import escape
     st = f" style=\"{escape(style)}\"" if style else ""
-    return (f'<div class="{escape(cls)} soc-note"{" translate=no" if notr else ""} role=note{st}>'
-            f"{escape(notice_text(lang, now))}</div>")
+    return f'<div class="{escape(cls)} soc-note"{" translate=no" if notr else ""} role=note{st}>{escape(text)}</div>'
+
+
+def notice_html(lang="hr", now=None, cls="ms-hint", style="", notr=True):
+    """The influencer / Telegram notice (block_html of notice_text)."""
+    return block_html(notice_text(lang, now), cls, style, notr)
 
 
 def public_notice(lang="hr", now=None):
     """The notice on the public pages (influencers, Telegram channels, influencer calls): the site's own card style,
     already in the page's language. Dates only; no env name, key, address, cost or internal service in it."""
     try:
-        return notice_html(lang, now, cls="card", style="margin:0 0 20px;padding:14px 16px;font-size:14px;line-height:1.5")
+        return notice_html(lang, now, cls="card", style=PUBLIC_STYLE)
     except Exception:  # noqa: BLE001 - a notice never costs the page
         return ""
 

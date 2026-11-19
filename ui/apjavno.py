@@ -1005,9 +1005,24 @@ def _date(ts_):
     return f"{d.day}.{d.month}.{d.year}."
 
 
+def _paused():
+    """19.11. (vlasnik): the real-money pause (ui/pauza, trade.db "pravi_novac_pauza", kept 60 s); never raises."""
+    try:
+        from ui import pauza
+        return pauza.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+PAUSED_PILL = '<span class=apj-state><i></i>Pauzirano</span>'
+PAUSED_SAY = "Autopilot ne otvara nove pozicije dok traje pauza. Novčanik, ulazi i izlazi i dalje su javni."
+
+
 def _hero(s):
     st, eq = s["state"], s["eq"]
-    if st["live"]:
+    if _paused():   # 19.11.: while paused no "Uživo · pravi novac" / "kupuje pravim novcem" next to the notice
+        pill, say = PAUSED_PILL, PAUSED_SAY
+    elif st["live"]:
         since = f" Pravim novcem od {_date(st['since'])}" if st.get("since") else ""
         pill = '<span class="apj-state live"><i></i>Uživo · pravi novac</span>'
         say = ("Bot sam kupuje i prodaje meme tokene pravim novcem, prema podacima alata. Sve je javno: novčanik, svaki "
@@ -1213,7 +1228,8 @@ def page(qs, user, lang="hr", logged_in=None):
     (run_ui), like every other page of the app. logged_in: inside the app without a player's own name (the shared
     password, the view-only account): no chat form and no "Prijavi se" either, only why not (default: bool(user))."""
     s = snapshot()
-    title = TITLE if s["state"]["live"] else "Autopilot (probni rad)"
+    paused = _paused()
+    title = "Autopilot (pauziran)" if paused else TITLE if s["state"]["live"] else "Autopilot (probni rad)"
     parts = dict(_parts(s, lang))
     src = LIVE_PATH + ("?l=en" if lang == "en" else "")
     own = ""
@@ -1225,7 +1241,14 @@ def page(qs, user, lang="hr", logged_in=None):
                    'Autopilotom →</a></p>')
     except Exception:  # noqa: BLE001 - the public page never fails on this
         own = ""
-    body = (CSS + f'<div class=apj data-live="{src}">' + _live_div("hero", parts["hero"]) + own + _wallet(s["addr"])
+    note = ""
+    if paused:   # 19.11. (vlasnik): one notice at the top while real money is paused; Croatian, run_ui translates it
+        try:
+            from ui import pauza
+            note = pauza.notice_html("hr", notr=False)
+        except Exception as e:  # noqa: BLE001 - the public page never fails on this
+            _warn("pauza", e)
+    body = (CSS + f'<div class=apj data-live="{src}">' + note + _live_div("hero", parts["hero"]) + own + _wallet(s["addr"])
             + "".join(_live_div(n, parts[n]) for n in ("chart", "stats", "follows", "moves"))
             + _chat_box(user, qs, lang, logged_in)
             + f'<p class=apj-fine>{FINE}</p></div>' + JS)
@@ -1256,6 +1279,12 @@ GUEST_DESC = {
     "en": "Autopilot trades Solana meme coins on MemeSonar's data, in public: wallet address, value, every entry and "
           "exit, whom it follows and players' suggestions.",
 }
+GUEST_DESC_PAUSED = {   # 19.11.: while real money is paused the description does not say it trades
+    "hr": "Autopilot je trenutno pauziran zbog promjene strategije. Javno: adresa novčanika, vrijednost, svaki ulaz i "
+          "izlaz i prijedlozi igrača.",
+    "en": "Autopilot is currently paused while we change the strategy. In public: wallet address, value, every entry "
+          "and exit and players' suggestions.",
+}
 GUEST_WORDS = {
     "hr": {"home": "Naslovnica", "kols": "Influenceri", "coins": "Meme coini", "login": "Prijava", "cta": "Zatraži pristup"},
     "en": {"home": "Home", "kols": "Influencers", "coins": "Meme coins", "login": "Log in", "cta": "Request access"},
@@ -1279,7 +1308,7 @@ def guest_html(qs=None, lang="hr"):
     svg, name = H.logo(28)
     home = "/" if lang == "en" else "/hr"
     here = PATH_EN if lang == "en" else PATH
-    desc = GUEST_DESC[lang]
+    desc = (GUEST_DESC_PAUSED if _paused() else GUEST_DESC)[lang]
     base = urls.site()
     og = ""
     try:
@@ -1344,7 +1373,7 @@ def banner_html(user=None, path=""):
     and is left out on that page itself. "" otherwise. live_state() is kept 30 s, so this costs nothing per page.
     A page kept by ui/pagecache keeps the line it was built with until it is rebuilt (at most UI_CACHE_STALE_S);
     the owner's switch is a POST, and every POST clears that cache, so switching off takes the line down at once."""
-    if path in (PATH, PATH_EN) or not live_state()["live"]:
+    if path in (PATH, PATH_EN) or not live_state()["live"] or _paused():   # 19.11.: not "live" while paused
         return ""
     return (f'{BANNER_CSS}<a class=apj-ban href="{PATH}"><span class=d></span><span class=t><b>Autopilot je live:</b> podacima '
             'alata tradamo pravim novcem. <span class=x>Uđi, pogledaj statistiku i dodaj svoj prijedlog.</span></span>'
@@ -1376,9 +1405,12 @@ def landing_strip(lang="hr"):
     """10.11. (Jure: "page koji bih istaknuo na naslovnici"): the highlighted block for the public front page with a
     few live numbers, linking to the public Autopilot page. "" while Autopilot is not trading real money."""
     try:
+        lang = "en" if lang == "en" else "hr"
+        if _paused():   # 19.11. (vlasnik): the front page's Autopilot place says it is paused, in the page's language
+            from ui import pauza
+            return pauza.notice_html(lang, notr=True)
         if not live_state()["live"]:
             return ""
-        lang = "en" if lang == "en" else "hr"
         live, head, sub, l_val, l_n, l_pnl, go = STRIP_T[lang]
         s = snapshot()
         nums = []
