@@ -45,12 +45,11 @@ def page_html(qs, err=""):
                 "Možda je zamijenjen novim ili je već iskorišten. Zatraži novi link od onoga tko te pozvao.</div>"
                 "<p>Već imaš račun? <a href=/prijava>Prijavi se</a>.</p>")
         return page("Registracija", body, "/registracija")
-    body = (f"<h1>Pridruži se natjecanju</h1><p class=lead>Dobivaš svoj demo račun od ${store.START_USD:,.0f} "
-            "(bez pravog novca). Biraš tokene iz prijedloga alata, kupuješ i prodaješ po živoj cijeni i natječeš se "
-            "s ostalima i s botom.</p>"
+    body = ("<h1>Napravi račun</h1><p class=lead>Pristup MemeSonaru: novčanici koji kupuju prije pumpe, midcap "
+            "tokeni koje alat prati i influenceri. Bez pravog novca i bez povezivanja novčanika.</p>"
             "<form method=post action=/registracija class=card style='max-width:380px'>"
             f"<input type=hidden name=k value=\"{esc(k)}\">"
-            "<p><label>Tvoje ime u natjecanju<br><input name=name autocomplete=username required maxlength=20 "
+            "<p><label>Tvoje korisničko ime<br><input name=name autocomplete=username required maxlength=20 "
             f"value=\"{esc(qs.get('name', ''))}\" style='width:100%' autocapitalize=none placeholder='npr. Marko'>"
             "</label><br><span class=mut style='font-size:12px'>2 do 20 slova ili brojki, bez razmaka. Ovo ime "
             "upisuješ kod prijave.</span></p>"
@@ -173,7 +172,7 @@ def _requests_note():
 def post_invite(path, form, user):
     """Buttons in the box; returns where to go next."""
     if not can_invite(user):
-        return f"/natjecanje?err={quote('samo organizator natjecanja može raditi linkove')}#pozovi"
+        return f"/zahtjevi?err={quote('samo administrator može raditi linkove')}#pozivnice"
     con = members.connect()
     try:
         if path == "/natjecanje/pozivnica/novi":
@@ -186,7 +185,8 @@ def post_invite(path, form, user):
             members.revoke(con, form.get("k", ""))
             msg = "Link je poništen."
         else:
-            return "/natjecanje"
+            return "/zahtjevi#pozivnice"
     finally:
         con.close()
-    return f"/natjecanje?ok={quote(msg)}#pozovi"
+    # 19.11.: the Natjecanje page is gone; the invite links live on /zahtjevi (Pozivnice)
+    return f"/zahtjevi?ok={quote(msg)}#pozivnice"

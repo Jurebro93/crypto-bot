@@ -204,14 +204,15 @@ def due(con, now, limit):
         return [r[0] for r in con.execute(f"""
             SELECT token FROM calls WHERE complete = 0 AND COALESCE(mtry, 0) <= :now
               AND token IN (SELECT token FROM fokus_mid)
-              AND handle NOT LIKE 'w:%' AND kind NOT IN ('bot', 'buy', 'sell')
+              AND handle NOT LIKE 'w:%' AND handle NOT LIKE 'tg:%' AND kind NOT IN ('bot', 'buy', 'sell')
               AND (measured_ts IS NULL OR {marks} OR measured_ts < :now - 6 * {H})
             GROUP BY token ORDER BY MAX(kind = 'call') DESC, MAX(ts) DESC LIMIT :lim""", {"now": now, "lim": limit})]
+    # 19.11. (vlasnik, kol/tgout.py): a Telegram channel's call is not measured any more ('tg:' handles)
     # 8.11.: wallet swaps ('w:' pseudo-calls, kind buy/sell) and alert-bot posts (kind 'bot') are never scored, yet
     # 487,235 of them waited in this queue while 39,743 of 40,772 Telegram calls had never been measured
     return [r[0] for r in con.execute(f"""
         SELECT token FROM calls WHERE complete = 0 AND COALESCE(mtry, 0) <= :now
-          AND handle NOT LIKE 'w:%' AND kind NOT IN ('bot', 'buy', 'sell')
+          AND handle NOT LIKE 'w:%' AND handle NOT LIKE 'tg:%' AND kind NOT IN ('bot', 'buy', 'sell')
           AND (measured_ts IS NULL OR {marks} OR measured_ts < :now - 6 * {H})
         GROUP BY token ORDER BY MAX(kind = 'call') DESC, MAX(ts) DESC LIMIT :lim""", {"now": now, "lim": limit})]
 

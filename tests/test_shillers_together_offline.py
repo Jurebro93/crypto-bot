@@ -1,4 +1,4 @@
-"""Paid shillers (kol/shillers.py), Telegram history (tg/history.py), 'Zovu zajedno' (kol/together.py) and the
+"""Paid shillers (kol/shillers.py), 'Zovu zajedno' (kol/together.py) and the
 reorganised Influenceri page, on synthetic data."""
 import json
 import os
@@ -9,7 +9,6 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kol import discover, shillers, store, together  # noqa: E402
-from tg import history, store as tstore  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = json.load(open(os.path.join(ROOT, "kol", "config.json")))
@@ -61,46 +60,6 @@ class ShillList(unittest.TestCase):
         self.assertFalse(st["normal_kol"]["paid_shill"])
 
 
-class History(unittest.TestCase):
-    def test_backfill_walks_back_and_marks_done(self):
-        d = tempfile.mkdtemp()
-        con = tstore.connect(os.path.join(d, "tg.db"))
-        hype = os.path.join(d, "hype.db")
-        con.execute("INSERT INTO channels (name, status, last_post) VALUES ('chan', 'active', 50)")
-        ca = "HgxEGTZ1Epb64RrYqcuHkqb1gGWWnF5WcPTCDWzApump"
-        con.execute("INSERT INTO posts (channel, post, ts, cas) VALUES ('chan', 41, ?, '')", (T0,))
-        pages = {41: page_html([(30, T0 - 3000, f"buy {ca}"), (35, T0 - 2000, "gm")]),
-                 30: page_html([(2, T0 - 9000, "first post")])}
-        p, n, done = history.backfill(con, "chan", max_pages=2, fetch=lambda ch, before: pages[before],
-                                      sleep=lambda s: None,
-                                      hype_db=hype)
-        self.assertEqual((p, n), (2, 1))
-        self.assertFalse(done)  # an empty page can be a gap of deleted posts: keep looking a few times
-        for _ in range(6):
-            p, n, done = history.backfill(con, "chan", fetch=lambda ch, before: page_html([]), sleep=lambda s: None,
-                                          hype_db=hype)
-            if done:
-                break
-        self.assertTrue(done)
-        rows = con.execute("SELECT post, cas, source FROM posts ORDER BY post").fetchall()
-        self.assertEqual([r[0] for r in rows], [2, 30, 35, 41])
-        self.assertEqual(rows[1][2], "history")
-        self.assertEqual(history.backfill(con, "chan", fetch=None), (0, 0, True))  # done: never reads again
-
-
-class Discover(unittest.TestCase):
-    def test_tg_channels_with_imported_calls_become_candidates(self):
-        from tg import discover as tdisc
-        d = tempfile.mkdtemp()
-        k = store.connect(os.path.join(d, "kol.db"))
-        k.execute("INSERT INTO kols (handle) VALUES ('tg:wctcalls'), ('someone'), ('tg:x')")
-        k.commit()
-        k.close()
-        con = tstore.connect(os.path.join(d, "tg.db"))
-        self.assertEqual(tdisc.from_kol_calls(con, os.path.join(d, "kol.db")), 1)  # 'x' is not a valid channel name
-        self.assertEqual(con.execute("SELECT found_via FROM channels WHERE name='wctcalls'").fetchone()[0], "kol_calls")
-
-
 class Together(unittest.TestCase):
     def _db(self):
         d = tempfile.mkdtemp()
@@ -110,7 +69,7 @@ class Together(unittest.TestCase):
         for i in range(10):
             rows.append((f"s{i}", f"SOLO{i}", "solo", T0 + i * 7200, 1.5 if i < 2 else 0.2))
         for i in range(10):
-            for j, h in enumerate(("a", "b", "tg:c")):
+            for j, h in enumerate(("a", "b", "c")):
                 rows.append((f"g{i}{h}", f"GRP{i}", h, T0 + i * 7200 + j * 300, 1.5 if i < 7 else 0.1))
         for tid, tok, h, ts, m in rows:
             con.execute("INSERT INTO calls (tweet_id, token, handle, ts, kind, max24, r24h) VALUES (?,?,?,?,?,?,?)",
@@ -118,22 +77,22 @@ class Together(unittest.TestCase):
         from kol import score
         score.build_groups(con, CFG)
         con.execute("INSERT INTO pair_tests VALUES ('a', 'b', 10, 1.0, 10.0, 0.001, 1)")
-        con.execute("INSERT INTO pair_tests VALUES ('a', 'tg:c', 10, 1.0, 10.0, 0.001, 1)")
+        con.execute("INSERT INTO pair_tests VALUES ('a', 'c', 10, 1.0, 10.0, 0.001, 1)")
         return con
 
     def test_group_beats_solo_and_cluster_found(self):
         con = self._db()
-        d = together.build(con, shill={"tg:c"})
+        d = together.build(con, shill={"c"})
         self.assertEqual(d["sizes"]["1"]["n"], 10)
         self.assertAlmostEqual(d["sizes"]["1"]["hit"], 0.2)
         self.assertEqual(d["sizes"]["3"]["n"], 10)
         self.assertAlmostEqual(d["sizes"]["3"]["hit"], 0.7)
-        self.assertEqual(d["mixes"]["X + Telegram"]["n"], 10)
+        self.assertEqual((d["mixes"]["samo X"]["n"], d["mixes"]["X + Telegram"]["n"]), (10, 0))   # 19.11.: X only
         self.assertIn("s plaćenim shillerom", d["shills"])
         cl = d["clusters"][0]
-        self.assertEqual(set(cl["members"]), {"a", "b", "tg:c"})
+        self.assertEqual(set(cl["members"]), {"a", "b", "c"})
         self.assertEqual(cl["leader"], "a")
-        self.assertEqual(cl["shill"], ["tg:c"])
+        self.assertEqual(cl["shill"], ["c"])
         lines = together.verdict(d)
         self.assertIn("jači signal", lines[0])
 
@@ -162,7 +121,7 @@ class Page(unittest.TestCase):
             self.assertIn(f"<details class=uc-sec id={sid}>", body)
         self.assertNotIn("<h2 id=analiza>", body)  # the old closed "Analiza" box that hid 8 sections is gone
         self.assertIn("Zovu zajedno", body)
-        self.assertIn("<details class=uc-sec id=tgpovijest>", body)  # Call Analyser + SpyDefi history
+        self.assertNotIn("id=tgpovijest", body)  # 19.11. (vlasnik: "Telegram KOLs makni iz izračuna")
 
 
 class LastFifty(unittest.TestCase):
@@ -178,32 +137,6 @@ class LastFifty(unittest.TestCase):
         self.assertEqual(s["n_last"], 50)
         self.assertAlmostEqual(s["hit_last"], 0.2)  # newest 50 = 50..99: only 50..59 doubled
         self.assertAlmostEqual(s["hit_rate"], 0.6)
-
-    def test_channels_table_hides_lucky_percentages(self):
-        from ui import izvori
-        d = tempfile.mkdtemp()
-        t = tstore.connect(os.path.join(d, "tg.db"))
-        for name in ("lucky", "proven"):
-            t.execute("INSERT INTO channels (name, status, n_ca, last_ca_ts) VALUES (?, 'active', 5, ?)",
-                      (name, T0 + (100 if name == "lucky" else 0)))
-        t.commit()
-        k = store.connect(os.path.join(d, "kol.db"))
-        k.execute("INSERT INTO kols (handle, score, stats) VALUES ('tg:lucky', 48, ?)",
-                  (json.dumps({"measured": 1, "n_last": 1, "hit_last": 1.0, "hit_rate": 1.0}),))
-        k.execute("INSERT INTO kols (handle, score, stats) VALUES ('tg:proven', 30, ?)",
-                  (json.dumps({"measured": 40, "n_last": 40, "hit_last": 0.35, "hit_rate": 0.35}),))
-        k.commit()
-        old = izvori.HERE
-        izvori.HERE = d
-        try:
-            _, body = izvori.page({})
-        finally:
-            izvori.HERE = old
-        sec = body[body.index("id=kanali"):body.index("Zadnje Telegram objave")]
-        self.assertNotIn("100%", sec)
-        self.assertIn("premalo", sec)
-        self.assertIn("35%", sec)
-        self.assertLess(sec.index("proven"), sec.index("lucky"))  # enough data goes on top, even if older
 
     def test_history_table_uses_last_50_and_min_sample(self):
         from ui import kolsummary

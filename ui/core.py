@@ -121,7 +121,7 @@ def blocks():
     out = []
     for hid, title, lead, fn, links in [
         ("influenceri", "📣 Influenceri", "Najbolji KOL-ovi po izmjerenim pozivima (koliko često token poslije naraste) i "
-         "što su zadnje zvali.", kol_block, [("/kol", "Svi KOL-ovi i ljestvica"), ("/izvori", "Telegram kanali")]),
+         "što su zadnje zvali.", kol_block, [("/kol", "Svi KOL-ovi i ljestvica"), ("/telegram-kanali", "Telegram kanali (informativno)")]),
         ("novcanici", "👛 Praćenje novčanika", "Zadnje kupnje i prodaje novčanika koje alat prati (KOL-ovi i "
          "pametni novac), najnovije prvo.", wallet_block, [("/wallets", "Svi novčanici"), ("/kol/analize#kupnje", "Sve kupnje")])]:
         try:

@@ -22,7 +22,7 @@ from tests.test_trade_offline import CFG, FakeJup  # noqa: E402
 from trade import executor, jupiter, settings  # noqa: E402
 
 NOW = int(time.time())
-CREW = ["tg:alpha", "tg:beta", "tg:gamma"]
+CREW = ["alpha", "beta", "gamma"]   # 19.11.: X accounts (Telegram channels are not followed any more)
 TOK = "Tok1" + "x" * 40
 TOK2 = "Tok2" + "x" * 40
 PUMP = "6MZ5FU36NKP9CZ1JWR4FzUbmB9FgekpvJDSxvADJpump"
@@ -156,17 +156,17 @@ class CopyGates(unittest.TestCase):
 
     def test_crew_old_first_call_and_fresh_second_call_enters(self):   # P4
         self.follow(kind="ekipa", target=",".join(CREW), min_callers=2, max_mcap=1e6, max_runup=0.25)
-        self.call("tg:alpha", TOK, NOW - 900)                      # 15 min ago: alone it is too late
+        self.call("alpha", TOK, NOW - 900)                      # 15 min ago: alone it is too late
         self.assertEqual(self.run_once({TOK: row()}, NOW - 840), [])
         self.assertEqual(self.notes(), {})                          # one caller: nothing decided yet
-        self.call("tg:beta", TOK, NOW - 30)                        # the second member, fresh
+        self.call("beta", TOK, NOW - 30)                        # the second member, fresh
         out = self.run_once({TOK: row()})
         self.assertEqual(len(out), 1)
         self.assertIn("kupljeno", out[0][1])
         self.assertEqual(self.notes()[TOK][0], "ulaz")
         # both older than 10 min: still skipped as late, judged on the newest call
-        self.call("tg:alpha", TOK2, NOW - 1500)
-        self.call("tg:beta", TOK2, NOW - 1200)
+        self.call("alpha", TOK2, NOW - 1500)
+        self.call("beta", TOK2, NOW - 1200)
         self.assertEqual(self.run_once({TOK2: row()}), [])
         self.assertIn("prekasno", self.notes()[TOK2][1])
 

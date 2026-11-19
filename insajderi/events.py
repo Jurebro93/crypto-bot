@@ -25,6 +25,10 @@ import zlib
 from collections import defaultdict
 
 from insajderi import store
+from kol import tgout
+
+# 19.11. (vlasnik: Telegram out of every calculation): the stored call events of a Telegram first caller are skipped
+NOT_TG_EVENT = "NOT (kind = 'call' AND COALESCE(handle, '') LIKE 'tg:%')"
 
 CAT_HR = {"poziv_x": "poziv na X-u", "poziv_tg": "Telegram poziv", "ekipa": "ekipa callera", "x_momentum": "X momentum",
           "dex_boost": "DexScreener boost", "dex_profil": "plaćeni DexScreener profil", "cto": "community takeover",
@@ -113,8 +117,9 @@ def call_events(p, c, now, since=None):
         return []
     bots = _bots(p.get("kol_db"))
     crews = _crews(p.get("early_db"))
-    rows = store.q(kc, """SELECT token, handle, MIN(ts), mcap0, tweet_id, r1h, r6h, symbol FROM calls WHERE kind = 'call'
-        AND handle NOT LIKE 'w:%' AND ts >= ? AND ts <= ? GROUP BY token, handle""", (since, now))
+    # 19.11. (vlasnik, kol/tgout.py): a Telegram channel's call creates no call event any more (X callers only)
+    rows = store.q(kc, f"""SELECT token, handle, MIN(ts), mcap0, tweet_id, r1h, r6h, symbol FROM calls WHERE kind = 'call'
+        AND handle NOT LIKE 'w:%' AND {tgout.sql()} AND ts >= ? AND ts <= ? GROUP BY token, handle""", (since, now))
     by = defaultdict(list)
     for tok, h, ts, mc0, tid, r1h, r6h, sym in rows:
         if len(tok or "") >= 32 and h and h not in bots and ts:
@@ -390,9 +395,11 @@ def mark_tiers(con, c):
 
 
 def load(con, since=None, kind=None):
-    """[event dict] stored, oldest first (19.11.: with tier and peak_mc)."""
+    """[event dict] stored, oldest first (19.11.: with tier and peak_mc). 19.11. (vlasnik, kol/tgout.py): a stored call
+    event whose first caller is a Telegram channel stays in i2_events but is not loaded (NOT_TG_EVENT), and the
+    Telegram callers of the other call events are left out of `callers`."""
     sql = ("SELECT eid, kind, token, symbol, t0, handle, crew, n_callers, callers, mcap0, peak_ts, peak_x, win_end, "
-           "catalyst, catalysts, src, prio, fetched, n_part, tier, peak_mc FROM i2_events WHERE t0 >= ?")
+           f"catalyst, catalysts, src, prio, fetched, n_part, tier, peak_mc FROM i2_events WHERE t0 >= ? AND {NOT_TG_EVENT}")
     args = [int(since or 0)]
     if kind:
         sql += " AND kind = ?"
@@ -407,6 +414,8 @@ def load(con, since=None, kind=None):
                 d[k] = json.loads(d[k]) if d[k] else ({} if k == "callers" else [])
             except ValueError:
                 d[k] = {} if k == "callers" else []
+        if isinstance(d["callers"], dict):
+            d["callers"] = {h: ts for h, ts in d["callers"].items() if not tgout.is_tg(h)}
         out.append(d)
     return out
 
@@ -465,7 +474,7 @@ def catalyze(con, p, events, waves=None):
     hc = store.ro(p.get("hype_db"))
     for ch in _chunks(toks):
         for tok, h, ts in store.q(kc, f"SELECT token, handle, ts FROM calls WHERE kind = 'call' AND handle NOT LIKE 'w:%' "
-                                      f"AND token IN ({_in(ch)})", ch):
+                                      f"AND {tgout.sql()} AND token IN ({_in(ch)})", ch):
             if ts:
                 calls[tok].append((int(ts), h))
         for tok, ts, sc in store.q(xc, f"SELECT token, ts, score FROM x_momentum WHERE score >= 1 AND token IN "

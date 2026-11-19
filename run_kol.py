@@ -42,7 +42,7 @@ def cmd_collect(a, con=None, cfg=None):
         chainwatch.drain()
     except Exception as e:  # noqa: BLE001
         print(f"collect spool: {type(e).__name__}: {e}", file=sys.stderr)
-    for name, fn in (("telegram", collect.from_telegram), ("chain", collect.from_chain)):
+    for name, fn in (("chain", collect.from_chain),):   # 19.11.: no Telegram calls any more (kol/tgout.py)
         try:
             k = fn(con)
             n += k

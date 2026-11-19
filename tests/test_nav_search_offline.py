@@ -18,7 +18,7 @@ class NavTest(unittest.TestCase):
         # 10.11. (Jure, prijedlog 3.5): the side menu keeps only the core items + Više; Natjecanje is one tap away on
         # the "Više" page (and in the search), not in every page's menu any more
         self.assertIn('href="/vise"', out)
-        self.assertIn('href="/natjecanje"', html.vise_page({})[1])
+        self.assertIn('href="/kol"', html.vise_page({})[1])   # 19.11.: Natjecanje is gone
         self.assertIn('<a href="/tokens" class="on">Tokeni</a>', out)
         self.assertIn('id=q name=q', out)
 
@@ -54,7 +54,7 @@ class SearchTest(unittest.TestCase):
 
     def test_pages_without_diacritics(self):
         self.assertEqual(search.pages("potrosnja")[0]["href"], "/usage")
-        self.assertEqual(search.pages("natjecanje")[0]["href"], "/natjecanje")
+        self.assertEqual(search.pages("novcanici")[0]["href"], "/wallets")   # 19.11.: Natjecanje is gone
 
     def test_tokens_by_name_exact_first(self):
         r = search.search("fartcoin")

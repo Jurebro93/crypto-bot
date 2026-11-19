@@ -57,7 +57,7 @@ def seed(d, kols=4, wallets=30, trades=200, channels=5, tokens=50, rugs=7):
     con.close()
     con = tstore.connect(os.path.join(d, "tg.db"))
     for i in range(channels):
-        con.execute("INSERT OR REPLACE INTO channels (name, status) VALUES (?, 'active')", (f"ch{i}",))
+        con.execute("INSERT OR REPLACE INTO channels (name, status, subs) VALUES (?, 'active', ?)", (f"ch{i}", 1000 * (i + 1)))
     con.execute("INSERT OR REPLACE INTO channels (name, status) VALUES ('kandidat', 'candidate')")
     con.commit()
     con.close()
@@ -125,7 +125,8 @@ class Counting(Base):
         seed(self.d)
         coins.connect().close()
         c = sitelog.counts()
-        self.assertEqual(c, {"kols": 4, "calls": 4 * 12 + 11, "channels": 5, "wallets": 30, "trades": 200, "coins": 0,
+        # 19.11.: the 11 Telegram calls are out of the measured-calls count
+        self.assertEqual(c, {"kols": 4, "calls": 4 * 12, "channels": 5, "wallets": 30, "trades": 200, "coins": 0,
                              "tokens": 57})
         self.assertEqual(c["kols"], len(public.influencers()))              # the public leaderboard, row for row
 
@@ -232,7 +233,8 @@ class BlogLive(Base):
         seed(self.d)
         m = bloglive.measure()
         self.assertEqual(m["kol"], {"x_accounts": 4, "x_measured": 48, "board": 4, "x_clean10": 4})
-        self.assertEqual(m["telegram"], {"tg_channels": 5, "tg_measured": 11, "tg_clean10": 1})
+        # 19.11.: the Telegram block is the follower list (no measured calls any more)
+        self.assertEqual(m["telegram"], {"tg_channels": 5, "tg_followers": 15000})
         self.assertEqual(m["wallets"], {"wallets": 30, "scored": 15, "trades": 200, "kol_wallets": 1})
         self.assertEqual(m["rugs"], {"tokens": 57, "rugs": 7})
 
@@ -398,33 +400,20 @@ class LandingBlock(Base):
         html = landing.page_html({}, lang="hr")
         self.assertEqual(html.count("<h1"), 1)
         self.assertLess(html.index("<h1"), html.index("id=dnevnik"))
-        self.assertLess(html.index("id=dnevnik"), html.index("id=funkcije"))    # after the numbers, before the features
+        self.assertLess(html.index("id=brojke"), html.index("id=dnevnik"))     # 20.11.: the wallet focus first, the log lower
         self.assertIn("<h2>MemeSonar je live", html)
         for s in ('rel=canonical href="https://example.com/hr"', "application/ld+json", "hreflang=x-default", "id=pristup"):
             self.assertIn(s, html)
 
-    def test_autopilot_strip_shows_only_when_the_other_module_gives_one(self):
+    def test_autopilot_is_one_low_block(self):
+        """20.11. (vlasnik 19.11.: "Autopilot stavi u drugi plan"): no strip at the top, one block low on the page."""
         landing._STATS.update(ts=time.time(), v={}, busy=False)
-        self.assertEqual(landing._ap_strip("hr"), "")                         # the module does not exist yet
-        fake = types.ModuleType("ui.apjavno")
-        seen = []
-        fake.landing_strip = lambda lang="hr": seen.append(lang) or "<a href=/autopilot>Tradanje pravim sredstvima je live</a>"
-        import ui
-        with mock.patch.dict(sys.modules, {"ui.apjavno": fake}), mock.patch.object(ui, "apjavno", fake, create=True):
+        from ui import pauza
+        with mock.patch.object(pauza, "on", return_value=False):
             html = landing.page_html({}, lang="en")
-            self.assertEqual(seen, ["en"])
-            self.assertIn("<div class='w apst'><a href=/autopilot>", html)
-            self.assertLess(html.index("class='w apst'"), html.index("<header class=hero>"))   # near the top
-            fake.landing_strip = lambda lang="hr": ""                         # the Autopilot is not live
-            self.assertNotIn("class='w apst'", landing.page_html({}, lang="hr"))
-            fake.landing_strip = lambda lang="hr": 1 / 0                      # their bug is not our 500
-            landing._STRIP_ERR[0] = 0.0
-            with mock.patch("builtins.print") as pr:
-                self.assertIn("Zatraži pristup", landing.page_html({}, lang="hr"))
-                landing.page_html({}, lang="hr")
-            self.assertEqual(pr.call_count, 1)                                # one line an hour, not one per visit
-        self.assertNotIn("class='w apst'", landing.page_html({}, lang="hr"))
-
-
-if __name__ == "__main__":
-    unittest.main()
+        self.assertNotIn("class='w apst'", html)
+        self.assertLess(html.index("id=pristup") - html.index("id=autopilot"), html.index("id=pristup"))
+        self.assertGreater(html.index("id=autopilot"), html.index("id=novcanici"))
+        self.assertIn("Autopilot's results are public.", html)
+        with mock.patch.object(pauza, "on", side_effect=RuntimeError("x")), mock.patch("builtins.print"):
+            self.assertIn("Zatraži pristup", landing.page_html({}, lang="hr"))   # their bug is not our 500

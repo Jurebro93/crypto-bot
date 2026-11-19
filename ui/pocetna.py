@@ -280,20 +280,34 @@ def _sql_counts_many(path, table, col, now, wheres):
         con.close()
 
 
+def _midcap_db():
+    try:
+        from veliki import midcap
+        return midcap.db_path()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _ins_db():
+    try:
+        from insajderi import store as istore
+        return istore.db_path()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def metrics(now=None):
     """[(icon, label, href, (total, this week, last week))] for every kind of data the tool collects."""
     from ui import overview
     from kol import store as kol_store
-    from tg import store as tg_store
     now = now or time.time()
     try:
         series = overview._first_seen()
     except Exception:  # noqa: BLE001
         series = {}
     out = []
-    for icon, label, href, key in (("🪙", "Tokeni analizirani", "/tokens", "Tokena analizirano"),
-                                   ("👛", "Novčanici u registru", "/wallets", "Walleta u registru"),
-                                   ("🛡", "Rug provjere", "/tokens", "Rug provjera")):
+    # 19.11.: the hype scanner's tokens and rug checks are no longer collected (ops/fokus OFF since 15.11.): not counted
+    for icon, label, href, key in (("👛", "Novčanici u registru", "/wallets", "Walleta u registru"),):
         if series.get(key):
             out.append((icon, label, href, _week_counts(series[key], now)))
     # kol.db keeps more than X accounts and their calls: Telegram channels ('tg:'), tracked wallets ('w:') and every
@@ -302,15 +316,13 @@ def metrics(now=None):
     not_x = "handle NOT LIKE 'tg:%' AND handle NOT LIKE 'w:%'"
     specs = (
             ("📣", "Influenceri (X)", "/kol", kol_store.DB, "kols", "first_seen", not_x),
-            ("🗣", "Pozivi influencera (X + Telegram)", "/kol", kol_store.DB, "calls", "ts", "kind = 'call'"),
+            # 19.11.: X only (vlasnik: "Telegram KOLs makni iz izračuna"); no PumpPortal launches (live: RETARGET)
+            ("🗣", "Pozivi influencera (X)", "/kol", kol_store.DB, "calls", "ts", "kind = 'call' AND handle NOT LIKE 'tg:%'"),
             # 9.11. (audit P70): calls buy/sell come from every Helius-webhook wallet (leaderboard), not only followed ones
             ("👛", "Kupnje i prodaje svih webhook novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
-            ("⚡", "Kupnje i prodaje u živom toku (PumpPortal, zadnjih 48 h)", "/izvori", hype_db_path(), "live_trades", "ts", "1=1"),
-            ("🎓", "Tokeni koji su bondali (živi tok)", "/izvori", hype_db_path(), "live_launches", "ts", "pool = 'migration'"),
-            # 5.11.: the same number /izvori shows as "aktivnih Telegram kanala" (status 'active'); the page counted
-            # every known channel (22,462: candidates, dead, spam) while /izvori said 264
-            ("💬", "Aktivni Telegram kanali", "/izvori", tg_store.DB, "channels", "found_ts", "status = 'active'"),
-            ("✉️", "Telegram poruke", "/izvori", tg_store.DB, "posts", "seen_ts", "1=1"))
+            ("🪙", "Midcap tokeni na popisu", "/tokens", _midcap_db(), "tokens", "first_ts", "1=1"),
+            ("📈", "Skokovi midcapova (pumpe)", "/tokens?t=skok", _ins_db(), "i2_events", "t0", "tier IS NOT NULL"),
+            ("🔎", "Rani kupci pumpi", "/wallets", _ins_db(), "i2_part", "buy_ts", "bought_before = 1"))
     # 10.11. (pregled): the specs that read the same table and column are counted in one pass (_sql_counts_many)
     groups = {}
     for i, (_i, _l, _h, path, table, col, where) in enumerate(specs):
@@ -683,7 +695,8 @@ def kol_pick(stats=None):
     if not good:
         return None
     scores, skip = _kol_meta(good)
-    cands = [(h, r) for h, r in good.items() if h.lower() not in skip]
+    # 19.11. (vlasnik: "Telegram KOLs makni iz izračuna"): a Telegram channel (handle "tg:...") is never the answer
+    cands = [(h, r) for h, r in good.items() if h.lower() not in skip and not h.lower().startswith("tg:")]
     if not cands:
         return None
     h, r = max(cands, key=lambda hr: (wilson_low(hr[1].get("hits1"), hr[1].get("n1")), hr[1].get("n1") or 0, hr[0]))
@@ -758,7 +771,7 @@ def autopilot_state():
     return {"state": st, "eq": eq, "stats": stats}
 
 
-def autopilot_row(a=None):
+def autopilot_row(a=None, paused=None):
     """"Autopilot · ● uživo, pravi novac · 8 zatvorenih", the wallet value and the result. One row, not a second
     banner: the black "Autopilot je live" line on top stays as Jure asked (9.11.). Leads to the page everyone may
     open (/autopilot; the owner's controls are one tap further)."""
@@ -768,7 +781,12 @@ def autopilot_row(a=None):
         return None
     st, eq, stats = a.get("state") or {}, a.get("eq") or {}, a.get("stats") or {}
     n = stats.get("n") or 0
-    if st.get("live"):
+    if paused is None:
+        from ui import pauza
+        paused = pauza.on()
+    if paused:   # 19.11.: automatic real-money buying is paused (trade.db pravi_novac_pauza); open positions keep exits
+        reason = R.cat(R.dot("warn"), "pauziran: pravi novac ne kupuje")
+    elif st.get("live"):
         reason = R.cat(R.dot("good"), "uživo, pravi novac")
     elif st.get("on"):
         reason = R.cat(R.dot("warn"), "probno, bez pravog novca")
@@ -891,7 +909,11 @@ def data_foot(now=None):
 
 
 # ms- compatible bits the shared MS_CSS does not have yet (10.11., pregled): the footer line of the maketa (.foot-link)
-PG_CSS = ("<style>.ms-footlink{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:28px 0 0;"
+PG_CSS = ("<style>.pg-a{font-size:16px;line-height:1.45;margin:10px 0 0}"
+          ".pg-open{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0 0;padding:10px 14px;"
+          "border-radius:12px;background:#fff7e6;color:var(--fg);font-size:15px;text-decoration:none}"
+          ".pg-ap>summary{list-style:none}.pg-ap>summary::-webkit-details-marker{display:none}"
+          ".pg-ap[open]>summary .ms-chev{transform:rotate(135deg)}.ms-footlink{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:28px 0 0;"
           "padding:14px 0;border-top:1px solid var(--line);font-size:15px;color:var(--mut);text-decoration:none;cursor:pointer}"
           ".ms-footlink:hover{color:var(--acc)}.pg .ms-panel .pos{color:var(--good)}.pg .ms-panel .neg{color:var(--bad)}</style>")
 
@@ -912,7 +934,9 @@ def _safe(label, fn):
         return None
 
 
-def page(qs=None):
+def page_old(qs=None):
+    """The Pregled of 10.11.-19.11. (prijedlog box of the microcap hype scanner, strategies, the week's best trade).
+    19.11.: replaced by page() (what the tool does now); kept for its callers and tests."""
     from ui import redak as R
     now = time.time()
     parts, box = None, ""
@@ -942,4 +966,209 @@ def page(qs=None):
     if "id=pdj " not in box:   # the box failed: the data pop-up still needs the pop-up's look and opener
         from ui import prijedlog
         b += [prijedlog.DLG_CSS, prijedlog.DLG_JS]
-    return "Pregled", "".join(b)
+    # a calm page: no row of section chips on top (ui/secnav builds one from 3+ <h2>)
+    return "Pregled", "".join(b).replace('<h2 class="ms-h2"', '<h2 class="ms-h2 nosec"')
+
+
+# ---------- 19.11.: Pregled leads with what the tool does now -------------------------------------------------------
+# (vlasnik 19.11.: "svi resursi u pronalaženje profitabilnih voleta"; "kompletna aplikacija treba refurbish s obzirom
+# na promjenu fokusa"). Top to bottom: (a) three plain answers about the wallets that buy before a pump (insajderi.db,
+# read-only), (b) the card "Novčanici koje vrijedi pratiti" (ui/novkartice, read-only), (c) the Autopilot (the pause
+# notice while trade.db pravi_novac_pauza is on), (d) "Skočili nedavno" (ui/midcaplist), then, dated and lower, the old
+# blocks that still have live data (influencers, refreshed once in 5 days; the webhook wallets' buys and sells; the
+# data counts). Removed: the microcap suggestion box (hype scan off since 15.11.), the week's best trade and the
+# microcap strategy comparison (strat/: no new entries), the scored wallet pick (wallets score off since 15.11.).
+
+def _when(ts):
+    import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        d = datetime.datetime.fromtimestamp(ts, ZoneInfo("Europe/Zagreb"))
+    except Exception:  # noqa: BLE001
+        d = datetime.datetime.fromtimestamp(ts)
+    return f"{d.day}.{d.month}. u {d:%H:%M}"
+
+
+def wallet_facts(path=None):
+    """{"groups", "confirmed", "pumps", "ts", "copy": {"ev", "lo", "hi", "n"} or None} from insajderi.db (i2_pp,
+    i2_events, i2_kv summary), or None without the database."""
+    import json
+    if path is None:
+        try:
+            from insajderi import store as istore
+            path = istore.db_path()
+        except Exception:  # noqa: BLE001
+            return None
+    con = _ro(path)
+    if con is None:
+        return None
+    try:
+        def one(sql, args=()):
+            try:
+                r = con.execute(sql, args).fetchone()
+                return r[0] if r else None
+            except sqlite3.Error:
+                return None
+        out = {"groups": one("SELECT COUNT(*) FROM i2_pp WHERE cls = 'prije_pumpe'") or 0,
+               "confirmed": one("SELECT COUNT(*) FROM i2_pp WHERE cls = 'prije_pumpe' AND confirmed_ts IS NOT NULL") or 0,
+               "pumps": one("SELECT COUNT(*) FROM i2_events WHERE tier IN ('pumpa15', 'pumpa2')") or 0,
+               "ts": one("SELECT MAX(updated) FROM i2_pp"), "copy": None}
+        try:
+            summ = json.loads(one("SELECT value FROM i2_kv WHERE key = 'summary'") or "{}")
+        except (TypeError, ValueError):
+            summ = {}
+        out["ts"] = out["ts"] or summ.get("ts")
+        a = ((((summ.get("prije_pumpe") or {}).get("copy") or {}).get("60s") or {}).get("svi") or {})
+        if a.get("n") and a.get("ev_pct") is not None:
+            out["copy"] = {"ev": a["ev_pct"], "lo": a.get("lo_pct"), "hi": a.get("hi_pct"), "n": a["n"]}
+        return out
+    finally:
+        con.close()
+
+
+def wallet_answers(f):
+    """The three plain sentences (no jargon) from wallet_facts()."""
+    from ui import redak as R
+    if not f or not (f["groups"] or f["pumps"]):
+        return ["Još tražimo novčanike koji kupuju prije pumpe: prvi rezultati dolaze nakon noćnog prolaza."]
+    g, c, n = f["groups"], f["confirmed"], f["pumps"]
+    out = [f"Našli smo {R.num(g)} {plural(g, 'skupinu', 'skupine', 'skupina')} novčanika koje kupuju prije skoka cijene "
+           f"i prodaju u skok (pregledano {R.num(n)} {plural(n, 'skok', 'skoka', 'skokova')} midcap tokena)."]
+    out.append(f"Na novijim podacima potvrđeno ih je {R.num(c)}." if c else
+               "Nijedna još nije potvrđena na novijim podacima.")
+    cp = f.get("copy")
+    if cp:
+        rng = (f", raspon {R.pct(cp['lo'], 1)} do {R.pct(cp['hi'], 1)}" if cp.get("lo") is not None and cp.get("hi")
+               is not None else "")
+        ok = cp.get("lo") is not None and cp["lo"] > 0
+        out.append(f"Da smo ih kopirali bez pravog novca: prosječno {R.pct(cp['ev'], 1)} po kupnji ({R.num(cp['n'])} "
+                   f"{plural(cp['n'], 'kupnja', 'kupnje', 'kupnji')}{rng}); "
+                   + ("cijeli raspon je iznad nule." if ok else "to još nije dovoljno za pravi novac."))
+    else:
+        out.append("Test kopiranja njihovih kupnji još nije izračunat.")
+    return out
+
+
+def autopilot_now(a=None):
+    """The Autopilot block: the pause notice while it is on, and the Autopilot row with state-driven words."""
+    from ui import pauza, redak as R
+    paused = pauza.on()
+    note = pauza.notice_html("hr", notr=False) if paused else ""
+    row = _safe("autopilot", lambda: autopilot_row(a, paused=paused))
+    return note + (R.rows([row]) if row else "")
+
+
+def open_real(path=None):
+    """(n, SOL in) of the Autopilot's OPEN real-money positions (trade.db positions mode 'live', open / pending), or
+    None without trade.db. Money at risk is never folded away (19.11.)."""
+    if path is None:
+        try:
+            from trade import settings
+            path = settings.DB
+        except Exception:  # noqa: BLE001
+            return None
+    con = _ro(path)
+    if con is None:
+        return None
+    try:
+        r = con.execute("SELECT COUNT(*), COALESCE(SUM(sol_in), 0) FROM positions WHERE mode = 'live' "
+                        "AND status IN ('open', 'pending')").fetchone()
+        return (int(r[0]), float(r[1] or 0)) if r else None
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+
+
+def open_real_line(o=None):
+    """One compact line near the top while real money is in open positions (their exits keep running)."""
+    from ui import redak as R
+    o = o if o is not None else open_real()
+    if not o or not o[0]:
+        return ""
+    n, sol = o
+    return (f'<a class="pg-open" href="/autopilot">Otvoreno pravim novcem: {R.num(n)} '
+            f'{plural(n, "pozicija", "pozicije", "pozicija")}, uloženo {R.h(R.sol(sol))}; izlazi i dalje rade.'
+            '<span class="ms-chev" aria-hidden="true"></span></a>')
+
+
+def autopilot_folded(now=None):
+    """The Autopilot at the bottom of Pregled as ONE collapsed block (19.11., vlasnik: "Autopilot stavi u drugi plan
+    dok rekonstruiramo app")."""
+    from ui import pauza, redak as R
+    paused = _safe("pauza", pauza.on)
+    title = "Autopilot (pauzirano)" if paused else "Autopilot"
+    inner = autopilot_now() or R.hint("Stanje Autopilota se trenutno ne može učitati.")
+    return (f'<details class="pg-ap" id="pg-autopilot"><summary class=ms-footlink><span>{R.h(title)}</span>'
+            f'<span class=ms-chev aria-hidden=true></span></summary>{inner}'
+            '<p class=ms-hint><a class=ms-acc href="/autopilot">Otvori Autopilot</a></p></details>')
+
+
+def makro_line(now=None):
+    """Makro influenceri in one sentence (ui/kol.makro_sentence), a link to the tab."""
+    from ui import kol, redak as R
+    return R.cat(R.raw(f'<p class="pg-a">{R.h(kol.makro_sentence(now=now))}</p>'),
+                 R.raw('<p class=ms-hint><a class=ms-acc href="/kol#makro">Makro influenceri</a></p>'))
+
+
+def jumped_html(now=None, d=None, n=5):
+    """"Skočili nedavno": the newest pumps of the tracked midcaps (ui/midcaplist), rows of the Tokeni page."""
+    from ui import midcaplist, tokens, redak as R
+    d = d if d is not None else midcaplist.load(now)
+    pl = (d.get("pumps") or [])[:n]
+    if not pl:
+        return R.hint("Nijedan praćeni midcap nije skočio u zadnjih 30 dana." if d.get("tokens") else
+                      "Popis midcap tokena još se puni.")
+    return (f'{tokens.MC_CSS}<div class="mc-list">' + "".join(tokens.mid_row(p, pump=p) for p in pl) + "</div>"
+            + R.raw('<p class=ms-hint><a class=ms-acc href="/tokens?t=skok">Svi skokovi</a></p>'))
+
+
+def kol_later_row(stats=None):
+    """The influencer row lower on the page, with its refresh cadence (ops/drustveni: once in 5 days)."""
+    from ui import redak as R
+    r = kol_row(stats)
+    try:
+        from ops import drustveni
+        last, _nxt = drustveni.notice_dates()
+    except Exception:  # noqa: BLE001
+        last = None
+    note = f"osvježeno {_when(last)}, jednom u 5 dana" if last else "osvježava se jednom u 5 dana"
+    return R.cat(R.rows([r]), R.hint(f"Influenceri: {note}."))
+
+
+def page(qs=None, now=None):
+    """/pregled (19.11.): wallets, tokens and Makro on top; an open real-money position stays visible near the top; the
+    rest (influencers' calls, the webhook wallets, the data counts) dated and lower; the Autopilot folded at the end."""
+    from ui import redak as R
+    now = now or time.time()
+    t = now
+    f = _safe("novčanici", wallet_facts)
+    ans = wallet_answers(f)
+    t = data.stage("/pregled novčanici", t)
+    card = _safe("kartica", lambda: __import__("ui.novkartice", fromlist=["card_html"]).card_html()) or ""
+    t = data.stage("/pregled kartica", t)
+    jumped = _safe("skočili", lambda: jumped_html(now)) or ""
+    makro = _safe("makro", lambda: makro_line(now)) or ""
+    risk = _safe("otvoreno", open_real_line) or ""
+    t = data.stage("/pregled skočili", t)
+    wr = _safe("novčanici 24 h", lambda: wallets_row(now))
+    later = [x for x in (_safe("influencer", kol_later_row), R.rows([wr]) if wr else None) if x]
+    foot = _safe("podaci", lambda: data_foot(now)) or ""
+    ap = _safe("autopilot", lambda: autopilot_folded(now)) or ""
+    data.stage("/pregled ostalo", t)
+    age = R.raw(f'<span id=pdj-age data-ts="{int(now)}">osvježeno upravo sada</span>')
+    when = (f"Zadnji izračun novčanika: {_when(f['ts'])}." if f and f.get("ts") else "")
+    b = [PG_CSS, '<div class="ms-page pg">', R.top("Pregled", sub=R.cat(today(now), " · ", age)),
+         f'<p class="mc-ans" style="font-size:17px;line-height:1.45;margin:14px 0 0">{R.h(ans[0])}</p>', risk,
+         R.section("Novčanici koji kupuju prije pumpe", "Novčanici", "/wallets"),
+         "".join(f'<p class="pg-a">{R.h(x)}</p>' for x in ans[1:]),
+         (R.hint(when) if when else ""), card,
+         R.section("Skočili nedavno", "Tokeni", "/tokens?t=skok"), jumped,
+         R.section("Makro influenceri", "Influenceri", "/kol"), makro]
+    if later:
+        b += [R.section("Ostalo, osvježava se rjeđe")] + later
+    b += [foot, ap, "</div>", AGE_JS]
+    from ui import prijedlog
+    b += [prijedlog.DLG_CSS, prijedlog.DLG_JS]
+    # a calm page: no row of section chips on top (ui/secnav builds one from 3+ <h2>)
+    return "Pregled", "".join(b).replace('<h2 class="ms-h2"', '<h2 class="ms-h2 nosec"')

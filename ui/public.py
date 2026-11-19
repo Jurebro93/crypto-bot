@@ -321,8 +321,8 @@ OG_PREFIX = (("kols", ("/influencer", "/macro-influencer")),   # 15.11.: the mac
              ("coins", ("/solana-meme-coins", "/coin/", "/how-to-buy", "/rug-check", "/solana-", "/meme-coin", "/best-time")),
              ("tools", ("/best-crypto-tools",)),
              ("learn", ("/blog", "/glossary")))
-OG_ALT = {"home": ("MemeSonar: token picks, influencer scores and wallet tracking for Solana",
-                   "MemeSonar: prijedlozi tokena, ocjena influencera i praćenje novčanika za Solanu"),
+OG_ALT = {"home": ("MemeSonar: wallets that buy before a Solana token jumps, measured after real costs",   # 20.11.
+                   "MemeSonar: novčanici koji kupuju prije skoka Solana tokena, izmjereno nakon stvarnog troška"),
           "kols": ("Crypto influencer leaderboard on MemeSonar", "Ljestvica kripto influencera na MemeSonaru"),
           "coins": ("Top 100 Solana meme coins, live, on MemeSonar", "Top 100 Solana meme coina uživo na MemeSonaru"),
           "tools": ("Best crypto tools compared on MemeSonar", "Usporedba kripto alata na MemeSonaru"),
@@ -755,13 +755,13 @@ def honest_block(handle, lang, me=None, kind="x"):
 SECTIONS = {
     "en": [("/solana-meme-coins", "Meme coins", "Solana meme coins", "Top 100 Solana meme coins with charts and safety checks"),
            ("/influencers", "Influencers", "Crypto influencers", "Every influencer call measured: hit rate, rugs, late calls"),
-           ("/telegram-channels", "Telegram", "Crypto Telegram channels", "Crypto call channels on Telegram measured by what their calls did"),
+           ("/telegram-channels", "Telegram", "Crypto Telegram channels", "Crypto Telegram channels and their follower counts, updated weekly"),
            ("/glossary", "Glossary", "Crypto glossary", "Crypto and meme coin terms explained in plain words"),
            ("/blog", "Blog", "Blog", "Guides on wallet tracking, copy trading and rug pulls, with our data"),
            ("/best-crypto-tools", "Tools", "Best crypto tools", "Wallet trackers, trading bots, wallets, rug checkers and APIs compared, with prices")],
     "hr": [("/hr/solana-meme-coini", "Meme coini", "Solana meme coini", "Top 100 Solana meme coina s grafovima i sigurnosnom provjerom"),
            ("/hr/influenceri", "Influenceri", "Kripto influenceri", "Svaki poziv influencera izmjeren: pogodak, rugovi, kasni pozivi"),
-           ("/hr/telegram-kanali", "Telegram", "Kripto Telegram kanali", "Kripto call kanali na Telegramu izmjereni po tome što su im pozivi napravili"),
+           ("/hr/telegram-kanali", "Telegram", "Kripto Telegram kanali", "Kripto Telegram kanali i broj njihovih pratitelja, svaki tjedan"),
            ("/hr/rjecnik", "Rječnik", "Kripto rječnik", "Kripto i meme coin pojmovi objašnjeni jednostavno"),
            ("/hr/blog", "Blog", "Blog", "Vodiči o praćenju novčanika, copy tradingu i rug pullovima, s našim podacima"),
            ("/hr/najbolji-kripto-alati", "Alati", "Najbolji kripto alati", "Usporedba alata za praćenje novčanika, botova, novčanika, provjere ruga i API-ja, s cijenama")],

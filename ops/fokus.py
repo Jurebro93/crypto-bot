@@ -76,7 +76,7 @@ RETARGET = (
 )
 KEPT = ("ui", "trade (pravi novac / probni swapovi)", "cpuguard", "uptime", "health", "diskreport", "retencija",
         "rug arhiva", "kalendar", "dugo", "simianx", "veliki (lista, backtest, demo)", "zonewatch", "kol krug (X pozivi)",
-        "tg", "novčanici dokazani / rang / copy / kopija (samo baze)", "tržište / BTC", "potrošnja", "web", "events tick",
+        "tg pratitelji (tjedno, samo broj pratitelja; 19.11.)", "novčanici dokazani / rang / copy / kopija (samo baze)", "tržište / BTC", "potrošnja", "web", "events tick",
         "EV izvještaj", "dnevni trošak", "kritičar", "jutarnji izvještaj", "povrat pravila izlaza",
         "stranice tokena (midcap svemir + top 100)")
 # 15.11. (vlasnik: "dio resursa zadrži za ovo, veći dio ide na midcapove"): jobs that run on microcap data WHILE the
@@ -144,7 +144,7 @@ SAVED = {
     "top": "isto (RugCheck/Jupiter/Helius 30/dan), samo drugi tokeni",
     "grok": "Grokov rad (bez našeg troška)",
     "xmom": "isti strop 0,30 $/dan",
-    "strategije": "CPU: prolaz svake minute u run_paper (signali iz kol/tg/hype/paper baza); DexScreener samo za "
+    "strategije": "CPU: prolaz svake minute u run_paper (signali iz kol/hype/paper baza; Telegram od 19.11. ne); DexScreener samo za "
                   "otvorene pozicije",
 }
 

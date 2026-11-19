@@ -406,7 +406,7 @@ class PaperGate(Base):
         settings.set_flag(self.tc, gd.FLAG, "paper", "Jure", now=later)
         self.assertEqual(settings.flag(gd.FLAG, con=self.tc), "paper")
         settings.set_flag(self.tc, gd.FLAG, "off", "Jure", now=later)             # down is always allowed
-        settings.set_flag(self.tc, "dca_guard", "paper", "Jure", now=later)       # other flags: no gate
+        settings.set_flag(self.tc, "stop_grace", "paper", "Jure", now=later)       # other flags: no gate
         self.assertIn(gd.FLAG, settings.FLAGS)   # 10.11.: later flags (insider_copy G14) come after it
         self.assertEqual(settings.FLAGS[gd.FLAG][0], "G12")
 

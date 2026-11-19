@@ -45,7 +45,8 @@ def mix_of(handles):
 def _first_calls(con):
     """token -> (ts, handle, max24, r24h, rug, pre2h) of its first measured real call."""
     rows = con.execute("""SELECT token, ts, handle, max24, r24h, COALESCE(rug, 0), pre2h FROM calls
-                          WHERE kind = 'call' AND max24 IS NOT NULL AND bad IS NULL ORDER BY token, ts""").fetchall()
+                          WHERE kind = 'call' AND max24 IS NOT NULL AND bad IS NULL AND handle NOT LIKE 'tg:%'
+                          ORDER BY token, ts""").fetchall()   # 19.11.: no Telegram channels (kol/tgout.py)
     out = {}
     for t, ts, h, m, r, rg, p in rows:
         out.setdefault(t, (ts, h, m, r, rg, p))
@@ -159,7 +160,7 @@ def build(con, shill=frozenset(), now=None):
     clusters.sort(key=lambda c: (-c["tokens"], -(c["stats"]["hit"] or 0)))
     try:
         calls = con.execute("""SELECT token, ts, p0, max24 FROM calls WHERE kind IN ('call', 'bot') AND p0 > 0
-                               AND max24 IS NOT NULL AND bad IS NULL""").fetchall()
+                               AND max24 IS NOT NULL AND bad IS NULL AND handle NOT LIKE 'tg:%'""").fetchall()
     except Exception:  # noqa: BLE001
         calls = []
     return {"sizes": sizes, "mixes": mixes, "shills": shills, "clusters": clusters, "n_groups": len(groups),

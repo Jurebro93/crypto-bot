@@ -131,17 +131,19 @@ class Pages(unittest.TestCase):
 
     def test_home_buttons_and_showcase(self):
         from ui import landing
-        for lang, paths in (("en", ("/solana-market", "/crypto-influencer-calls", "/influencers", "/best-time-to-trade-crypto")),
-                            ("hr", ("/hr/solana-trziste", "/hr/pozivi-kripto-influencera", "/hr/influenceri",
+        for lang, paths in (("en", ("/solana-market", "/macro-influencers", "/solana-meme-coins", "/best-time-to-trade-crypto")),
+                            ("hr", ("/hr/solana-trziste", "/hr/makro-influenceri", "/hr/solana-meme-coini",
                                     "/hr/najbolje-vrijeme-za-trgovanje-kriptom"))):
             html = landing.page_html(lang=lang)
-            cta = html.split("class=dcta")[1].split("class=show")[0]
+            cta = html.split("class=dcta")[1].split("</div></div>")[0]
             for p in paths:
                 self.assertIn(f"href={p}>", cta, p)
             self.assertEqual(cta.count("<a href="), 4)
+            self.assertNotIn("influencer-calls", cta)            # 20.11.: no call leaderboard buttons on the home page
+            self.assertNotIn("pozivi-kripto", cta)
             self.assertRegex(cta, r"\d+/100")                    # the season index, live
             show = html.split("<div class=show")[1].split("</header>")[0]
-            self.assertEqual(show.count("<button"), 6)
+            self.assertEqual(show.count("<button"), 4)
             self.assertEqual(show.count(" src="), 1)             # one picture loads with the page, the rest on their turn
             for f in re.findall(r'(?:data-)?src="/static/landing/([^"]+)"', show):
                 self.assertTrue(os.path.exists(os.path.join(landing.STATIC, f)), f)

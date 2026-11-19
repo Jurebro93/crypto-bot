@@ -150,7 +150,8 @@ class Board(Fixture):
         with mock.patch("ui.kol.ap_follows", return_value={"steady": "kol"}):
             title, body = ukol.page({})
         self.assertEqual(title, "Influenceri")
-        hero = body.split('class="ms-seg"')[0]
+        # 19.11.: Makro is the first tab; the call leaderboard's answer opens its own tab (Ljestvica)
+        hero = body[body.index("data-pane=ljestvica"):body.index("<div class=kl-ctl>")]
         self.assertIn("@steady", hero)                                 # best first hour, holds up a day later
         self.assertIn("4 od 6 je u plusu", hero)
         self.assertIn("<span class=adm-only> · Autopilot ga prati</span>", hero)
@@ -183,7 +184,8 @@ class Board(Fixture):
         self.assertIn("/kol/fast/vise#ocjena", body)
         self.assertIn("34 tis. pratitelja", body)
         self.assertIn("GIGA&lt;FROG&gt;", body)
-        self.assertIn("ne broji se", body)                             # the 12k $ call in "Zadnji pozivi"
+        # 19.11.: calls on tokens not worth 30k $ now are one collapsed line (the 12k $ call among them)
+        self.assertIn("na tokene koji danas vrijede ispod 30.000 $", body)
         self.assertIn("kc-chart", body)
         with mock.patch("ui.kol.ap_follows", return_value={"fast": "ekipa"}):
             self.assertIn("kao dio ekipe", ukol.kol_page("fast", {})[1])

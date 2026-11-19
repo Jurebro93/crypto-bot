@@ -271,7 +271,7 @@ class WhoIsWho(unittest.TestCase):
         # audit sekundni.md §4 "Nikad ne pauzirati": run_trade, run_ui, run_live, run_tg; plus the supervisors, the
         # deploy stand-in, the two checks and the memory watchdog (when in doubt, protected)
         for cmd, name in (("run_ui.py --host 0.0.0.0 --port 10000", "ui"), ("run_trade.py follow", "trade"),
-                          ("run_kol.py loop --every 20", "kol"), ("run_tg.py loop", "tg"), ("run_tg.py telethon", "tg"),
+                          ("run_kol.py loop --every 20", "kol"),
                           ("run_live.py loop", "live"),
                           ("deploy_wait.py --port 10000", "deploy"), ("-m ops.cpuguard", "cpuguard"),
                           ("-m ops.uptime", "uptime"), ("-m ops.health --hourly", "health"), ("-m ops.health", "health"),
@@ -373,7 +373,7 @@ class WhoIsWho(unittest.TestCase):
             self.assertGreater(len(why), 15, name)
             self.assertNotIn("\u2014", why)
         text = g.popis()
-        for name in ("ui", "trade", "kol", "tg", "live", "deploy", "health", "cpuguard"):
+        for name in ("ui", "trade", "kol", "live", "deploy", "health", "cpuguard"):
             self.assertRegex(text, rf"\n  {name} +\S.* +zaštićen ", name)
         self.assertRegex(text, r"\n  ui-dijete +run_ui.py --render +1\. u redu ")
         self.assertRegex(text, r"\n  top +run_top.py +5\. u redu ")
@@ -904,7 +904,7 @@ class Priorities(unittest.TestCase):
                     "python3 run_simianx.py once"):
             self.assertIn("low " + cmd, self.sh, cmd)
         for cmd in ("keep ui python3 run_ui.py", "keep trade python3 run_trade.py follow", "keep kol python3 run_kol.py loop",
-                    "keep tg python3 run_tg.py loop", "python3 run_tg.py telethon", "keep paper python3 run_paper.py run",
+                    "keep paper python3 run_paper.py run",
                     "keep live python3 run_live.py loop", "keep cpuguard python3 -m ops.cpuguard",
                     "keep uptime python3 -m ops.uptime"):
             self.assertIn(cmd, self.sh, cmd)
@@ -919,14 +919,14 @@ class Priorities(unittest.TestCase):
                 self.assertIn(name, ("minute", "sched", "report", "top", "watch", "simianx", "skener", "grupe", "range", "insajderi",
                                      "momentum", "shill-mreza", "eventi", "prijedlozi", "zonewatch", "fast", "disk",
                                      "retencija", "kriticar", "veliki", "arhiva", "holderi", "makroinf", "vijece",
-                                     "wallets"), ln)   # 19.11.: run_wallets.py povijest --kind day (JOBS class)   # 15.11.: veliki/ candles (run_veliki.py candles)   # 11.11.: momentum/, kol/preshill.py, topics/, proposals/,
+                                     "wallets", "tg"), ln)   # 19.11.: run_tg.py pratitelji (weekly follower count; JOBS)   # 19.11.: run_wallets.py povijest --kind day (JOBS class)   # 15.11.: veliki/ candles (run_veliki.py candles)   # 11.11.: momentum/, kol/preshill.py, topics/, proposals/,
                 # zonewatch/, fast/ (run_fast.py, flag fast_path G24), ops/retencija.py (the retention, owner switches);
                 # 15.11.: critic/ (run_critic.py loop, the OpenAI critic's watcher of real-money fills; advice only);
                 # 15.11. navečer: veliki/ (run_veliki.py candles every 15 min, the midcap collector every 90 s; JOBS class)
                 # 15.11. navečer: holderi/ (run_holderi.py pass every 10 min: holder snapshots, listing signals; JOBS class)
                 # 15.11.: makroinf/ (run_makroinf.py krug every ~10 min: macro influencers' posts, classification; JOBS)
                 # 18.11.: vijece/ (run_vijece.py tick every 15 min: the council's reviews and decisions; waits on APIs; JOBS)
-                self.assertNotIn(name, ("ui", "trade", "kol", "tg", "live", "paper"), ln)
+                self.assertNotIn(name, ("ui", "trade", "kol", "live", "paper"), ln)
 
     def test_guard_starts_right_after_ui_and_trade_before_the_background(self):
         i = self.sh.index("keep cpuguard python3 -m ops.cpuguard")

@@ -71,7 +71,7 @@ CLK_TCK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 # in which order); when in doubt, protected.
 #
 # The money path, never paused: a followed account posts or a followed wallet buys -> a listener writes it down
-# (X and Helius webhooks inside run_ui.py, run_tg.py, run_live.py, the KOL round's collect) -> league/copy.py in
+# (X and Helius webhooks inside run_ui.py, run_live.py, the KOL round's collect) -> league/copy.py in
 # run_ui.py enters the demo account -> run_trade.py mirrors it as a real (or dry-run) swap. Supervisors are left
 # alone as well: they use no CPU, and several of them hold the heavy-job lock for their child.
 #
@@ -120,8 +120,10 @@ PROCESSES = (
     ("kol-krug", "run_kol.py", (), ROUND,
      f"krug donosi pozive praćenih računa u kol.db; zaštićen dok sam ne potroši {ROUND_CPU_S:.0f} s CPU-a "
      "(dalje je to ocjenjivanje, pa smije čekati s ostalim KOL poslovima)"),
-    ("tg", "run_tg.py", (), PROTECTED,
-     "čita praćene Telegram kanale svake 2-3 s (i živi slušač): pozivi koje kopiranje čita"),
+    # 19.11. (vlasnik: Telegram izvan izračuna): run_tg.py is only the weekly follower count now (one t.me page per
+    # channel, tg/pratitelji.py); nothing in the money path reads it, so it may wait like any job
+    ("tg", "run_tg.py", (), JOBS,
+     "tjedni broj pratitelja Telegram kanala (jedna javna stranica po kanalu); ništa ga ne čeka"),
     ("live", "run_live.py", (), PROTECTED,
      "PumpPortal uživo: kupnje i prodaje praćenih walleta u sekundi; zaustavljen puni red i ruši vezu"),
     ("paper", "run_paper.py", (), _paper_rank(),
@@ -154,7 +156,6 @@ PROCESSES = (
     ("market", "run_market.py", (), JOBS, "stanje tržišta svaki sat (raspored)"),
     ("usage", "run_usage.py", (), JOBS, "potrošnja plaćenih izvora svakih 15 min (raspored)"),
     ("corr", "run_corr.py", (), JOBS, "korelacije skupina i faktora, noću (raspored)"),
-    ("whatsapp", "run_whatsapp.py", (), JOBS, "dnevni sažetak u WhatsApp grupu (raspored)"),
     ("report", "run_report.py", (), JOBS, "jutarnji izvještaj e-poštom"),
     ("simianx", "run_simianx.py", (), JOBS, "drugo mišljenje za dugoročnu listu"),
     ("watch", "run_watch.py", (), JOBS, "praćenje tokena prije događaja, jednom na sat"),

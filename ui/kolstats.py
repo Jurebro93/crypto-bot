@@ -103,8 +103,8 @@ def baseline(con, now=None, min_n=MIN_CLEAN, cache=None):
     try:
         rows = con.execute(f"""SELECT handle, r1h, r24h, max24 FROM calls WHERE kind = 'call' AND max24 IS NOT NULL
             AND bad IS NULL AND ts < ? AND COALESCE(pre2h, 0) < 1.0 AND COALESCE(source, '') NOT IN ({q})
-            AND handle NOT LIKE 'w:%'""", (int(now - PUBLIC_DELAY_S), *BIASED_SOURCES)).fetchall()
-    except sqlite3.OperationalError:
+            AND handle NOT LIKE 'w:%' AND handle NOT LIKE 'tg:%'""", (int(now - PUBLIC_DELAY_S), *BIASED_SOURCES)).fetchall()
+    except sqlite3.OperationalError:   # 19.11. (vlasnik, kol/tgout.py): the median account is an X account
         rows = []
     by = {}
     for h, r1, r24, mx in rows:
@@ -154,28 +154,6 @@ def clean_counts(con, now=None, prefix=None):
         if prefix == "" and h.startswith("tg:"):
             continue
         out[h] = n
-    return out
-
-
-def channel_rows(con, now=None, min_n=MIN_CLEAN):
-    """Telegram channels with at least min_n clean calls, with their honest stats, best first by up1h then n."""
-    counts = clean_counts(con, now, prefix="tg:")
-    out = []
-    for h, n in counts.items():
-        if n < min_n:
-            continue
-        s = stats(clean_calls(con, h, now), now)
-        try:
-            r = con.execute("SELECT name, followers, stats FROM kols WHERE handle = ?", (h,)).fetchone()
-        except sqlite3.OperationalError:
-            r = None
-        ks = json.loads((r[2] if r else None) or "{}")
-        per_day = None
-        if s["since"] and (now or time.time()) - s["since"] > 86400:
-            per_day = ks.get("calls", s["n"]) / (((now or time.time()) - s["since"]) / 86400)
-        out.append({"handle": h, "channel": h[3:], "title": r[0] if r else None, "subs": r[1] if r else None,
-                    "per_day": per_day, **s})
-    out.sort(key=lambda r: (-(r["up1h"] or 0), -r["n"]))
     return out
 
 

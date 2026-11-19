@@ -73,12 +73,12 @@ class Run(unittest.TestCase):
         c.execute("INSERT INTO tokens (token, pair, supply) VALUES ('SOLO', 'PAIR3', 1e6)")
         c.execute("INSERT INTO kols (handle, bot, followers) VALUES ('botty', 1, 5)")
         c.execute("INSERT INTO kols (handle, bot, followers) VALUES ('ansem', 0, 120000)")
-        rows = [("1", "TOK", "ansem", T0 + 20), ("2", "TOK", "tg:alpha", T0 + 300), ("3", "TOK", "botty", T0 + 30),
+        rows = [("1", "TOK", "ansem", T0 + 20), ("2", "TOK", "zalpha", T0 + 300), ("3", "TOK", "botty", T0 + 30),
                 ("4", "SOLO", "murad", T0 + 1000), ("5", "SMALL", "ansem", T0 + 2000), ("w1", "TOK", "w:abc", T0),
                 ("6", "TOK", "ansem", NOW - 600)]   # younger than min_age_min: not due yet
         c.executemany("INSERT INTO calls (tweet_id, token, handle, ts, kind) VALUES (?,?,?,?,'call')", rows)
         c.execute("INSERT INTO groups (token, start_ts, end_ts, n_authors, handles, first_handle) VALUES "
-                  "('TOK', ?, ?, 2, ?, 'ansem')", (T0 + 20, T0 + 300, json.dumps(["ansem", "tg:alpha"])))
+                  "('TOK', ?, ?, 2, ?, 'ansem')", (T0 + 20, T0 + 300, json.dumps(["ansem", "zalpha"])))
         c.commit()
         self.mc = minute.connect(self.mp)
         self.cfg = minute.config(CFG)
@@ -92,7 +92,7 @@ class Run(unittest.TestCase):
     def test_due_crews_first_without_bots_wallets_or_young_calls(self):
         todo = minute.due(self.kc, self.mc, self.cfg, NOW)
         self.assertEqual(list(todo), ["TOK", "SMALL", "SOLO"])            # 2 callers first, then newest
-        self.assertEqual(sorted(h for _, h, _ in todo["TOK"]), ["ansem", "tg:alpha"])
+        self.assertEqual(sorted(h for _, h, _ in todo["TOK"]), ["ansem", "zalpha"])
         self.assertEqual(minute.waiting(self.kc, self.mc, self.cfg, NOW), 4)
 
     def _data(self):
@@ -113,7 +113,7 @@ class Run(unittest.TestCase):
         rows = {r[0]: r for r in self.mc.execute("SELECT tweet_id, entry, t10, t20, sl_min, first_caller, bad, mcap_e FROM call_path")}
         self.assertEqual(set(rows), {"1", "2", "4", "5"})
         self.assertEqual(rows["1"][1:6], (1.0, 2, 5, 20, 1))              # ansem first: +10 % at min 2, +20 % at 5
-        self.assertEqual(rows["2"][5], 0)                                   # tg:alpha echoed 5 min later
+        self.assertEqual(rows["2"][5], 0)                                   # zalpha echoed 5 min later
         self.assertEqual(rows["5"][6], "mcap")                              # $10k token: kept, not counted
         self.assertIsNone(rows["4"][2])                                     # flat token: no target
         self.assertEqual(self.kc.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='call_path'").fetchone()[0], 0)   # kol.db untouched
@@ -123,13 +123,13 @@ class Run(unittest.TestCase):
         self.assertEqual(st["ansem"]["med_t10"], 2)
         cs = minute.crew_stats(self.mc, self.kc, 14, NOW, min_n=1)
         hs, s, nt, pot = cs["crews"][0]
-        self.assertEqual((hs, nt), (("ansem", "tg:alpha"), 1))
+        self.assertEqual((hs, nt), (("ansem", "zalpha"), 1))
         self.assertEqual(s["hit20"], 1.0)                                    # measured from ansem's first call
         self.assertEqual(pot, minute.potential(s, 1))
-        self.assertEqual(cs["pairs"][0][0], ("ansem", "tg:alpha"))
-        d = minute.crew_detail(self.mc, self.kc, ["tg:alpha", "ansem"], 30, NOW, tg_db=os.path.join(self.d, "nema.db"))
-        self.assertEqual(d["handles"], ("ansem", "tg:alpha"))
-        self.assertEqual(d["followers"], {"ansem": 120000, "tg:alpha": None})
+        self.assertEqual(cs["pairs"][0][0], ("ansem", "zalpha"))
+        d = minute.crew_detail(self.mc, self.kc, ["zalpha", "ansem"], 30, NOW, tg_db=os.path.join(self.d, "nema.db"))
+        self.assertEqual(d["handles"], ("ansem", "zalpha"))
+        self.assertEqual(d["followers"], {"ansem": 120000, "zalpha": None})
         self.assertEqual(d["first"], {"ansem": 1})
         self.assertEqual(len(d["tokens"]), 1)
         self.assertEqual(d["tokens"][0]["first"], "ansem")
@@ -148,7 +148,7 @@ class Run(unittest.TestCase):
         m = {10: (1.0, 1.0, 1.0, 1.0), 20: (1.0, 1.0, 0.1, 0.15)}
         data = {PAIR: candles(T0 - 600, 90, 1.0, m), "PAIR2": candles(T0 + 1400, 90), "PAIR3": candles(T0 + 400, 90)}
         minute.run(self.kc, self.mc, CFG, NOW, fetch=lambda pool, s, e: data[pool])
-        d = minute.crew_detail(self.mc, self.kc, ["ansem", "tg:alpha"], 30, NOW, tg_db=os.path.join(self.d, "nema.db"))
+        d = minute.crew_detail(self.mc, self.kc, ["ansem", "zalpha"], 30, NOW, tg_db=os.path.join(self.d, "nema.db"))
         self.assertTrue(d["tokens"][0]["rug"])
         self.assertEqual(d["rugs"], 1)
         self.assertEqual(minute.crew_stats(self.mc, self.kc, 14, NOW, min_n=1)["crews"][0][1]["rug"], 1.0)
@@ -181,12 +181,10 @@ class Run(unittest.TestCase):
         finally:
             store.DB, minute.cooling = saved_db, saved_cool
 
-    def test_hot_list_feeds_telegram_polling_and_the_x_hook(self):
+    def test_hot_list_feeds_the_x_hook(self):   # 19.11.: the Telegram reader is gone (kol/tgout.py)
         self.mc.execute("INSERT OR REPLACE INTO kv VALUES ('hot_list', ?)",
                         (json.dumps({"ts": NOW, "x": ["ansem"], "tg": ["alpha"], "wallets": []}),))
         self.mc.commit()
-        from tg import poll
-        self.assertIn("alpha", poll.followed_channels())
         from kol import xhook
         self.assertEqual(xhook.handles(self.kc, CFG)[0], "ansem")
 
@@ -199,7 +197,7 @@ class Run(unittest.TestCase):
             title, body = ekipe.page({"dani": "14", "min": "1"}, NOW)
             self.assertIn("minutna provjera", title)
             self.assertIn("Ekipe s najvećim potencijalom", body)
-            self.assertIn("#1 @ansem + alpha", body)
+            self.assertIn("#1 @ansem + @zalpha", body)
             self.assertIn("Prvi zove", body)
             self.assertIn("120k", body)                      # ansem's followers
             self.assertIn("Zaprati ekipu pravim novcem", body)
@@ -238,17 +236,6 @@ class DbPath(unittest.TestCase):
                     os.environ[k] = v
         self.assertIn(" minute.db;", open(os.path.join(ROOT, "start.sh")).read().replace("minute.db; do", "minute.db; do"))
         self.assertIn("simianx.db minute.db; do", open(os.path.join(ROOT, "start.sh")).read())
-
-
-class Zones(unittest.TestCase):
-    def test_telegram_time_without_offset_is_utc(self):
-        from tg import reader
-        self.assertEqual(reader.iso_ts("2026-11-09T10:32:01+00:00"), 1794220321)
-        self.assertEqual(reader.iso_ts("2026-11-09T10:32:01"), 1794220321)          # never the server's local clock
-        self.assertEqual(reader.iso_ts("2026-11-09T11:32:01+01:00"), 1794220321)
-        from kol import collect
-        self.assertEqual(collect.tweet_ts("Mon Nov 09 10:32:01 +0000 2026"), 1794220321)
-        self.assertEqual(collect.tweet_ts("2026-11-09T10:32:01.000Z"), 1794220321)
 
 
 class RoundOrder(unittest.TestCase):

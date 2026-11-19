@@ -4,7 +4,7 @@ Followed sources (refresh(): every REFRESH_S into fast.db sources, so a webhook 
 with one indexed read):
   wallet_follow  the Autopilot accounts' active wallet follows (league.db follows kind wallet; LEAGUE_USER's follow id
                  first: the evidence run_trade asks before real money)
-  influencer     the Autopilot accounts' KOL follows and every member of a crew follow (X handles, tg:channels)
+  influencer     the Autopilot accounts' KOL follows and every member of a crew follow (X handles; no tg:channels since 19.11.)
   insider        kol/precall confirmed pre-call wallets (early.db precall_wallets status confirmed)
   pre_shill      kol/preshill confirmed wallets (early.db preshill_wallets status confirmed)
   group          members of kol/groupdisc wallet groups graded quality (early.db group_member / group_list)
@@ -25,6 +25,8 @@ import json
 import os
 import sqlite3
 import time
+
+from kol import tgout
 
 from . import store
 
@@ -120,11 +122,11 @@ def collect(league_db=None, early_db=None):
                 continue   # 14.11.: a follow with its own measured exit (kol/zadnjih5.py) never trades the fast exit
             if kind == "wallet":
                 put(target, "wallet_follow", label, fid)
-            elif kind == "kol":
+            elif kind == "kol" and not tgout.is_tg(target):   # 19.11.: no Telegram source (kol/tgout.py)
                 put(target.lstrip("@"), "influencer", label or target, fid)
             elif kind == "ekipa":
                 for m in lcopy.members_of(target):
-                    if not m.startswith("w:"):
+                    if not m.startswith("w:") and not tgout.is_tg(m):
                         put(m, "influencer", m, fid)
     finally:
         if lc is not None:

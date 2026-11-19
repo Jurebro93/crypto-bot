@@ -53,6 +53,7 @@ import sys
 import time
 from collections import Counter, defaultdict
 
+from kol import tgout   # 19.11. (vlasnik): Telegram channels are no caller of a crew any more
 from trade import cost as _tcost
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -402,7 +403,7 @@ def weighted(signals, grades):
 def _first_calls_stream(kcon, since, bots, extra=False):
     """Yields (token, [dict]) of first calls per account, oldest first, token by token (one token in memory)."""
     cols = "token, handle, ts, mcap0, r1h, r24h, COALESCE(rug, 0)"
-    cur = kcon.execute(f"SELECT {cols} FROM calls WHERE kind = 'call' AND ts >= ? AND bad IS NULL "
+    cur = kcon.execute(f"SELECT {cols} FROM calls WHERE kind = 'call' AND ts >= ? AND bad IS NULL AND {tgout.sql()} "
                        "ORDER BY token, ts", (int(since),))
     tok, seen, rows = None, set(), []
     for t, h, ts, mc, r1, r24, rug in cur:
@@ -446,7 +447,8 @@ def _build_caller_groups(kcon, c, now, mcon=None):
     since = now - c["days"] * 86400
     bots = kbots.handles(kcon)
     cand = {h for h, n in _q(kcon, "SELECT handle, COUNT(DISTINCT token) FROM calls WHERE kind = 'call' AND ts >= ? "
-                                   "AND bad IS NULL GROUP BY handle", (since,)) if n >= c["min_shared"]} - bots
+                                   f"AND bad IS NULL AND {tgout.sql()} GROUP BY handle", (since,))
+            if n >= c["min_shared"]} - bots
     wins = (c["win_fast_s"], c["win_s"])
     table, n_of, u, f = lift_table((rows for _t, rows in _first_calls_stream(kcon, since, bots)), wins, cand,
                                    min_n=c["min_shared"])
@@ -1103,7 +1105,8 @@ def _public_first(p, tokens, before=None):
         return out
     q = ",".join("?" * len(toks))
     kc = _ro(p.get("kol_db"))
-    for t, ts in _q(kc, f"SELECT token, MIN(ts) FROM calls WHERE kind = 'call' AND token IN ({q}) GROUP BY token", toks):
+    for t, ts in _q(kc, f"SELECT token, MIN(ts) FROM calls WHERE kind = 'call' AND {tgout.sql()} AND token IN ({q}) "
+                        "GROUP BY token", toks):
         out[t] = ts
     if kc is not None:
         kc.close()

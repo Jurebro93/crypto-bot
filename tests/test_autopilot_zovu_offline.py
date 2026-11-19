@@ -26,14 +26,14 @@ WBTC_M, COINX_M, BANK_M, MEME_M = ("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
 
 class GroupCallers(unittest.TestCase):
     def test_groups_by_token_most_callers_first_and_first_caller_time(self):
-        ev = [("TOK1", NOW - 600, "x", "ansem", "call"), ("TOK1", NOW - 300, "tg", "tg:alpha", "call"),
+        ev = [("TOK1", NOW - 600, "x", "ansem", "call"), ("TOK1", NOW - 300, "tg", "alphacalls", "call"),
               ("TOK1", NOW - 100, "chain", "w:Abc123", "buy"), ("TOK1", NOW - 50, "x", "ansem", "call"),   # repeat: once
               ("TOK2", NOW - 10, "x", "murad", "call"), ("TOK3", NOW - 7200, "x", "old", "call"),             # too old
               ("TOK2", NOW - 5, "chain", "w:Abc123", "sell")]                                                 # sells don't count
         rows = pravitrade.group_callers(ev, NOW)
         self.assertEqual([r[0] for r in rows], ["TOK1", "TOK2"])
         tok, callers, first, last = rows[0]
-        self.assertEqual([c[0] for c in callers], ["ansem", "tg:alpha", "w:Abc123"])
+        self.assertEqual([c[0] for c in callers], ["ansem", "alphacalls", "w:Abc123"])
         self.assertEqual((first, last), (NOW - 600, NOW - 100))   # ansem's first call, not his repeat
 
 
@@ -58,7 +58,7 @@ class NotACall(unittest.TestCase):
                        [(WBTC_M, "WBTC", 50e6), (COINX_M, "COINx", 3e6),
                         (BANK_M, "BANK", 35_000), (MEME_M, "MEME", 80_000)])
         kc.executemany("INSERT INTO calls (tweet_id, token, handle, ts, kind) VALUES (?,?,?,?,'call')",
-                       [("a", WBTC_M, "ansem", NOW - 300), ("b", BANK_M, "tg:alpha", NOW - 200),
+                       [("a", WBTC_M, "ansem", NOW - 300), ("b", BANK_M, "alphacalls", NOW - 200),
                         ("c", MEME_M, "murad", NOW - 100)])
         kc.commit()
         kc.close()
@@ -83,7 +83,7 @@ class NotACall(unittest.TestCase):
         self.assertEqual({r[4] for r in again}, {"BANK"})
         self.assertIn("samo 0 transakcija u zadnjih 5 min (treba 5+)", pravitrade.asleep(quiet[MEME_M]))
         self.assertIsNone(pravitrade.asleep(live[MEME_M]))
-        self.assertEqual(got["BANK"], ["tg:alpha", "w:FOLLOWEDWALLET"])   # the followed wallet's buy counts
+        self.assertEqual(got["BANK"], ["alphacalls", "w:FOLLOWEDWALLET"])   # the followed wallet's buy counts
         self.assertEqual(got["MEME"], ["murad"])                      # a random webhook wallet's buy does not
         self.assertEqual(rows[0][4], "BANK")                          # most callers first
         self.assertEqual(rows[0][5]["mcap"], 90_000.0)                # the live state travels to the row
@@ -100,23 +100,6 @@ class NotACall(unittest.TestCase):
             self.assertEqual(pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed=set()), [])
         finally:
             pravitrade._live_cached = saved
-
-    def test_evm_tails_are_not_tokens(self):
-        from kol import collect
-        self.assertTrue(collect.is_solana_mint("So11111111111111111111111111111111111111112"))
-        self.assertTrue(collect.is_solana_mint("ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"))
-        self.assertFalse(collect.is_solana_mint("x47c8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c5d6a396"))   # tail of 0x47c…a396
-        self.assertFalse(collect.is_solana_mint("8699c4a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d64cd7"))
-        self.assertFalse(collect.is_solana_mint("BANKTOKEN" + "1" * 32))                         # not a real key
-        self.assertEqual(collect.cas_in("buy 0x47c8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c5d6a396 now"), [])
-        self.assertEqual(collect.cas_in("CA: ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"), ["ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"])
-        from tg import reader
-        page = ('<div class="tgme_widget_message_wrap"><div data-post="c/1"></div><div class="tgme_widget_message_text">'
-                'ape 0x47c8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c5d6a396 and ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump</div>'
-                '<time datetime="2026-11-09T10:32:01+00:00"></time></div>')
-        posts = reader.parse(page, "c")["posts"]
-        self.assertEqual(posts[0]["cas"], ["ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"])
-
 
 class Page(unittest.TestCase):
     def setUp(self):
@@ -181,18 +164,18 @@ class Page(unittest.TestCase):
         pravitrade.post("/pravi-trade/tp", {"tp": "20"}, "Jure")
         copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "", 25, 5, "tpsl", "100%", "")
         self.lg.commit()
-        self.assertIn("err=", pravitrade.post("/pravi-trade/followall", {"handles": "ansem,tg:alpha"}, "Ivan"))
-        loc = pravitrade.post("/pravi-trade/followall", {"handles": "ansem,tg:alpha,@murad"}, "Jure")
+        self.assertIn("err=", pravitrade.post("/pravi-trade/followall", {"handles": "ansem,alphacalls"}, "Ivan"))
+        loc = pravitrade.post("/pravi-trade/followall", {"handles": "ansem,alphacalls,@murad"}, "Jure")
         self.assertIn("ok=", loc)
         fl = {f["target"]: f for f in copy.follows(self.lg, settings.LEAGUE_USER)}
-        self.assertEqual(sorted(fl), ["ansem", "ansem,murad,tg:alpha"])
+        self.assertEqual(sorted(fl), ["alphacalls,ansem,murad", "ansem"])
         self.assertEqual(fl["ansem"]["exit"]["tp"], "100%")   # the existing single follow keeps its own exit
-        crew = fl["ansem,murad,tg:alpha"]
+        crew = fl["alphacalls,ansem,murad"]
         self.assertEqual(crew["kind"], "ekipa")
         # 9.11. (audit P10/P19): no position without a stop; 10.11.: "" = the owner's default stop at each entry
         self.assertEqual(crew["exit"], {"mode": "tpsl", "tp": "20%", "sl": "", "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
         self.assertIn("SL -60% zadani", copy.describe_exit(crew["exit"], copy.default_sl(settings.LEAGUE_USER)))
-        self.assertIn("ve%C4%87%20prati", pravitrade.post("/pravi-trade/followall", {"handles": "murad, ansem, tg:alpha"}, "Jure"))
+        self.assertIn("ve%C4%87%20prati", pravitrade.post("/pravi-trade/followall", {"handles": "murad, ansem, alphacalls"}, "Jure"))
 
     def test_live_log_hides_stale_trial_orders(self):
         """9.11. (Jure): the log said "osvježeno sada" above skipped trial orders from 5.8 days ago."""
@@ -273,7 +256,7 @@ class Page(unittest.TestCase):
              "txns_h24": 100, "vol_m5": 400.0, "txns_m5": 4, "ch_m5": 3.0, "ch_h1": 4.0, "ch_h24": 9.0, "symbol": "AAA"}
         rows = [(WBTC_M, [("tg:robinhood_trending", "tg", NOW - 600)], NOW - 600, NOW - 600, "A1", m),
                 (COINX_M, [("tg:robinhood_trending", "tg", NOW - 100)], NOW - 100, NOW - 100, "A2", m),
-                (BANK_M, [("ansem", "x", NOW - 300), ("tg:alpha", "tg", NOW - 200)], NOW - 300, NOW - 200, "BANK", m)]
+                (BANK_M, [("ansem", "x", NOW - 300), ("alphacalls", "tg", NOW - 200)], NOW - 300, NOW - 200, "BANK", m)]
         crews = pravitrade.crew_rows(rows, NOW)
         self.assertEqual([c["name"] for c in crews], ["robinhood_trending", "ekipa @ansem +1"])   # one line per crew
         self.assertEqual(len(crews[0]["tokens"]), 2)
@@ -346,50 +329,6 @@ class Page(unittest.TestCase):
             self.assertIsInstance(pravitrade.ideas_fragment("Jure"), str)
         finally:
             pravitrade.BG_REFRESH = saved
-
-
-class TelegramPolling(unittest.TestCase):
-    def test_followed_channel_every_two_seconds_others_unchanged(self):
-        from tg import poll
-        cfg = json.load(open(os.path.join(ROOT, "tg", "config.json")))
-        self.assertEqual(poll.interval(("alpha", "active", 0), cfg, {}, NOW, followed={"alpha"}), cfg["poll_followed_s"])
-        self.assertEqual(cfg["poll_followed_s"], 2)
-        cold = poll.interval(("cold", "active", 0), cfg, {}, NOW)
-        self.assertGreaterEqual(cold, cfg["poll_hot_s"])   # a channel nobody follows keeps its slow schedule
-        self.assertEqual(poll.interval(("hot", "active", NOW - 60), cfg, {}, NOW), cfg["poll_hot_s"])
-
-    def test_due_reads_followed_channel_and_paces_validation(self):
-        from tg import poll, store as tstore
-        d = tempfile.mkdtemp()
-        con = tstore.connect(os.path.join(d, "tg.db"))
-        for name, st, lp, ca in (("alpha", "active", NOW - 3, 0), ("cold", "active", NOW - 3, 0), ("cand", "candidate", 0, 0)):
-            con.execute("INSERT INTO channels (name, status, last_poll, last_ca_ts, found_via, found_ts) VALUES (?,?,?,?,?,?)",
-                        (name, st, lp, ca, "channels.txt", NOW))
-        con.commit()
-        cfg = json.load(open(os.path.join(ROOT, "tg", "config.json")))
-        saved = poll.followed_channels
-        poll.followed_channels = lambda: {"alpha"}
-        poll._PACE["validate_ts"] = 0
-        try:
-            validate, due = poll.due(con, cfg, {}, NOW)
-            self.assertEqual(due, ["alpha"])
-            self.assertEqual(validate, ["cand"])
-            validate2, _ = poll.due(con, cfg, {}, NOW + 1)   # 1 s later: validation waits, polling does not
-            self.assertEqual(validate2, [])
-        finally:
-            poll.followed_channels = saved
-            poll._PACE["validate_ts"] = 0
-            con.close()
-
-    def test_no_league_db_means_nobody_followed(self):
-        from league import store as lstore
-        from tg import poll
-        saved = lstore.DB
-        lstore.DB = os.path.join(tempfile.mkdtemp(), "nema.db")
-        try:
-            self.assertEqual(poll.followed_channels(), set())
-        finally:
-            lstore.DB = saved
 
 
 class Indexes(unittest.TestCase):

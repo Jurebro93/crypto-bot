@@ -52,12 +52,9 @@ class League(unittest.TestCase):
         self.assertIn("err=", league.post("/natjecanje/buy", {"token": MINT, "size": "50"}, None))
         import sqlite3
         self.assertIn("disk servera je trenutno pun", league.db_error(sqlite3.OperationalError("database or disk is full")))
-        league.post("/prijedlozi/add", {"text": "alarm za pad <30%>"}, "Panda")
         for user in ("Jure", None):
             self.assertIn("Ljestvica", league.page({}, user)[1])
             self.assertIn("<b>Jure</b>", league.page({}, user)[1])   # everyone sees Jure's position
-            body = league.ideas_page({}, user)[1]
-            self.assertIn("&lt;30%&gt;", body)
         con = store.connect()
         tid = store.trades(con, "Jure", "open")[0]["id"]
         self.assertIn("ok=", league.post("/natjecanje/sell", {"id": str(tid)}, "Jure"))
@@ -307,9 +304,9 @@ class Login(unittest.TestCase):
                 return e.code
 
         self.assertEqual(get("/prijava", "x", "shared"), 200)          # shared password: login form for a player
-        self.assertEqual(get("/prijava", "Ivan", "ivanpw"), 303)       # player: on to the league
+        self.assertEqual(get("/prijava", "Ivan", "ivanpw"), 303)       # player: on to Pregled (19.11.)
         self.assertEqual(get("/prijava?kao=Ivan", "Ivan", "ivanpw"), 200)  # switching user shows the form
-        self.assertEqual(get("/natjecanje", "x", "wrong"), 401)
+        self.assertEqual(get("/tokens", "x", "wrong"), 401)            # 19.11.: /natjecanje is a redirect now
 
         # login form + cookie (phones / in-app browsers that never show the browser's password box)
         import urllib.parse
@@ -332,7 +329,7 @@ class Login(unittest.TestCase):
         code, hdr = post_login("Ivan", "ivanpw")
         self.assertEqual((code, hdr["Location"]), (303, "/tokens"))
         cookie = hdr["Set-Cookie"].split(";")[0]
-        r = opener.open(urllib.request.Request(base + "/natjecanje", headers={"Cookie": cookie}))
+        r = opener.open(urllib.request.Request(base + "/vise", headers={"Cookie": cookie}))   # 19.11.
         self.assertEqual(r.status, 200)
         self.assertEqual(run_ui.cookie_user(cookie.split("=", 1)[1]), (True, "Ivan"))
         self.assertEqual(post_login("Ivan", "nope")[0], 401)

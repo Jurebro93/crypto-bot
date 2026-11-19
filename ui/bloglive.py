@@ -33,9 +33,9 @@ BLOCKS = {
             ("board", "on the public leaderboard", "na javnoj ljestvici"),
             ("x_measured", "calls measured", "izmjerenih poziva"),
             ("x_clean10", "accounts with 10+ clean calls", "računa s 10+ čistih poziva")),
-    "telegram": (("tg_channels", "Telegram channels tracked", "praćenih Telegram kanala"),
-                 ("tg_measured", "Telegram calls measured", "izmjerenih Telegram poziva"),
-                 ("tg_clean10", "channels with 10+ clean calls", "kanala s 10+ čistih poziva")),
+    # 19.11. (vlasnik): Telegram calls are no longer measured; the list keeps only the channels' followers
+    "telegram": (("tg_channels", "Telegram channels on the list", "Telegram kanala na popisu"),
+                 ("tg_followers", "followers in total (weekly count)", "pratitelja ukupno (tjedno brojanje)")),
     "wallets": (("wallets", "wallets tracked", "praćenih novčanika"),
                 ("scored", "wallets scored", "ocijenjenih novčanika"),
                 ("trades", "wallet trades recorded", "zabilježenih tradeova novčanika"),
@@ -46,7 +46,7 @@ BLOCKS = {
 # block -> where the live table is (English, Croatian, English label, Croatian label); None = members only
 MORE = {
     "kol": ("/influencers", "/hr/influenceri", "Open the live leaderboard", "Otvori ljestvicu uživo"),
-    "telegram": ("/telegram-channels", "/hr/telegram-kanali", "Open the live channel list", "Otvori popis kanala uživo"),
+    "telegram": ("/telegram-channels", "/hr/telegram-kanali", "Open the channel list", "Otvori popis kanala"),
     "rugs": ("/rug-check", "/hr/provjera", "Rug check for the top 100 coins", "Provjera ruga za top 100 coina"),
 }
 T = {   # {d}: the day as the blog writes dates; the Croatian one ends with a full stop itself ("10. studenoga 2026.")
@@ -71,8 +71,13 @@ def measure():
     measured = "kind='call' AND max24 IS NOT NULL"
     k = {"x_accounts": one(kol, f"SELECT COUNT(*) FROM kols WHERE {not_x}"),
          "x_measured": one(kol, f"SELECT COUNT(*) FROM calls WHERE {measured} AND {not_x}")}
-    tg = {"tg_channels": one(f("TG_DB", "tg.db"), "SELECT COUNT(*) FROM channels WHERE status IN ('active','quiet','slow')"),
-          "tg_measured": one(kol, f"SELECT COUNT(*) FROM calls WHERE {measured} AND handle LIKE 'tg:%'")}
+    tg = {}
+    try:   # 19.11.: the informational list only (tg/pratitelji.py): channels and their followers, no calls
+        from tg import pratitelji
+        rows = pratitelji.pregled(f("TG_DB", "tg.db"))
+        tg = {"tg_channels": len(rows), "tg_followers": sum(r["pratitelji"] or 0 for r in rows)}
+    except Exception as e:  # noqa: BLE001
+        print(f"blog uživo: Telegram popis nije izbrojan: {type(e).__name__}: {e}", flush=True)
     try:   # one read of the kols table and one of the calls table, both in this short process
         from ui import kolstats as KS, public
         k["board"] = len(public.influencers())      # exactly the rows of the public leaderboard
@@ -84,7 +89,6 @@ def measure():
                 con.close()
             if clean:   # accounts and channels with enough clean calls for a verdict on their page
                 k["x_clean10"] = sum(1 for h, n in clean.items() if not h.startswith("tg:") and n >= KS.MIN_CLEAN)
-                tg["tg_clean10"] = sum(1 for h, n in clean.items() if h.startswith("tg:") and n >= KS.MIN_CLEAN)
     except Exception as e:  # noqa: BLE001
         print(f"blog uživo: ljestvica i čisti pozivi nisu izbrojani: {type(e).__name__}: {e}", flush=True)
     tiers, rugs = one(hype, "SELECT COUNT(*) FROM token_tier"), one(hype, "SELECT COUNT(*) FROM rug_archive")

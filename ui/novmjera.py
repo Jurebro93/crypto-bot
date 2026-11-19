@@ -20,6 +20,8 @@ BUCKET_HR = {"15-200M": "15–200 M $", "2-15M": "2–15 M $", "<2M": "ispod 2 M
              "?": "MC nepoznat", "svi": "svi"}
 EXIT_HR = {"prodali su": "prodali su", "stop": "stop −25 %", "vrijeme": "24 h", "bez cijene": "bez cijene",
            "nije kopirljivo": "nije kopirljivo"}
+SRC_HR = {"prije_pumpe": "skupine koje kupuju prije skoka", "prije_pumpe_kandidat": "skupine s dva tokena",
+          "bundle": "skupine koje kupuju zajedno", "kopija": "dokazani novčanici", "insajderi2": "stariji popis skupina"}
 MODE_HR = {"auto": "auto: demo do potvrde da se mjerenje slaže, zatim samo mjerenje",
            "demo": "demo: demo tradeovi teku usporedno", "mjera": "mjera: samo mjerenje, bez novih demo tradeova"}
 
@@ -42,20 +44,31 @@ def _tone(x):
     return rd.tone(x) or ""
 
 
+def verdict_plain(st):
+    """The verdict in plain words (the whole sentence; the cell shows its first word)."""
+    from league import mjera
+    v = mjera.verdict(st)
+    if v.startswith("premalo"):
+        return f"premalo: {rd.num(st.get('token_days') or 0)} od potrebnih {rd.num(mjera.MIN_TOKEN_DAYS)} dana s kupnjama"
+    if v.startswith("još nije"):
+        return "nije dokazano: raspon još dira nulu"
+    return v
+
+
 def _verdict_cell(st):
     """The short word in the cell, the whole verdict in its title (so the table fits at 1280)."""
     from league import mjera
     v = mjera.verdict(st)
     cls = "pos" if v == "u plusu" else "neg" if v == "u minusu" else "mut"
     short = ("premalo" if v.startswith("premalo") else "nije dokazano" if v.startswith("još nije") else v)
-    return f'<span class={cls} title="{rd.h(v)}">{rd.h(short)}</span>'
+    return f'<span class={cls} title="{rd.h(verdict_plain(st))}">{rd.h(short)}</span>'
 
 
 def summary_table(s, full=False):
     """The table per source (and MC bucket) from league/mjera.summary."""
     from league import mjera
-    head = ["Izvor", "MC pri ulazu", "Signala", "Mjereno", "Promašeno", "Otvoreno", "Neto 0,1 SOL", "95 % (token-dani)",
-            "Neto 0,5 SOL", "Dobitnih", "Kašnjenje", "Presuda"]   # the verdict's whole sentence is in its title
+    head = ["Koga pratimo", "Vrijednost tokena", "Kupnji", "Zatvoreno", "Promašaji", "Otvoreno",
+            "Prosjek nakon troška", "Raspon (95 %)", "Uz 0,5 SOL", "U plusu", "Kašnjenje", "Presuda"]   # the verdict's whole sentence is in its title
     rows = []
     for src in mjera.SOURCES:
         keys = ["svi"] + [b for b in mjera.BUCKETS if (src, b) in s["by"]]
@@ -66,7 +79,7 @@ def summary_table(s, full=False):
             if not full and b != "svi" and not (src == "prije_pumpe" and b in ("15-200M", "2-15M")):
                 continue
             rows.append(
-                f'<tr><td>{rd.h(mjera.LABEL[src]) if b == "svi" else f"<span class=mut>{rd.h(mjera.LABEL[src])}</span>"}</td><td>{rd.h(BUCKET_HR.get(b, b))}</td>'
+                f'<tr><td>{rd.h(SRC_HR[src]) if b == "svi" else f"<span class=mut>{rd.h(SRC_HR[src])}</span>"}</td><td>{rd.h(BUCKET_HR.get(b, b))}</td>'
                 f'<td>{rd.num(st["signals"])}</td><td>{rd.num(st["measured"])}</td>'
                 f'<td>{rd.h(rd.pct(st["miss_share"], 0, sign=False, frac=True) if st["miss_share"] is not None else rd.DASH)}</td>'
                 f'<td>{rd.num(st["open"])}</td><td class="{_tone(st["mean01"])}">{rd.h(_pct(st["mean01"]))}</td>'
@@ -78,9 +91,10 @@ def summary_table(s, full=False):
         return ""
     th = "".join(f"<th scope=col>{rd.h(h)}</th>" for h in head)
     return (f'<div class=rt-wrap><table class="rt nm-t"><thead><tr>{th}</tr></thead><tbody>{"".join(rows)}</tbody>'
-            f'</table></div><p class=apx-mut style="font-size:12.5px;margin-top:4px">Presuda: „premalo” = manje od '
-            f'{mjera.MIN_TOKEN_DAYS} izmjerenih token-dana; „nije dokazano” = interval dira nulu; „u plusu” / „u minusu” '
-            'kad je cijeli interval iznad / ispod nule.</p>')
+            f'</table></div><p class=apx-mut style="font-size:12.5px;margin-top:4px">Promašaji = kupnje koje ne bismo '
+            'stigli kopirati. Raspon = u kojem je pravi rezultat vjerojatno (95 % interval). Presuda: „premalo” = manje od '
+            f'{mjera.MIN_TOKEN_DAYS} dana s kupnjama (svaki token u jednom danu broji se jednom); „nije dokazano” = '
+            'raspon dira nulu; „u plusu” / „u minusu” kad je cijeli raspon iznad / ispod nule.</p>')
 
 
 def capacity_line(s):
@@ -88,9 +102,9 @@ def capacity_line(s):
     bits = []
     for n in mjera.CAPACITY:
         k, m, sol = s["capacity"][n]
-        bits.append(f"najviše {n} otvorenih: uzeto {rd.num(k)}, srednje {_pct(m)}, ukupno "
+        bits.append(f"najviše {n} otvorenih: uzeto {rd.num(k)}, prosjek {_pct(m)}, ukupno "
                     f"{rd.sol(sol, 2, sign=True)} uz 0,1 SOL po ulazu" if k else f"najviše {n} otvorenih: još ništa")
-    return "Kapacitet (signali redom kad je mjesto slobodno): " + "; ".join(bits) + "."
+    return "Koliko bismo stigli (kupnje redom, dok ima mjesta): " + "; ".join(bits) + "."
 
 
 def latest_rows(con, n=15):
@@ -106,9 +120,9 @@ def _why(r):
     w = str(r.get("wallet") or "")
     g = str(r.get("gid") or "")
     who = (f"novčanik {w[:4]}…{w[-4:]}" if r["source"] == "kopija" else
-           f"{'bundle' if r['source'] == 'bundle' else 'grupa'} {(g[2:] if g[:2] in ('o:', 'p:') else g)[:6]}")
+           f"skupina {(g[2:] if g[:2] in ('o:', 'p:') else g)[:6]}")
     d = f", vidjeli {rd.num(r['delay_s'])} s nakon njihove kupnje" if r.get("delay_s") is not None else ""
-    return f"{mjera.LABEL.get(r['source'], r['source'])}: {who}{d}"
+    return f"{SRC_HR.get(r['source'], r['source'])}: {who}{d}"
 
 
 def rows_table(rows):
@@ -130,8 +144,8 @@ def rows_table(rows):
         body.append(f'<tr><td><a href="/token/{quote(tok)}" translate=no>{name}</a><br><span class=mut '
                     f'style="font-weight:400;font-size:12.5px">{rd.h(tag)}</span></td><td class=mut>{rd.h(ent)}</td>'
                     f'<td>{res}</td><td class="nk-why wrap">{rd.h(_why(r))}</td></tr>')
-    return ('<div class=rt-wrap><table class="rt nk-dt"><thead><tr><th scope=col>Token</th><th scope=col>Ulaz</th>'
-            '<th scope=col>Neto 0,1 SOL</th><th scope=col>Zašto</th></tr></thead><tbody>' + "".join(body)
+    return ('<div class=rt-wrap><table class="rt nk-dt"><thead><tr><th scope=col>Token</th><th scope=col>Kupnja</th>'
+            '<th scope=col>Nakon troška</th><th scope=col>Zašto</th></tr></thead><tbody>' + "".join(body)
             + '</tbody></table></div>')
 
 
@@ -145,7 +159,9 @@ CSS = ("<style>.nm-t{min-width:0}.nm-t th{white-space:normal;vertical-align:bott
        ".nm-f{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:10px 0 0;font-size:13.5px}"
        ".nm-f button{font:inherit;font-size:13px;border:1px solid var(--line);border-radius:999px;padding:4px 11px;"
        "background:var(--card);color:var(--fg);cursor:pointer}.nm-f button.on{border-color:var(--acc);color:var(--acc);"
-       "font-weight:600}</style>")
+       "font-weight:600}.nm-ans{font-size:15px;line-height:1.45;margin:6px 0 4px}"
+       "details.nm-det{margin:6px 0 0}details.nm-det>summary{cursor:pointer;color:var(--acc);font-weight:600;"
+       "font-size:14px;padding:4px 0}</style>")
 
 
 def _mode_html(owner, con):
@@ -164,8 +180,21 @@ def _mode_html(owner, con):
             f'<p class=apx-mut style="margin-top:4px">{rd.h(MODE_HR.get(m, m))}; {rd.h(state)}.</p>')
 
 
+def _first_seen(con, now, days=30):
+    r = P.q(con, "SELECT MIN(seen_ts) FROM signal_mjera WHERE seen_ts >= ?", (int(now or time.time()) - days * 86400,))
+    return r[0][0] if r and r[0][0] else None
+
+
+def plain_sentence(s, con, now=None):
+    """20.11. (one clear answer first): "Od 14.11. smo izmjerili N kupnji praćenih novčanika: u prosjeku +X % po
+    kupnji nakon troška. Premalo je za zaključak (...)." or the fitting variant."""
+    from ui import novjasno
+    return novjasno.mjera_sentence(s["svi"], _first_seen(con, now))
+
+
 def autopilot_html(owner=False, now=None):
-    """The Autopilot section while the real-money pause is on; "" otherwise."""
+    """The Autopilot section while the real-money pause is on; "" otherwise. 20.11.: one plain sentence first, the
+    table and the rest one tap away under "Detalji"."""
     if not P.pause_on():
         return ""
     from league import mjera
@@ -173,26 +202,29 @@ def autopilot_html(owner=False, now=None):
     con = _con()
     try:
         if con is None or not P.has_table(con, "signal_mjera") or not P.q(con, "SELECT 1 FROM signal_mjera LIMIT 1"):
-            body = ('<p class=apx-empty>Mjerenje još nije zabilježilo nijedan signal. Bilježi se svaka kupnja praćenog '
-                    'novčanika ili grupe, bez računa i bez stropova.</p>')
+            body = ('<p class=apx-empty>Mjerenje još nije zabilježilo nijednu kupnju. Bilježi se svaka kupnja praćenog '
+                    'novčanika ili skupine, bez računa i bez stropova.</p>')
             return (f'{rangtable.CSS}{CSS}<h2 class=apx-h2 data-sec="">{rd.h(TITLE)}</h2>{body}'
                     + _mode_html(owner, con))
         s = mjera.summary(con, now)
         a = s["svi"]
-        lead = (f"Svaka kupnja praćenog novčanika ili grupe mjeri se u postocima od naše cijene ulaza (nikad njihove) do "
-                f"izlaza po istom pravilu (prodali su / stop −25 % / 24 h), neto nakon stvarnog troška (nikad ispod 3 %). "
-                f"Zadnjih 30 dana: {rd.num(a['signals'])} signala, {rd.num(a['measured'])} izmjereno, promašeno "
-                f"{rd.pct(a['miss_share'] or 0, 0, sign=False, frac=True)}, otvoreno {rd.num(a['open'])}.")
+        answer = plain_sentence(s, con, now)
+        lead = (f"Svaka kupnja praćenog novčanika ili skupine mjeri se u postocima od naše cijene ulaza (nikad njihove) do "
+                f"izlaza po istom pravilu (prodali su / pad od 25 % / 24 sata), nakon stvarnog troška (nikad ispod 3 %). "
+                f"Zadnjih 30 dana: {rd.num(a['signals'])} kupnji, {rd.num(a['measured'])} zatvoreno, ne bismo stigli "
+                f"kopirati {rd.pct(a['miss_share'] or 0, 0, sign=False, frac=True)}, otvoreno {rd.num(a['open'])}.")
         table = summary_table(s) or ""
         rows = rows_table(latest_rows(con))
         mode = _mode_html(owner, con)
     finally:
         if con is not None:
             con.close()
-    return (f'{rangtable.CSS}{CSS}<h2 class=apx-h2 data-sec="">{rd.h(TITLE)}</h2><p class=apx-mut>{rd.h(lead)}</p>'
+    return (f'{rangtable.CSS}{CSS}<h2 class=apx-h2 data-sec="">{rd.h(TITLE)}</h2>'
+            f'<p class=nm-ans>{rd.h(answer)}</p>'
+            f'<details class=nm-det><summary>Detalji</summary><p class=apx-mut>{rd.h(lead)}</p>'
             f'{table}<p class=apx-mut style="margin-top:8px">{rd.h(capacity_line(s))}</p>'
-            + (f'<h3 class=apx-h3 style="margin-top:14px">Zadnji signali</h3>{rows}' if rows else "")
-            + mode)
+            + (f'<h3 class=apx-h3 style="margin-top:14px">Zadnje kupnje</h3>{rows}' if rows else "")
+            + mode + '</details>')
 
 
 def admin_html(now=None):
@@ -214,28 +246,43 @@ def admin_html(now=None):
     finally:
         con.close()
     a = s["svi"]
-    head = (f'<p class=na-note>Zadnjih 30 dana: {rd.num(a["signals"])} signala, {rd.num(a["measured"])} izmjereno, '
-            f'{rd.num(a["misses"])} promašeno, {rd.num(a["open"])} otvoreno; medijan kašnjenja '
-            f'{rd.num(a["delay_med"]) + " s" if a["delay_med"] is not None else rd.DASH}. Interval je bootstrap po '
-            'token-danu (svi redci jednog tokena u jednom UTC danu su jedno izvlačenje).</p>')
-    table = summary_table(s, full=True) or '<p class=na-empty>Još nema izmjerenih signala.</p>'
-    pr = "".join(f'<li><b>{rd.h(mjera.LABEL[src])}</b>: {"<span class=ok>dokazano</span>" if p["ok"] else rd.h(p["why"])}'
-                 f' (token-dana {rd.num(p["n"])}, srednje {rd.h(_pct(p["mean"]))})</li>' for src, p in proofs.items())
+    con = _con()
+    try:
+        answer = plain_sentence(s, con, now)
+    finally:
+        if con is not None:
+            con.close()
+    head = (f'<p class=na-v>{rd.h(answer)}</p>'
+            f'<p class=na-note>Zadnjih 30 dana: {rd.num(a["signals"])} kupnji, {rd.num(a["measured"])} zatvoreno, '
+            f'{rd.num(a["misses"])} ne bismo stigli kopirati, {rd.num(a["open"])} otvoreno; obično kasnimo '
+            f'{rd.num(a["delay_med"]) + " s" if a["delay_med"] is not None else rd.DASH} za njihovom kupnjom. Raspon '
+            'se računa tako da se sve kupnje jednog tokena u jednom danu broje kao jedna.</p>')
+    table = summary_table(s, full=True) or '<p class=na-empty>Još nema izmjerenih kupnji.</p>'
+    def why(p):
+        w = p["why"]
+        if w.startswith("premalo"):
+            return f"premalo podataka ({rd.num(p['n'])} od {rd.num(mjera.MIN_TOKEN_DAYS)} dana s kupnjama)"
+        return {"prosjek nije u plusu": "prosjek nije u plusu",
+                "donja granica intervala nije iznad nule": "najlošiji slučaj iz raspona nije iznad nule"}.get(w, w)
+    pr = "".join(f'<li><b>{rd.h(SRC_HR[src])}</b>: {"<span class=ok>dokazano</span>" if p["ok"] else rd.h(why(p))}'
+                 f' (prosjek {rd.h(_pct(p["mean"]))})</li>' for src, p in proofs.items())
     miss = ", ".join(f"{k} {rd.num(v)}" for k, v in sorted(s["misses"].items(), key=lambda kv: -kv[1])) or rd.DASH
-    par_txt = mjera.parity_line(par).replace("mjerenje vs demo: ", "")
+    par_txt = (mjera.parity_line(par).replace("mjerenje vs demo: ", "").replace("upareno", "uparenih kupnji")
+               .replace("medijan razlike", "srednja razlika").replace(" pp:", " postotnih bodova:"))
     state = (f"prebačeno na mjerenje {time.strftime('%d.%m.%Y.', time.localtime(sw['ts']))}" if sw else
              "demo i mjerenje teku usporedno")
     top = sorted(groups.items(), key=lambda kv: (-kv[1]["measured"], -kv[1]["n"]))[:40]
-    grows = "".join(f'<tr><td>{rd.h(mjera.LABEL.get(src, src))}</td><td class=na-l><code translate=no title="{rd.h(gid)}">'
+    grows = "".join(f'<tr><td>{rd.h(SRC_HR.get(src, src))}</td><td class=na-l><code translate=no title="{rd.h(gid)}">'
                     f'{rd.h(gid[2:] if str(gid)[:2] in ("o:", "p:") else gid)[:6]}…</code></td><td>{rd.num(d["n"])}</td>'
                     f'<td>{rd.num(d["measured"])}</td><td class="{_tone(d["mean01"])}">{rd.h(_pct(d["mean01"]))}</td></tr>'
                     for (src, gid), d in top)
-    gtable = (f'<div class=rt-wrap><table class=rt><thead><tr><th scope=col>Izvor</th><th scope=col>Grupa / novčanik</th>'
-              f'<th scope=col>Signala</th><th scope=col>Mjereno</th><th scope=col>Neto 0,1 SOL</th></tr></thead>'
+    gtable = (f'<div class=rt-wrap><table class=rt><thead><tr><th scope=col>Koga pratimo</th><th scope=col>Skupina / novčanik</th>'
+              f'<th scope=col>Kupnji</th><th scope=col>Zatvoreno</th><th scope=col>Po kupnji nakon troška</th></tr></thead>'
               f'<tbody>{grows}</tbody></table></div>') if grows else ""
     return (f'{CSS}{head}{table}<p class=na-note>{rd.h(capacity_line(s))}</p>'
-            f'<p class=na-note><b>Dokaz za pravi novac</b> (≥ {mjera.MIN_TOKEN_DAYS} token-dana, srednje i donja granica '
-            f'iznad nule; ništa ga još ne čita):</p><ul class=na-note>{pr}</ul>'
-            f'<p class=na-note><b>Promašaji po razlogu:</b> {rd.h(miss)}.</p>'
+            f'<p class=na-note><b>Dokaz za pravi novac</b> (barem {mjera.MIN_TOKEN_DAYS} dana s kupnjama, prosjek i '
+            f'najlošiji slučaj iz raspona iznad nule; pravi novac ga još ne koristi):</p><ul class=na-note>{pr}</ul>'
+            f'<p class=na-note><b>Kupnje koje ne bismo stigli kopirati (promašaji), po razlogu:</b> {rd.h(miss)}.</p>'
             f'<p class=na-note><b>Mjerenje i demo:</b> {rd.h(par_txt)}; način {rd.h(mode)}; {rd.h(state)}.</p>'
-            + (f'<p class=na-note><b>Po grupi i novčaniku</b> (njegovi signali i srednji neto):</p>{gtable}' if gtable else ""))
+            + (f'<p class=na-note><b>Po skupini i novčaniku</b> (njihove kupnje i prosjek nakon troška):</p>{gtable}'
+               if gtable else ""))

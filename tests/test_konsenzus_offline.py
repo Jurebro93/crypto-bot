@@ -165,8 +165,8 @@ class Earlier(unittest.TestCase):
             self.assertTrue(live.earlier("tg:chan", "tg", token(3), NOW, p))
             self.assertFalse(live.earlier("tg:chan", "tg", token(3), NOW - 1000, p))
             sigs = live.read_signals(NOW, 7200, p)
-            self.assertEqual({(s["src"], s["kind"]) for s in sigs}, {("alice", "x"), ("W" * 44, "wallet"),
-                                                                       ("tg:chan", "tg")})
+            # 19.11. (vlasnik, kol/tgout.py): a Telegram post is no signal any more
+            self.assertEqual({(s["src"], s["kind"]) for s in sigs}, {("alice", "x"), ("W" * 44, "wallet")})
 
 
 class Costs(unittest.TestCase):
