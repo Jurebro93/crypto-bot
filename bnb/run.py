@@ -50,7 +50,11 @@ def fill(con, c, now, clock, log=print, kind="backfill", max_events=None, gt_bud
         # candles in rounds of gt_round calls, then the pumps they found are read at once: the first results come
         # within minutes, not after the whole universe's candles (GeckoTerminal is the slow source: ~4-16 s a call)
         step = int(gt_budget) if gt_budget is not None else int(c.get("gt_round") or 40)
-        b = pumpe.build(con, c, now, clock, log, gt_budget=step)
+        # the first round of a backfill reads what earlier runs already found before it asks for more candles
+        if rounds == 1 and kind == "backfill" and chain.due(con, pumpe.load(con), now, c):
+            b = {"tokens": 0, "candled": 0, "gt_calls": 0, "events_new": 0, "events": 0, "left": 1}
+        else:
+            b = pumpe.build(con, c, now, clock, log, gt_budget=step)
         log(f"{store.PREFIX}svijeće: {b['candled']} tokena ({b['gt_calls']} GeckoTerminal poziva, ostalo {b['left']}); "
             f"pumpi {b['events']} (novih {b['events_new']})")
         todo = chain.due(con, pumpe.load(con), now, c)
