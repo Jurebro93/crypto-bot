@@ -472,6 +472,11 @@ class TimeBudget(unittest.TestCase):
             # bound is set where three whole events fit
             s2, lines = self.go(limit=40000, pump_slices_pre=1, pump_slices_jump=1, pump_fetch_workers=1)
         self.assertGreater(self.fetched(), 2)      # pumps were read past the half-time mark
+        # 19.11. 19:56: ... but never to the end of the pass: the list and the funnel always get their turn
+        self.assertLess(self.fetched(), 6)
+        self.assertTrue([x for x in lines if "Helius za pumpe stao na 65% vremena prolaza" in x], lines)
+        self.assertFalse([x for x in lines if "popis i kopija nisu izračunati" in x], lines)
+        self.assertIn("popis", s2["trajanje"])
 
     def test_incr_is_light_and_the_trades_are_read_once(self):
         n_reads = []

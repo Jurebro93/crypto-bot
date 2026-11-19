@@ -70,7 +70,7 @@ DEFAULT = {
     # 19.11. (the 18.11. problem: a pass held the heavy-job lock for hours): a wall-clock budget per pass; every long
     # stage asks the same Clock and stops cleanly (what was done is saved, the rest waits for the next pass). incr runs
     # the list and the bundles only when that stage took under incr_list_max_s on the last full pass
-    "pass_max_s": {"once": 900, "incr": 420, "night": 5400}, "rest_time_share": 0.5, "rest_credit_share": 1.0, "incr_list_max_s": 60,
+    "pass_max_s": {"once": 900, "incr": 420, "night": 5400}, "rest_time_share": 0.5, "pump_time_share": 0.65, "rest_credit_share": 1.0, "incr_list_max_s": 60,
     # 19.11. navečer (vlasnik: "zašto ne možeš provjeriti povijesne podatke, više tokena koji su pumpali i tko je kupio
     # prije, a prodao u pumpi?"): pumps also from the DAILY candles (pump_days_1d back: +mkt_x1d in a day or +mkt_x3d
     # within 3 days), the tiered events kept and scored over pump_days (the call events keep `days`), a deeper Helius
