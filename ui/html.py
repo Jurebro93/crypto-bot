@@ -203,9 +203,8 @@ INTRO = {
                "Čuvar budžeta za slojevitu analizu: skupe razine T2/T3 žive unutar ovih limita."),
     "/outputs": ("Pisani izvještaji modula", "Markdown datoteke koje moduli pišu u output/ (kalendar, dex, rug, demo).",
                  "Sirovi izlaz za provjeru; sve bitno iz njih je i u bazama i na stranicama."),
-    "/izvori": ("Telegram kanali, KOL novčanici i konvergencija", "Javni Telegram call kanali, KOL novčanici na lancu i "
-                "trenutci kad više izvora zove isti token.", "Izvor značajki telegram i konvergencija u hype ocjeni i "
-                "konvergencijskih demo ulaza."),
+    "/telegram-kanali": ("Telegram kanali (informativno)", "Popis kanala i broj pratitelja, osvježava se jednom tjedno.",
+                         "Samo informativno: pozive s Telegrama od 19.11. ne mjerimo i ne ulaze ni u jedan izračun."),
     "/dugorocno": ("Sigurniji sloj: preživjeli i oživljeni tokeni", "Stariji tokeni koji se oporavljaju od padova i rastu s "
                    "tržištem (uzor Fartcoin i Useless) i stari tokeni koji se bude, s ocjenom, razlozima i demo portfeljem "
                    "usporedno sa SOL-om.", "Odvojeno od lova na nove tokene: drugi izvori, drugi horizont (tjedni i mjeseci), "
