@@ -35,19 +35,10 @@ SECTIONS = [
         _p("/strategije", "🏁", "Usporedba strategija", "Midcap strategije u demu, jedna uz drugu.",
            "strategije usporedba demo midcap"),
     ]),
-    ("Natjecanje", [
-        _p("/natjecanje", "🏆", "Natjecanje", "Demo račun: kupi tokene i natječi se s ostalima.",
-           "liga ljestvica igra igrači demo račun kupi dca automatska kupnja prosjek"),
-        _p("/copy-trading", "🔁", "Copy trading", "Alat ulazi i izlazi umjesto tebe, prema influenceru ili novčaniku.",
-           "kopiraj prati influencer kol wallet novčanik copy trade"),
-    ]),
     ("Alati", [
-        _p("/events", "📅", "Eventi", "Kalendar događaja.", "kalendar događaji"),
         _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak, gotov prije 8 h.", "email mail report sažetak"),
         _p("/nas-token", "🪙", "Naš token", "Naš vlastiti Solana meme token.",
            "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja strategija promocija"),
-        _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za WhatsApp grupu.", "whatsapp grupa podijeli pošalji share novosti"),
-        _p("/prijedlozi", "💡", "Ideje za alat", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
         _p("/pojmovnik", "📖", "Pojmovnik", "Što znači svaki pojam i broj.",
            "objašnjenje pojmovi rječnik značenje help pomoć info"),
         _p("/novo", "✨", "Što je novo", "Sve što je dodano u aplikaciju, po datumima.",
@@ -75,7 +66,7 @@ SECTIONS = [
 ]
 # the three things the app is about (Nicholas 2.11.): they lead the menu, Pregled, the phone bar and the map
 CORE = ("Glavno",)
-BONUS = "Natjecanje"
+BONUS = None   # 19.11.: Natjecanje is gone (vlasnik: "Makni natjecanje")
 # menu groups only an admin sees (UI_ADMINS); everyone else still reaches the pages by link or search
 # 9.11. (Jure): Autopilot is for the administrators only: shown to them at the top of the menu, highlighted (see
 # autopilot_link); everybody else gets a copy without it (ui/admstrip strips adm-only elements server-side)
@@ -83,9 +74,8 @@ ADMIN = ("Autopilot", "Sustav")
 # only the trade owner and the players they invite (cookie cb_pt, see run_ui._trade_cookie)
 PRIVATE = ("Autopilot",)
 # detail pages light up the menu item they belong to
-NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
-              "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
-              "/prijava": "/", "/nas-token/": "/nas-token", "/registracija": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
+NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/kol/": "/kol",
+              "/prijava": "/", "/nas-token/": "/nas-token", "/registracija": "/pregled", "/izvjestaj/": "/izvjestaj"}
 # phone bottom bar (19.11., vlasnik: "Autopilot stavi u drugi plan dok rekonstruiramo app"): Pregled, Novčanici, Tokeni,
 # Influenceri, Više for every role; the Autopilot is under "Više". Line icons, one colour.
 _SVG = '<svg viewBox="0 0 24 24" aria-hidden="true">{}</svg>'
@@ -157,7 +147,7 @@ INTRO = {
                  "influenceri i promet novčanika.", "Prvo što vidiš nakon prijave; odavde ideš na Novčanike i Tokene."),
     "/postavke": ("Tvoj račun, tvoja pravila", "Lozinka, profilna slika, jezik aplikacije (hrvatski ili engleski), "
                   "društvene mreže i e-mail, odjava sa svih uređaja i brisanje računa.",
-                  "Slika i društvene mreže se vide u Natjecanju; jezik vrijedi za cijelu aplikaciju."),
+                  "Jezik vrijedi za cijelu aplikaciju."),
     "/novo": ("Dnevnik promjena", "Svaka nova mogućnost i popravak, s datumom.",
               "Kad se nešto doda, na vrhu aplikacije se pojavi kratka obavijest s linkom ovamo."),
     "/pojmovnik": ("Što znači svaki pojam u alatu", "Svaki pojam, ocjena, stupac i stranica objašnjeni običnim riječima, "
@@ -174,11 +164,6 @@ INTRO = {
     "/tokens": ("Tokeni koje alat prati", "Midcap tokeni od 2 M $ naviše (od 15 M $ prvi), njihova vrijednost, promjena "
                 "u 24 h i likvidnost, te tokeni koji su nedavno skočili i koliko je skupina novčanika kupilo prije skoka.",
                 "Popis puni sakupljač midcapova; skokove i rane kupce traži analiza novčanika (insajderi)."),
-    "/radar": ("Što je hype skener vidio u zadnjem prolazu", "Kandidati iz zadnjeg skena (do 15.11. svake 2 min; skener je od tada isključen) s razlozima i rizicima, "
-               "odbačeni, narativi (X trendovi, kopije), smart money, radi li ocjena, Apify trošak.",
-               "Prvi sloj cjevovoda: sirovi signali s DexScreenera, pump.funa i X-a prije skupljih provjera."),
-    "/events": ("Događaji iz kalendara", "Kalendar s točkicama po važnosti i lista događaja s hype ocjenom.",
-                "Praćenje tokena prije eventa i event tokeni stali su 15.11. (fokus na midcapove); kalendar se i dalje puni."),
     "/wallets": ("Tko kupuje rano i zarađuje", "Registar walleta iz svih analiza (rani kupci, smart, top traderi, botovi, devovi), "
                  "ocjena profitabilnosti, copy lista.", "Smart walleti među prvim kupcima su signal u hype ocjeni i T1 provjeri; "
                  "rotacijski devovi su upozorenje."),
@@ -192,14 +177,10 @@ INTRO = {
     "/korisnici": ("Tko što smije", "Svi korisnici i njihove uloge: Admin, Prijatelj ili Osnovni.",
                    "Novi korisnici su Osnovni: gledaju, ali ne vide potrošnju i ne pokreću ništa što košta."),
     "/zahtjevi": ("Novi ljudi koji žele ući", "Zahtjevi s javne naslovne stranice: ime, kontakt, iskustvo i što ih "
-                  "zanima. Gumb Pozovi napravi jednokratni link za registraciju.", "Ulaz u Natjecanje: od zahtjeva do "
-                  "pozivnice i demo računa od $1.000."),
-    "/natjecanje": ("Ljudi protiv bota", "Demo računi korisnika, njihovi ulazi i ljestvica.",
-                    "Usporedba ljudskog izbora s botovim na istim tokenima."),
+                  "zanima. Gumb Pozovi napravi jednokratni link za registraciju.", "Ulaz u aplikaciju: od zahtjeva do "
+                  "pozivnice; ovdje su i linkovi za registraciju (Pozivnice)."),
     "/pravi-trade": ("Autopilot: bot trguje pravim novcem", "Wallet i upute za postavljanje na vrhu, pa koga bot prati, "
                      "preporuke alata (influenceri, walleti, tokeni po zadnjih 7/14/30 dana), pozicije i limiti.", "Pravi novac ide samo kad je prekidač uključen i ključ postavljen u Renderu."),
-    "/copy-trading": ("Kopiraj influencera ili wallet", "Statistika influencera i walleta, gumb za praćenje, svaki ulaz i "
-                      "izlaz iz praćenja s razlogom.", "Ulazi idu na tvoj demo račun u Natjecanju."),
     "/nas-token/strategija": ("Kako naš token privući ljude", "Koncepti priče i use casea, igrice, plan po fazama od "
                               "ideje do prvog mjeseca, besplatne i plaćene metode, uloge za tim od 4, gotovi "
                               "Claude Code promptovi, brojke za praćenje i izvori istraživanja.", "Marketinški dio "
@@ -208,7 +189,6 @@ INTRO = {
                    "koliko uplatio), generator s troškom lansiranja, paket za pump.fun, marketinški plan i "
                    "influenceri za suradnju, a nakon lansiranja brojke tokena i prijedlozi.", "Koristi sve što alat "
                    "već mjeri (KOL-ove, vrijeme objava, val poziva) za naš token; ključeve nikad ne drži."),
-    "/prijedlozi": ("Što bi alat trebao raditi drugačije", "Prijedlozi korisnika i njihov status.", "Ulaz za sljedeće faze razvoja."),
     "/learn": ("Što alat uči iz ishoda", "Skok po klasi, koliko koji signal pomaže, udio skokova po rasponu vrijednosti, parovi signala, "
                "povijest automatskih promjena težina, propušteni tokeni.", "Zatvara krug: ishodi iz Pregleda i Demo tradinga "
                "mijenjaju težine kojima skener ocjenjuje sutra."),
@@ -321,13 +301,11 @@ VISE = [
     # 19.11. (vlasnik: "Telegram KOLs makni iz izračuna ... samo informativna lista skrivena negdje sa strane"): one
     # quiet link to the informational channel list (/telegram-kanali, ui/tgkanali.py: built in another branch)
     ("Influenceri", [("/kol", "Influenceri", ""), ("/telegram-kanali", "Telegram kanali (informativno)", "ms-quiet")]),
-    ("Natjecanje", [("/natjecanje", "Natjecanje", ""), ("/copy-trading", "Copy trading", "")]),
     # 19.11. (vlasnik: "Autopilot stavi u drugi plan dok rekonstruiramo app"): the Autopilot family near the end;
     # the heading and its line follow the real-money pause (ui/pauza), see vise_page
     ("Autopilot", [("/pravi-trade", "Autopilot", "adm-only"), ("/strategije", "Usporedba strategija (demo)", ""),
                    ("/autopilot", "Autopilot: rezultati i chat", "")]),
-    ("Alati", [("/events", "Eventi", ""), ("/izvjestaj", "Jutarnji izvještaj", ""), ("/nas-token", "Naš token", ""),
-               ("/whatsapp", "Za WhatsApp", ""), ("/prijedlozi", "Ideje za alat", ""), ("/pojmovnik", "Pojmovnik", ""),
+    ("Alati", [("/izvjestaj", "Jutarnji izvještaj", ""), ("/nas-token", "Naš token", ""), ("/pojmovnik", "Pojmovnik", ""),
                ("/novo", "Što je novo", "")]),
 ]
 VISE_NOTE = {"Influenceri": "osvježava se jednom u 5 dana"}
@@ -367,7 +345,7 @@ def vise_page(qs=None, sub=None):
             + _vrow("/vise/sustav", "Sustav", str(len(sustav)), "adm-only")
             + _vrow("/postavke", "Postavke", "", "m-only")
             + '<a href="/odjava"><span class=out>Odjava</span></a></nav>')
-    half = 2   # left: novčanici i tokeni, influenceri; right: natjecanje, autopilot, alati, sustav
+    half = 2   # left: novčanici i tokeni, influenceri; right: autopilot, alati, sustav
     body = ('<div class=ms-vise><div class=ms-top><h1 class=ms-h1>Više</h1></div><div class=ms-cols>'
             f'<div>{"".join(groups[:half])}</div><div>{"".join(groups[half:])}{last}</div></div>'
             '<p class=ms-note>Stranice strategija za nove tokene (mikrokapove) koje više ne vodimo od 15.11. maknute su s '

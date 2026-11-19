@@ -173,8 +173,8 @@ class Navigation(unittest.TestCase):
         with mock.patch.object(pauza, "on", return_value=True):
             _t, body = html.vise_page({})
         heads = re.findall(r"<div class=ms-gt>([^<]+)", body)
-        self.assertEqual([h.strip() for h in heads][:5],
-                         ["Novčanici i tokeni", "Influenceri", "Natjecanje", "Autopilot (pauzirano)", "Alati"])
+        self.assertEqual([h.strip() for h in heads][:4],
+                         ["Novčanici i tokeni", "Influenceri", "Autopilot (pauzirano)", "Alati"])
         self.assertIn("Pauzirano: kupnje pravim novcem stoje, alat se preslaguje oko novčanika.", body)
         self.assertIn('href="/pravi-trade"', body)
         self.assertIn('href="/autopilot"', body)
@@ -232,11 +232,12 @@ class TokenPage(Base):
         h = self._token(m, (50e6, True), paused=True)
         self.assertIn("Na popisu midcap tokena", h)
         self.assertIn(">Kupi</button>", h)
-        self.assertIn("Kupnja: demo 50 $ na Natjecanju. Pravi novac je pauziran.", h)
-        self.assertNotIn("Autopilot (pravi novac)", h)
+        self.assertIn("Kupnja: samo ručno na Autopilotu. Automatske kupnje pravim novcem su pauzirane.", h)
         self.assertIn("pauzirane", h)                                    # the owner's manual buy row says so
+        self.assertNotIn("Natjecanj", h)                                 # 19.11.: no competition buy any more
+        self.assertNotIn(">Kupi</button>", admstrip.strip(h))            # only the owner's manual buy is left
         h = self._token(m, (50e6, True), paused=False)
-        self.assertIn("Autopilot (pravi novac)", h)
+        self.assertIn("Kupnja: ručno na Autopilotu (pravi novac).", h)
 
     def test_no_telegram_callers(self):
         from ui import pages
@@ -364,6 +365,131 @@ class Pregled(Base):
         self.assertEqual(len(a), 3)
         self.assertTrue(a[0].startswith("Našli smo 5 skupina novčanika koje kupuju prije skoka cijene"), a[0])
         self.assertEqual(pocetna.wallet_answers(None)[0][:28], "Još tražimo novčanike koji k")
+
+
+class Removed(unittest.TestCase):
+    """19.11. (vlasnik: "Makni event i zadnji sken ... Makni 'za whatsapp' I 'ideje' ... Makni natjecanje.")."""
+    GONE = ("/events", "/radar", "/whatsapp", "/prijedlozi", "/natjecanje", "/copy-trading")
+
+    def test_not_in_menu_vise_search_or_map_for_any_role(self):
+        from ui import search
+        hrefs = {p["href"] for _s, items in html.SECTIONS for p in items}
+        _t, vise = html.vise_page({})
+        _t, mapa = html.map_page({})
+        js = html._pages_json()
+        for p in self.GONE:
+            self.assertNotIn(p, hrefs)
+            for body in (vise, admstrip.strip(vise), mapa, js):
+                self.assertNotIn(f'"{p}"', body, p)
+        for q in ("natjecanje", "eventi", "whatsapp", "ideje", "zadnji sken", "copy"):
+            self.assertEqual([x["href"] for x in search.pages(q) if x["href"] in self.GONE], [], q)
+        self.assertNotIn("/natjecanje", str(html.NAV_PREFIX))
+
+    def test_redirects_and_posts(self):
+        from ui import maknuto
+        for p in self.GONE + ("/watch", "/natjecanje/x", "/prijedlozi/y"):
+            self.assertIn(maknuto.redirect(p), ("/pregled", "/tokens"), p)
+        self.assertEqual(maknuto.redirect("/events"), "/tokens")
+        self.assertEqual(maknuto.redirect("/natjecanje"), "/pregled")
+        self.assertEqual(maknuto.gone("/natjecanje/buy"), (303, "/pregled"))
+        self.assertEqual(maknuto.gone("/natjecanje/copy/follow"), (303, "/pregled"))
+        self.assertEqual(maknuto.gone("/prijedlozi/add")[0], 410)
+        self.assertEqual(maknuto.gone("/whatsapp/poslano")[0], 410)
+        self.assertIsNone(maknuto.gone("/natjecanje/pozivnica/jednokratni"))
+        self.assertIsNone(maknuto.redirect("/tokens"))
+
+
+class RemovedHttp(unittest.TestCase):
+    ENV = ("UI_PASSWORD", "UI_PASS_IVAN", "UI_PASS_JURE", "UI_USERS", "UI_ADMINS", "UI_TEST_PASSWORD", "TRADE_OWNER",
+           "DATA_DIR")
+
+    def setUp(self):
+        from league import profiles, roles, store
+        self.old = {k: os.environ.get(k) for k in self.ENV}
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self._old_db = store.DB
+        store.DB = os.path.join(self.d, "league.db")
+        os.environ.update(DATA_DIR=self.d, UI_USERS="Ivan,Jure", UI_PASS_IVAN="ivanpw", UI_PASS_JURE="jurepw",
+                          UI_PASSWORD="shared", UI_TEST_PASSWORD="gledam")
+        os.environ.pop("UI_ADMINS", None)
+        os.environ.pop("TRADE_OWNER", None)
+        profiles.reset_cache()
+        roles.reset_cache()
+
+    def tearDown(self):
+        from league import roles, store
+        store.DB = self._old_db
+        for k, v in self.old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        roles.reset_cache()
+
+    def test_http(self):
+        import importlib
+        import threading
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+        import run_ui
+        from league import members
+        importlib.reload(run_ui)
+        srv = run_ui.ThreadingHTTPServer(("127.0.0.1", 0), run_ui.Handler)
+        srv.verbose = False
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a):
+                return None
+        op = urllib.request.build_opener(NoRedirect)
+
+        def call(path, data=None, cookie=""):
+            headers = {"Cookie": cookie} if cookie else {}
+            if data is not None:
+                headers["Origin"] = base
+                sess = cookie.split(";")[0].split("=", 1)[1] if cookie.startswith(run_ui.COOKIE + "=") else ""
+                data = {**data, "_csrf": run_ui.csrf_token(sess)}
+            req = urllib.request.Request(base + path, data=urllib.parse.urlencode(data).encode() if data else None,
+                                         headers=headers)
+            try:
+                r = op.open(req)
+            except urllib.error.HTTPError as e:
+                r = e
+            return r.code, r.headers, r.read().decode("utf-8", "replace")
+
+        code, hdr, _ = call("/prijava", {"name": "Jure", "pw": "jurepw", "next": "/"})
+        self.assertEqual(code, 303)
+        jure = hdr["Set-Cookie"].split(";")[0]
+        self.assertEqual(call("/prijava", cookie=jure)[1]["Location"], "/pregled")   # logged in: Pregled
+        for lang in ("hr", "en"):
+            ck = jure + f"; cb_lang={lang}"
+            for p, to in (("/events", "/tokens"), ("/radar", "/tokens"), ("/whatsapp", "/pregled"),
+                          ("/prijedlozi", "/pregled"), ("/natjecanje", "/pregled"), ("/natjecanje/Ivan", "/pregled"),
+                          ("/copy-trading", "/pregled"), ("/watch", "/tokens")):
+                code, hdr, _ = call(p, cookie=ck)
+                self.assertEqual((code, hdr["Location"]), (303, to), (lang, p))
+        code, hdr, _ = call("/natjecanje/buy", {"token": "x", "size": "50"}, jure)
+        self.assertEqual((code, hdr["Location"]), (303, "/pregled"))
+        self.assertEqual(call("/prijedlozi/add", {"text": "x"}, jure)[0], 410)
+        # an admin still makes invite links; registration with one lands on Pregled
+        code, hdr, _ = call("/natjecanje/pozivnica/jednokratni", {}, jure)
+        self.assertEqual(code, 303)
+        self.assertTrue(hdr["Location"].startswith("/zahtjevi?ok="), hdr["Location"])
+        con = members.connect()
+        try:
+            tok = con.execute("SELECT token FROM invites ORDER BY rowid DESC LIMIT 1").fetchone()[0]
+        finally:
+            con.close()
+        code, hdr, _ = call("/registracija", {"k": tok, "name": "Novak", "email": "n@x.hr", "pw": "novakpw12345",
+                                              "pw2": "novakpw12345"})
+        self.assertEqual((code, hdr["Location"]), (303, "/pregled"))
+        body = call("/vise", cookie=jure)[2]
+        for p in ("/natjecanje", "/events", "/whatsapp", "/prijedlozi", "/radar"):
+            self.assertNotIn(f'href="{p}"', body)
 
 
 if __name__ == "__main__":

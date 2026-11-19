@@ -1275,14 +1275,16 @@ def _sum_row(title, sub=None, value=None):
 
 
 def buy_line(paused=None):
-    """The purchase line under "Kupi" (19.11.: state-driven): while real-money buying is paused (ui/pauza, trade.db
-    pravi_novac_pauza) it never offers the Autopilot's real money."""
+    """The purchase line under "Kupi" (19.11.: state-driven; Natjecanje is gone, so the only buy left is the owner's
+    manual one on the Autopilot; adm-only, removed from everybody else's copy). While automatic real-money buying is
+    paused (ui/pauza, trade.db pravi_novac_pauza) the line says so."""
     if paused is None:
         from ui import pauza
         paused = pauza.on()
     if paused:
-        return "Kupnja: demo 50 $ na Natjecanju. Pravi novac je pauziran."
-    return 'Kupnja: demo 50 $ na Natjecanju<span class="adm-only"> ili Autopilot (pravi novac)</span>.'
+        return ('<span class="adm-only">Kupnja: samo ručno na Autopilotu. Automatske kupnje pravim novcem su '
+                'pauzirane.</span>')
+    return '<span class="adm-only">Kupnja: ručno na Autopilotu (pravi novac).</span>'
 
 
 def token(mint, qs):
@@ -1387,7 +1389,7 @@ def token(mint, qs):
     if qs.get("err"):
         b.append(f'<p class="tkp-msg neg">Nije prošlo, ništa nije spremljeno: {esc(qs["err"])}</p>')
     elif qs.get("ok"):
-        b.append(f'<p class="tkp-msg">{esc(qs["ok"])} <a href="/natjecanje#moj">Vidi svoj račun na Natjecanju</a></p>')
+        b.append(f'<p class="tkp-msg">{esc(qs["ok"])}</p>')
     b.append('<a class="tkp-back" href="/tokens">Tokeni</a>')
     # 13.11.: the name is a name (translate=no): in English it is a placeholder, not a new sentence per token (ui/i18n)
     sub = R.cat(R.raw(f"<bdi translate=no>{esc(name)}</bdi> · ") if name and name != sym else "",
@@ -1433,7 +1435,7 @@ def token(mint, qs):
                    f'<button type="button" class="tkp-btn s" data-copy="{esc(mint)}"><span class="tkp-cl">Kopiraj adresu</span></button></div>'
                    f'<p class="tkp-links">{_token_links(mint, url, dead)}</p>')
     else:
-        actions = ('<div class="tkp-btns"><button type="button" class="tkp-btn p" data-buy'
+        actions = ('<div class="tkp-btns"><button type="button" class="tkp-btn p adm-only" data-buy'
                    + (' aria-disabled="true"' if locked else "") + '>Kupi</button>'
                    f'<button type="button" class="tkp-btn s" data-copy="{esc(mint)}"><span class="tkp-cl">Kopiraj adresu</span></button></div>'
                    f'<p class="tkp-links"><span>{buy_txt}</span><br>{_token_links(mint, url, dead)}</p>')

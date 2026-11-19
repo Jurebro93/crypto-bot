@@ -60,8 +60,8 @@ class MenuTest(unittest.TestCase):
         names = [s for s, _ in html.SECTIONS]
         self.assertEqual(names[0], html.CORE[0])
         self.assertEqual([p["href"] for p in html.SECTIONS[0][1]], ["/pregled", "/wallets", "/tokens", "/kol"])   # 19.11.
-        self.assertGreater(names.index(html.BONUS), names.index("Novčanici i tokeni"))
-        self.assertIn("/natjecanje", [p["href"] for s, items in html.SECTIONS if s == html.BONUS for p in items])
+        self.assertIsNone(html.BONUS)                                  # 19.11.: Natjecanje is gone
+        self.assertNotIn("/natjecanje", [p["href"] for _s, items in html.SECTIONS for p in items])
 
     def test_natjecanje_not_in_header_or_bottom_bar(self):
         out = html.page("x", "<h1>x</h1>", "/")

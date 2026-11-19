@@ -231,10 +231,8 @@ class RugRows(unittest.TestCase):
 class BuySheetAndColumns(unittest.TestCase):
     def test_buy_sheet(self):
         html = quickbuy.buy_sheet(MINT, "GIGAFROG")
-        self.assertIn('action="/natjecanje/buy"', html)
-        self.assertIn(f'value="/token/{MINT}"', html)
-        self.assertIn("Kupi na Natjecanju", html)
-        self.assertIn(f"/natjecanje?dca={MINT}#dca", html)
+        # 19.11. (vlasnik: "Makni natjecanje"): no demo buy and no DCA on a personal account any more
+        self.assertNotIn("/natjecanje", html)
         self.assertIn('class="tk-o adm-only" href="/pravi-trade#kupi-odmah"', html)   # real money: owner only, a link
         self.assertNotIn("/pravi-trade/buy", html)
         locked = quickbuy.buy_sheet(MINT, "GIGAFROG", "token je rugan")

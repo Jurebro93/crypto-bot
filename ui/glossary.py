@@ -14,7 +14,7 @@ CATS = [
     ("osnove", "📘 Osnove kripta", "Riječi koje se koriste svugdje: token, mcap, likvidnost, wallet, rug…"),
     ("ocjene", "🎯 Ocjene alata", "Brojevi koje alat sam računa da bi odlučio što je dobro: hype, confidence, šansa…"),
     ("eventi", "📅 Eventi i kalendar", "Događaji oko kojih nastaju tokeni i kako se ocjenjuju."),
-    ("trading", "🏆 Natjecanje i trgovanje", "Demo račun, pozicije, dobit, copy trading, DCA, izlazi."),
+    ("trading", "💱 Trgovanje", "Demo račun, pozicije, dobit, copy trading, DCA, izlazi."),
     ("kol", "📣 KOL-ovi i influenceri", "Tko zove tokene i kako mjerimo koliko vrijede njihovi pozivi."),
     ("walleti", "👛 Novčanici (walleti)", "Kako ocjenjujemo novčanike i kojima vjerujemo."),
     ("grupe", "🕸 Grupe i veze", "Tko radi zajedno: grupe KOL-ova, povezani novčanici."),
@@ -43,11 +43,18 @@ def norm(s):
 TERMS = {}
 
 
+def _alive(gdje):
+    """19.11.: links to the removed pages (ui/maknuto: Natjecanje, Eventi, Zadnji sken, Za WhatsApp, Ideje, Copy
+    trading) and to the retired ones (ui/umirovljeno) are left out of "Gdje"."""
+    from ui import maknuto, umirovljeno
+    return [(h, n) for h, n in gdje if not maknuto.redirect(h.split("#")[0]) and not umirovljeno.retired(h.split("#")[0])]
+
+
 def T(name, cat, short, long="", primjer="", vidi=(), gdje=(), alias=(), k=None):
     k = k or slug(name)
     assert k not in TERMS, k
     TERMS[k] = {"k": k, "name": name, "cat": cat, "short": short, "long": long, "primjer": primjer,
-                "vidi": list(vidi), "gdje": list(gdje), "alias": list(alias)}
+                "vidi": list(vidi), "gdje": _alive(gdje), "alias": list(alias)}
 
 
 # ---------------------------------------------------------------- osnove
@@ -127,11 +134,11 @@ T("Graduacija", "osnove", "Trenutak kad token na pump.fun skupi dovoljno novca i
   "Prije graduacije token je na krivulji launchpada, poslije ima pravi bazen likvidnosti. 'Pred graduacijom' znači da je "
   "blizu tog praga i tada često privuče novu pažnju.", vidi=["pump-fun"], alias=["diplomira", "pred graduacijom"])
 T("Slippage", "osnove", "Klizanje cijene: razlika između cijene koju vidiš i cijene koju stvarno dobiješ.",
-  "Što je likvidnost manja i kupnja veća, to je klizanje veće. Alat ga uračunava u demo trgovanje i u Natjecanje, pa su "
+  "Što je likvidnost manja i kupnja veća, to je klizanje veće. Alat ga uračunava u demo trgovanje, pa su "
   "rezultati realni, a ne idealni.", "Kupiš za $100 token s malo likvidnosti: dobiješ tokena kao da si platio $103.",
   vidi=["likvidnost", "naknada"], alias=["klizanje cijene", "klizanje"])
 T("Naknada", "osnove", "Trošak transakcije (fee) koji plaćaš mreži, mjenjačnici i botu za trgovanje.",
-  "U demo trgovanju i Natjecanju svaka kupnja i prodaja plaća realnu naknadu, da brojke budu kao u stvarnosti.",
+  "U demo trgovanju svaka kupnja i prodaja plaća realnu naknadu, da brojke budu kao u stvarnosti.",
   alias=["fee", "naknade"])
 T("Memecoin", "osnove", "Token bez stvarne namjene čija vrijednost dolazi samo iz šale, priče i pažnje.",
   "Memecoini mogu narasti 100× u danu i pasti 99% u satu. Zato alat traži signale pažnje (X objave, KOL-ovi, volumen) i "
@@ -357,7 +364,7 @@ T("Puls", "ocjene", "Očitanja za zanimljive nove tokene (do 15.11. svake 2 minu
 T("Put", "ocjene", "Oblik puta do današnjeg mcapa: koliko brzo, koliko u skokovima i koliko blizu vrha je sada.",
   "Zadržavanje 1 znači da je na vrhu; 0,3 znači da je pao na 30% vrha.")
 T("Istaknuti tokeni", "ocjene", "Tokeni koje alat upravo smatra najboljima, po klasi, poredani po Šansi.",
-  "Pojavljuju se na Pregledu i u Predloženim tokenima u Natjecanju. Rugani i tokeni niskog confidencea se nikad ne "
+  "Pojavljivali su se na Pregledu do 19.11. Rugani i tokeni niskog confidencea se nikad ne "
   "prikazuju.", vidi=["sansa-za-skok", "predlozeni-tokeni"], gdje=[("/", "Pregled")], alias=["istaknuti", "kandidat", "kandidati"])
 T("Jaki tokeni", "ocjene", "Tokeni koji se ne ruše nakon prvog skoka nego drže vrijednost i volumen.",
   vidi=["dugorocni-token", "snaga"])
@@ -417,8 +424,8 @@ T("Vrsta događaja", "eventi", "Kakav je događaj: rođendan, obljetnica smrti, 
 
 # ---------------------------------------------------------------- trading
 T("Demo račun", "trading", "Račun s izmišljenih $1,000 na kojem kupuješ prave tokene po pravim cijenama, bez pravog novca.",
-  "Svi igrači Natjecanja kreću s $1,000. Cijene, naknade i klizanje su stvarni, pa se vidi tko bi stvarno zaradio. Bot "
-  "ima svoj demo račun i natječe se s ljudima.", vidi=["stanje-racuna", "dry-run"], gdje=[("/natjecanje", "Natjecanje")],
+  "Cijene, naknade i klizanje su stvarni, pa se vidi bi li se stvarno zaradilo. Alat ima svoje demo račune (Autopilot u "
+  "demu, praćenje novčanika); stranica Natjecanje s demo računima korisnika ugašena je 19.11.", vidi=["stanje-racuna", "dry-run"], gdje=[("/natjecanje", "Natjecanje")],
   alias=["demo", "demo trading", "paper"])
 T("Dry-run", "trading", "Način rada u kojem bot sve izračuna kao da trguje, ali ne šalje prave transakcije.",
   "Bot je namjerno u dry-run načinu: nema privatni ključ ni pravi novac.", alias=["dry run"])
@@ -484,11 +491,12 @@ T("DCA", "trading", "Automatsko kupovanje istog tokena u jednakim dijelovima kro
   "Umjesto da sve uložiš odjednom na vrhu, alat kupuje npr. $20 svakih sat vremena 10 puta. Tako dobiješ prosječnu cijenu. "
   "Staje sam kad završi, kad ti ponestane novca, ako token rugne ili likvidnost padne ispod $5k.",
   gdje=[("/natjecanje", "Natjecanje")], alias=["automatski dca", "🔄 automatski dca"])
-T("Predloženi tokeni", "trading", "Tokeni koje alat predlaže za kupnju u Natjecanju, s gumbima za brzu kupnju.",
+T("Predloženi tokeni", "trading", "Tokeni koje je alat predlagao za kupnju na stranici Natjecanje (ugašena 19.11.).",
   "Fartcoin, Useless, najbolji jaki i dugoročni tokeni i 3 najbolja nova kandidata.", vidi=["istaknuti-tokeni"],
   alias=["⭐ predloženi tokeni"])
 T("Serija", "trading", "Koliko zadnjih zatvorenih tradeova zaredom je bilo u plusu (🔥) ili minusu (🧊).")
-T("Ljestvica", "trading", "Poredak igrača Natjecanja po stanju računa.", alias=["podij"])
+T("Ljestvica", "trading", "Poredak računa po rezultatu (influenceri po prvom satu; ljestvica igrača Natjecanja ugašena je "
+  "19.11.).", alias=["podij"])
 T("Sesija", "kol", "Doba dana po tome koje tržište je budno: Azija, Europa ili SAD.",
   "Azija 00-08 UTC, Europa 08-14 UTC, SAD 14-24 UTC. Iz podataka: KOL signali su najbolji u SAD sesiji, a ulazi najgori.",
   alias=["sesije", "azija", "europa", "sad"])
@@ -664,10 +672,10 @@ T("Proba modela", "sustav", "Novi model 7 dana samo gleda: ocjenjuje nove prilik
   "prilikama. Postaje glavni samo ako je bolji i bez 1% najboljih tradeova i ako je razlika sigurno iznad nule. Ako "
   "kasnije tjedan dana radi lošije od težina, težine se vrate same.", vidi=["model-odlucivanja", "zakljucani-tjedan"],
   gdje=[("/learn", "Učenje")], alias=["champion", "challenger"])
-T("Dokazana vrsta ulaza", "sustav", "Vrsta demo ulaza koja je u zadnjih 7 dana sigurno zarađivala, pa se broji za bota u Natjecanju.",
+T("Dokazana vrsta ulaza", "sustav", "Vrsta demo ulaza koja je u zadnjih 7 dana sigurno zarađivala, pa se broji za demo bota.",
   "Vrsta je način ulaza (glavni, istraživački, konvergencija...), izvori (Telegram, X, novčanici...) i sesija (Azija, "
   "Europa, Amerika). Treba barem 15 zatvorenih tradeova i prosjek iznad nule koji drži i kad se izbace slučajnosti. "
-  "Ostali ulazi i dalje idu u demo i učenje, ali ne troše novac bota u Natjecanju.",
+  "Ostali ulazi i dalje idu u demo i učenje, ali ne troše novac demo bota.",
   vidi=["sjenovita-knjiga", "ucenje"], gdje=[("/learn#liga", "Učenje")], alias=["liga", "drugi krug"])
 T("Odgoda stop lossa", "trading", "Koliko minuta nakon kupnje se stop loss uključuje.",
   "Svježi tokeni često prvo padnu 20 do 40% pa tek onda narastu. Stop koji se uključi odmah takav token proda na dnu. "
@@ -743,12 +751,12 @@ T("Jutarnji izvještaj", "sustav", "Dnevni sažetak svega bitnog, napisan svako 
 # ---------------------------------------------------------------- postavke (⚙️ Postavke, 1.11.2026)
 T("Postavke", "stranice", "Tvoj račun: lozinka, profilna slika, jezik, društvene mreže, e-mail i odjava.",
   "Otvaraš ih na dnu izbornika (⚙️ Postavke). Ovdje mijenjaš lozinku (vrijedi odmah, ostali uređaji se odjave), "
-  "postavljaš sliku koja se vidi u Natjecanju, biraš hrvatski ili engleski, upisuješ X, Telegram i ostale profile da "
+  "postavljaš profilnu sliku, biraš hrvatski ili engleski, upisuješ X, Telegram i ostale profile da "
   "te prijatelji mogu pratiti i, ako si se sam registrirao, možeš obrisati račun.",
   "Promijeniš lozinku na mobitelu: laptop te traži da se ponovo prijaviš novom lozinkom.",
   vidi=["profilna-slika", "jezik-aplikacije", "odjava-sa-svih-uredaja"], gdje=[("/postavke", "Otvori Postavke")],
   alias=["⚙️ postavke", "settings", "moj račun"], k="str-postavke")
-T("Profilna slika", "trading", "Tvoja slika uz ime na ljestvici, podiju i kartici igrača u Natjecanju.",
+T("Profilna slika", "trading", "Tvoja slika uz ime u aplikaciji.",
   "Odabereš bilo koju sliku s mobitela ili računala; aplikacija je sama izreže na kvadrat i smanji (256×256), pa "
   "slanje traje sekundu. Bez slike se prikazuje prvo slovo imena u tvojoj boji.",
   vidi=["str-postavke"], gdje=[("/postavke#slika", "Promijeni sliku")], alias=["slika", "avatar"])
@@ -763,7 +771,7 @@ T("Odjava sa svih uređaja", "sustav", "Jednim klikom odjavljuje tvoj račun na 
   vidi=["str-postavke"], gdje=[("/postavke#sesije", "Postavke → Prijave na uređajima")],
   alias=["prijave na uređajima", "odjavi me sa svih ostalih uređaja"])
 T("Društvene mreže igrača", "trading", "X, Telegram, Instagram i ostali profili koje je igrač upisao u Postavkama.",
-  "Prikazuju se na kartici igrača u Natjecanju, da se prijatelji mogu pratiti. Upisuje se samo ime računa ili link "
+  "Spremaju se uz tvoj profil. Upisuje se samo ime računa ili link "
   "profila; e-mail se nikad ne prikazuje drugima.",
   vidi=["str-postavke"], gdje=[("/postavke#profil", "Uredi profil")], alias=["profil i društvene mreže", "o meni"])
 

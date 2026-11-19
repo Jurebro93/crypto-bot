@@ -972,5 +972,19 @@
 "Autopilot, ručno (pravi novac; automatske kupnje su pauzirane)": "Autopilot, manual (real money; automatic buys are paused)",
 "vrh {0}M $": "peak ${0}M",
 "vrh {0},{1}M $": "peak ${0}.{1}M",
-"vrh {0}k $": "peak ${0}k"
+"vrh {0}k $": "peak ${0}k",
+"Kupnja: samo ručno na Autopilotu. Automatske kupnje pravim novcem su pauzirane.": "Buying: manual only, on the Autopilot. Automatic real-money buys are paused.",
+"Kupnja: samo ručno na Autopilotu.": "Buying: manual only, on the Autopilot.",
+"Automatske kupnje pravim novcem su pauzirane.": "Automatic real-money buys are paused.",
+"Kupnja: ručno na Autopilotu (pravi novac).": "Buying: manual, on the Autopilot (real money).",
+"Adresu možeš kopirati i zalijepiti u svoj wallet.": "You can copy the address and paste it into your wallet.",
+"Napravi račun": "Create an account",
+"Pristup MemeSonaru: novčanici koji kupuju prije pumpe, midcap tokeni koje alat prati i influenceri.": "Access to MemeSonar: wallets that buy before a pump, the midcap tokens the tool tracks and influencers.",
+"Bez pravog novca i bez povezivanja novčanika.": "No real money and no wallet connection.",
+"Tvoje korisničko ime": "Your username",
+"Slika se prikazuje uz tvoje ime u aplikaciji.": "The picture is shown next to your name in the app.",
+"Društvene mreže se spremaju uz tvoj profil.": "Social links are saved with your profile.",
+"Za brisanje javi se administratoru.": "To delete it, contact the administrator.",
+"Jezik vrijedi za cijelu aplikaciju.": "The language applies to the whole app.",
+"(do {0} znakova)": "(up to {0} characters)"
 }
