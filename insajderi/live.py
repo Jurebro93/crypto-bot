@@ -225,7 +225,6 @@ def run_once(con, market_fn=None, now=None, sol=None, force=False, hype_db=None)
     buys = [b for b in fresh if ("*", b[0]) not in _TRIED]
     if not buys:
         return done
-    from trade import settings
     from league import store as lstore   # 19.11.: the wallet-following demo account (before: PAPER_USER, whose open
     user = lstore.WALLET_DEMO_USER        # rows still exit by their own rules); never LEAGUE_USER (NEVER_LIVE)
     if sol is None:

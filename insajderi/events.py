@@ -156,9 +156,10 @@ def call_events(p, c, now, since=None):
 # ===================================================================================================================
 # market jumps
 # ===================================================================================================================
-def find_jumps(closes, x6, x24):
+def find_jumps(closes, x6, x24, wa=6 * 3600, wb=24 * 3600, names=("6h", "24h")):
     """closes [(ts, close)] sorted -> [(t0, base, peak_ts, peak, kind)]: the first close that is >= base x (1 + x6)
-    within 6 h (or x (1 + x24) within 24 h) of the lowest close before it; then the scan goes on after the peak."""
+    within 6 h (or x (1 + x24) within 24 h) of the lowest close before it; then the scan goes on after the peak.
+    19.11. navečer: the windows wa / wb (seconds) and their names are parameters (daily closes: 1 day / 3 days)."""
     out, i, n = [], 0, len(closes)
     while i < n:
         t_i, p_i = closes[i]
@@ -169,9 +170,9 @@ def find_jumps(closes, x6, x24):
         for k in range(i + 1, n):
             t_k, p_k = closes[k]
             dt = t_k - t_i
-            if dt > 24 * 3600:
+            if dt > wb:
                 break
-            if p_k and ((dt <= 6 * 3600 and p_k >= p_i * (1 + x6)) or p_k >= p_i * (1 + x24)):
+            if p_k and ((dt <= wa and p_k >= p_i * (1 + x6)) or p_k >= p_i * (1 + x24)):
                 hit = k
                 break
             if p_k and p_k < p_i:   # a lower base: start from it
@@ -179,11 +180,11 @@ def find_jumps(closes, x6, x24):
         if hit is None:
             i += 1
             continue
-        kind = "6h" if closes[hit][0] - t_i <= 6 * 3600 and closes[hit][1] >= p_i * (1 + x6) else "24h"
+        kind = names[0] if closes[hit][0] - t_i <= wa and closes[hit][1] >= p_i * (1 + x6) else names[1]
         # the jump starts where the price last sat at its base (within +5 %) before the rise
         s = max(m for m in range(i, hit) if closes[m][1] and closes[m][1] <= p_i * 1.05)
         t_s, p_s = closes[s]
-        end = t_s + (6 if kind == "6h" else 24) * 3600
+        end = t_s + (wa if kind == names[0] else wb)
         j = max((m for m in range(hit, n) if closes[m][0] <= end), key=lambda m: closes[m][1])
         out.append((t_s, min(p_i, p_s), closes[j][0], closes[j][1], kind))
         i = j + 1
@@ -247,6 +248,87 @@ def market_events(p, c, now, since=None):
                         "peak_mc": peak_mc, "tier": tier_of(peak_mc, c)})
     con.close()
     return out
+
+
+def res_of(e):
+    """The resolution of an event's t0: "1d" for a pump from daily candles (src "c1d ..."), else "1h"."""
+    return "1d" if str(e.get("src") or "").startswith("c1d") else "1h"
+
+
+def _daily_sources(p):
+    """[(label, con)] of the databases with daily candles: midcap.db c1d (the collector's 2M-200M members, GeckoTerminal
+    1d) and veliki.db c1d (the veliki list and the tokens that fell out of it, up to 180 days). Read-only."""
+    out = []
+    for label, path in (("midcap", p.get("midcap_db")), ("veliki", p.get("veliki_db"))):
+        con = store.ro(path)
+        if con is not None:
+            out.append((label, con))
+    return out
+
+
+def daily_events(p, c, now, avoid=None):
+    """19.11. navečer: [event dict] of the pumps in the DAILY closes of the last pump_days_1d (180) days: a close >=
+    +mkt_x1d (50 %) above a low close within one day, or >= +mkt_x3d (100 %) within 3 days (find_jumps on days). t0 =
+    the start of the low day, the peak = the end of the peak day, win_end = that + after_peak_s; eid "d:<mint>:<t0>",
+    src "c1d 1d" / "c1d 3d" (res_of). The peak MC and the tier are ESTIMATES like tier_of's (today's MC x the peak close
+    / the last close: the supply is taken as today's). avoid: {token: [(t0, win_end)]} of the 1h / call events (new and
+    stored): a daily pump whose window contains one of their t0 is the same pump and is dropped (the 1h one wins: a
+    better t0). Tokens: midcap.db first (its MC), then veliki.db tokens / hist not in it."""
+    since = int(now) - int(c["pump_days_1d"]) * 86400
+    avoid = avoid or {}
+    out, seen = [], set()
+    for label, con in _daily_sources(p):
+        try:
+            if label == "midcap":
+                toks = store.q(con, "SELECT mint, symbol, mcap FROM tokens WHERE mcap IS NOT NULL")
+            else:
+                toks = store.q(con, "SELECT mint, symbol, mcap FROM tokens WHERE mcap IS NOT NULL UNION SELECT mint, "
+                                    "symbol, mcap FROM hist WHERE mcap IS NOT NULL")
+            for mint, sym, mcap in toks:
+                if mint in seen:
+                    continue
+                closes = [(int(ts), float(cl)) for ts, cl in store.q(con, "SELECT ts, c FROM c1d WHERE token = ? AND "
+                                                                           "ts >= ? ORDER BY ts", (mint, since)) if cl]
+                if len(closes) < 3:
+                    continue
+                seen.add(mint)
+                last = closes[-1][1]
+                for t0, base, pk_ts, pk, kind in find_jumps(closes, float(c["mkt_x1d"]), float(c["mkt_x3d"]),
+                                                            86400, 3 * 86400, ("1d", "3d")):
+                    mc0 = (mcap * base / last) if mcap and last else None
+                    if mc0 is not None and mc0 < c["min_mcap"]:
+                        continue
+                    pk_end = pk_ts + 86400
+                    win_end = pk_end + int(c["after_peak_s"])
+                    if any(t0 <= t <= win_end for t, _we in avoid.get(mint, ())):
+                        continue
+                    x = pk / base - 1
+                    peak_mc = (mcap * pk / last) if mcap and last else None
+                    out.append({"eid": f"d:{mint}:{t0}", "kind": "jump", "token": mint, "symbol": sym, "t0": t0,
+                                "handle": None, "crew": None, "n_callers": 0, "callers": {}, "mcap0": mc0,
+                                "peak_ts": pk_end, "peak_x": round(x, 4), "win_end": win_end, "src": f"c1d {kind}",
+                                "prio": round(min(x, 10.0) + (1.0 if (mc0 or 0) >= 5e6 else 0.0), 3),
+                                "peak_mc": peak_mc, "tier": tier_of(peak_mc, c)})
+        finally:
+            con.close()
+    return out
+
+
+def avoid_map(events):
+    """{token: [(t0, win_end)]} of events (the 1h jumps and the call events) for daily_events' dedup."""
+    out = defaultdict(list)
+    for e in events:
+        if res_of(e) == "1h":
+            out[e["token"]].append((int(e["t0"]), int(e["win_end"])))
+    return out
+
+
+def load_horizon(con, c, now):
+    """19.11. navečer: the events a pass works on: the call / untiered events of the last `days` and every TIERED
+    (pump) event of the last pump_days (180), oldest first."""
+    since = int(now) - int(c["days"]) * 86400
+    since_p = int(now) - int(c.get("pump_days") or c["days"]) * 86400
+    return [e for e in load(con, min(since, since_p)) if e["t0"] >= since or (e.get("tier") and e["t0"] >= since_p)]
 
 
 def merge(calls, jumps):

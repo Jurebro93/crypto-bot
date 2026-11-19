@@ -47,6 +47,7 @@ def lines(s):
     try:   # 19.11.: the owner's daily wallet line (insajderi/prijepumpe.py)
         from insajderi import prijepumpe
         out.append(prijepumpe.line(s.get("prije_pumpe"), s.get("helius_today", 0), s.get("helius_cap", 0)))
+        out.append(prijepumpe.funnel_line(s.get("prije_pumpe")))
     except Exception as e:  # noqa: BLE001
         out.append(f"{store.PREFIX}novčanici prije pumpe: linija ({type(e).__name__}: {e})")
     tr = s.get("trending") or {}

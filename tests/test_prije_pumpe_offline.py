@@ -95,7 +95,8 @@ class Tiers(unittest.TestCase):
         def fake(con, p, c, e, now, left, **k):
             seen.append(e["eid"])
             return 10
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(chain, "fetch_event", fake):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(chain, "fetch_event", fake), \
+                mock.patch.object(chain, "fetch_event_deep", fake):   # 19.11. navečer: a pump is read deep
             con = store.connect(os.path.join(d, "i.db"))
             chain.fetch_due(con, {}, C, evs, BASE + 40 * D, 25)
             con.close()
@@ -466,8 +467,8 @@ class TimeBudget(unittest.TestCase):
         con.close()
         self.t[0] = 0.0
         from insajderi import events as ev
-        with mock.patch.object(ev, "mark_tiers", lambda *a, **k: None):
-            s2, lines = self.go(limit=20000)
+        with mock.patch.object(ev, "mark_tiers", lambda *a, **k: None):   # one slice a window: one call a window
+            s2, lines = self.go(limit=20000, pump_slices_pre=1, pump_slices_jump=1)
         self.assertGreater(self.fetched(), 2)      # pumps were read past the half-time mark
 
     def test_incr_is_light_and_the_trades_are_read_once(self):
