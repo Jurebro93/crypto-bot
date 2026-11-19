@@ -147,16 +147,18 @@ def env_users():
 
 
 def users():
-    """All players: the server's list first (their colours stay), then those who registered via an invite link."""
+    """All players: the server's list first (their colours stay), then those who registered via an invite link.
+    19.11.: without the removed ones (league/izbaceni.py: the owner's order, no visit in 5 days)."""
     base = env_users()
     have = {u.lower() for u in base}
-    from league import members
-    return base + [m for m in members.names() if m.lower() not in have]
+    from league import izbaceni, members
+    return [u for u in base + [m for m in members.names() if m.lower() not in have] if not izbaceni.is_out(u)]
 
 
 def missing_passwords():
-    """Players who cannot log in yet because their UI_PASS_<NAME> is not set."""
-    return [u for u in env_users() if not os.environ.get(f"UI_PASS_{u.upper()}")]
+    """Players who cannot log in yet because their UI_PASS_<NAME> is not set (a removed one is no player)."""
+    from league import izbaceni
+    return [u for u in env_users() if not os.environ.get(f"UI_PASS_{u.upper()}") and not izbaceni.is_out(u)]
 
 
 def connect(path=None):

@@ -157,7 +157,9 @@ def cookie_user(value):
         return bool(PASSWORD), None
     if VIEWER_PASS and name.lower() == VIEWER.lower():
         return True, None
-    from league import profiles
+    from league import izbaceni, profiles
+    if izbaceni.is_out(name):   # 19.11. (owner's order): a removed user's cookie no longer opens the app
+        return False, None
     if not profiles.session_ok(name, exp - COOKIE_DAYS * 86400):   # "odjavi me svugdje" or a new password
         return False, None
     player, ppw = PLAYERS.get(name.lower(), (None, ""))
@@ -168,6 +170,18 @@ def cookie_user(value):
         return False, None
     member = members.exists(name)
     return (True, member) if member else (False, None)
+
+
+def _note_visit(who, path):
+    """19.11.: a logged-in person opened a page: league/posjeti.py (files, polls, MCP and webhooks do not count).
+    Never fails the request."""
+    try:
+        if who and AUTH:
+            from league import posjeti
+            if posjeti.counts(urlsplit(path or "").path):
+                posjeti.note(who)
+    except Exception:  # noqa: BLE001 - posjeti.note already says it once an hour
+        pass
 
 
 def _cookie_name(value):
@@ -182,6 +196,10 @@ def _cookie_name(value):
 def check_password(name, pw):
     """(ok, player or None): a player's own name + password, or the shared UI_PASSWORD with any name."""
     player, ppw = PLAYERS.get((name or "").strip().lower(), (None, ""))
+    from league import izbaceni
+    out = izbaceni.is_out(name) and not (VIEWER_PASS and (name or "").strip().lower() == VIEWER.lower())
+    if out:   # 19.11. (owner's order, league/izbaceni.py): removed, so his own password no longer works
+        player = None
     if player:
         from league import profiles
         own = profiles.check_password(player, pw)   # a password the player set in ⚙️ Postavke replaces UI_PASS_<NAME>
@@ -191,7 +209,7 @@ def check_password(name, pw):
             return True, player
     if VIEWER_PASS and (name or "").strip().lower() == VIEWER.lower():
         return hmac.compare_digest(pw.encode(), VIEWER_PASS.encode()), None
-    if not player:
+    if not player and not out:
         from league import members   # registered through an invite link
         member = members.verify(name, pw)
         if member:
@@ -1285,6 +1303,7 @@ class Handler(BaseHTTPRequestHandler):
                                               "Pogrešno ime ili lozinka.").encode("utf-8"))
         secure = _secure_flag(self.headers)
         viewer = VIEWER if not player and VIEWER_PASS and form.get("name", "").strip().lower() == VIEWER.lower() else ""
+        _note_visit(player or viewer, "/prijava")   # 19.11.: a login is a visit
         cookie = (f"{COOKIE}={make_cookie(player or viewer)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                   f"SameSite=Lax{secure}")
         cookies = [cookie]
@@ -1360,6 +1379,7 @@ class Handler(BaseHTTPRequestHandler):
                                                           "email": form.get("email", "")}, err)
                               .encode("utf-8"))
         pagecache.clear()
+        _note_visit(name, "/registracija")   # 19.11.: registering is a visit
         secure = _secure_flag(self.headers)
         cookie = (f"{COOKIE}={make_cookie(name)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                   f"SameSite=Lax{secure}")
@@ -1617,6 +1637,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.user = player
                     self.who = player or _cookie_name(v)
                     self.role = role_of(self.who)
+                    _note_visit(self.who, getattr(self, "path", ""))
                     return True
         h = self.headers.get("Authorization", "")   # old browser password box still works
         if not h.startswith("Basic "):
@@ -1629,6 +1650,7 @@ class Handler(BaseHTTPRequestHandler):
         if ok:
             self.who = self.user or (VIEWER if VIEWER_PASS and name.strip().lower() == VIEWER.lower() else None)
             self.role = role_of(self.who)
+            _note_visit(self.who, getattr(self, "path", ""))
         return ok
 
     def log_message(self, fmt, *args):

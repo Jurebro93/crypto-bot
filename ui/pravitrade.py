@@ -3953,6 +3953,7 @@ def dca_loop(every=DCA_EVERY_S):
     b_left, b_next = True, 0.0
     g_next = 0.0
     n_left, n_next = True, time.time() + 60   # 18.11.: the owner's conditional order (assistnotes.owner_nauceno_real)
+    k_left, k_next = True, time.time() + 120  # 19.11.: inactive users out after 5 days of visits (owner_izbaci_1911)
     while True:
         try:
             if con is None:
@@ -3964,6 +3965,8 @@ def dca_loop(every=DCA_EVERY_S):
                 try:   # 18.11.: Grok's analyst inputs on (once) and the state of every switch in the log at each start
                     assistnotes.owner_grok_analyst(con)
                     assistnotes.owner_pauza_1911(con)   # 19.11.: real-money buying off (his order), before the next
+                    from league import posjeti   # 19.11.: visits are recorded from this start on (stored once)
+                    posjeti.start()
                     # 18.11.: his order "real money onto the learned rule", conditional on the CORRECTED learner
                     # result: decided here when that result is already stored, else asked again every minute below
                     n_left = not assistnotes.owner_nauceno_real(con)
@@ -3989,6 +3992,13 @@ def dca_loop(every=DCA_EVERY_S):
                                 print("stanje: " + line[:600], flush=True)
                     except Exception as e:  # noqa: BLE001 - a line in the log never costs the loop
                         print(f"stanje: nije ispisano ({type(e).__name__}: {e})", flush=True)
+            if k_left and time.time() >= k_next:   # 19.11. (Jure): "izbaci sve korisnike koji nisu posjetili
+                k_next = time.time() + 3600         # aplikaciju zadnjih 5 dana": asked at most hourly, runs once
+                try:
+                    from ui import assistnotes
+                    k_left = not assistnotes.owner_izbaci_1911(con)
+                except Exception as e:  # noqa: BLE001 - never costs the DCA pass; asked again in an hour
+                    print(f"korisnici: nalog 19.11. nije provjeren ({type(e).__name__}: {e})", flush=True)
             if b_left and time.time() >= b_next:   # 10.11. ~19:40 (Jure): flags + the Hope stop, once (owner_once_b)
                 from ui import assistnotes
                 b_next = time.time() + 60
