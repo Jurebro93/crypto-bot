@@ -18,7 +18,7 @@ the zones read are rebuilt from the 15m bars (rule.h1_from_15m), as in the backt
           at the entry), the stop, the time stop, a rug
   caps    demo: DEMO_MAX_OPEN (30) open, DEMO_PER_DAY (120) a Zagreb day (x 1.5 while BTC's bottom forms), the open
           positions' stress loss (stop + 8 pp) at most DEMO_RISK_TOTAL (25 %) of the demo account, cooldown 6 h a
-          token; size DEMO_SOL (0.5 SOL). Real (gate.REAL): 0.1 SOL, 5 open, 20 a day, a day's loss 0.3 SOL, MC 5-150M,
+          token; size DEMO_SOL (0.5 SOL). Real (gate.REAL): 0.1 SOL, 5 open, 20 a day, a day's loss 0.3 SOL, MC 15-200M,
           liquidity >= $500k, round-trip cost <= 6 %, no DCA; the real trade carries the demo trade's id (link_id)
           and the proof's state (proof); every trade carries BTC's state (btc_state)
   cost    each trade carries ret / pnl_usd at the REAL cost model (rule.cost_at: pool + route fee, the network fee,
@@ -61,13 +61,13 @@ DEMO_RISK_TOTAL = float(os.environ.get("VEL_DEMO_RISK_TOTAL", "0.25"))
 # veliki/intra.py): the DEMO universe = the veliki list + the midcap collector's members (MC 2M-200M, liquidity and 24 h
 # volume >= $100k, bonded AMM, a memecoin; no 15-day age floor for the demo), the trending ones first; the intraday rule
 # trades it in the demo at INTRA_DEMO_SOL (0.1 SOL: the real cost model, honest numbers), INTRA_MAX_OPEN open and
-# INTRA_PER_DAY a Zagreb day; REAL only on the veliki list's tokens (age >= 15 d, MC 5-150M, liquidity >= $500k) under
+# INTRA_PER_DAY a Zagreb day; REAL only on the veliki list's tokens (age >= 15 d, MC 15-200M, liquidity >= $500k) under
 # the gate's caps (shared with the 7-day rule)
 INTRA_DEMO_SOL = float(os.environ.get("VEL_INTRA_DEMO_SOL", "0.1"))   # the real stake (veliki/gate.REAL)
 INTRA_MAX_OPEN = int(os.environ.get("VEL_INTRA_MAX_OPEN", "30"))
 INTRA_PER_DAY = int(os.environ.get("VEL_INTRA_PER_DAY", "100"))
 # 16.11. (vlasnik: "treba što više tradeova danas"): the DEMO's list from $50k liquidity / volume (was $100k: ~47
-# tokens); the real account's own floors (veliki list, liquidity >= $500k, MC >= 5M) do not move
+# tokens); the real account's own floors (veliki list, liquidity >= $500k, MC >= 15M since 19.11.) do not move
 DEMO_MIN_LIQ = float(os.environ.get("VEL_DEMO_MIN_LIQ", "50000"))
 DEMO_MIN_VOL = float(os.environ.get("VEL_DEMO_MIN_VOL", "50000"))
 DEMO_UNIV_MAX = int(os.environ.get("VEL_DEMO_UNIV_MAX", "250"))
@@ -423,7 +423,10 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     if g:
         return None, g, None
     price, liq, url, mcap = mq[:4]
-    lo_mc, hi_mc = (universe.MIN_MCAP, universe.MAX_MCAP) if real else (universe.DATA_MIN_MCAP, universe.DATA_MAX_MCAP)
+    # 19.11. (vlasnik): a NEW real-money entry needs MC >= universe.REAL_MIN_MCAP (15M); the demo keeps its range.
+    # Only entries read this: an open position's exits, stops and DCA (manage / dca) never do.
+    lo_mc, hi_mc = ((max(universe.MIN_MCAP, universe.REAL_MIN_MCAP), universe.MAX_MCAP) if real
+                    else (universe.DATA_MIN_MCAP, universe.DATA_MAX_MCAP))
     if not (lo_mc <= (mcap or 0) <= hi_mc):
         return None, f"MC ${(mcap or 0) / 1e6:,.1f}M izvan {lo_mc / 1e6:g}-{hi_mc / 1e6:g}M", None
     if real and (liq or 0) < universe.REAL_MIN_LIQ:
@@ -1516,7 +1519,7 @@ def _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, l
 
 def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None):
     """The intraday rule's entries (veliki/intra.py) at the first pass after a 15m bar completed: the demo on the whole
-    universe, the real account only on the veliki list's tokens (age >= 15 d; MC 5-150M and liquidity >= $500k in
+    universe, the real account only on the veliki list's tokens (age >= 15 d; MC 15-200M and liquidity >= $500k in
     enter); one position a token, cooldown intra.COOLDOWN_S after an exit, at most intra.MAX_ROUNDS rounds a token a
     Zagreb day. [text]."""
     from trade import settings

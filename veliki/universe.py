@@ -31,7 +31,7 @@ def config(path=None):
     (veliki/midcap.py, default MC 2M-200M), trade_* = what veliki/live may enter (the floor: trade_min_mcap, null =
     trade/capgate's min_mc, 5M unless the owner changes trade/config.json). An unreadable file: the defaults."""
     c = {"data_min_mcap": 2e6, "data_max_mcap": 2e8, "data_min_liq": 25_000, "data_max_tokens": 600,
-         "trade_min_mcap": None, "trade_max_mcap": 150e6}
+         "trade_min_mcap": None, "trade_max_mcap": 200e6, "real_min_mcap": 15e6}
     try:
         with open(path or CONFIG) as f:
             own = json.load(f) or {}
@@ -59,7 +59,11 @@ _C = config()
 # 15.11. navečer: MIN_MCAP / MAX_MCAP = the TRADING range (veliki/live's entries), from veliki/config.json + the capgate
 # floor; DATA_MIN_MCAP / DATA_MAX_MCAP = what the midcap collector gathers (2M-200M)
 MIN_MCAP = float(os.environ.get("VEL_MIN_MCAP") or _trade_floor(_C))
-MAX_MCAP = float(os.environ.get("VEL_MAX_MCAP") or _C.get("trade_max_mcap") or 150e6)
+MAX_MCAP = float(os.environ.get("VEL_MAX_MCAP") or _C.get("trade_max_mcap") or 200e6)
+# 19.11. (vlasnik: "veći fokus na one od 15 do 200 miliona", midcapovi 2-15M ostaju u demu): a NEW REAL-MONEY entry
+# needs MC >= REAL_MIN_MCAP (veliki/config.json real_min_mcap, 15M; never under MIN_MCAP); the demo, the list, the
+# learner, the replay and the shadow book keep MIN_MCAP / DATA_*; open positions never read either
+REAL_MIN_MCAP = float(os.environ.get("VEL_REAL_MIN_MCAP") or _C.get("real_min_mcap") or 15e6)
 DATA_MIN_MCAP = float(os.environ.get("VEL_DATA_MIN_MCAP") or _C.get("data_min_mcap") or 2e6)
 DATA_MAX_MCAP = float(os.environ.get("VEL_DATA_MAX_MCAP") or _C.get("data_max_mcap") or 2e8)
 DATA_MIN_LIQ = float(os.environ.get("VEL_DATA_MIN_LIQ") or _C.get("data_min_liq") or 25_000)

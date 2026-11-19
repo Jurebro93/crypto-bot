@@ -44,6 +44,11 @@ def lines(s):
                    f"(prosjek {_ev(sg.get('ev_pct'))} vuku rijetki mikrokapovi); MC ≥ 5M: "
                    f"n={(sg.get('mc5m') or {}).get('n', 0)}, EV {_ev((sg.get('mc5m') or {}).get('ev_pct'))}, "
                    f"medijan {_ev((sg.get('mc5m') or {}).get('median_pct'))}")
+    try:   # 19.11.: the owner's daily wallet line (insajderi/prijepumpe.py)
+        from insajderi import prijepumpe
+        out.append(prijepumpe.line(s.get("prije_pumpe"), s.get("helius_today", 0), s.get("helius_cap", 0)))
+    except Exception as e:  # noqa: BLE001
+        out.append(f"{store.PREFIX}novčanici prije pumpe: linija ({type(e).__name__}: {e})")
     tr = s.get("trending") or {}
     if tr:
         out.append(f"{store.PREFIX}uskoro trending: ulazaka {tr.get('entries', 0)}, holdout n={tr.get('n_test', 0)}, "
@@ -145,8 +150,25 @@ def mcp(args=None):
            "copyability": s.get("copy"), "copyable": s.get("copyable"), "verdict": s.get("verdict"),
            "groups": groups(lim, cls=a.get("class")), "top_jumps": top_events(min(lim, 20), time.time() - 7 * 86400),
            "smart_money": (s.get("smart") or {}).get("top"), "trending": s.get("trending"),
+           "prije_pumpe": _prije_pumpe(s, lim),
            "real_money": "nikad iz ovog alata (NEVER_LIVE); vlasnik odlučuje kasnije s brojkama"}
     return out
+
+
+def _prije_pumpe(s, lim):
+    """19.11.: the wallets that buy BEFORE a pump (prijepumpe.py): the day's line, the copy numbers, the list and the
+    bundles (statistics, never accusations)."""
+    from insajderi import prijepumpe
+    pp = s.get("prije_pumpe")
+    con = store.ro(store.db_path())
+    try:
+        return {"line": prijepumpe.line(pp, s.get("helius_today", 0), s.get("helius_cap", 0)),
+                "summary": {k: v for k, v in (pp or {}).items() if k != "copy"}, "copy": (pp or {}).get("copy"),
+                "groups": prijepumpe.groups(con, lim), "bundles": prijepumpe.bundle_rows(con, min(lim, 30)),
+                "note": "statistika, ne optužba: grupa je više puta kupila prije skoka i prodala u skok"}
+    finally:
+        if con is not None:
+            con.close()
 
 
 def critic_summary():
@@ -159,6 +181,7 @@ def critic_summary():
     d = {"dogadaja": s.get("events"), "pozivi": s.get("call_events"), "skokovi": s.get("jump_events"),
          "potvrdenih_grupa": s.get("confirmed"), "klase": s.get("classes"),
          "kopiranje_walk_forward": {k: cp.get(k) for k in ("nasa_pravila", "bondani", "svi", "<1M", "1M-5M", "5M+",
+                                                            "5M-15M", "15M+",
                                                             "poziv_nakon", "izlazi", "bez_cijene")},
          "odluka": s.get("verdict"), "katalizatori": s.get("catalysts"),
          "pametni_novac_signal": (s.get("smart") or {}).get("signal"),
@@ -193,7 +216,7 @@ def markdown(s):
          f"- Helius danas: {s.get('helius_today', 0):,} od {s.get('helius_cap', 0):,} kredita", "",
          "## Kopiranje (walk-forward, ulaz nakon njihove kupnje, nakon troška)", "",
          "| skupina | n | pogodak % | EV % | CI90 od | CI90 do |", "|---|---|---|---|---|---|"]
-    for k in ("nasa_pravila", "bondani", "svi", "5M+", "1M-5M", "<1M"):
+    for k in ("nasa_pravila", "bondani", "svi", "15M+", "5M-15M", "5M+", "1M-5M", "<1M"):
         x = cp.get(k) or {}
         L.append(f"| {k} | {x.get('n', 0)} | {x.get('hit_pct')} | {x.get('ev_pct')} | {x.get('ci90_lo_pct')} | "
                  f"{x.get('ci90_hi_pct')} |")
@@ -262,9 +285,19 @@ def write(s):
     for name, text in (("insajderi.md", markdown(s)), ("pametni_novac.md", digest(s))):
         with open(os.path.join(OUT_DIR, name), "w", encoding="utf-8") as f:
             f.write(text)
+    from insajderi import prijepumpe   # 19.11.: output/novcanici_prije_pumpe.md
+    prijepumpe.write(s.get("prije_pumpe"), s.get("helius_today", 0), s.get("helius_cap", 0))
 
 
 # ---------- the card --------------------------------------------------------------------------------------------------
+
+def _pp_line(s):
+    try:
+        from insajderi import prijepumpe
+        return prijepumpe.line(s.get("prije_pumpe"), s.get("helius_today", 0), s.get("helius_cap", 0))
+    except Exception:  # noqa: BLE001
+        return ""
+
 
 def card_html(sec, item, esc, owner=True):
     """"Insajderi 2.0" under Ostalo (owner only): the copy verdict, the numbers per MC bucket, the top groups and
@@ -289,6 +322,7 @@ def card_html(sec, item, esc, owner=True):
     inner = (f"<p><b>{'Kopirati u demu' if s.get('copyable') else 'Ne kopirati'}</b> — {esc(s.get('verdict') or '')}</p>"
              f"<table><tr><th>skupina</th><th>n</th><th>EV</th><th>CI90 od</th></tr>{rows}</table>"
              f"<p class=mut>Grupe</p><ul>{gs or '<li>—</li>'}</ul><p class=mut>Skokovi danas</p><ul>{tops or '<li>—</li>'}</ul>"
+             f"<p>{esc(_pp_line(s))}</p>"
              f"<p class=mut>Helius danas {s.get('helius_today', 0):,} od {s.get('helius_cap', 0):,} kr.; pravi novac nikad "
              f"iz ovog alata.</p>"
              '<p><a href="/kol-insajderi">Insajderski novčanici influencera →</a></p>')

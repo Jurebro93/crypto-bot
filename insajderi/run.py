@@ -10,7 +10,9 @@
 once / night / incr end with the pass of the influencers' probably linked wallets (insajderi/kolwallets.run_pass: its
 own small share of the Helius day cap, a time bound, one log line "insajderi kol: ...").
 
-Each pass ends with the log line (report.line) and output/insajderi.md + output/pametni_novac.md. Everything runs
+Each pass ends with the log line (report.line) and output/insajderi.md + output/pametni_novac.md; 19.11.: also the
+wallets that buy BEFORE a pump (insajderi/prijepumpe.py, output/novcanici_prije_pumpe.md, one line "novčanici prije
+pumpe: ...") and the pump tiers first in the Helius order (chain.order_key). Everything runs
 under the owner switch fokus_midcap as an explicit, budgeted exception (ops/fokus.EXCEPTIONS).
 """
 import json
@@ -23,12 +25,39 @@ def _log(log, msg):
     log(store.PREFIX + msg)
 
 
-def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **over):
-    """One pass. Returns the summary dict (also stored as i2_kv summary)."""
+STAGE_HR = (("dogadaji", "događaji"), ("lanac", "lanac"), ("popis", "popis"), ("kopija", "kopija"),
+            ("ostalo", "ostalo"), ("kol", "kol"))
+
+
+def _unfetched(con, c, now):
+    """'N događaja (pumpa15 a, pumpa2 b, ostalo c)' of the events still due for Helius."""
+    evs = [e for e in ev.load(con, now - int(c["days"]) * 86400) if not e.get("fetched") and e["win_end"] <= now]
+    t15 = sum(1 for e in evs if e.get("tier") == "pumpa15")
+    t2 = sum(1 for e in evs if e.get("tier") == "pumpa2")
+    return f"{len(evs)} događaja (pumpa15 {t15}, pumpa2 {t2}, ostalo {len(evs) - t15 - t2})"
+
+
+def time_line(kind, clk):
+    """19.11.: "insajderi2: prolaz <kind>: trajanje: događaji 3 s, lanac 210 s, ...[; prekinuto na vremenskoj granici
+    900 s: <what was left>]"."""
+    parts = [f"{hr} {clk.stages[k]:.0f} s" for k, hr in STAGE_HR if k in clk.stages]
+    out = f"{store.PREFIX}prolaz {kind}: trajanje: " + (", ".join(parts) or "—")
+    if clk.cuts:
+        out += f"; prekinuto na vremenskoj granici {clk.max_s:.0f} s: " + "; ".join(clk.cuts)
+    return out
+
+
+def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, clock=None, **over):
+    """One pass. Returns the summary dict (also stored as i2_kv summary). 19.11.: under a wall-clock budget
+    (pass_max_s[kind], store.Clock; clock: a fake time.monotonic for tests). The order puts the cheap, valuable part
+    first: events + tiers, Helius (pumpa15, pumpa2, the rest), the class list, the copy tests, the rest; a stage that
+    meets the budget stops cleanly, what was done is saved, the rest waits for the next pass and the time line says
+    what was left."""
     now = int(now or time.time())
     c = store.config(cfg)
     p = store.paths(**over)
     con = store.connect(p.get("insajderi_db"))
+    clk = store.Clock(kind, c, clock)
     try:
         if kind == "night":
             last = int(float(store.kv(con, "night_last") or 0))
@@ -42,49 +71,66 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
                 return json.loads(store.kv(con, "summary") or "{}")
         since = now - (2 * 86400 if kind == "incr" else int(c["days"]) * 86400)
         if kind != "report":
-            calls = ev.call_events(p, c, now, since)
-            jumps = ev.market_events(p, c, now, max(since, now - int(c["mkt_days"]) * 86400))
-            new = ev.save(con, ev.merge(calls, jumps), now)
-            evs = ev.load(con, now - int(c["days"]) * 86400)
-            todo = [e for e in evs if e["t0"] >= since or not e.get("n_part")]
-            chain.build(con, p, c, todo)
-            cap, how = store.helius_cap(c, now, p.get("usage_db"))
-            left = store.helius_left(con, c, now, p.get("usage_db"))
-            if credits is not None:
-                budget = min(int(credits), left)
-            elif kind == "once":
-                budget = min(left, int(cap * float(c["deploy_share"])))
-            elif kind == "night":
-                budget = left
-                try:   # 16.11.: the influencers' linked wallets keep their own small share of the day cap
-                    from insajderi import kolwallets
-                    budget = max(0, left - kolwallets.reserve(con, p, c, now))
-                except Exception:  # noqa: BLE001
-                    pass
-            else:   # incr: a small share of the cap for the new calls
-                budget = min(left, int(cap * float(c["incr_share"])))
-            n_f, spent = (0, 0)
-            if budget > 0:
+            with clk.stage("dogadaji"):
+                calls = ev.call_events(p, c, now, since)
+                jumps = ev.market_events(p, c, now, max(since, now - int(c["mkt_days"]) * 86400))
+                new = ev.save(con, ev.merge(calls, jumps), now)
+                ev.mark_tiers(con, c)   # 19.11.: the pump tiers (pumpa15 / pumpa2) of every stored market jump
                 evs = ev.load(con, now - int(c["days"]) * 86400)
-                n_f, spent = chain.fetch_due(con, p, c, evs, now, budget, fetch=fetch, log=log)
-                if n_f:
-                    chain.build(con, p, c, [e for e in ev.load(con, now - int(c["days"]) * 86400) if e.get("fetched")])
-            con.execute("INSERT INTO i2_runs VALUES (?,?,?,?)",
-                        (now, kind, spent, json.dumps({"new_events": new, "fetched": n_f, "budget": budget, "cap": cap,
-                                                       "cap_how": how})))
-            con.commit()
+                todo = sorted((e for e in evs if e["t0"] >= since or not e.get("n_part")), key=chain.order_key)
+                built = chain.build(con, p, c, todo, stop=clk.over)
+                if built < len(todo):
+                    clk.cut(f"{len(todo) - built} događaja još bez sudionika")
+            with clk.stage("lanac"):
+                cap, how = store.helius_cap(c, now, p.get("usage_db"))
+                left = store.helius_left(con, c, now, p.get("usage_db"))
+                if credits is not None:
+                    budget = min(int(credits), left)
+                elif kind == "once":
+                    budget = min(left, int(cap * float(c["deploy_share"])))
+                elif kind == "night":
+                    budget = left
+                    try:   # 16.11.: the influencers' linked wallets keep their own small share of the day cap
+                        from insajderi import kolwallets
+                        budget = max(0, left - kolwallets.reserve(con, p, c, now))
+                    except Exception:  # noqa: BLE001
+                        pass
+                else:   # incr: a small share of the cap for the new calls
+                    budget = min(left, int(cap * float(c["incr_share"])))
+                n_f, spent = (0, 0)
+                if budget > 0 and not clk.over():
+                    evs = ev.load(con, now - int(c["days"]) * 86400)
+                    n_f, spent = chain.fetch_due(con, p, c, evs, now, budget, fetch=fetch, log=log, stop=clk.over)
+                    if n_f:
+                        chain.build(con, p, c, [e for e in ev.load(con, now - int(c["days"]) * 86400)
+                                                if e.get("fetched")], stop=clk.over)
+                if clk.over():
+                    clk.cut(f"Helius ostaje {_unfetched(con, c, now)} za sljedeći prolaz (istim redom)")
+                con.execute("INSERT INTO i2_runs VALUES (?,?,?,?)",
+                            (now, kind, spent, json.dumps({"new_events": new, "fetched": n_f, "budget": budget,
+                                                           "cap": cap, "cap_how": how})))
+                con.commit()
             _log(log, f"Helius {spent:,} kr. ({n_f} događaja), danas {store.helius_spent(con, now):,} od {cap:,} "
                       f"({how})")
-        summary = analyze(con, p, c, now, log=log, light=(kind == "incr"))
+        summary = analyze(con, p, c, now, log=log, light=(kind == "incr"), clk=clk)
         if kind != "report":   # 16.11.: the influencers' probably linked wallets (bounded, never raises into here)
-            try:
-                from insajderi import kolwallets
-                kolwallets.run_pass(con, p, c, now, kind=kind, fetch=fetch, credits=credits, log=log)
-            except Exception as e:  # noqa: BLE001
-                log(f"insajderi kol: prolaz nije uspio ({type(e).__name__}: {e})")
+            if clk.over():
+                clk.cut("sporedni novčanici influencera preskočeni")
+            else:
+                with clk.stage("kol"):
+                    try:
+                        from insajderi import kolwallets
+                        kolwallets.run_pass(con, p, c, now, kind=kind, fetch=fetch, credits=credits, log=log,
+                                            left_s=clk.left_s())
+                    except Exception as e:  # noqa: BLE001
+                        log(f"insajderi kol: prolaz nije uspio ({type(e).__name__}: {e})")
         if kind in ("night", "once"):
             store.kv(con, f"{kind}_last", now)
-            con.commit()
+            store.kv(con, "stage_s", json.dumps({**clk.stages, "ts": now, "kind": kind, "cut": bool(clk.cuts)}))
+        summary["trajanje"] = dict(clk.stages)
+        summary["prekinuto"] = list(clk.cuts)
+        store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))
+        con.commit()
         try:
             from insajderi import report
             report.write(summary)
@@ -96,6 +142,8 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
                 log(line)
             if kind == "report":
                 log(report.kol_line())
+            else:
+                log(time_line(kind, clk))
         except Exception as e:  # noqa: BLE001
             _log(log, f"log linija ({type(e).__name__}: {e})")
         return summary
@@ -103,27 +151,92 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, **
         con.close()
 
 
-def analyze(con, p, c, now, log=print, light=False):
-    """Owners, classification, catalysts, the copy walk-forward, trending and smart money -> the summary. light: the
-    walk-forwards (copy, smart money, trending score) keep the last full pass's numbers."""
+def _list_ok(con, c, light):
+    """Run the class list in this pass? Always in once / night; in incr only when the last full pass measured the
+    list stage (popis) under incr_list_max_s (60 s). -> (ok, why not)."""
+    if not light:
+        return True, None
+    try:
+        st = json.loads(store.kv(con, "stage_s") or "{}")
+    except ValueError:
+        st = {}
+    s = st.get("popis")
+    if s is None:
+        return False, "popis još nije izmjeren u punom prolazu"
+    if s >= float(c["incr_list_max_s"]):
+        return False, f"popis je u zadnjem punom prolazu trajao {s:.0f} s (granica {c['incr_list_max_s']} s)"
+    return True, None
+
+
+def analyze(con, p, c, now, log=print, light=False, clk=None):
+    """Owners, classification, catalysts, the copy walk-forward, trending and smart money -> the summary. light (incr):
+    the walk-forwards (copy, smart money, trending score) keep the last full pass's numbers, and the class list runs
+    only when it was fast on the last full pass (_list_ok). clk: the pass's store.Clock (19.11.); the order: the list,
+    the copy tests (the wallets' trades read ONCE for both), the rest."""
+    clk = clk or store.Clock("report", c)
+    stop = clk.over
     evs = ev.load(con, now - int(c["days"]) * 86400)
-    own, relay = chain.assign_owners(con, p, c)
-    parts = score.load_parts(con)
-    ft = score.first_trades(p, {e["token"] for e in evs})
-    owners_hit = {r[2] or r[1] for r in parts if r[8] and r[9]}
-    cand = {r[1] for r in parts if (r[2] or r[1]) in owners_hit}
-    bad = score.bots(con, p, c, cand, now - int(c["days"]) * 86400)
-    stats = score.classify(parts, evs, now + 1, c, bad, ft)
-    n_groups = score.save(con, stats, now)
-    cats = ev.catalyze(con, p, evs, chain.waves(con, c))
-    prev = json.loads(store.kv(con, "summary") or "{}") if light else {}
-    if light and prev.get("copy"):
-        cs, ok, why = prev["copy"], prev.get("copyable"), prev.get("verdict")
-    else:
-        rows, _conf = copy.walk(con, p, c, evs, parts, now, bad, ft)
-        copy.save(con, rows)
-        cs = copy.summarize(rows)
-        ok, why = copy.verdict(cs)
+    prev = json.loads(store.kv(con, "summary") or "{}")
+    ok_list, why_not = _list_ok(con, c, light)
+    if ok_list and clk.over():
+        ok_list, why_not = False, "vremenska granica"
+        clk.cut("popis i kopija nisu izračunati")
+    if not ok_list:
+        _log(log, f"popis i bundle preskočeni ({why_not}); ostaju brojke zadnjeg prolaza")
+        summary = {**prev, "ts": now, "events": len(evs), "call_events": sum(1 for e in evs if e["kind"] == "call"),
+                   "jump_events": sum(1 for e in evs if e["kind"] == "jump"),
+                   "covered": sum(1 for e in evs if e.get("n_part")),
+                   "fetched": sum(1 for e in evs if e.get("fetched")),
+                   "helius_today": store.helius_spent(con, now),
+                   "helius_cap": store.helius_cap(c, now, p.get("usage_db"))[0], "list_skipped": why_not}
+        store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))
+        con.commit()
+        return summary
+    from insajderi import prijepumpe
+    with clk.stage("popis"):
+        own, relay = chain.assign_owners(con, p, c)
+        parts = score.load_parts(con)
+        ft = score.first_trades(p, {e["token"] for e in evs})
+        owners_hit = {r[2] or r[1] for r in parts if r[8] and r[9]}
+        cand = {r[1] for r in parts if (r[2] or r[1]) in owners_hit}
+        bad = score.bots(con, p, c, cand, now - int(c["days"]) * 86400)
+        stats = score.classify(parts, evs, now + 1, c, bad, ft)
+        n_groups = score.save(con, stats, now)
+        cats = ev.catalyze(con, p, evs, chain.waves(con, c))
+        pp, mm = {}, set()
+        try:   # 19.11. (vlasnik: "svi resursi u pronalaženje novčanika koji kupuju prije pumpe"): insajderi/prijepumpe
+            pp, mm = prijepumpe.run_list(con, c, now, evs, parts, bad, ft, prev.get("prije_pumpe"), stop)
+            if pp.get("cut"):
+                clk.cut("popis novčanika prije pumpe / bundle: ostaje zadnji")
+        except Exception as e:  # noqa: BLE001 - one part costs only itself
+            _log(log, f"novčanici prije pumpe ({type(e).__name__}: {e})")
+    cs, ok, why = prev.get("copy"), prev.get("copyable"), prev.get("verdict")
+    if not light and clk.over():
+        clk.cut("kopija nije izračunata (ostaju brojke zadnjeg punog prolaza)")
+    elif not light:
+        with clk.stage("kopija"):
+            csel = copy.selection(c, evs, parts, now, bad, ft, stop)
+            psel = prijepumpe.selection(c, evs, parts, now, bad, ft, mm, True, stop) if pp else None
+            members = (csel[2] if csel else set()) | (psel[3] if psel else set())
+            trades = copy.wallet_trades(con, p, members) if members and not stop() else []
+            rows = copy.walk(con, p, c, evs, parts, now, bad, ft, trades=trades, sel=csel, stop=stop)[0] \
+                if csel is not None else None
+            if rows is None:
+                clk.cut("kopija insajdera nije dovršena (ostaju zadnje brojke)")
+            else:
+                copy.save(con, rows)
+                cs = copy.summarize(rows)
+                ok, why = copy.verdict(cs)
+            if pp:
+                try:
+                    res = prijepumpe.walk(con, p, c, evs, parts, now, bad, ft, mm, trades=trades, sel=psel,
+                                          stop=stop)[0] if psel is not None else None
+                    if res is None:
+                        clk.cut("kopija novčanika prije pumpe nije dovršena (ostaju zadnje brojke)")
+                    else:
+                        pp = prijepumpe.run_copy(con, p, c, now, evs, parts, pp, res)
+                except Exception as e:  # noqa: BLE001
+                    _log(log, f"novčanici prije pumpe: kopija ({type(e).__name__}: {e})")
     sellers = {r[1] for r in parts if r[9]}
     before = {r[1] for r in parts if r[9] and r[8]}
     conf = score.confirmed(stats)
@@ -138,19 +251,32 @@ def analyze(con, p, c, now, log=print, light=False):
                "catalysts": cats, "copy": cs, "copyable": ok, "verdict": why,
                "helius_today": store.helius_spent(con, now),
                "helius_cap": store.helius_cap(c, now, p.get("usage_db"))[0]}
-    try:
-        from insajderi import trending
-        if light and prev.get("trending"):
-            summary["trending"] = {**prev["trending"], "new": trending.log_entries(con, p, now)}
-        else:
-            summary["trending"] = trending.run(con, p, c, now)
-    except Exception as e:  # noqa: BLE001 - one part costs only itself
-        _log(log, f"trending ({type(e).__name__}: {e})")
-    try:
-        from insajderi import smart
-        summary["smart"] = prev["smart"] if light and prev.get("smart") else smart.run(con, p, c, now, stats, evs, parts)
-    except Exception as e:  # noqa: BLE001
-        _log(log, f"pametni novac ({type(e).__name__}: {e})")
+    if pp:
+        summary["prije_pumpe"] = pp
+    if light or clk.over():
+        if clk.over() and not light:
+            clk.cut("trending i pametni novac: ostaju zadnji")
+        for k in ("trending", "smart"):
+            if prev.get(k):
+                summary[k] = prev[k]
+        try:
+            from insajderi import trending
+            if light and prev.get("trending"):
+                summary["trending"] = {**prev["trending"], "new": trending.log_entries(con, p, now)}
+        except Exception as e:  # noqa: BLE001
+            _log(log, f"trending ({type(e).__name__}: {e})")
+    else:
+        with clk.stage("ostalo"):
+            try:
+                from insajderi import trending
+                summary["trending"] = trending.run(con, p, c, now)
+            except Exception as e:  # noqa: BLE001 - one part costs only itself
+                _log(log, f"trending ({type(e).__name__}: {e})")
+            try:
+                from insajderi import smart
+                summary["smart"] = smart.run(con, p, c, now, stats, evs, parts)
+            except Exception as e:  # noqa: BLE001
+                _log(log, f"pametni novac ({type(e).__name__}: {e})")
     store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))
     con.commit()
     return summary

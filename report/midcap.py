@@ -387,7 +387,7 @@ def rules(now, p=None):
                      "izvor": "replay 15m svijeća, 0,1 SOL", "n": intra.get("n"), "ev_pct": intra.get("ev_pct"),
                      "ci": intra.get("ci95_day_pct"), "hit": intra.get("hit"), "usd_dan": intra.get("usd_day"),
                      "deset": intra.get("ten_n"), "pravi": refusal is None,
-                     "pravi_zasto": refusal or "samo tokeni velike liste (starost 15+ d, MC 5-150M, likvidnost 500k+)"}}
+                     "pravi_zasto": refusal or "samo tokeni velike liste (15+ d, MC 15-200M, likvidnost 500k+)"}}
     return out
 
 
