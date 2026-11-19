@@ -818,6 +818,16 @@ INSIDER_ROW = ('<div class=adm-only><ul class="ms-list"><li><a class="ms-row" hr
                '</div>')
 
 
+def _social_note():
+    """19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, sve resurse na novčanike; ops/drustveni.py): one notice
+    at the top of the page, Croatian (the app translates it on the way out; the sentences are in ui/i18n_en.json)."""
+    try:
+        from ops import drustveni
+        return drustveni.notice_html("hr", notr=False)
+    except Exception:  # noqa: BLE001 - a notice never costs the page
+        return ""
+
+
 def page(qs):
     """/kol: Influenceri. Hero, segment Ljestvica | Upravo zvali, ljestvica po 1 h (7/14/30 dana, manje poznati ili
     veliki računi; sve se bira na stranici bez novog upita), Analize. Gradi se u djetetu i čuva kao snimka (run_ui
@@ -826,8 +836,9 @@ def page(qs):
     from ui.public import is_star, star_handles
     con = store.ro()
     top = R.top("Influenceri")   # bez ikone povećala: tražilica je u zaglavlju svake stranice
+    soc = _social_note()
     if con is None:
-        return "Influenceri", f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}<p class=ms-hint>Još nema podataka.</p></div>'
+        return "Influenceri", f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}{soc}<p class=ms-hint>Još nema podataka.</p></div>'
     now = time.time()
     try:
         kols = []
@@ -879,7 +890,7 @@ def page(qs):
                   f"Ljestvica od {built:%H:%M}.")
     analize = R.rows([R.row(t, s, value=str(len(CURIOUS)) if sid == "znatizeljne" else None, value_tone="mut",
                             href=f"/kol/analize#{sid}") for sid, t, s in ANALIZE])
-    body = (f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}'
+    body = (f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}{soc}'
             f'<p class=ms-sub>{esc(R.num(n_all))} računa · svaki poziv mjeren nakon 1 h i 24 h</p>'
             + _hero(ranked14, follows)
             + _tabs()

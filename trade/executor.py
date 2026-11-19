@@ -552,6 +552,8 @@ def is_auto(reason, manual):
 def auto_hard(con, size_sol, now, tz=None, veliki=False):
     """The global cap's refusals of one automatic real buy: [(key, text)] (empty = within the cap)."""
     out = []
+    if settings.pauza(con):   # 19.11. (vlasnik): every automatic real buy stands until he turns a switch back on
+        out.append(("pauza", settings.PAUZA_TEXT))
     cap = auto_cap(veliki)
     if size_sol > cap + 1e-9:
         out.append(("auto_stake", f"globalni strop automatskih pravih kupnji: ulog {size_sol:g} SOL iznad {cap:g} SOL"))

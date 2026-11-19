@@ -538,7 +538,7 @@ def markdown(data):
         L.append("")
     oor = data.get("out_of_range") or []
     if oor:
-        L += ["**Izvan raspona MC (5-150M) ili bez pravog poola:** " + "; ".join(oor), ""]
+        L += ["**Izvan raspona MC (5-200M) ili bez pravog poola:** " + "; ".join(oor), ""]
     lst = data.get("list") or []
     if lst:
         L += ["## Lista", "", "| token | MC | likvidnost (sve / najdublji) | volumen 24 h | starost | 1d / 1h dana | kako |",

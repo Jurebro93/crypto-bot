@@ -1,10 +1,17 @@
 {
-  "helius_day": 15000,
+  "helius_day": 60000,
   "_note_1511": "15.11. vlasnik: smije više Helius kredita (novi paket 10M kad ovaj nestane): 30k/dan umjesto ~4,7k",
   "_note_1511b": "15.11. navečer vlasnik: 'možeš i više kredita dnevno na Heliusu za naći insajdere jer nam je to sada fokus' -> 60k/dan",
   "kol_helius_share": 0.0,
+  "focus_mcap": 15000000,
+  "pump2_mcap": 2000000,
+  "pump_min_tokens": 3,
+  "pass_max_s": {"once": 900, "incr": 420, "night": 5400},
+  "incr_list_max_s": 60,
+  "_note_1911b": "19.11. (koordinator, problem od 18.11.: prolaz je satima držao tešku bravu): vremenski strop prolaza pass_max_s (nakon deploya 15 min, svaka 3 h 7 min, noću 90 min); svaki dugi korak staje na istoj granici, spremi što je napravio, ostatak ide u sljedeći prolaz istim redom; redoslijed: događaji i razine pumpi, Helius (pumpa15, pumpa2, ostalo), popis, kopija, ostalo. Prolaz svaka 3 h radi popis i bundle samo ako je popis u zadnjem punom prolazu trajao ispod incr_list_max_s; kopija i nasumični samo nakon deploya i noću.",
   "kol_pass_credits": 5000,
   "kol_helius_public_buys": true,
   "_note_1611": "16.11. vlasnik: 'nadopuni sve te influencere i volete sa povijesnim podacima ... Imaš Helios': traženje vjerojatno povezanih novčanika influencera smije do četvrtine dnevnog stropa (15k od 60k), 5.000 po prolazu, i čita povijest javnih novčanika iz sjemena (ne samo objave). Dnevni strop alata (helius_day) se ne mijenja.",
-  "_note_1811": "18.11. vijeće (prijedlog #845, prihvatili OpenAI i Grok; pokus 7 dana, do 25.11.): Insajderi 2.0 su samo demo (kopiranje insajdera -2,7 % po tradeu, n=1043), a trošili su oko 40 % Helius kredita alata i držali tešku bravu satima dnevno. Dnevni strop 60.000 -> 15.000, jedan noćni prolaz (start.sh). Potraga za sporednim novčanicima influencera (0 potvrđenih grupa) je pauzirana: kol_helius_share 0.25 -> 0. Ništa se ne briše. Povratak: helius_day 60000, kol_helius_share 0.25, INSAJDERI_ONCE=1, INSAJDERI_INCR=1."
+  "_note_1811": "18.11. vijeće (prijedlog #845, prihvatili OpenAI i Grok; pokus 7 dana, do 25.11.): Insajderi 2.0 su samo demo (kopiranje insajdera -2,7 % po tradeu, n=1043), a trošili su oko 40 % Helius kredita alata i držali tešku bravu satima dnevno. Dnevni strop 60.000 -> 15.000, jedan noćni prolaz (start.sh). Potraga za sporednim novčanicima influencera (0 potvrđenih grupa) je pauzirana: kol_helius_share 0.25 -> 0. Ništa se ne briše. Povratak: helius_day 60000, kol_helius_share 0.25, INSAJDERI_ONCE=1, INSAJDERI_INCR=1.",
+  "_note_1911": "19.11. vlasnik: \"svi resursi u pronalaženje profitabilnih voleta\" (novčanici koji kupuju prije pumpe i prodaju u pumpu, svaki dan): helius_day 15000 -> 60000 (mjesečni Helius plan je 10M kredita; cijeli alat je potrošio 1,33M u tjednu 11.-17.11., ~190k/dan), opet prolaz nakon deploya i svaka 3 h (start.sh INSAJDERI_ONCE=1, INSAJDERI_INCR=1). Redoslijed Heliusa: pumpe do >= 15M (focus_mcap), pa pumpe 2-15M (pump2_mcap), pa pozivi influencera. kol_helius_share ostaje 0: potraga za sporednim novčanicima influencera je posao influencera (osvježavanje jednom u 5 dana) i ostaje pauzirana. focus_mcap 15M, pump_min_tokens 3, ostali pragovi u insajderi/store.py DEFAULT."
 }

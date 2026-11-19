@@ -46,6 +46,13 @@ python3 -m hype.apify || true
 # fokus_midcap, ops/fokus.py): one line at every start: which microcap jobs are off, which are retargeted, how many
 # midcaps the collector holds and from which sources (reads trade.db / midcap.db, no network)
 python3 -m ops.fokus || true
+# 19.11. (vlasnik: "stop spending resources on scraping influencers and Telegram channels ... refreshed once every 5
+# days. What I want every day is wallets"; ops/drustveni.py): one line at every start with the social refresh window
+# (open / closed, next); the first start after this deploy opens the first window (SOCIAL_EVERY_D 5 days,
+# SOCIAL_WINDOW_H 6 h; state DATA_DIR/drustveni.json). Every influencer / Telegram job below asks the same gate
+# (KOL search round and push rules, minute candles after calls, Telegram reader, makroinf, call power, X momentum, AI
+# labels, zadnjih5, konsenzus); outside the window each says so once a day. SOCIAL_ALWAYS=1 = the old behaviour.
+python3 -m ops.drustveni || true
 
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).
@@ -303,8 +310,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 # held the heavy-job lock for hours a day (the midcap candles loop waited 52 min behind it on 18.11.). So: ONE pass a
 # night (ops.heavy --night, 01-06 CET), no pass at every start, no pass every 3 h; the day cap is 15,000 credits
 # (insajderi/config.json). Nothing is deleted. Back as before: INSAJDERI_ONCE=1 and INSAJDERI_INCR=1 (and the config).
-( sleep "${INSAJDERI_FIRST_S:-600}"; if [ "${INSAJDERI_ONCE:-0}" = "1" ]; then python3 -m ops.heavy run_insajderi.py once || echo "insajderi2 nije uspio"; fi; while true; do sleep 3600; python3 -m ops.heavy --night run_insajderi.py night || echo "insajderi2 (noć) nije uspio"; done ) &
-if [ "${INSAJDERI_INCR:-0}" = "1" ]; then
+# 19.11. (vlasnik: "svaki dan želim novčanike ... svi resursi u pronalaženje novčanika koji kupuju PRIJE pumpe i prodaju
+# u pumpu"): reversed. Insajderi 2.0 is the daily wallet job again: the pass after a start (INSAJDERI_ONCE default 1,
+# at most 40 % of the cap), the night pass, the light pass every 3 h (INSAJDERI_INCR default 1, at most 10 %); the day
+# cap is 60,000 credits (the monthly plan 10M). Helius goes to pumps peaking >= 15M first, then 2-15M, then calls
+# (insajderi/chain.order_key); the list and the copy test: insajderi/prijepumpe.py, output/novcanici_prije_pumpe.md,
+# one line "novčanici prije pumpe: ...". The influencers' side-wallet search stays paused (kol_helius_share 0).
+( sleep "${INSAJDERI_FIRST_S:-600}"; if [ "${INSAJDERI_ONCE:-1}" = "1" ]; then python3 -m ops.heavy run_insajderi.py once || echo "insajderi2 nije uspio"; fi; while true; do sleep 3600; python3 -m ops.heavy --night run_insajderi.py night || echo "insajderi2 (noć) nije uspio"; done ) &
+if [ "${INSAJDERI_INCR:-1}" = "1" ]; then
 ( sleep "${INSAJDERI_INCR_FIRST_S:-3600}"; while true; do python3 -m ops.heavy run_insajderi.py incr || echo "insajderi2 (3 h) nije uspio"; sleep "${INSAJDERI_INCR_S:-10800}"; done ) &
 fi
 
@@ -444,7 +457,9 @@ fi
 # hype.db tg_mentions, and kol.db calls on the next run_kol round. TGStat (TGSTAT_TOKEN) adds paid search by CA.
 keep tg python3 run_tg.py loop
 # optional live listener on a Telegram account (paid option: needs a phone number), only with its secrets set
-if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then python3 run_tg.py telethon & fi
+# 19.11. (ops/drustveni): it listens only inside the social refresh window and ends when the window closes; the loop
+# starts it again and it waits for the next window (one line a day)
+if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then ( while true; do python3 run_tg.py telethon || echo "telethon nije uspio"; sleep 60; done ) & fi
 
 # loops that work only now and then, each run a short process that ends and hands its memory back (run_sched.py):
 #   spend on Helius/Apify every 15 min (warnings on /usage and a banner on every page), correlations every

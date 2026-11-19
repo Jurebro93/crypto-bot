@@ -7,7 +7,8 @@ brief(now)   what is measured, as one compact Croatian block (at most BRIEF_MAX 
              source consensus, Insajderi 2.0), the real cost of a round trip, the stake and the trades a day. A source
              that cannot be read is NAMED as missing and never raises. Nothing private is in it (ocisti: critic/
              privacy.scrub plus env-style names and key-looking strings).
-otvori()     asks OpenAI and Claude (their council day budgets) for ONE direction for all resources; each answers
+otvori()     asks OpenAI and Claude (their council day budgets) the standing question PITANJE (19.11.: the wallet
+             strategy: find, prove and copy wallets that buy before the pump and sell into it); each answers
              with at most 3 proposals, stored as suggestion notes "Smjer: ..." under the member's key, evidence
              {"vijece": "smjer", "sjednica": ts}. They then go through the normal cross-review (vijece/odluka.py).
              Grok gets the same brief as direction_request in get_council_queue and answers with submit_suggestion.
@@ -16,7 +17,8 @@ zakljuci()   once every proposal of the session is decided (or 24 h passed): the
 
 A session is due once after the deploy (trade settings vijece_smjer_1811), once more after the learner's CORRECTED
 result by prediction threshold arrived (vijece_smjer_1811b; it waits for the purged result of veliki/nauceno and for
-an open session to close), then once in every week that
+an open session to close), once more on the owner's new direction of 19.11. (vijece_smjer_1911: wallets first; any
+session opened after that deploy uses it up, and it waits for an open session to close), then once in every week that
 starts on Monday (Zagreb), and when the learner's verdict changed since the last session (at most one session a day).
 
 ODLUKE_VLASNIKA: the owner's standing decisions, dated, as the first block of every brief and of every review's
@@ -33,12 +35,15 @@ from trade import settings
 from ui import assistnotes
 from vijece import kriticari, store
 
-BRIEF_MAX = 9500     # 18.11.: +1500 for the owner's decisions, the learner's variants and the real result by strategy
+BRIEF_MAX = 10000    # 18.11.: +1500 for the owner's decisions, the learner's variants and the real result by strategy;
+#                      19.11.: +500 for the owner's decision of 19.11. (wallets first)
 PART_MAX = 900
 BOARD_MAX = 2200
 ONCE_KEY = "vijece_smjer_1811"
 ONCE_KEY_B = "vijece_smjer_1811b"     # 18.11.: one more session once the learner's result by threshold is in the brief
 RAZLOG_B = "nova sjednica: stigao rezultat učenja po pragu prognoze"
+ONCE_KEY_C = "vijece_smjer_1911"      # 19.11.: one more session on the owner's new direction (wallets first)
+RAZLOG_C = "nova sjednica: vlasnikov smjer 19.11. (novčanici)"
 # The owner's standing decisions (dated; only the owner changes them). Every brief and every review starts with them.
 ODLUKE_NASLOV = "ODLUKE VLASNIKA (vrijede dok ih vlasnik ne promijeni; prijedlog protivan njima se odbija ili dorađuje)"
 ODLUKE_VLASNIKA = (
@@ -46,6 +51,10 @@ ODLUKE_VLASNIKA = (
     "'pauzirati pravi novac' nisu prihvatljivi; prihvatljivi su prijedlozi koji mijenjaju ŠTO pravi novac kupuje i kako "
     "izlazi, uz dokaz.",
     "18.11.: vlasnik je odobrio jednokratno mjerenje troška jednim stvarnim krugom pri 0,3 i 0,5 SOL.",
+    "19.11.: prvi fokus su NOVČANICI: naći novčanike koji kupuju prije pumpe / prije poziva influencera i prodaju u pumpu "
+    "(insajderski novčanici), dokazati na povijesti da se kopiranje isplati nakon troška i kašnjenja, pa ih kopirati "
+    "unutar sekunde. Drugi fokus: strategija ulaza i izlaza za midcapove od 15 M $ naviše. Influenceri i Telegram "
+    "osvježavaju se jednom u 5 dana i ne dobivaju druge resurse.",
 )
 SESSION_S = 24 * 3600
 VERDICT_GAP_S = 24 * 3600
@@ -54,9 +63,18 @@ TZ = "Europe/Zagreb"
 OPENAI_MAX_OUT = 6000
 CLAUDE_MAX_TOKENS = 10000
 
-PITANJE = ("Jedan smjer za SVE resurse alata: na što se fokusirati, zašto baš to, što ugasiti, koji podaci nedostaju i "
-           "zašto, je li brzina važna, prva tri koraka i KAKO svaki korak povećava neto zaradu (PnL trgovanja minus "
-           "trošak rada), uz mjerenje koje će to pokazati unutar 14 dana.")
+# 19.11. (vlasnik: "I want OpenAI and Grok bot to focus on working out the strategy for finding such wallets ... and
+# which APIs to include"): the standing question is the wallet strategy (was: one direction for all resources)
+PITANJE = ("Strategija NOVČANIKA (vlasnik 19.11.: prvi fokus): kako naći novčanike koji kupuju prije pumpe ili prije "
+           "poziva influencera i prodaju u pumpu, i kopirati ih uz zaradu. Odgovori: (1) kako ih NAĆI: koje izvore "
+           "podataka i API-je dodati ili ugasiti osim Heliusa i koliko koštaju; definicija pumpe i što znači „kupio "
+           "prije” i „prodao u pumpu”; kako isključiti botove, market makere, novčanike tima i svježe jednokratne "
+           "novčanike; grupiranje po novčaniku koji ih je financirao. (2) kako to DOKAZATI na povijesti bez "
+           "samozavaravanja: izbor novčanika samo s podacima do trenutka odluke, test kopiranja izvan uzorka uz "
+           "kašnjenje 1-2 s i stvarni trošak, dovoljno novčanika i tradeova. (3) kako KOPIRATI unutar sekunde: vlastiti "
+           "izvršitelj ili vanjski alat za kopiranje (naknade, čuvanje ključa, kašnjenje). (4) prva tri koraka i KAKO "
+           "svaki povećava neto zaradu tradeova pravim novcem (PnL trgovanja minus trošak rada), uz mjerenje koje će to "
+           "pokazati unutar 14 dana.")
 
 SYSTEM = """Ti si član vijeća alata MemeSonar (trading bot za Solana midcap memecoine, market cap 2M-200M $). Vijeće
 čine Grok, OpenAI i Claude; vlasnik traži da vijeće samo odluči u kojem smjeru alat ide i na što troši SVE resurse
@@ -367,6 +385,8 @@ def na_redu(con, now=None):
         return "prva sjednica nakon deploya"
     if not raw.get(ONCE_KEY_B) and ucenje_ispravljeno():   # 18.11.: once, after the learner's CORRECTED result by
         return RAZLOG_B                                    # threshold arrived (never on the leaky one)
+    if not raw.get(ONCE_KEY_C):                            # 19.11.: once, on the owner's new direction (wallets)
+        return RAZLOG_C
     last_ts = int((s or {}).get("ts") or first)
     if tjedan(now) > tjedan(last_ts):
         return "tjedna sjednica (ponedjeljak)"
@@ -474,7 +494,9 @@ def otvori(con, now=None, log=print, razlog="ručno"):
         return None
     store.kv_put(con, "sjednica", s)
     # any session opened with the corrected learner result in its brief has done what the second one was for
-    for key in (ONCE_KEY, ONCE_KEY_B) if ucenje_ispravljeno() else (ONCE_KEY,):
+    # 19.11.: any session opened from now on asks the wallet question with the owner's decision of 19.11.: it uses
+    # up the one-time 19.11. session too
+    for key in (ONCE_KEY, ONCE_KEY_B, ONCE_KEY_C) if ucenje_ispravljeno() else (ONCE_KEY, ONCE_KEY_C):
         if not settings.raw(con).get(key):
             settings.put(con, key, now, "vijeće")
     return s
@@ -516,9 +538,15 @@ def zahtjev_groku(con, now=None):
         return None
     return {"session_ts": s["ts"], "closes_ts": s["ts"] + SESSION_S, "question": PITANJE, "brief": s.get("brief") or "",
             "answer_with": {"tool": "submit_suggestion", "arguments": {
-                "title": store.SMJER_PREFIX + "<one sentence: what to focus all resources on>",
-                "interpretation": "<why this one, with numbers from the brief and from X; what to switch off; which "
-                                  "data are missing; does speed matter; HOW it raises net profit>",
+                "title": store.SMJER_PREFIX + "<one sentence: how to find, prove and copy the wallets>",
+                "interpretation": "<how to FIND wallets that buy before the pump / before influencer calls and sell "
+                                  "into the pump (data sources and APIs to add or drop besides Helius, with cost; the "
+                                  "definition of a pump and of 'bought before' / 'sold into'; excluding bots, market "
+                                  "makers, team and fresh one-off wallets; clustering by funder); how to PROVE it on "
+                                  "history (point-in-time selection, out-of-sample copy test with 1-2 s delay and real "
+                                  "cost, enough wallets and trades); how to COPY within a second (own executor vs an "
+                                  "external copy tool: fees, custody, latency); with numbers from the brief and from X; "
+                                  "HOW it raises net profit of real-money trades>",
                 "improvement": "<the first three steps and the measurement that shows it within 14 days>",
                 "evidence": {"vijece": "smjer", "sjednica": s["ts"]}}},
             "how": ("Answer in Croatian with at most 3 submit_suggestion calls whose title starts with \"Smjer: \". "

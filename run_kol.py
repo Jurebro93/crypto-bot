@@ -200,9 +200,21 @@ def cmd_backfill(a):
     cmd_score(a, con, cfg)
 
 
+def _social(job):
+    """19.11. (vlasnik: influenceri i Telegram jednom u 5 dana): the refresh window of ops/drustveni (open on error)."""
+    try:
+        from ops import drustveni
+        return drustveni.gate(job)
+    except ImportError:
+        return True
+
+
 def cmd_live(a, con=None, cfg=None):
     from kol import live
     con, cfg = con or store.connect(), cfg or config()
+    if not _social("kol_live"):   # outside the window the paid xquik monitor is stopped once, then nothing
+        live.pause(con, cfg)
+        return
     r = live.sync(con, cfg)
     if r is None:
         print("live: nema javnog URL-a (RENDER_EXTERNAL_URL) ili APIFY_TOKEN, preskačem")
@@ -228,7 +240,9 @@ def cmd_xhook(a, con=None, cfg=None):
     """twitterapi.io filter rules for the live X watch (kol/xhook.py)."""
     from kol import xhook
     con, cfg = con or store.connect(), cfg or config()
-    r = xhook.sync(con, cfg)
+    # 19.11.: outside the refresh window only the accounts the real-money account follows keep their X push rule
+    # (their calls are entries of real money); every other rule is switched off once (xhook.sync only_followed)
+    r = xhook.sync(con, cfg, only_followed=not _social("kol_xhook"))
     if r is None:
         print("xhook: nema TWITTERAPI_IO_KEY ili javnog URL-a, preskačem")
 
@@ -264,11 +278,26 @@ NIGHT_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", 
                "cmd_measure", "cmd_flows", "cmd_deleted", "cmd_crew")
 
 
-def round_steps(full=None):
-    """Names of the steps of one round: the full set at night (or when forced), the light set by day."""
+# 19.11. (vlasnik: "stop spending resources on scraping influencers and Telegram channels ... once every 5 days. What
+# I want every day is wallets"; ops/drustveni.py): outside the refresh window a round keeps only what wallets need:
+# the spool drain and Telegram/chain copy (local), the KOL wallet list + Helius webhook (cmd_chain), the X push rules
+# and the xquik monitor switched off (cmd_xhook / cmd_live pause once; the followed accounts of real money keep their
+# rule), and at night the traces and Helius flows of wallets around calls. No scoring, measuring, snapshots, crews,
+# deletion checks, no search round; the day round then runs without the heavy-job lock.
+WALLET_DAY_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live")
+WALLET_NIGHT_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_traces", "cmd_flows")
+
+
+def round_steps(full=None, social=None):
+    """Names of the steps of one round: the full set at night (or when forced), the light set by day; outside the
+    social refresh window (ops/drustveni) the wallet part only."""
     if full is None:
         from ops import heavy
         full = os.environ.get("KOL_FULL_ROUND") == "1" or heavy.night_now()
+    if social is None:
+        social = _social("kol_krug")
+    if not social:
+        return WALLET_NIGHT_STEPS if full else WALLET_DAY_STEPS
     return NIGHT_STEPS if full else DAY_STEPS
 
 
@@ -281,6 +310,8 @@ def cycle(a):
     names = round_steps()
     if names is DAY_STEPS:
         print("krug: dnevni (lagani) krug; ocjenjivanje, mjerenje i tokovi idu u noćnom prozoru", flush=True)
+    elif names in (WALLET_DAY_STEPS, WALLET_NIGHT_STEPS):
+        print("krug: samo novčanici (društveni prozor zatvoren)", flush=True)
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
     # 8.11.: scoring ran 30+ min and the round was killed at 60 min every time for 2+ days, so the webhook list
@@ -340,15 +371,22 @@ def cmd_loop(a):
         import subprocess
         base = [sys.executable, os.path.abspath(__file__)] + (["--verbose"] if a.verbose else [])
         timeout = max(600, a.every * 60 * 3)
+        from ops import heavy   # one heavy job at a time on the 512 MB server (2.11.)
+        # 19.11. (ops/drustveni): outside the refresh window the round is the wallet part only (round_steps); by day
+        # that is seconds of local work and a list sync, so it runs without the heavy-job lock
+        social = _social("kol_krug")
         try:
-            from ops import heavy   # one heavy job at a time on the 512 MB server (2.11.)
-            heavy.run(base + ["once"], timeout=timeout)
+            if social or heavy.night_now():
+                heavy.run(base + ["once"], timeout=timeout)
+            else:
+                subprocess.run(base + ["once"], timeout=timeout, preexec_fn=heavy._nicer)
         except subprocess.TimeoutExpired:
             print("krug: predugo, prekinut", file=sys.stderr)
-        try:   # 9.11. 18:20: the network-bound search without the lock, so pages and other jobs are not held behind it
-            subprocess.run(base + ["search-round"], timeout=timeout, preexec_fn=heavy._nicer)
-        except subprocess.TimeoutExpired:
-            print("krug: search-round predugo, prekinut", file=sys.stderr)
+        if social:
+            try:   # 9.11. 18:20: the network-bound search without the lock, so pages and other jobs are not held behind it
+                subprocess.run(base + ["search-round"], timeout=timeout, preexec_fn=heavy._nicer)
+            except subprocess.TimeoutExpired:
+                print("krug: search-round predugo, prekinut", file=sys.stderr)
         time.sleep(a.every * 60)
 
 
@@ -389,6 +427,11 @@ if __name__ == "__main__":
     try:   # 15.11. (owner switch fokus_midcap, ops/fokus.py): its microcap sub-commands end at once while it is on
         from ops import fokus
         fokus.gate()
+    except ImportError:
+        pass
+    try:   # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, ops/drustveni.py): outside the window it ends at once
+        from ops import drustveni
+        drustveni.gate_main()
     except ImportError:
         pass
     main()

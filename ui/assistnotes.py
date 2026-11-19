@@ -1064,11 +1064,30 @@ def nauceno_real_test(res):
     return bool(k >= NAUCENO_REAL_MIN and lo is not None and lo > 0), txt
 
 
+def owner_pauza_1911(con, now=None):
+    """The owner's order of 19.11. (trade/settings.pauza_order_1911), from the page process: the changes go to the
+    applied log and one log line. [] when it has already run (here or in run_trade)."""
+    done = settings.pauza_order_1911(con, now)
+    if done:
+        for d in done:
+            if "→" in d:
+                name, rest = d.split(": ", 1)
+                old, new = [x.strip() for x in rest.split("→")]
+                record_applied(con, 0, f"flag:{name}", old, new, settings.PAUZA_WHY)
+        print(settings.pauza_order_line(done), flush=True)
+    return done
+
+
 def owner_nauceno_real(con, now=None, result=None):
     """One pass of the conditional order of 18.11. (see above). True when no further pass is needed: it was executed,
     parked for the owner, or decided on an earlier pass; False while it waits for the purged learner result (or a
     change was refused: tried again). result: the learner's stored result (default veliki/nauceno.latest())."""
     if settings.raw(con).get(NAUCENO_REAL_KEY):
+        return True
+    if settings.pauza(con):   # 19.11.: his newer order (real-money buying off) stands over the one of 18.11.
+        settings.put(con, NAUCENO_REAL_KEY, {"ts": int(now or time.time()), "ishod": "ponisteno_pauzom_1911"}, "Jure")
+        print("pravi trade: nalog vlasnika 18.11. (pravi novac na naučeno pravilo) je poništen njegovim nalogom 19.11. "
+              "(kupnje pravim novcem isključene)", flush=True)
         return True
     if result is None:
         try:

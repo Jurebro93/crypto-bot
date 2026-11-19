@@ -52,6 +52,25 @@ DEFAULT = {
     # is the owner's decision); on, at most that many USD a UTC day, kol_x_handles accounts a pass, each at most every
     # kol_x_every_h; an HTTP 402 is "nema kredita" and pauses it kol_x_pause_h
     "kol_x_usd_day": 0.0, "kol_x_handles": 6, "kol_x_every_h": 6, "kol_x_days": 7, "kol_x_pause_h": 6,
+    # 19.11. (vlasnik: "svi resursi u pronalaženje novčanika koji kupuju PRIJE pumpe i prodaju u pumpu"; insajderi/
+    # prijepumpe.py): the pump tiers by PEAK market cap of a market jump (focus_mcap 15M: "pumpa15", first priority;
+    # pump2_mcap 2M: "pumpa2", second; then everything else), the class "kupuje prije pumpe" (bought before t0 AND sold
+    # into the jump on >= pump_min_tokens distinct pump tokens, a PAID buy: sol_in >= min_sol), the market-maker
+    # exclusion (>= mm_min_side buys AND sells of one token inside one window on >= mm_min_events windows), the copy
+    # test (60 s as copy.py; "brzo" fast_delay_s 2 s, a print within fast_gap_s else their price x (1 + slip_fast),
+    # an ASSUMPTION; stake pp_size_sol and pp_size_sol_big; the round trip never under veliki/replay.RT_FLOOR 3 %;
+    # pp_min_n copies before a number is a finding; a 95 % bootstrap by token, boot_n draws), the random-wallet null
+    # (null_k owners a day at least, seed null_seed) and the bundles (>= bundle_min_wallets wallets of one owner or one
+    # fee payer buying in the same slot / second, or an owner group of 2+ wallets whose buys in [t0 - 1 h, t0 +
+    # bundle_early_s] are >= bundle_share of the window's buy volume; listed from bundle_min_pumps pumps)
+    "focus_mcap": 15_000_000, "pump2_mcap": 2_000_000, "pump_min_tokens": 3, "mm_min_side": 3, "mm_min_events": 2,
+    "fast_delay_s": 2, "fast_gap_s": 5, "slip_fast": 0.01, "pp_size_sol": 0.1, "pp_size_sol_big": 0.5,
+    "pp_min_n": 20, "boot_n": 2000, "null_k": 5, "null_seed": 19, "bundle_min_wallets": 3, "bundle_early_s": 3600,
+    "bundle_share": 0.30, "bundle_min_pumps": 2,
+    # 19.11. (the 18.11. problem: a pass held the heavy-job lock for hours): a wall-clock budget per pass; every long
+    # stage asks the same Clock and stops cleanly (what was done is saved, the rest waits for the next pass). incr runs
+    # the list and the bundles only when that stage took under incr_list_max_s on the last full pass
+    "pass_max_s": {"once": 900, "incr": 420, "night": 5400}, "incr_list_max_s": 60,
 }
 
 SCHEMA = """
@@ -83,7 +102,18 @@ CREATE TABLE IF NOT EXISTS i2_signals (token TEXT, ts INTEGER, n_clusters INTEGE
     ret REAL, exit TEXT, PRIMARY KEY (token, ts));
 CREATE TABLE IF NOT EXISTS i2_runs (ts INTEGER, kind TEXT, credits INTEGER, detail TEXT);
 CREATE TABLE IF NOT EXISTS i2_kv (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS i2_pp (owner TEXT PRIMARY KEY, members TEXT, n_members INTEGER, cls TEXT, why TEXT,
+    n_pumps15 INTEGER, n_pumps2 INTEGER, n_tokens INTEGER, med_lead_min REAL, pnl_sol REAL, confirmed_ts INTEGER,
+    last_seen INTEGER, updated INTEGER);
+CREATE TABLE IF NOT EXISTS i2_pp_copy (variant TEXT, owner TEXT, token TEXT, buy_ts INTEGER, entry_ts INTEGER,
+    mcap REAL, bucket TEXT, ret REAL, ret_big REAL, exit TEXT, miss TEXT, day TEXT,
+    PRIMARY KEY (variant, owner, token));
+CREATE TABLE IF NOT EXISTS i2_bundle (bid TEXT PRIMARY KEY, kind TEXT, members TEXT, n_members INTEGER,
+    n_pumps INTEGER, n_pumps15 INTEGER, share_med REAL, sold_into INTEGER, tokens TEXT, last_seen INTEGER,
+    updated INTEGER);
 """
+# 19.11.: columns added to a table that already exists in production (connect() adds them when missing)
+MIGRATIONS = (("i2_events", "tier", "TEXT"), ("i2_events", "peak_mc", "REAL"))
 # scripts of the old microcap jobs whose Helius use the cap is a share of (usage.db usage.script = argv[0]'s name)
 OLD_SCRIPTS = ("precall.py", "groupdisc.py", "preshill.py", "run_wallets.py")
 
@@ -101,6 +131,44 @@ def config(cfg=None):
     return c
 
 
+class Clock:
+    """The wall-clock budget of one pass (pass_max_s[kind]; None = unbounded) and the measured seconds per stage.
+    fn: the clock (time.monotonic; tests pass a fake). over(): the budget is spent; cut(what): note what a stage left
+    undone; stage(name): a context manager adding the stage's seconds to stages."""
+
+    def __init__(self, kind, c, fn=None):
+        self.fn = fn or time.monotonic
+        self.t0 = self.fn()
+        lim = (c.get("pass_max_s") or {})
+        self.max_s = float(lim[kind]) if isinstance(lim, dict) and lim.get(kind) else None
+        self.cuts, self.stages = [], {}
+
+    def elapsed(self):
+        return self.fn() - self.t0
+
+    def over(self):
+        return self.max_s is not None and self.elapsed() >= self.max_s
+
+    def left_s(self):
+        return None if self.max_s is None else max(0.0, self.max_s - self.elapsed())
+
+    def cut(self, what):
+        if what not in self.cuts:
+            self.cuts.append(what)
+
+    def stage(self, name):
+        clock = self
+
+        class _S:
+            def __enter__(self):
+                self.t = clock.fn()
+
+            def __exit__(self, *_a):
+                clock.stages[name] = round(clock.stages.get(name, 0.0) + clock.fn() - self.t, 1)
+                return False
+        return _S()
+
+
 def db_path():
     if os.environ.get("INSAJDERI_DB"):
         return os.environ["INSAJDERI_DB"]
@@ -113,7 +181,18 @@ def db_path():
 def connect(path=None):
     con = sqlite3.connect(path or db_path(), timeout=60)
     con.executescript(SCHEMA)
+    migrate(con)
     return con
+
+
+def migrate(con):
+    """ALTER TABLE ... ADD COLUMN for every MIGRATIONS column a table does not have yet (an existing insajderi.db: the
+    new columns start NULL; events.mark_tiers fills tier / peak_mc on the next pass). Idempotent."""
+    for table, col, typ in MIGRATIONS:
+        have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        if col not in have:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    con.commit()
 
 
 def ro(path):

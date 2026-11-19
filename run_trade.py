@@ -698,6 +698,7 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
         live = executor.is_live(cfg)
         tag = "LIVE" if live else "DRY"
         sw = live and settings.pravi_novac_sve(con=con)   # 14.11.: the owner's switch, read once per pass
+        paused = bool(settings.pauza(con))                 # 19.11.: the owner's pause of automatic real buys
         for t in fresh:
             if _mirrored(con, t["id"]):
                 continue
@@ -715,7 +716,11 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             # it, not from the demo entry; the demo may legally enter up to max_delay_min after the post
             t0 = min(t["opened_ts"], call_ts or t["opened_ts"])
             why = None
-            if now - t0 > cfg["max_signal_age_s"]:
+            if live and paused and not (size and not is_copy):
+                # 19.11. (vlasnik: "Autopilot kupovinu s pravim novcem isključi"): every automatic buy of the real
+                # account is refused here, before any path's own switch or proof; his own manual buy is not held
+                why = settings.PAUZA_TEXT
+            elif now - t0 > cfg["max_signal_age_s"]:
                 why = f"signal star {now - t0:.0f} s"
             elif t["entry_mcap"] is not None and t["entry_mcap"] < MIN_MCAP_USD \
                     and not (ov and "mc30k" in ov_keys and "mc30k" not in executor.HARD_RULES):
@@ -950,6 +955,13 @@ def cmd_follow(a):
                 beat["ts"] = time.time()
             # 13.11. (owner's order point 2): the Autopilot's mirror FIRST, and in it its exits first: a stop or a
             # trailing that just sold the demo lot goes out before anything else this pass does
+            if not beat.get("pauza"):   # 19.11.: the owner's order (real-money buying off), once, BEFORE the first
+                beat["pauza"] = True    # mirror pass of this process (the page process asks too; whoever is first)
+                done = settings.pauza_order_1911(con)
+                if done:
+                    print(settings.pauza_order_line(done), flush=True)
+                print("pravi trade: automatske kupnje pravim novcem: "
+                      + ("PAUZIRANE (nalog vlasnika 19.11.)" if settings.pauza(con) else "nisu pauzirane"), flush=True)
             follow_league_once(con, cfg, since)
             _trigger_probe_once(con)          # 10.11.: Jupiter Trigger step 1, only when the owner asked (no money)
             executor.reconcile_pending(con)   # buys a crash left half-booked, matched with the wallet

@@ -589,8 +589,9 @@ def leaderboard(lang):
     from ui import kolsummary as KS
     how = "".join(f"<li>{h}</li>" for h in t["how"]).format(h1=_pct(KS.VERDICT_H1), d24=_pct(KS.VERDICT_D24),
                                                              n=KS.VERDICT_MIN_N)
+    from ops import drustveni   # 19.11. (vlasnik): influencers refreshed once in 5 days, all resources on wallets
     body = (f"<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['lb_h1']}</h1><p class=lead>{t['lb_lead']}</p>"
-            f"</section>{tabs}<h2 class=s>{x['why_h']}</h2><ul class=how>{why}</ul>{cmp}"
+            f"</section>{drustveni.public_notice(lang)}{tabs}<h2 class=s>{x['why_h']}</h2><ul class=how>{why}</ul>{cmp}"
             f"<h2 class=s>{t['how_h']}</h2><ul class=how>{how}</ul>"
             f"<div class=lock><p>{t['lb_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div>{js}")
     return _shell(lang, t["lb_title"], t["lb_desc"].format(n=len(allrows)), "/influencers", "/hr/influenceri", body)

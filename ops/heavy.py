@@ -196,6 +196,12 @@ def main(argv=None):
             return 0
     except Exception:  # noqa: BLE001 - unreadable: the old behaviour
         pass
+    try:   # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, ops/drustveni.py): outside the refresh window a
+        from ops import drustveni   # social job ends at once, before the night wait and the lock (one line a day)
+        if drustveni.skip_cmd(argv):
+            return 0
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour
+        pass
     if night:
         wait_for_night(_label(argv))
     return run(argv, priority=priority).returncode

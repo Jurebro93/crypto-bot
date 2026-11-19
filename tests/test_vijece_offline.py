@@ -136,6 +136,7 @@ class Base(unittest.TestCase):
             settings.put(self.con, sjeme.ONCE_KEY, 1, "test")
             settings.put(self.con, smjer.ONCE_KEY, self.now, "test")
             settings.put(self.con, smjer.ONCE_KEY_B, self.now, "test")
+            settings.put(self.con, smjer.ONCE_KEY_C, self.now, "test")
         store.start_ts(self.con, self.now - 5)
 
     def note(self, kid=GROK_KID, title="Prijedlog", pc=None, evidence=None):
@@ -657,7 +658,7 @@ class Direction(Base):
             self.assertEqual((ev["vijece"], ev["sjednica"]), ("smjer", self.now))
         self.assertEqual(json.loads(rows[1][4]), {"key": "runup_max", "to": 0.1})
         body = [b for b in self.openai.calls if b["text"]["format"]["name"] == "vijece_smjer"][0]
-        self.assertIn("Jedan smjer za SVE resurse", body["input"])
+        self.assertIn("Strategija NOVČANIKA", body["input"])
         self.assertIn("STANJE ALATA", body["input"])
         self.assertTrue(self.logged("vijeće: smjer: sjednica otvorena"))
         self.assertTrue(self.logged("vijeće: smjer: OpenAI predlaže"))
@@ -837,6 +838,74 @@ class Learner(Base):
         self.assertTrue(raw[smjer.ONCE_KEY] and raw[smjer.ONCE_KEY_B])
 
 
+class WalletDirection(Base):
+    """19.11. (vlasnik: "I want OpenAI and Grok bot to focus on working out the strategy for finding such wallets ...
+    and which APIs to include"): the decision of 19.11., the wallet question, one more session once, Grok's task."""
+
+    def test_the_decision_of_19_11_leads_the_brief(self):
+        txt = smjer.brief(self.now, self.con)
+        self.assertIn("19.11.: prvi fokus su NOVČANICI: naći novčanike koji kupuju prije pumpe / prije poziva influencera i "
+                      "prodaju u pumpu (insajderski novčanici), dokazati na povijesti da se kopiranje isplati nakon troška i "
+                      "kašnjenja, pa ih kopirati unutar sekunde. Drugi fokus: strategija ulaza i izlaza za midcapove od 15 M $ "
+                      "naviše. Influenceri i Telegram osvježavaju se jednom u 5 dana i ne dobivaju druge resurse.", txt)
+        self.assertLess(txt.index("prvi fokus su NOVČANICI"), txt.index("STANJE ALATA"))
+        self.assertLessEqual(len(txt), smjer.BRIEF_MAX)
+
+    def test_the_question_is_the_wallet_strategy_and_the_schema_stays(self):
+        q = smjer.PITANJE
+        for part in ("NAĆI", "Heliusa", "koliko koštaju", "definicija pumpe", "botove, market makere, novčanike tima",
+                     "svježe jednokratne", "financirao", "DOKAZATI", "do trenutka odluke", "izvan uzorka", "1-2 s",
+                     "stvarni trošak", "KOPIRATI unutar sekunde", "vanjski alat", "naknade", "čuvanje ključa",
+                     "prva tri koraka", "pravim novcem", "14 dana"):
+            self.assertIn(part, q)
+        self.assertEqual(smjer.SCHEMA["properties"]["prijedlozi"]["items"]["required"],
+                         ["naslov", "obrazlozenje", "koraci", "sto_ugasiti", "koji_podaci", "kako_povecava_zaradu",
+                          "mjerenje", "proposed_change"])
+        smjer.otvori(self.con, self.now, self.log, "test")
+        body = [b for b in self.openai.calls if b["text"]["format"]["name"] == "vijece_smjer"][0]
+        self.assertIn("Strategija NOVČANIKA", body["input"])
+        self.assertTrue(self.logged("pitanje: Strategija NOVČANIKA"))
+
+    def test_the_19_11_session_opens_once_after_the_deploy(self):
+        self.con.execute("DELETE FROM settings WHERE k=?", (smjer.ONCE_KEY_C,))   # the deploy: the earlier ones are done
+        self.con.commit()
+        self.assertEqual(smjer.ONCE_KEY_C, "vijece_smjer_1911")
+        why = smjer.na_redu(self.con, self.now)
+        self.assertEqual(why, "nova sjednica: vlasnikov smjer 19.11. (novčanici)")
+        s = smjer.korak(self.con, self.now, self.log)
+        self.assertEqual(s["razlog"], why)
+        self.assertEqual(settings.raw(self.con)[smjer.ONCE_KEY_C], self.now)
+        self.assertTrue(self.logged("vijeće: smjer: sjednica otvorena (nova sjednica: vlasnikov smjer 19.11."))
+        smjer.zakljuci(self.con, self.now + 3600, self.log, force=True)
+        with mock.patch.object(smjer, "tjedan", lambda ts: 1):                      # the week rule out of the way
+            self.assertIsNone(smjer.na_redu(self.con, self.now + 2 * 3600))         # once
+            self.assertIsNone(smjer.korak(self.con, self.now + 2 * 3600, self.log))
+
+    def test_it_waits_for_an_open_session_and_any_new_session_uses_it_up(self):
+        s = smjer.otvori(self.con, self.now, self.log, "tjedna")                    # open before the deploy
+        self.con.execute("DELETE FROM settings WHERE k=?", (smjer.ONCE_KEY_C,))
+        self.con.commit()
+        self.assertIsNone(smjer.na_redu(self.con, self.now + 600))                  # one at a time
+        self.assertEqual(smjer.korak(self.con, self.now + 600, self.log)["ts"], s["ts"])
+        smjer.zakljuci(self.con, self.now + 3600, self.log, force=True)
+        self.assertEqual(smjer.na_redu(self.con, self.now + 3700), smjer.RAZLOG_C)  # opens when that one closed
+        self.con.execute("DELETE FROM settings WHERE k IN (?, ?, ?)", (smjer.ONCE_KEY, smjer.ONCE_KEY_B, smjer.ONCE_KEY_C))
+        self.con.commit()
+        self.assertEqual(smjer.na_redu(self.con, self.now + 3800), "prva sjednica nakon deploya")
+        smjer.otvori(self.con, self.now + 3800, self.log, "prva")                   # a new install: one session
+        raw = settings.raw(self.con)
+        self.assertTrue(raw[smjer.ONCE_KEY] and raw[smjer.ONCE_KEY_C])
+
+    def test_grok_task_carries_the_wallet_question(self):
+        smjer.otvori(self.con, self.now, self.log, "test")
+        task = [t for t in vmcp.grok_tasks(self.con, self.now) if t["kind"] == "council_direction"][0]
+        for part in ("WALLETS", "before influencer calls", "sell into the pump", "APIs to add or drop besides Helius",
+                     "clustering by funder", "point-in-time", "1-2 s delay", "within a second", "custody", "14 days"):
+            self.assertIn(part, task["instruction"])
+        self.assertIn("Strategija NOVČANIKA", vmcp.queue()["direction_request"]["question"])
+        self.assertIn("how to find, prove and copy the wallets", task["answer_with"]["arguments"]["title"])
+
+
 class OwnerDecisions(Base):
     """18.11.: the owner's standing decisions lead every brief and every review; a proposal against them is refused."""
 
@@ -848,7 +917,7 @@ class OwnerDecisions(Base):
                       "Prijedlozi 'pauzirati pravi novac' nisu prihvatljivi; prihvatljivi su prijedlozi koji mijenjaju ŠTO "
                       "pravi novac kupuje i kako izlazi, uz dokaz.", txt)
         self.assertIn("18.11.: vlasnik je odobrio jednokratno mjerenje troška jednim stvarnim krugom pri 0,3 i 0,5 SOL.", txt)
-        self.assertEqual(len(smjer.ODLUKE_VLASNIKA), 2)
+        self.assertEqual(len(smjer.ODLUKE_VLASNIKA), 3)
         smjer.otvori(self.con, self.now, self.log, "prva")
         body = [b for b in self.openai.calls if b["text"]["format"]["name"] == "vijece_smjer"][0]
         self.assertIn("pravi novac se NE pauzira", body["input"])

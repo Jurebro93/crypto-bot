@@ -185,7 +185,8 @@ def novac_state(tcon, cfg, now):
     except Exception:  # noqa: BLE001
         pass
     return {"on": on, "running": on and not why, "why": why, "held": held, "caps": caps, "floor": executor.equity_floor(cfg),
-            "buys": buys, "open": n_open, "pnl": pnl, "others": others, "stopped": not cfg.get("on")}
+            "buys": buys, "open": n_open, "pnl": pnl, "others": others, "stopped": not cfg.get("on"),
+            "pauza": bool(settings.pauza(tcon))}   # 19.11.: the owner's pause of every automatic real buy
 
 
 def caps_text(ns):
@@ -210,6 +211,10 @@ def _novac_row(ns, owner):
     t = today_text(ns)
     if t:
         lines.append(f'<p class=apx-js><b>Danas:</b> {esc(t[6:])}.</p>')
+    if ns.get("pauza"):   # 19.11. (vlasnik: "Autopilot kupovinu s pravim novcem isključi")
+        lines.append('<p class="apx-js warn"><b>Pauzirano tvojim nalogom 19.11.</b> (promjena strategije: novčanici): '
+                     'bot ne kupuje pravim novcem. Otvorene pozicije zadržavaju izlaze, demo računi rade dalje. '
+                     'Kupnje se vraćaju tek kad ovdje sam uključiš prekidač.</p>')
     if ns["on"] and ns["why"]:
         lines.append(f'<p class="apx-js warn">Uključen, ali sada ne kupuje: {esc(ns["why"])}.</p>')
     if ns["others"]:

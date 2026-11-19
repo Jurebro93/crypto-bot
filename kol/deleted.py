@@ -225,7 +225,10 @@ def start_flash_thread(cfg, log=print, sleep=time.sleep):
     def run():
         while True:
             try:
-                flash_round(cfg, log=lambda m, **k: log(m, flush=True) if log is print else log(m))
+                # 19.11. (ops/drustveni): the paid re-checks of fresh X posts only inside the social refresh window
+                from ops import drustveni
+                if drustveni.gate("brzo_obrisane", log=None if log is print else log):
+                    flash_round(cfg, log=lambda m, **k: log(m, flush=True) if log is print else log(m))
             except Exception as e:  # noqa: BLE001 - the thread never dies on one pass
                 log(f"brzo obrisane: {type(e).__name__}: {str(e)[:160]}")
             sleep(every)

@@ -400,6 +400,12 @@ def xmom_pass(con, c, now, log=print):
     """X momentum (scan/xmom, twitterapi.io) for the hottest members, inside the scanner's own day cap. USD spent."""
     if int(c["x_pass"]) <= 0:
         return 0.0
+    try:   # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana; ops/drustveni.py): X searches only in the window
+        from ops import drustveni
+        if not drustveni.gate("xmom", now, log=None if log is print else log):
+            return 0.0
+    except ImportError:
+        pass
     try:
         from kol import twapi
         from scan import store as sstore, xmom

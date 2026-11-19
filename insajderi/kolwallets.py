@@ -1149,13 +1149,15 @@ def pred_stats(con):
 # ===================================================================================================================
 # the pass
 # ===================================================================================================================
-def run_pass(con, p, c, now, kind="incr", fetch=None, credits=None, log=print, seed=None, x_get=None):
+def run_pass(con, p, c, now, kind="incr", fetch=None, credits=None, log=print, seed=None, x_get=None, left_s=None):
     """One bounded pass inside run_insajderi (once / night / incr). Never raises: a failure is one log line and the
-    last stored result stays. Returns the summary (also i2_kv 'kolw_summary')."""
+    last stored result stays. Returns the summary (also i2_kv 'kolw_summary'). left_s (19.11.): the seconds the whole
+    insajderi pass has left (store.Clock): its own bound kol_max_s / kol_incr_s never goes past it."""
     t = time.monotonic()
     try:
         ensure(con)
-        deadline = t + float(c["kol_incr_s"] if kind == "incr" else c["kol_max_s"])
+        deadline = t + min(float(c["kol_incr_s"] if kind == "incr" else c["kol_max_s"]),
+                           float("inf") if left_s is None else max(0.0, float(left_s)))
         infs = load_seed(seed, con, p.get("kol_db"))
         try:
             xs = fetch_posts(con, c, now, infs, get=x_get, log=log)

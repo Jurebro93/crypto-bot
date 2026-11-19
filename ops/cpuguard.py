@@ -140,6 +140,8 @@ PROCESSES = (
     ("apify-stanje", "-m hype.apify", (), PROTECTED, "jedan red na startu: ugašeni Apify izvori; čita mali JSON"),
     # 15.11. navečer (owner switch fokus_midcap): one line at every start; reads trade.db / midcap.db, milliseconds
     ("fokus-stanje", "-m ops.fokus", (), PROTECTED, "jedan red na startu: poslovi za mikrokapove ugašeni / preusmjereni"),
+    ("drustveni-stanje", "-m ops.drustveni", (), PROTECTED, "jedan red na startu: prozor osvježavanja influencera i "
+     "Telegrama (19.11.: jednom u 5 dana), prvi prozor pri prvom startu"),
     ("sched", "run_sched.py", (), PROTECTED, "raspored: drži sat i pokreće svoje poslove; sam ne troši CPU"),
     # 2: the hype scan (a child of the demo loop every 2 min) and the nightly smart-wallet learning
     ("hype-status", "run_hype.py", ("status",), JOBS, "status tokena svakih 6 sati (raspored)"),

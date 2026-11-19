@@ -116,13 +116,23 @@ def _live_badge():
     return badge(f"živ, {st['trades_24h']:,} tradeova u 24 h, {st['tokens']} tokena", "good")
 
 
+def _social_note():
+    """19.11. (vlasnik): influencers and Telegram are refreshed once in 5 days (ops/drustveni.py); one notice at the top
+    of the page, Croatian (the app translates it on the way out)."""
+    try:
+        from ops import drustveni
+        return drustveni.notice_html("hr", notr=False)
+    except Exception:  # noqa: BLE001 - a notice never costs the page
+        return ""
+
+
 def page(qs):
     tcon, kcon = _ro("tg.db"), _ro("kol.db")
     now = time.time()
     b = ["<h1>Društveni izvori kolova</h1>" + tdesc(
         "Osim X-a bot prati javne Telegram call kanale i KOL novčanike na lancu. Kad više dobrih izvora zove isti token "
         "u kratkom vremenu, to je konvergencija: tada bot ulazi malim demo ulogom prije gomile. Sve se otkriva i mjeri "
-        "samo; Telegram kanal dobiva ocjenu istim pravilima kao KOL na X-u.")]
+        "samo; Telegram kanal dobiva ocjenu istim pravilima kao KOL na X-u.") + _social_note()]
     try:
         st = dict(_q(tcon, "SELECT status, COUNT(*) FROM channels GROUP BY status"))
         n24 = (_q(tcon, "SELECT COUNT(*) FROM posts WHERE cas != '' AND seen_ts >= ?", (now - 86400,)) or [(0,)])[0][0]

@@ -155,8 +155,9 @@ def hub(lang):
         "itemListElement": [{"@type": "ListItem", "position": i, "name": r["channel"],
                              "url": f"{os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/')}{t['prof']}{r['channel']}"}
                             for i, r in enumerate(rs[:50], 1)]}) + "</script>")
+    from ops import drustveni   # 19.11. (vlasnik): Telegram refreshed once in 5 days, all resources on wallets
     body = (f"<section class=ph1><h1>{t['hub_h1']}</h1><p class=lead>{t['hub_lead'].format(m=KS.MIN_CLEAN)}</p></section>"
-            f"{table}{lock}<h2 class=s>{t['how_h']}</h2><ul class=how>{how}</ul>")
+            f"{drustveni.public_notice(lang)}{table}{lock}<h2 class=s>{t['how_h']}</h2><ul class=how>{how}</ul>")
     return public._shell(lang, t["hub_title"], t["hub_desc"].format(n=len(rs)), "/telegram-channels", "/hr/telegram-kanali",
                          body, jsonld=jsonld)
 
