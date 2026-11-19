@@ -18,31 +18,35 @@ class Landing(unittest.TestCase):
         landing._IPS.clear()
 
     def test_page_renders_with_and_without_numbers(self):
-        landing._STATS.update(ts=0, v={}, busy=True)        # nothing counted yet: fallback cards, no crash
+        """20.11. (vlasnik 19.11.: "promijeniti fokus"): the wallets that buy before a jump first; the live numbers
+        from the stored summaries ("—" and "being computed" without them)."""
+        landing._STATS.update(ts=0, v={}, busy=True)        # nothing counted yet: no crash, honest dashes
         html = landing.page_html({})
-        for s in ("Za sada besplatno", "pristup na zahtjev", "Zatraži pristup", "/prijava", "Prijedlozi tokena", "Praćenje novčanika", "Event tokeni", "action=/zatrazi-pristup", "og:image",
-                  "/static/landing/tokeni.jpg", "/static/landing/mob-kol-profil.jpg", "name=web"):
+        for s in ("Za sada besplatno", "pristup na zahtjev", "Zatraži pristup", "/prijava", "Novčanici koji kupuju",
+                  "Kako radi", "action=/zatrazi-pristup", "og:image", "/static/landing/token-midcap.jpg", "name=web",
+                  "Prvi rezultati se upravo računaju.", "Prvi nalazi stižu nakon noćne obrade."):
             self.assertIn(s, html)
+        self.assertEqual(html.split("id=brojke")[1].split("</section>")[0].count("<b>—</b>"), 4)
         import time
-        landing._STATS.update(ts=time.time(), v={"tokens": 25458, "kols": 358, "calls": 5360, "wallets": 1_234_567,
-                                                 "group_rate": .57, "solo_rate": .33, "group_n": 41, "solo_n": 812, "measured": 3645,
-                                                 "call_2x": .28, "call_50": .47}, busy=False)
+        nv = {"rises": 41, "found": 20, "confirmed": 8, "meas": {"n": 19, "mean": .047, "lo": -.02, "hi": .1, "td": 19,
+                                                                 "verdict": "premalo podataka: n=19 od potrebnih 100"},
+              "examples": [{"k": 70, "n": 7, "b": 6}, {"k": 1, "n": 3, "b": 3}], "tokens": []}
+        landing._STATS.update(ts=time.time(), v={"nov": nv}, busy=False)
         html = landing.page_html({})
-        self.assertIn("25.458", html)
-        self.assertIn("1,2 mil.", html)
-        self.assertIn("57%", html)
-        self.assertIn("1.7×", html)
-        self.assertIn("41 tokena s 3+ pozivatelja naspram 812", html)     # the comparison's own sample, not all calls
-        self.assertNotIn("3.645 poziva", html)
-        landing._STATS.update(ts=time.time(), v={"tokens": 25458, "kols": 358, "calls": 5360, "wallets": 1_234_567,
-                                                 "measured": 3645, "call_2x": .28, "call_50": .47}, busy=False)
-        html2 = landing.page_html({})                      # lift not measured yet: no made-up 57/33, no ratio
-        self.assertIn("Još se mjeri", html2)
-        for s in ("57%", "33%", "1.7×"):
-            self.assertNotIn(s, html2)
+        live = html.split("id=brojke")[1].split("</section>")[0]
+        for s in ("<b>41</b>", "<b>20</b>", "<b>8</b>", "<b>prerano za reći</b>", "izmjereno 19 kupnji"):
+            self.assertIn(s, live)
+        self.assertIn("Skupina od 70 povezanih novčanika kupila je prije rasta 7 tokena i prodala dok su rasli (6 od "
+                      "njih vrijedilo je 15 milijuna dolara ili više); potvrđeno na novijim podacima.", html)
+        self.assertIn("To je statistika iz javnih podataka s lanca, a ne financijski savjet.", html)
+        nv["meas"] = {"n": 140, "mean": .052, "lo": .011, "hi": .094, "td": 120, "verdict": "u plusu"}
+        landing._STATS.update(ts=time.time(), v={"nov": nv}, busy=False)
+        live = landing.page_html({}).split("id=brojke")[1].split("</section>")[0]
+        self.assertIn("<b>+5,2 %</b><span>po kupnji nakon troška (+1,1 % … +9,4 %)</span>", live)
         self.assertIn("Otvori aplikaciju", landing.page_html({}, logged_in=True))
         en = landing.page_html({}, lang="en")
-        for s in ("Free for now", "access on request", "/static/landing/en-mob-tokeni.jpg", "/static/landing/en-tokeni.jpg"):
+        for s in ("Free for now", "access on request", "/static/landing/en-novcanici.jpg", "Wallets that buy",
+                  "<b>+5.2 %</b><span>per buy after costs (+1.1 % … +9.4 %)</span>"):
             self.assertIn(s, en)
         import re
         for f in set(re.findall(r"/static/landing/([\w.-]+\.jpg)", html + en)):   # every image the page uses exists
@@ -89,7 +93,7 @@ class Landing(unittest.TestCase):
         landing.submit({"name": "Marko", "contact": "marko@mail.hr"}, "1.1.1.1")
         landing.submit({"name": "Ana", "contact": "ana@mail.hr"}, "1.1.1.2")
         _, body = landing.admin_page({}, None)
-        self.assertIn("samo organizator", body)                   # view-only account sees no contacts
+        self.assertIn("samo administrator", body)                   # view-only account sees no contacts
         _, body = landing.admin_page({}, "Jure")
         self.assertIn("Marko", body)
         self.assertIn("/zahtjevi/1/pozovi", body)
@@ -133,7 +137,7 @@ class Landing(unittest.TestCase):
         self.assertEqual(landing.admin_post("/zahtjevi/nova", None, {"name": "X"}), "/zahtjevi")
         os.environ["UI_ADMINS"] = "Jure"
         try:
-            self.assertIn("samo organizator", landing.admin_page({}, "Ivan")[1])
+            self.assertIn("samo administrator", landing.admin_page({}, "Ivan")[1])
         finally:
             os.environ.pop("UI_ADMINS", None)
 

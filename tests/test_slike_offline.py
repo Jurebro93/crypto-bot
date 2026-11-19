@@ -366,7 +366,7 @@ class Slider(unittest.TestCase):
         for lang in ("en", "hr"):
             h = landing.showcase(lang)
             imgs = re.findall(r"<img [^>]*>", h)
-            self.assertEqual(len(imgs), 6)
+            self.assertEqual(len(imgs), 4)              # 20.11.: wallets, measurement, token page, tokens
             self.assertIn('src="/static/landing/', imgs[0])
             self.assertIn("fetchpriority=high", imgs[0])
             for i in imgs[1:]:
