@@ -86,6 +86,10 @@ DEFAULT = {
     # 19.11. navečer (3): the list stage alone stops at its next step after list_max_s seconds (a hard guard: the pass
     # deadline is the other)
     "list_max_s": 600,
+    # 19.11. navečer: Birdeye's top traders by realized PnL on the pump tokens (insajderi/birdeye.py; free plan 30,000
+    # CU a month: 25,000 here, 30 CU a call, 0.7 calls a second, 3 pages of 10 a token, each token once in 14 days)
+    "birdeye": {"cu_month": 25000, "cu_call": 30, "rps": 0.7, "pages": 3, "time_frame": "90d", "refresh_d": 14,
+                "max_s": 120},
     "backfill": {"from": "2026-11-19", "until": "2026-11-25", "helius_day": 250000, "once_s": 1800, "incr_share": 0.2},
 }
 
@@ -167,6 +171,7 @@ class Clock:
         self.max_s = float(lim[kind]) if isinstance(lim, dict) and lim.get(kind) else None
         self.cuts, self.stages = [], {}
         self.sub = {}   # 19.11. navečer: the list stage's steps (seconds), run.analyze
+        self.copy_sub = {}   # 19.11. navečer (2): the copy stage's walks ("pp", "ins")
 
     def elapsed(self):
         return self.fn() - self.t0
