@@ -136,6 +136,13 @@ def fetch_candles(con, c, tok, pool, now, budget=None):
     """Daily (1 call) and, behind the gate, hourly (2 calls) candles of one token. -> calls used."""
     n = 1
     day = izvor.ohlcv(pool, tok, "day", limit=min(1000, int(c["days_1d"]) + 5))
+    if not day:   # a failed / empty answer is never marked done: retried, at most 3 times (then skipped as done)
+        k = f"cfail:{tok}"
+        tries = int(float(store.kv(con, k) or 0)) + 1
+        store.kv(con, k, tries)
+        if tries < 3:
+            con.commit()
+            return n
     save_candles(con, tok, "1d", day)
     if day and hour_gate(day, c, now):
         hr = izvor.ohlcv(pool, tok, "hour", limit=1000)

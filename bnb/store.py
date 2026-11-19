@@ -102,8 +102,9 @@ def config(cfg=None):
 
 
 def on():
-    """The environment switch BNB_ON (default 1): 0 turns the whole thing off."""
-    return os.environ.get("BNB_ON", "1").strip() not in ("0", "false", "no", "off", "")
+    """The environment switch BNB_ON. 20.11. (coordinator: the branch must deploy DORMANT): only BNB_ON=1 turns it on;
+    unset or anything else = off (no process works, no network call, no database file is written)."""
+    return os.environ.get("BNB_ON", "").strip() in ("1", "true", "yes", "on")
 
 
 def db_path():

@@ -580,12 +580,23 @@ class Runner(Db):
             self.assertEqual(out["cut"], "vrijeme")
             fe.assert_not_called()
 
-    def test_switch_off(self):
+    def test_dormant_unless_bnb_on_is_1(self):
         import run_bnb
-        buf = io.StringIO()
-        with mock.patch.dict(os.environ, {"BNB_ON": "0"}), redirect_stdout(buf):
-            self.assertEqual(run_bnb.main(["pass"]), 0)
-        self.assertIn("isključeno", buf.getvalue())
+        path = os.path.join(self.tmp.name, "dormant.db")
+        for val in (None, "0", ""):
+            env = {k: v for k, v in os.environ.items() if k != "BNB_ON"}
+            env["BNB_DB"] = path
+            if val is not None:
+                env["BNB_ON"] = val
+            buf = io.StringIO()
+            with mock.patch.dict(os.environ, env, clear=True), redirect_stdout(buf), \
+                    mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")):
+                self.assertEqual(run_bnb.main(["pass"]), 0)
+                self.assertEqual(run_bnb.main(["track"]), 0)
+            self.assertIn("isključeno", buf.getvalue())
+            self.assertFalse(os.path.exists(path))
+        with mock.patch.dict(os.environ, {"BNB_ON": "1"}):
+            self.assertTrue(store.on())
 
     def test_pogled_shapes_empty_and_report(self):
         s = pogled.summary()

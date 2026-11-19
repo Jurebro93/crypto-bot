@@ -11,7 +11,8 @@ no BNB executor.
     python3 run_bnb.py track                              the tracking poller + the measurement once
     python3 run_bnb.py report                             output/bnb_novcanici.md and the line from bnb.db
 
-BNB_ON=0 turns every command off (one line, exit 0). bnb.db: BNB_DB, else $DATA_DIR/bnb.db.
+Dormant unless BNB_ON=1: unset (or anything else) every command prints one line and exits 0, no network call,
+no database file. bnb.db: BNB_DB, else $DATA_DIR/bnb.db.
 """
 import os
 import sys
@@ -35,7 +36,7 @@ def main(argv=None):
     a = list(sys.argv[1:] if argv is None else argv)
     kind = a[0] if a and not a[0].startswith("-") else "pass"
     if not store.on():
-        print(f"{store.PREFIX}isključeno (BNB_ON=0)", flush=True)
+        print(f"{store.PREFIX}isključeno (BNB_ON nije 1)", flush=True)
         return 0
     c, now = store.config(), int(time.time())
     con = store.connect()
