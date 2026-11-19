@@ -64,6 +64,8 @@ def time_line(kind, clk):
     900 s: <what was left>]"."""
     parts = [f"{hr} {clk.stages[k]:.0f} s" for k, hr in STAGE_HR if k in clk.stages]
     out = f"{store.PREFIX}prolaz {kind}: trajanje: " + (", ".join(parts) or "—")
+    if clk.sub:   # 19.11. navečer: the list stage's steps ("popis: vlasnici 12 s, botovi 40 s, ...")
+        out += "; popis: " + ", ".join(f"{k} {v:.0f} s" for k, v in clk.sub.items())
     if chain.LAST_POOL.get("line"):   # 19.11. navečer (2): "dohvat: N poziva, R/s prosjek, radnika W, 429: K"
         out += "; " + chain.LAST_POOL["line"]
     if clk.cuts:
@@ -83,6 +85,7 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
     con = store.connect(p.get("insajderi_db"))
     clk = store.Clock(kind, c, clock)
     chain.LAST_POOL["line"] = None
+    del chain.LAST_FETCHED[:]
     try:   # 19.11. navečer (2): one rate for every thread of this process (wallets/rpc.LIMIT)
         from wallets import rpc
         rpc.LIMIT.set_rps(float(c.get("helius_rps") or 8))
@@ -112,7 +115,14 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                 ev.mark_tiers(con, c)   # 19.11.: the pump tiers (pumpa15 / pumpa2) of every stored market jump
                 evs = ev.load_horizon(con, c, now)
                 _log(log, pump_counts(evs))
-                todo = sorted((e for e in evs if e["t0"] >= since or not e.get("n_part")), key=chain.order_key)
+                # 19.11. navečer (production: "događaji" 364 s): rebuilding the participants of EVERY event of 45 / 180
+                # days on every pass is the night pass's job (the free sources, e.g. wallets/povijest's histories,
+                # can add old trades); once / incr rebuild only the events never built and those still young
+                if kind == "night":
+                    todo = [e for e in evs if e["t0"] >= since or not e.get("n_part")]
+                else:
+                    todo = [e for e in evs if not e.get("n_part") or e["win_end"] >= now - 3 * 86400]
+                todo = sorted(todo, key=chain.order_key)
                 built = chain.build(con, p, c, todo, stop=clk.over)
                 if built < len(todo):
                     clk.cut(f"{len(todo) - built} događaja još bez sudionika")
@@ -164,9 +174,10 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                     if not clk.over() and rest_stop():
                         _log(log, f"Helius za pozive stao na {share_t:.0%} vremena prolaza (pumpe imaju prednost): "
                                   f"ostaje {_unfetched(con, c, now)}")
-                    if n_f:
-                        chain.build(con, p, c, [e for e in ev.load_horizon(con, c, now)
-                                                if e.get("fetched")], stop=clk.over)
+                    if n_f:   # 19.11. navečer: only the events read in THIS pass (was: every fetched event)
+                        just = set(chain.LAST_FETCHED)
+                        chain.build(con, p, c, [e for e in ev.load_horizon(con, c, now) if e["eid"] in just],
+                                    stop=clk.over)
                 if clk.over():
                     clk.cut(f"Helius ostaje {_unfetched(con, c, now)} za sljedeći prolaz (istim redom)")
                 con.execute("INSERT INTO i2_runs VALUES (?,?,?,?)",
@@ -191,7 +202,8 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
             store.kv(con, f"{kind}_last", now)
             if (summary or {}).get("prije_pumpe"):   # 19.11. navečer: the forced once pass is done for this depth
                 store.kv(con, "depth_version", store.FETCH_DEPTH)
-            store.kv(con, "stage_s", json.dumps({**clk.stages, "ts": now, "kind": kind, "cut": bool(clk.cuts)}))
+            store.kv(con, "stage_s", json.dumps({**clk.stages, "ts": now, "kind": kind, "cut": bool(clk.cuts),
+                                                 "popis_koraci": dict(clk.sub)}))
         summary["trajanje"] = dict(clk.stages)
         summary["prekinuto"] = list(clk.cuts)
         store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))
@@ -258,25 +270,85 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
         con.commit()
         return summary
     from insajderi import prijepumpe
+    # 19.11. navečer (production: the list stage ran 21+ min past the deadline, holding the heavy lock): the funnel
+    # FIRST from cheap SQL counts (the owner always gets it), then every step timed (clk.sub, the pass line "popis:
+    # vlasnici 12 s, ...") and asked to stop between steps: at the pass deadline or when the list stage alone passed
+    # list_max_s (600 s). A cut step keeps the stored result of what it did not compute and says which step.
+    t_list = clk.fn()
+    list_max = float(c.get("list_max_s") or 600)
+    prev_pp = dict(prev.get("prije_pumpe") or {})
+    try:
+        prev_pp["lijevak"] = prijepumpe.funnel_sql(con, c, evs)
+    except Exception as e:  # noqa: BLE001
+        _log(log, f"lijevak ({type(e).__name__}: {e})")
+    cut_at = []
+
+    def lstop():
+        return clk.over() or clk.fn() - t_list >= list_max
+
+    def step(name, fn):
+        if cut_at:
+            return None
+        if lstop():
+            cut_at.append(name)
+            return None
+        t0 = clk.fn()
+        try:
+            return fn()
+        finally:
+            clk.sub[name] = round(clk.sub.get(name, 0.0) + clk.fn() - t0, 1)
+    own = relay = parts = ft = bad = stats = cats = None
+    n_groups = None
+    pp, mm = {}, set()
     with clk.stage("popis"):
-        own, relay = chain.assign_owners(con, p, c)
-        parts = score.load_parts(con)
-        ft = score.first_trades(p, {e["token"] for e in evs})
-        owners_hit = {r[2] or r[1] for r in parts if r[8] and r[9]}
-        cand = {r[1] for r in parts if (r[2] or r[1]) in owners_hit}
-        bad = score.bots(con, p, c, cand, now - int(c["days"]) * 86400)
-        stats = score.classify(parts, evs, now + 1, c, bad, ft)
-        n_groups = score.save(con, stats, now)
-        cats = ev.catalyze(con, p, evs, chain.waves(con, c))
-        pp, mm = {}, set()
+        r = step("vlasnici", lambda: chain.assign_owners(con, p, c))
+        if r is not None:
+            own, relay = r
+        parts = step("dijelovi", lambda: score.load_parts(con))
+        ft = step("prvi", lambda: score.first_trades(p, {e["token"] for e in evs}))
+
+        def _bots():
+            owners_hit = {r_[2] or r_[1] for r_ in parts if r_[8] and r_[9]}
+            cand = {r_[1] for r_ in parts if (r_[2] or r_[1]) in owners_hit}
+            return score.bots(con, p, c, cand, now - int(c["days"]) * 86400)
+        bad = step("botovi", _bots)
+        stats = step("klase", lambda: score.classify(parts, evs, now + 1, c, bad, ft))
+        n_groups = step("spremanje", lambda: score.save(con, stats, now))
+        cats = step("katalizatori", lambda: ev.catalyze(con, p, evs, chain.waves(con, c)))
+
+        def _pp():
+            return prijepumpe.run_list(con, c, now, evs, parts, bad, ft, prev_pp, lstop)
         try:   # 19.11. (vlasnik: "svi resursi u pronalaženje novčanika koji kupuju prije pumpe"): insajderi/prijepumpe
-            pp, mm = prijepumpe.run_list(con, c, now, evs, parts, bad, ft, prev.get("prije_pumpe"), stop)
-            if pp.get("cut"):
-                clk.cut("popis novčanika prije pumpe / bundle: ostaje zadnji")
+            r = step("prije_pumpe", _pp)
+            if r is not None:
+                pp, mm = r
+                if pp.get("cut"):
+                    cut_at.append(f"prije_pumpe ({pp['cut']})")
         except Exception as e:  # noqa: BLE001 - one part costs only itself
             _log(log, f"novčanici prije pumpe ({type(e).__name__}: {e})")
+    if cut_at:
+        why = "vremenska granica prolaza" if clk.over() else f"popis dulji od {list_max:.0f} s"
+        clk.cut(f"popis: prekinuto u koraku {cut_at[0]} ({why}); ostaje zadnji izračun tog dijela")
+        _log(log, f"popis: prekinuto u koraku {cut_at[0]} ({why})")
+        if not pp:
+            pp = prev_pp
+    if stats is None:   # the class list was not computed: the stored numbers of the last pass stay
+        summary = {**prev, "ts": now, "events": len(evs), "call_events": sum(1 for e in evs if e["kind"] == "call"),
+                   "jump_events": sum(1 for e in evs if e["kind"] == "jump"),
+                   "covered": sum(1 for e in evs if e.get("n_part")),
+                   "fetched": sum(1 for e in evs if e.get("fetched")),
+                   "helius_today": store.helius_spent(con, now),
+                   "helius_cap": store.helius_cap(c, now, p.get("usage_db"))[0],
+                   "list_skipped": f"prekinuto u koraku {cut_at[0] if cut_at else '?'}"}
+        if pp:
+            summary["prije_pumpe"] = pp
+        store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))
+        con.commit()
+        return summary
+    cats = cats if cats is not None else prev.get("catalysts")
+    n_groups = n_groups if n_groups is not None else prev.get("groups_stored")
     cs, ok, why = prev.get("copy"), prev.get("copyable"), prev.get("verdict")
-    if not light and clk.over():
+    if not light and (clk.over() or cut_at or bad is None or ft is None):
         clk.cut("kopija nije izračunata (ostaju brojke zadnjeg punog prolaza)")
     elif not light:
         with clk.stage("kopija"):
@@ -292,7 +364,7 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
                 copy.save(con, rows)
                 cs = copy.summarize(rows)
                 ok, why = copy.verdict(cs)
-            if pp:
+            if pp and mm is not None and pp is not prev_pp:
                 try:
                     res = prijepumpe.walk(con, p, c, evs, parts, now, bad, ft, mm, trades=trades, sel=psel,
                                           stop=stop)[0] if psel is not None else None

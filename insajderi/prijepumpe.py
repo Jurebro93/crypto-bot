@@ -527,9 +527,51 @@ def funnel(con, c, events, parts, st, now):
                 prodali.add(r[1])
     out["rani"], out["rani_prodali"] = len(rani), len(prodali)
     need = int(c["pump_min_tokens"])
-    out["blizu_praga"] = sum(1 for s in st.values() if s["n_tokens"] == need - 1 and s["cls"] in ("kandidat",))
+    # 19.11. navečer: "blizu praga" = WALLETS with need - 1 distinct pump tokens bought (paid) before and sold into,
+    # the same count funnel_sql gives before the list is computed
+    toks = defaultdict(set)
+    for r in parts:
+        if r[0] in tiered and r[8] and r[9] and (r[4] or 0) >= float(c["min_sol"]):
+            toks[r[1]].add(tiered[r[0]]["token"])
+    out["blizu_praga"] = sum(1 for v in toks.values() if len(v) == need - 1)
     out["grupe"] = sum(1 for s in st.values() if s["cls"] == "prije_pumpe")
     out["potvrdjeno"] = len(confirmed(st))
+    return out
+
+
+def funnel_sql(con, c, events):
+    """19.11. navečer: the funnel from cheap SQL counts, computed FIRST in a pass (before the owners, the bots and the
+    classes), so the owner gets it even when the list stage is cut. The same keys as funnel(); "grupe" and
+    "potvrdjeno" are the stored list's (i2_pp) of the last computed pass."""
+    from insajderi import events as iev
+    out = {k: 0 for k in ("pumpe15_1h", "pumpe15_1d", "pumpe2_1h", "pumpe2_1d", "duboko", "rani", "rani_prodali",
+                          "blizu_praga", "grupe", "potvrdjeno")}
+    tiered = {e["eid"]: e for e in events if e.get("tier") in ("pumpa15", "pumpa2")}
+    for e in tiered.values():
+        out[f"pumpe{'15' if e['tier'] == 'pumpa15' else '2'}_{iev.res_of(e)}"] += 1
+    cov = {eid: (d, pc, jc) for eid, d, pc, jc in store.q(con, "SELECT eid, depth, pre_cov, jump_cov FROM i2_cover")}
+    deep = [cov[eid] for eid in tiered if eid in cov and (cov[eid][0] or 0) >= store.FETCH_DEPTH]
+    out["duboko"] = len(deep)
+    pre = [x[1] for x in deep if x[1] is not None]
+    jmp = [x[2] for x in deep if x[2] is not None]
+    out["pokrivenost_pre_med"] = round(100 * _med(pre), 1) if pre else None
+    out["pokrivenost_skok_med"] = round(100 * _med(jmp), 1) if jmp else None
+    out["n_pokrivenost"] = len(pre)
+    con.execute("DROP TABLE IF EXISTS temp.i2_tier")
+    con.execute("CREATE TEMP TABLE i2_tier (eid TEXT PRIMARY KEY, token TEXT)")
+    con.executemany("INSERT INTO temp.i2_tier VALUES (?, ?)", [(eid, e["token"]) for eid, e in tiered.items()])
+    q = lambda sql, a=(): (store.q(con, sql, a) or [(0,)])[0][0] or 0   # noqa: E731
+    out["rani"] = q("SELECT COUNT(DISTINCT p.wallet) FROM i2_part p JOIN temp.i2_tier t ON t.eid = p.eid "
+                    "WHERE p.bought_before = 1")
+    out["rani_prodali"] = q("SELECT COUNT(DISTINCT p.wallet) FROM i2_part p JOIN temp.i2_tier t ON t.eid = p.eid "
+                            "WHERE p.bought_before = 1 AND p.sold_into = 1")
+    out["blizu_praga"] = q("SELECT COUNT(*) FROM (SELECT p.wallet FROM i2_part p JOIN temp.i2_tier t ON t.eid = p.eid "
+                           "WHERE p.bought_before = 1 AND p.sold_into = 1 AND COALESCE(p.sol_in, 0) >= ? GROUP BY "
+                           "p.wallet HAVING COUNT(DISTINCT t.token) = ?)",
+                           (float(c["min_sol"]), int(c["pump_min_tokens"]) - 1))
+    con.execute("DROP TABLE temp.i2_tier")
+    out["grupe"] = q("SELECT COUNT(*) FROM i2_pp WHERE cls = 'prije_pumpe'")
+    out["potvrdjeno"] = q("SELECT COUNT(*) FROM i2_pp WHERE cls = 'prije_pumpe' AND confirmed_ts IS NOT NULL")
     return out
 
 
