@@ -202,7 +202,7 @@ def _pp_select(c, events, mparts, d, bad, ft, mm, owner_members, early_owners):
 
 
 def _ins_select(c, events, mparts, d, bad, ft):
-    return score.confirmed(score.classify(mparts, events, d, c, bad, ft))
+    return score.confirmed(score.classify(mparts, events, d, c, bad, ft, slim="light"))
 
 
 # ---------- the fast selection (exact: per-owner classification reads only that owner's rows + day globals) ----------
@@ -223,25 +223,31 @@ class Fast:
     def __init__(self, c, events, mparts, bad, ft, mm, last_day, walk="pp"):
         self.c, self.events, self.bad, self.ft, self.mm = c, events, bad, ft, mm
         self.walk = walk
-        self.by_owner = defaultdict(list)
-        for r in mparts:
-            self.by_owner[r[2] or r[1]].append(r)
+        self.mparts = mparts
         fin = last_day + D
         self.s_pp, self.s_ins = [], []
         if walk == "pp":
+            self.by_owner = defaultdict(list)
+            for r in mparts:
+                self.by_owner[r[2] or r[1]].append(r)
             st_pp = prijepumpe.classify(mparts, events, fin, c, bad, ft, mm)
             need = int(c["pump_min_tokens"])
             self.s_pp = [r for o in sorted(o for o, s in st_pp.items() if s["n_tokens"] >= need)
                          for r in self.by_owner[o]]
-        else:
-            st_ins = score.classify(mparts, events, fin, c, bad, ft)
-            self.s_ins = [r for o in sorted(o for o, s in st_ins.items() if s["n_hits"] >= int(c["min_tokens"]))
-                          for r in self.by_owner[o]]
+        else:   # 20.11. (2): the insider walk needs the rows of its few candidates only (and none of the null's maps)
+            st_ins = score.classify(mparts, events, fin, c, bad, ft, slim="light")
+            sel_o = sorted(o for o, s in st_ins.items() if s["n_hits"] >= int(c["min_tokens"]))
+            want = set(sel_o)
+            self.by_owner = defaultdict(list)
+            for r in mparts:
+                if (r[2] or r[1]) in want:
+                    self.by_owner[r[2] or r[1]].append(r)
+            self.s_ins = [r for o in sel_o for r in self.by_owner[o]]
         self.ends = sorted((int(e["win_end"]), e["eid"]) for e in events)
         self.owners_of = defaultdict(set)
         self.early_of = defaultdict(set)
         self.wallets_of = defaultdict(list)
-        for r in mparts:
+        for r in (mparts if walk == "pp" else ()):
             self.owners_of[r[0]].add(r[2] or r[1])
             self.wallets_of[r[0]].append((r[1], r[2] or r[1]))
             if r[8]:
@@ -256,7 +262,10 @@ class Fast:
         self.any_cov = False
 
     def _recheck(self, owners, d):
-        rows = [r for o in owners for r in self.by_owner.get(o, ())]
+        # 20.11. (2): every owner (the first day): the walk's own rows, whose aggregate is cached (an owner's class reads
+        # only its own rows), not a new list of ~560k rows with a second aggregate
+        rows = self.mparts if len(owners) >= len(self.by_owner) and set(owners) >= set(self.by_owner) else \
+            [r for o in owners for r in self.by_owner.get(o, ())]
         st = prijepumpe.classify(rows, self.events, d, self.c, self.bad, self.ft, self.mm) if rows else {}
         for o in owners:
             s = st.get(o)
@@ -298,7 +307,8 @@ class Fast:
                 self._recheck(touched | busy, d)
         sel = prijepumpe.confirmed(prijepumpe.classify(self.s_pp, self.events, d, self.c, self.bad, self.ft, self.mm)) \
             if self.s_pp else {}
-        ins = score.confirmed(score.classify(self.s_ins, self.events, d, self.c, self.bad, self.ft)) if self.s_ins else {}
+        ins = score.confirmed(score.classify(self.s_ins, self.events, d, self.c, self.bad, self.ft, slim="light")) \
+            if self.s_ins else {}
         return sel, self.pool_all & self.keep, ins
 
 
@@ -315,9 +325,10 @@ def run(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, mm=fro
     timer = timer or (lambda _n, fn: fn())
     days = days_of(events, c, now)
     mparts = multi_parts(parts)
+    score.aggregate_subset(mparts, parts)   # 20.11. (2): no second aggregate of ~600k rows
     owner_members = defaultdict(set)
     early_owners = defaultdict(set)
-    for eid, w, o, _b, _si, _ns, _so, _fs, bb, _sd, _l in mparts:
+    for eid, w, o, _b, _si, _ns, _so, _fs, bb, _sd, _l in (() if fast else mparts):   # the slow path's only
         owner_members[o or w].add((eid, w))   # the null's members: the owner's wallets in events closed before D
         if bb:
             early_owners[eid].add(o or w)
@@ -357,6 +368,7 @@ def run(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, mm=fro
                 pl["null"][d] = {o: sorted(f.mem[o]) for o in rng.sample(pool, k)} if k else {}
             else:
                 pl["sel"][d] = ins
+        fs.pop(walk, None)   # 20.11. (2): its maps of ~560k rows go before the next walk builds its own
     for walk in walks:
         timer(walk, lambda w=walk: sel_phase(w))
     members = set()

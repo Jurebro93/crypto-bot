@@ -137,10 +137,13 @@ def _days_left_in_month(now):
 
 def cg_cap_from(info, now):
     """Pure: the day budget from a /key reading (cg_account's dict) at `now`.
-    max(3000, floor(0.9 x monthly_call_credit / 31)), but never more than what the month has left above a 5 % reserve,
-    spread over the days left in the calendar month (today included; the calls the day had already spent when the
-    reading was taken are added back, they are in its "remaining" already). No reading, an old one (36 h) or no credit
-    figure: 3000. A reading from another calendar month sets only the plan part (its "remaining" is not this month's)."""
+    With this month's "remaining": what the month has left above a 5 % reserve, spread over the days left in the
+    calendar month (today included; the calls the day had already spent when the reading was taken are added back,
+    they are in its "remaining" already). 20.11. (production: plan Basic, 38,497 of 100,000 used on the 20th while
+    ~3,100 calls a day fell to the free API at the fixed 3,000): credits the earlier days did not use raise the later
+    days, a month spent too fast lowers them, down to 0 inside the reserve. No reading, an old one (36 h) or no
+    credit figure: 3000. A reading from another calendar month (its "remaining" is not this month's): the plan part
+    max(3000, floor(0.9 x monthly_call_credit / 31))."""
     if not isinstance(info, dict) or not info.get("ts") or now - info["ts"] > CG_ACCOUNT_VALID:
         return CG_BASE_CAP
     credit = _int(info.get("credit"))
@@ -153,7 +156,7 @@ def cg_cap_from(info, now):
     if remaining is not None and time.strftime("%Y-%m", time.gmtime(info["ts"])) == time.strftime("%Y-%m", time.gmtime(now)):
         spent_then = int(info.get("n_at") or 0) if info.get("day") == _day(now) else 0
         spare = max(0.0, remaining - CG_MONTH_RESERVE * credit) / _days_left_in_month(now)
-        cap = min(cap, int(spent_then + spare))
+        cap = int(spent_then + spare)
     return max(0, cap)
 
 
@@ -262,7 +265,7 @@ def _cg_account_save(d):
 
 
 def cg_account_line(now=None):
-    """'coingecko račun: plan Analyst, ovaj mjesec 87.412 od 500.000 poziva, 500/min; dnevni strop 14.516 (iz plana)'
+    """'coingecko račun: plan Analyst, ovaj mjesec 87.412 od 500.000 poziva, 500/min; dnevni strop 35.236 (iz plana)'
     from the cached reading; "" without a key."""
     now = now or _now()
     if not _cg_key_raw():

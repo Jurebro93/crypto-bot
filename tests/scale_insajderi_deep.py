@@ -36,10 +36,13 @@ def _w(prefix, i):
     return (f"{prefix}{i:08d}" + "w" * 44)[:44]
 
 
-def build(d, scale=1.0, seed=11, depth=None, span=175):
+def build(d, scale=1.0, seed=11, depth=None, span=175, call_trades=None, call_pool=None):
     """Write insajderi.db (i2_part built by chain.build itself) and small side databases into d. -> (paths, now).
     depth: the scale of the swaps a pump (default `scale`; a small test keeps the deep reads' shape with depth > scale:
-    most participants traded only in one jump window); span: the days back the pumps start (a test keeps it short)."""
+    most participants traded only in one jump window); span: the days back the pumps start (a test keeps it short).
+    call_trades / call_pool (20.11. (2), production before the deep reads: ~700k participants of ~150k wallets, mostly
+    the call events' free sources): that many trades a call event in early.db precall_trades, by wallets drawn from a
+    pool of call_pool (they recur across call events); None: 60 a call event in i2_trades, mostly fresh wallets."""
     rnd = random.Random(seed)
     n15, n2, n_calls = max(3, int(65 * scale)), max(4, int(197 * scale)), max(5, int(1000 * scale))
     depth = scale if depth is None else depth
@@ -62,7 +65,8 @@ def build(d, scale=1.0, seed=11, depth=None, span=175):
         tok = (f"T{k:05d}" + "t" * 44)[:44]
         eid = f"d:{tok}:{t0}" if res_d else f"j:{tok}:{t0}"
         win_end = t0 + (2 * D if res_d else 8 * 3600)
-        events.append((eid, "jump", tok, f"S{k}", t0, None, None, 0, "{}", 5e6, win_end - 3600, 1.5, win_end, None,
+        mc0 = 12e6 if tier == "pumpa15" else 2e6   # events.mark_tiers: mcap0 x (1 + peak_x) is the peak MC
+        events.append((eid, "jump", tok, f"S{k}", t0, None, None, 0, "{}", mc0, win_end - 3600, 1.5, win_end, None,
                        None, "c1d 1d" if res_d else "midcap 6h", 2.0, 1, None, NOW, tier,
                        30e6 if tier == "pumpa15" else 5e6))
         pumps.append((eid, tok, t0, win_end))
@@ -118,8 +122,21 @@ def build(d, scale=1.0, seed=11, depth=None, span=175):
         if len(batch) > 300_000:
             con.executemany("INSERT INTO i2_trades VALUES (?,?,?,?,?,?,?,?,?,?)", batch)
             batch.clear()
+    call_free = []
     for e in events:
-        if e[1] == "call":
+        if e[1] == "call" and call_trades:
+            pool = int(call_pool or 150_000 * scale)
+            free = []
+            for i in range(int(call_trades)):
+                w = _w("Q", rnd.randrange(pool)) if rnd.random() < 0.9 else rnd.choice(rec)
+                if rnd.random() < 0.55:
+                    ts, side = e[4] - rnd.randint(60, 3 * D), "buy"
+                else:
+                    ts, side = rnd.randint(e[4], e[12]), "sell"
+                sol = round(rnd.uniform(0.02, 2.0), 3)
+                free.append((w, e[2], ts, side, sol, sol / 1e-6, w, f"q{e[0][-12:]}{i}"))
+            call_free.extend(free)
+        elif e[1] == "call":
             for _ in range(60):
                 w = rnd.choice(rec) if rnd.random() < 0.2 else new_w("K")
                 if rnd.random() < 0.5:
@@ -140,6 +157,9 @@ def build(d, scale=1.0, seed=11, depth=None, span=175):
                    [(rnd.choice(rec), f"M{rnd.randrange(5000)}", NOW - rnd.randrange(30 * D), rnd.choice(("buy", "sell")),
                      0.5, 100.0, rnd.randrange(10 ** 6), None, f"g{i}") for i in range(int(50_000 * scale) + 100)])
     ec.executemany("INSERT INTO group_fetched VALUES (?,?)", [(e[2], e[4] - 5 * D) for e in events[::2]])
+    ec.executemany("INSERT INTO precall_trades VALUES (?,?,?,?,?,?,?,?)", call_free)
+    ec.execute("CREATE INDEX pt_m ON precall_trades (mint)")
+    del call_free
     ec.commit()
     ec.close()
     hc = sqlite3.connect(p["hype_db"])

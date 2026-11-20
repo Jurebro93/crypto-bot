@@ -76,12 +76,58 @@ def time_line(kind, clk):
     return out
 
 
-def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, clock=None, **over):
+STATE_KEY = "pass_state"   # i2_kv: what a stage hands to the next one (run_insajderi.py runs them as processes)
+
+
+def mem(log, name):
+    """20.11. (2): one line "insajderi2: memorija N MB nakon koraka X" when the process holds store.MEM_LOG_MB or
+    more (the watchdog, ops/health.py, stops one process over 800 MB)."""
+    m = store.mem_line(name)
+    if m:
+        log(m)
+
+
+def _save_state(con, kind, now, nxt, clk=None, t_start=None, **extra):
+    """The hand-over to the next stage process: `nxt` ("b", "c" or None: nothing left), the pass's time, the clock."""
+    st = {"kind": kind, "now": now, "next": nxt, **extra}
+    if clk is not None:
+        st.update(t_start=t_start, stages=dict(clk.stages), cuts=list(clk.cuts), sub=dict(clk.sub),
+                  copy_sub=dict(clk.copy_sub), pool_line=chain.LAST_POOL["line"])
+    store.kv(con, STATE_KEY, json.dumps(st, ensure_ascii=False, default=str))
+    con.commit()
+
+
+def _load_state(con, kind):
+    try:
+        st = json.loads(store.kv(con, STATE_KEY) or "{}")
+    except ValueError:
+        st = {}
+    return st if st.get("kind") == kind else None
+
+
+def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, clock=None, stage=None, **over):
     """One pass. Returns the summary dict (also stored as i2_kv summary). 19.11.: under a wall-clock budget
     (pass_max_s[kind], store.Clock; clock: a fake time.monotonic for tests). The order puts the cheap, valuable part
     first: events + tiers, Helius (pumpa15, pumpa2, the rest), the class list, the copy tests, the rest; a stage that
     meets the budget stops cleanly, what was done is saved, the rest waits for the next pass and the time line says
-    what was left."""
+    what was left.
+    stage (20.11. (2), production: the full pass killed at 869 MB; the memory a process once held never goes back to
+    the system, so the analysis started on top of what the events and the Helius read had left): None = the whole pass
+    here (tests, report); "a" = the events and Helius (događaji, lanac); "b" = the list and the copy tests (analyze up
+    to "kopija"); "c" = trending, smart money (ostalo), kol, the summary and the lines. Each hands the pass's state (its
+    time, the clock's stages, cuts and steps, the read's line, the summary so far) to the next through i2_kv
+    pass_state and returns {"stage", "next"} ("next" None: nothing left; a skipped pass, incr, a cut end early). The
+    results are those of one process (tests/test_insajderi_memorija_offline.Stages)."""
+    st_b = None
+    if stage in ("b", "c"):
+        con0 = store.connect(store.paths(**over).get("insajderi_db"))
+        try:
+            st_b = _load_state(con0, kind)
+        finally:
+            con0.close()
+        if not st_b or st_b.get("next") != stage:
+            return {"stage": stage, "next": None}
+        now = st_b["now"]
     now = int(now or time.time())
     c = store.effective(store.config(cfg), now)   # 19.11. navečer: the backfill's once / incr values until its date
     p = store.paths(**over)
@@ -89,21 +135,51 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
     clk = store.Clock(kind, c, clock)
     chain.LAST_POOL["line"] = None
     del chain.LAST_FETCHED[:]
+    t_start = time.time()
+    if st_b:   # the pass goes on: its deadline counts from stage a's start, its stages and cuts carry over
+        t_start = float(st_b["t_start"])
+        clk.t0 = clk.fn() - max(0.0, time.time() - t_start)
+        clk.stages.update(st_b.get("stages") or {})
+        clk.cuts.extend(st_b.get("cuts") or [])
+        clk.sub.update(st_b.get("sub") or {})
+        clk.copy_sub.update(st_b.get("copy_sub") or {})
+        chain.LAST_POOL["line"] = st_b.get("pool_line")
     try:   # 19.11. navečer (2): one rate for every thread of this process (wallets/rpc.LIMIT)
         from wallets import rpc
         rpc.LIMIT.set_rps(float(c.get("helius_rps") or 8))
     except Exception:  # noqa: BLE001
         pass
     try:
+        if stage == "b":
+            res = analyze(con, p, c, now, log=log, light=(kind == "incr"), clk=clk, upto="kopija")
+            if res.get("pending"):
+                _save_state(con, kind, now, "c", clk, t_start, summary=res["summary"], stats=res["stats"])
+                return {"stage": "b", "next": "c"}
+            summary = _rest(con, p, c, kind, now, credits, fetch, log, clk, summary=res)
+            _save_state(con, kind, now, None)   # used: a stray stage never repeats it
+            return summary
+        if stage == "c":
+            prev = json.loads(store.kv(con, "summary") or "{}")
+            summary = ostalo(con, p, c, now, st_b["summary"], prev, st_b["stats"], ev.load_horizon(con, c, now), None,
+                             False, clk, log)
+            summary = _rest(con, p, c, kind, now, credits, fetch, log, clk, summary=summary)
+            _save_state(con, kind, now, None)
+            return summary
         if kind == "night":
             last = int(float(store.kv(con, "night_last") or 0))
             if now - last < float(c["night_gap_h"]) * 3600:
                 _log(log, f"noćni prolaz već odrađen prije {(now - last) / 3600:.1f} h, preskačem")
+                if stage == "a":
+                    _save_state(con, kind, now, None)
+                    return {"stage": "a", "next": None}
                 return json.loads(store.kv(con, "summary") or "{}")
         if kind == "once" and credits is None and not force_once(con):   # a deploy a few times a day must not redo
             last = max(int(float(store.kv(con, "once_last") or 0)), int(float(store.kv(con, "night_last") or 0)))
             if now - last < float(c["once_gap_h"]) * 3600:
                 _log(log, f"prolaz nakon deploya već odrađen prije {(now - last) / 3600:.1f} h, preskačem")
+                if stage == "a":
+                    _save_state(con, kind, now, None)
+                    return {"stage": "a", "next": None}
                 return json.loads(store.kv(con, "summary") or "{}")
         since = now - (2 * 86400 if kind == "incr" else int(c["days"]) * 86400)
         if kind != "report":
@@ -129,6 +205,7 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                 built = chain.build(con, p, c, todo, stop=clk.over)
                 if built < len(todo):
                     clk.cut(f"{len(todo) - built} događaja još bez sudionika")
+            mem(log, "dogadaji")
             with clk.stage("lanac"):
                 cap, how = store.helius_cap(c, now, p.get("usage_db"))
                 left = store.helius_left(con, c, now, p.get("usage_db"))
@@ -189,46 +266,58 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                 con.commit()
             _log(log, f"Helius {spent:,} kr. ({n_f} događaja), danas {store.helius_spent(con, now):,} od {cap:,} "
                       f"({how})")
-        summary = analyze(con, p, c, now, log=log, light=(kind == "incr"), clk=clk)
-        if kind != "report":   # 16.11.: the influencers' probably linked wallets (bounded, never raises into here)
-            if clk.over():
-                clk.cut("sporedni novčanici influencera preskočeni")
-            else:
-                with clk.stage("kol"):
-                    try:
-                        from insajderi import kolwallets
-                        kolwallets.run_pass(con, p, c, now, kind=kind, fetch=fetch, credits=credits, log=log,
-                                            left_s=clk.left_s())
-                    except Exception as e:  # noqa: BLE001
-                        log(f"insajderi kol: prolaz nije uspio ({type(e).__name__}: {e})")
-        if kind in ("night", "once"):
-            store.kv(con, f"{kind}_last", now)
-            if (summary or {}).get("prije_pumpe"):   # 19.11. navečer: the forced once pass is done for this depth
-                store.kv(con, "depth_version", store.FETCH_DEPTH)
-            store.kv(con, "stage_s", json.dumps({**clk.stages, "ts": now, "kind": kind, "cut": bool(clk.cuts),
-                                                 "popis_koraci": dict(clk.sub)}))
-        summary["trajanje"] = dict(clk.stages)
-        summary["prekinuto"] = list(clk.cuts)
-        store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))
-        con.commit()
-        try:
-            from insajderi import report
-            report.write(summary)
-        except Exception as e:  # noqa: BLE001 - the report never breaks the pass
-            _log(log, f"izvještaj nije napisan ({type(e).__name__}: {e})")
-        try:
-            from insajderi import report
-            for line in report.lines(summary):
-                log(line)
-            if kind == "report":
-                log(report.kol_line())
-            else:
-                log(time_line(kind, clk))
-        except Exception as e:  # noqa: BLE001
-            _log(log, f"log linija ({type(e).__name__}: {e})")
-        return summary
+            mem(log, "lanac")
+            if stage == "a":
+                _save_state(con, kind, now, "b", clk, t_start)
+                return {"stage": "a", "next": "b"}
+        return _rest(con, p, c, kind, now, credits, fetch, log, clk)
     finally:
         con.close()
+
+
+def _rest(con, p, c, kind, now, credits, fetch, log, clk, summary=None):
+    """The pass after the Helius read: the analysis (unless `summary` is given: run stage b / c), the influencers'
+    wallets, the summary, the report and the lines."""
+    if summary is None:
+        summary = analyze(con, p, c, now, log=log, light=(kind == "incr"), clk=clk)
+    if kind != "report":   # 16.11.: the influencers' probably linked wallets (bounded, never raises into here)
+        if clk.over():
+            clk.cut("sporedni novčanici influencera preskočeni")
+        else:
+            with clk.stage("kol"):
+                try:
+                    from insajderi import kolwallets
+                    kolwallets.run_pass(con, p, c, now, kind=kind, fetch=fetch, credits=credits, log=log,
+                                        left_s=clk.left_s())
+                except Exception as e:  # noqa: BLE001
+                    log(f"insajderi kol: prolaz nije uspio ({type(e).__name__}: {e})")
+            mem(log, "kol")
+    if kind in ("night", "once"):
+        store.kv(con, f"{kind}_last", now)
+        if (summary or {}).get("prije_pumpe"):   # 19.11. navečer: the forced once pass is done for this depth
+            store.kv(con, "depth_version", store.FETCH_DEPTH)
+        store.kv(con, "stage_s", json.dumps({**clk.stages, "ts": now, "kind": kind, "cut": bool(clk.cuts),
+                                             "popis_koraci": dict(clk.sub)}))
+    summary["trajanje"] = dict(clk.stages)
+    summary["prekinuto"] = list(clk.cuts)
+    store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))
+    con.commit()
+    try:
+        from insajderi import report
+        report.write(summary)
+    except Exception as e:  # noqa: BLE001 - the report never breaks the pass
+        _log(log, f"izvještaj nije napisan ({type(e).__name__}: {e})")
+    try:
+        from insajderi import report
+        for line in report.lines(summary):
+            log(line)
+        if kind == "report":
+            log(report.kol_line())
+        else:
+            log(time_line(kind, clk))
+    except Exception as e:  # noqa: BLE001
+        _log(log, f"log linija ({type(e).__name__}: {e})")
+    return summary
 
 
 def _list_ok(con, c, light):
@@ -248,7 +337,7 @@ def _list_ok(con, c, light):
     return True, None
 
 
-def analyze(con, p, c, now, log=print, light=False, clk=None):
+def analyze(con, p, c, now, log=print, light=False, clk=None, upto=None):
     """Owners, classification, catalysts, the copy walk-forward, trending and smart money -> the summary. light (incr):
     the walk-forwards (copy, smart money, trending score) keep the last full pass's numbers, and the class list runs
     only when it was fast on the last full pass (_list_ok). clk: the pass's store.Clock (19.11.); the order: the list,
@@ -286,10 +375,8 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
         _log(log, f"lijevak ({type(e).__name__}: {e})")
     cut_at = []
 
-    def mem(name):   # 20.11.: one line when the process is over store.MEM_LOG_MB (the watchdog kills at 800 MB)
-        m = store.mem_line(name)
-        if m:
-            log(m)
+    def mem_(name):
+        mem(log, name)
 
     def lstop():
         return clk.over() or clk.fn() - t_list >= list_max
@@ -305,7 +392,7 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
             return fn()
         finally:
             clk.sub[name] = round(clk.sub.get(name, 0.0) + clk.fn() - t0, 1)
-            mem(name)
+            mem_(name)
     own = relay = parts = ft = bad = stats = cats = None
     n_groups = None
     pp, mm = {}, set()
@@ -323,10 +410,12 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
             cand = {r_[1] for r_ in parts if (r_[2] or r_[1]) in owners_hit}
             return score.bots(con, p, c, cand, now - int(c["days"]) * 86400)
         bad = step("botovi", _bots)
-        r = step("klase", lambda: (score.classify(parts, evs, now + 1, c, bad, ft),
+        r = step("klase", lambda: (score.classify(parts, evs, now + 1, c, bad, ft, slim="store"),
                                    score.quiet_owners(con, evs, now + 1, parts)))
         stats, n_quiet = r if r is not None else (None, 0)
         n_groups = step("spremanje", lambda: score.save(con, stats, now))
+        if n_groups is not None:   # 20.11. (2): stored; the rest of the pass reads the class only (score.light)
+            stats = score.light(stats)
         cats = step("katalizatori", lambda: ev.catalyze(con, p, evs, chain.waves(con, c)))
 
         def _pp():
@@ -369,6 +458,7 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
                 pp = dict(pp or prev_pp or {}, birdeye=b)
             except Exception as e:  # noqa: BLE001 - a second source never costs the pass
                 _log(log, f"birdeye ({type(e).__name__}: {e})")
+        mem_("birdeye")
     cs, ok, why = prev.get("copy"), prev.get("copyable"), prev.get("verdict")
     ins_progress = prev.get("copy_progress")
     if not light and (clk.over() or cut_at or bad is None or ft is None):
@@ -382,10 +472,12 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
 
             def timer(name, fn):
                 t0 = clk.fn()
+                part = "redovi" if name in clk.copy_sub else "odabir"   # walkcache.run: the selection, then the rows
                 try:
                     return fn()
                 finally:
                     clk.copy_sub[name] = round(clk.copy_sub.get(name, 0.0) + clk.fn() - t0, 1)
+                    mem_(f"{ {'pp': 'kopija prije pumpe', 'ins': 'kopija insajderi'}.get(name, name)} ({part})")
             walks = ("pp", "ins") if (pp_fresh and mm is not None) else ("ins",)
             try:
                 wres = walkcache.run(con, p, c, evs, parts, now, bad, ft, mm or frozenset(), stop=stop, walks=walks,
@@ -408,7 +500,6 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
                 else:
                     ins_progress = walkcache.progress(r_ins)
                     clk.cut(f"kopija insajdera: {ins_progress} (zaostaje, nastavlja sljedeći prolaz)")
-        mem("kopija")
     n_sellers = (store.q(con, "SELECT COUNT(*) FROM (SELECT DISTINCT wallet FROM i2_part WHERE sold_into)")
                  or [(0,)])[0][0]
     before = {r[1] for r in parts if r[9] and r[8]}
@@ -428,6 +519,17 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
                "helius_cap": store.helius_cap(c, now, p.get("usage_db"))[0]}
     if pp:
         summary["prije_pumpe"] = pp
+    if upto == "kopija" and not light and not clk.over():   # 20.11. (2): "ostalo" in the next process (run stage c)
+        keep = {o: {"cls": s["cls"], "confirmed": s["confirmed"]} for o, s in stats.items()
+                if s["cls"] in score.OUT or s["cls"] == "insajder"}
+        return {"pending": True, "summary": summary, "stats": keep}
+    return ostalo(con, p, c, now, summary, prev, stats, evs, parts, light, clk, log)
+
+
+def ostalo(con, p, c, now, summary, prev, stats, evs, parts, light, clk, log):
+    """The last part of analyze(): trending and smart money ("ostalo"), then the summary stored. parts None: read here
+    (run stage c: a fresh process; the relevant rows, score.load_parts). stats: the classes smart.roles reads (an owner
+    missing from it is neither excluded nor an insider)."""
     if light or clk.over():
         if clk.over() and not light:
             clk.cut("trending i pametni novac: ostaju zadnji")
@@ -447,12 +549,15 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
                 summary["trending"] = trending.run(con, p, c, now)
             except Exception as e:  # noqa: BLE001 - one part costs only itself
                 _log(log, f"trending ({type(e).__name__}: {e})")
+            mem(log, "trending")
             try:
                 from insajderi import smart
+                if parts is None:
+                    parts = score.load_parts(con, relevant=True)
                 summary["smart"] = smart.run(con, p, c, now, stats, evs, parts)
             except Exception as e:  # noqa: BLE001
                 _log(log, f"pametni novac ({type(e).__name__}: {e})")
-            mem("ostalo")
+            mem(log, "pametni novac")
     store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))
     con.commit()
     return summary

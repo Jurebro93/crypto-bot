@@ -53,17 +53,30 @@ def _chunks(xs, n=400):
 def wallet_trades(con, p, wallets):
     """[(wallet, mint, ts, side, sol, tokens)] of `wallets` from every source we keep."""
     ws = sorted(set(wallets))
-    out = []
+    # 20.11. (2) (smart.run reads ~150k wallets' trades, ~600k rows): every row is deduplicated as it is read (the
+    # first one of a (wallet, mint, ts, side) wins, in the same source order as before) and holds one string object
+    # per wallet / mint / side, not a copy per row; the result is the same list
+    seen, res, same = set(), [], {}
+
+    def add(rows):
+        for r in rows:
+            if not r[0] or not r[1] or r[2] is None or r[3] not in ("buy", "sell"):
+                continue
+            w, m, side = same.setdefault(r[0], r[0]), same.setdefault(r[1], r[1]), same.setdefault(r[3], r[3])
+            k = (w, m, int(r[2]), side)
+            if k not in seen:
+                seen.add(k)
+                res.append((w, m, int(r[2]), side, r[4], r[5]))
     for ch in _chunks(ws):
-        out += store.q(con, f"SELECT wallet, mint, ts, side, sol, tokens FROM i2_trades WHERE wallet IN ({_in(ch)})", ch)
+        add(store.q(con, f"SELECT wallet, mint, ts, side, sol, tokens FROM i2_trades WHERE wallet IN ({_in(ch)})", ch))
     ec = store.ro(p.get("early_db"))
     wc = store.ro(p.get("wallet_db"))
     hc = store.ro(p.get("hype_db"))
     for ch in _chunks(ws):   # tables with a wallet index: by chunks
-        out += store.q(ec, f"SELECT wallet, mint, ts, side, sol, tokens FROM group_buys WHERE wallet IN ({_in(ch)})", ch)
-        out += [(w, m, ts, k, abs(s) if s is not None else None, abs(tk) if tk is not None else None)
-                for w, m, ts, k, s, tk in store.q(wc, f"SELECT wallet, mint, ts, kind, sol, tokens FROM wallet_trades "
-                                                      f"WHERE kind IN ('buy', 'sell') AND wallet IN ({_in(ch)})", ch)]
+        add(store.q(ec, f"SELECT wallet, mint, ts, side, sol, tokens FROM group_buys WHERE wallet IN ({_in(ch)})", ch))
+        add((w, m, ts, k, abs(s) if s is not None else None, abs(tk) if tk is not None else None)
+            for w, m, ts, k, s, tk in store.q(wc, f"SELECT wallet, mint, ts, kind, sol, tokens FROM wallet_trades "
+                                                  f"WHERE kind IN ('buy', 'sell') AND wallet IN ({_in(ch)})", ch))
     want = set(ws)   # without one: ONE streaming scan each, filtered here (not one full scan per chunk)
     for c_, sql in ((ec, "SELECT wallet, mint, ts, side, sol, tokens FROM precall_trades"),
                     (hc, "SELECT wallet, mint, ts, side, sol, tokens FROM live_trades"),
@@ -71,23 +84,16 @@ def wallet_trades(con, p, wallets):
         if c_ is None:
             continue
         try:
-            for r in c_.execute(sql):
-                if r[0] in want:
-                    out.append(r)
+            add(r for r in c_.execute(sql) if r[0] in want)
         except sqlite3.Error:
             pass
     for x in (ec, wc, hc):
         if x is not None:
             x.close()
-    seen, res = set(), []
-    for r in out:
-        if not r[0] or not r[1] or r[2] is None or r[3] not in ("buy", "sell"):
-            continue
-        k = (r[0], r[1], int(r[2]), r[3])
-        if k not in seen:
-            seen.add(k)
-            res.append((r[0], r[1], int(r[2]), r[3], r[4], r[5]))
-    return sorted(res, key=lambda r: r[2])
+    seen.clear()
+    same.clear()
+    res.sort(key=lambda r: r[2])
+    return res
 
 
 SOL_CACHE_PTS = 2_000_000   # prices of the cached SOL series together (16 bytes each in a Series: ~32 MB)

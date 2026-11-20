@@ -124,9 +124,10 @@ class Plan(unittest.TestCase):
 
     def test_cap_formula(self):
         f = http.cg_cap_from
-        self.assertEqual(f(self.info(100_000, 100_000, self.NOV1), self.NOV1), 3000)          # Basic: the floor
-        self.assertEqual(f(self.info(500_000, 500_000, self.NOV1), self.NOV1), 14_516)        # Analyst: 0.9 x 500k / 31
-        self.assertEqual(f(self.info(500_000, 413_000, self.NOV20), self.NOV20), 14_516)      # on pace: the plan part
+        self.assertEqual(f(self.info(100_000, 100_000, self.NOV1), self.NOV1), 3_166)         # Basic: 95k over 30 days
+        self.assertEqual(f(self.info(500_000, 500_000, self.NOV1), self.NOV1), 15_833)        # Analyst: 475k over 30 days
+        self.assertEqual(f(self.info(500_000, 413_000, self.NOV20), self.NOV20), 35_272)      # unused credits raise the later days
+        self.assertEqual(f(self.info(100_000, 61_503, self.NOV20, n_at=1_126), self.NOV20 + 60), 6_262)   # production 20.11.
         # nearly used up: (40,000 - 5 % of 500k) / 11 days left
         self.assertEqual(f(self.info(500_000, 40_000, self.NOV20), self.NOV20), 1_363)
         self.assertEqual(f(self.info(500_000, 20_000, self.NOV20), self.NOV20), 0)            # inside the reserve
@@ -141,7 +142,7 @@ class Plan(unittest.TestCase):
 
     def test_env_wins_and_no_reading_is_3000(self):
         http._cg_account_save(self.info(500_000, 500_000, self.NOV1))
-        self.assertEqual(http.cg_cap(self.NOV1), 14_516)
+        self.assertEqual(http.cg_cap(self.NOV1), 15_833)
         os.environ["CG_DAILY_CALLS"] = "2500"
         self.assertEqual(http.cg_cap(self.NOV1), 2500)
         os.environ.pop("CG_DAILY_CALLS")
@@ -167,10 +168,10 @@ class Plan(unittest.TestCase):
         self.assertEqual(http._cg_read(self.NOV20)["jobs"], {"racun": 1})      # the one call is counted
         http.cg_account(self.NOV20 + 5 * 3600, fetch=ok)
         self.assertEqual(len(calls), 1)                                          # not again within 6 h
-        self.assertEqual(http.cg_cap(self.NOV20), 14_516)
+        self.assertEqual(http.cg_cap(self.NOV20), 35_236)
         line = http.cg_account_line(self.NOV20)
         self.assertIn("coingecko račun: plan Analyst, ovaj mjesec 87.412 od 500.000 poziva, 500/min", line)
-        self.assertIn("dnevni strop 14.516 (iz plana)", line)
+        self.assertIn("dnevni strop 35.236 (iz plana)", line)
         self.assertNotIn("CG-secret", line)
 
         def boom(url, headers):

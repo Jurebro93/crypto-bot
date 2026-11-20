@@ -17,6 +17,7 @@ those where the owner bought before h's call (kol/precall.lift). Everything here
 window ended before it count, so the walk-forward (copy.py) never looks ahead.
 """
 import json
+import sqlite3
 import statistics
 from collections import Counter, defaultdict
 
@@ -61,8 +62,19 @@ def load_parts(con, relevant=False):
                 f"owner LIKE 'relayer:%'")
     con.execute(f"INSERT OR IGNORE INTO temp.i2_rel SELECT {OWNER_KEY} FROM i2_part WHERE wallet IN (SELECT wallet "
                 f"FROM i2_part WHERE {OWNER_KEY} IN (SELECT k FROM temp.i2_rel))")
-    rows = store.q(con, f"SELECT {PART_COLS} FROM i2_part WHERE {OWNER_KEY} IN (SELECT k FROM temp.i2_rel) "
-                        "ORDER BY rowid")
+    # 20.11. (2): one string object per event id and per wallet / owner (sqlite gives a new one per row; ~200 bytes a
+    # row on ~600k rows); the values are the same
+    rows, same = [], {}
+    try:
+        for r in con.execute(f"SELECT {PART_COLS} FROM i2_part WHERE {OWNER_KEY} IN (SELECT k FROM temp.i2_rel) "
+                             "ORDER BY rowid"):
+            eid, w, o = r[0], r[1], r[2]
+            eid = same.setdefault(eid, eid)
+            w = same.setdefault(w, w)
+            o = w if o == w else same.setdefault(o, o)
+            rows.append((eid, w, o) + r[3:])
+    except sqlite3.Error:
+        rows = []
     con.execute("DROP TABLE temp.i2_rel")
     return rows
 
@@ -133,20 +145,38 @@ def bots(con, p, c, cand, since):
     return out & cand
 
 
-_AGG = {"obj": None, "n": None, "v": None}   # holds the list itself, so its id is never reused while cached
+_AGG = []   # [(list, len, aggregate)]: the list itself is held, so its id is never reused while cached
+AGG_KEEP = 3   # 20.11. (2): the pass's rows, the walks' subset of them (sharing its entries) and one small list; a small
+#               list (a day's few owners) never pushes the big ones out (each rebuild of ~600k rows is ~150 MB, 4 s)
+
+
+def _agg_get(parts):
+    for x in _AGG:
+        if x[0] is parts and x[1] == len(parts):
+            return x[2]
+    return None
+
+
+def _agg_put(parts, v):
+    _AGG.append((parts, len(parts), v))
+    while len(_AGG) > AGG_KEEP:
+        del _AGG[min(range(len(_AGG) - 1), key=lambda i: _AGG[i][1])]
 
 
 def aggregate(parts):
-    """{owner: {eid: [first buy ts, min lead, bought, sold, sol_in, sol_out, {wallets}]}} in one pass over the rows
-    (cached for the same list: the walk-forward classifies the same rows once a day)."""
-    if _AGG["obj"] is parts and _AGG["n"] == len(parts):
-        return _AGG["v"]
+    """{owner: {eid: [first buy ts, min lead, bought, sold, sol_in, sol_out, (wallets)]}} in one pass over the rows
+    (cached for the same list: the walk-forward classifies the same rows once a day). 20.11. (2): the wallets of an
+    (owner, event) are a tuple (a row is one (event, wallet): i2_part's key), ~170 bytes less than a set each."""
+    hit = _agg_get(parts)
+    if hit is not None:
+        return hit
     out = defaultdict(dict)
     for eid, w, owner, bts, sin, _ns, sout, _fs, bb, si, lead in parts:
         a = out[owner or w].get(eid)
         if a is None:
-            a = out[owner or w][eid] = [None, None, False, False, 0.0, 0.0, set()]
-        a[6].add(w)
+            a = out[owner or w][eid] = [None, None, False, False, 0.0, 0.0, (w,)]
+        elif w not in a[6]:
+            a[6] = a[6] + (w,)
         if bb:
             a[2] = True
             if bts is not None and (a[0] is None or bts < a[0]):
@@ -157,13 +187,32 @@ def aggregate(parts):
             a[3] = True
         a[4] += sin or 0
         a[5] += sout or 0
-    _AGG.update(obj=parts, n=len(parts), v=out)
+    _agg_put(parts, out)
     return out
 
 
-def classify(parts, events, as_of, c, bad=frozenset(), first_trade=None):
+def aggregate_subset(sub, parent):
+    """Prime aggregate()'s cache for `sub`, a list of EVERY row of some owners of `parent` in parent's order (walkcache.
+    multi_parts), from parent's cached aggregate: the same dict (an owner's entry reads only its own rows), without a
+    second copy of ~600k rows' aggregate (20.11. (2)). No-op when parent is not the cached list."""
+    v = _agg_get(parent)
+    if v is None or _agg_get(sub) is not None:
+        return
+    keys = {r[2] or r[1] for r in sub}
+    out = defaultdict(dict)
+    for o, by in v.items():
+        if o in keys:
+            out[o] = by
+    _agg_put(sub, out)
+
+
+def classify(parts, events, as_of, c, bad=frozenset(), first_trade=None, slim=None):
     """{owner: stats} from `parts` over the events whose window ended before as_of (pure). bad: wallets that are bots
-    (score.bots); first_trade: {token: ts}."""
+    (score.bots); first_trade: {token: ts}.
+    slim (20.11. (2), production: ~160k owner groups with an early buy, ~1.3 KB of stats each): "light" -> every owner
+    only {"cls", "confirmed", "n_early", "n_hits"} (+ "members" of a confirmed one: confirmed()), for the walk-forwards
+    that need the class alone; "store" -> that light form for the owners save() never stores (promatra with
+    n_early + n_hits < 2), the full stats for the rest. The class of every owner is the same in every form."""
     ev = {e["eid"]: e for e in events if e["win_end"] < as_of}
     covered = covered_ids(events, as_of)
     calls = [eid for eid in covered if ev[eid]["kind"] == "call"]
@@ -180,7 +229,7 @@ def classify(parts, events, as_of, c, bad=frozenset(), first_trade=None):
         mine = {eid: a for eid, a in by_eid.items() if eid in covered}
         if not mine:
             continue
-        members = sorted({w for a in mine.values() for w in a[6]})
+        members = None
         early = {eid: a for eid, a in mine.items() if a[2]}
         hit_ids = sorted((eid for eid, a in early.items() if a[3]), key=lambda x: ev[x]["t0"])
         call_hits = [eid for eid in hit_ids if ev[eid]["kind"] == "call"]
@@ -200,43 +249,66 @@ def classify(parts, events, as_of, c, bad=frozenset(), first_trade=None):
                 best_lift, best_h = lf, h
         leads = [early[eid][1] / 60 for eid in hit_ids if early[eid][1] is not None]
         med_lead = _med(leads)
-        pnl = [early[eid][5] - early[eid][4] for eid in hit_ids]
         snipe = [early[eid][0] - first_trade[ev[eid]["token"]] for eid in early
                  if ev[eid]["token"] in first_trade and early[eid][0] is not None]
         sniper = len(snipe) >= 2 and sum(1 for x in snipe if 0 <= x <= c["sniper_secs"]) / len(snipe) >= c["sniper_share"]
         busy = n_cov >= 10 and len(early) / n_cov >= c["busy_events_share"]
+        sel = [eid for eid in hit_ids if cut_t is None or ev[eid]["t0"] < cut_t]
+        conf = [eid for eid in hit_ids if cut_t is not None and ev[eid]["t0"] >= cut_t]
+        if bad:
+            members = sorted({w for a in mine.values() for w in a[6]})
+        confirmed_ = False
+        if owner.startswith("relayer:"):
+            cls, why = "relayer", "plaća naknade za mnogo drugih vlasnika"
+        elif bad and set(members) & bad:
+            cls, why = "bot_snajper", "bot (brzina tradeova, oznaka ili previše tradeova dnevno)"
+        elif sniper:
+            cls, why = "bot_snajper", f"snajper (kupuje u prvih {c['sniper_secs']} s lansiranja)"
+        elif busy:
+            cls, why = "bot_snajper", f"kupio rano u {len(early)} od {n_cov} događaja (kupuje sve)"
+        elif (len(hit_ids) >= c["min_tokens"] and len(call_hits) >= 2
+              and (len(front) >= c["min_callers"] or (best_lift or 0) >= c["min_lift"])
+              and (med_lead is None or med_lead >= c["min_lead_min"])):
+            cls = "insajder"
+            sel_ok = len(sel) >= c["min_tokens"]
+            confirmed_ = bool(sel_ok and len(conf) >= c["min_confirm"])
+            why = (f"kupio prije i prodao u skok na {len(hit_ids)} tokena, ispred {len(front)} callera"
+                   + ("" if confirmed_ else f" (potvrda: {len(sel)} u starijem, {len(conf)} u novijem dijelu)"))
+        elif len(hit_ids) >= 2:
+            cls, why = "kandidat", None
+        else:
+            cls, why = "promatra", None
+        if slim == "light" or (slim == "store" and cls == "promatra" and len(early) + len(hit_ids) < 2):
+            out[owner] = {"cls": cls, "confirmed": confirmed_, "n_early": len(early), "n_hits": len(hit_ids)}
+            if confirmed_:
+                out[owner]["members"] = members or sorted({w for a in mine.values() for w in a[6]})
+            continue
+        if members is None:
+            members = sorted({w for a in mine.values() for w in a[6]})
+        pnl = [early[eid][5] - early[eid][4] for eid in hit_ids]
         st = {"owner": owner, "members": members, "n_early": len(early), "n_hits": len(hit_ids),
               "n_call_hits": len(call_hits), "n_callers": len(front), "callers": dict(front.most_common(8)),
               "lift": best_lift, "lift_caller": best_h, "med_lead_min": round(med_lead, 1) if med_lead is not None else None,
               "pnl_sol": round(sum(pnl), 4) if pnl else None,
               "tokens": [ev[eid]["token"] for eid in hit_ids], "symbols": [ev[eid].get("symbol") for eid in hit_ids],
               "crews": sorted({ev[eid]["crew"] for eid in hit_ids if ev[eid].get("crew")}),
-              "first_ts": min((ev[eid]["t0"] for eid in early), default=None), "why": None, "confirmed": False}
-        sel = [eid for eid in hit_ids if cut_t is None or ev[eid]["t0"] < cut_t]
-        conf = [eid for eid in hit_ids if cut_t is not None and ev[eid]["t0"] >= cut_t]
-        if owner.startswith("relayer:"):
-            st["cls"], st["why"] = "relayer", "plaća naknade za mnogo drugih vlasnika"
-        elif set(members) & bad:
-            st["cls"], st["why"] = "bot_snajper", "bot (brzina tradeova, oznaka ili previše tradeova dnevno)"
-        elif sniper:
-            st["cls"], st["why"] = "bot_snajper", f"snajper (kupuje u prvih {c['sniper_secs']} s lansiranja)"
-        elif busy:
-            st["cls"], st["why"] = "bot_snajper", f"kupio rano u {len(early)} od {n_cov} događaja (kupuje sve)"
-        elif (len(hit_ids) >= c["min_tokens"] and len(call_hits) >= 2
-              and (len(front) >= c["min_callers"] or (best_lift or 0) >= c["min_lift"])
-              and (med_lead is None or med_lead >= c["min_lead_min"])):
-            st["cls"] = "insajder"
-            sel_ok = len(sel) >= c["min_tokens"]
-            st["confirmed"] = bool(sel_ok and len(conf) >= c["min_confirm"])
-            st["why"] = (f"kupio prije i prodao u skok na {len(hit_ids)} tokena, ispred {len(front)} callera"
-                         + ("" if st["confirmed"] else f" (potvrda: {len(sel)} u starijem, {len(conf)} u novijem dijelu)"))
-        elif len(hit_ids) >= 2:
-            st["cls"] = "kandidat"
-        else:
-            st["cls"] = "promatra"
+              "first_ts": min((ev[eid]["t0"] for eid in early), default=None), "why": why, "confirmed": confirmed_,
+              "cls": cls}
         st["score"] = round(len(hit_ids) + 0.5 * (len(early) - len(hit_ids)) + min(best_lift or 0, 10) / 5
                             + 0.5 * len(front) + (3 if st["confirmed"] else 0) - (5 if st["cls"] in OUT else 0), 2)
         out[owner] = st
+    return out
+
+
+def light(stats):
+    """The light form of classify() stats (slim="light"): what the pass reads after save() (the class, confirmed, the
+    members of a confirmed group), 20.11. (2): ~90 MB less for the walks and smart money."""
+    out = {}
+    for o, s in stats.items():
+        x = {"cls": s["cls"], "confirmed": s["confirmed"], "n_early": s["n_early"], "n_hits": s["n_hits"]}
+        if s["confirmed"]:
+            x["members"] = s["members"]
+        out[o] = x
     return out
 
 

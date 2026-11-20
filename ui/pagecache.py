@@ -129,9 +129,11 @@ class _NoSlot:
 def _build(key, build, light=False):
     # light: the English copy of a cached page (a text walk that may wait for translations, 13.11.): it holds no rows,
     # so it does not take the one build slot the heavy page builds share
+    from ops import mem
     with (_NoSlot() if light else _build_slots):
         t0 = time.time()
-        res = build()
+        with mem.watch(key[0]):   # 20.11. (2): a build in the background (warm, refresh) is named too
+            res = build()
         dt = time.time() - t0
     code, raw = res[0], res[1]
     keep = res[2] if len(res) > 2 else True   # 13.11.: an English copy still partly Croatian is served, not kept
