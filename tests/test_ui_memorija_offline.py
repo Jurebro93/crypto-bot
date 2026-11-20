@@ -54,6 +54,29 @@ class Watch(unittest.TestCase):
                 pass
 
 
+class Sampler(unittest.TestCase):
+    def test_line_while_rising_and_rate_limits(self):
+        lines, dumps, st = [], [], {}
+        mem._ACTIVE.clear()
+        with mock.patch.object(mem, "rss_mb", seq(300, 560, 600, 720, 730, 900)):
+            self.assertIsNone(mem.sample(st, lines.append, now=1000, dump=lambda: dumps.append(1)))   # below 550
+            with mem.watch("/teska", log=lines.append):   # reads 560 on entry
+                mem._ACTIVE[next(iter(mem._ACTIVE))] = ("/teska", 988)
+                self.assertEqual(mem.sample(st, lines.append, now=1000, dump=lambda: dumps.append(1)),
+                                 "ui: memorija 600 MB, u tijeku: /teska (12 s)")
+                self.assertIsNone(mem.sample(st, lines.append, now=1010, dump=lambda: dumps.append(1)))   # +120, 10 s
+                mem.rss_mb = seq(760, 900, 900)   # +160 MB since the last line: again, but no second dump
+                self.assertEqual(mem.sample(st, lines.append, now=1012, dump=lambda: dumps.append(1)),
+                                 "ui: memorija 760 MB, u tijeku: /teska (24 s)")
+        self.assertEqual(len(dumps), 1)
+        self.assertEqual(mem._ACTIVE, {})
+        self.assertEqual(mem.active(), "ništa")
+
+    def test_never_raises(self):
+        with mock.patch.object(mem, "rss_mb", seq(900)):
+            self.assertIsNone(mem.sample({}, lambda m: 1 / 0, now=5))
+
+
 class Wired(unittest.TestCase):
     def test_get_and_post_are_watched(self):
         import run_ui

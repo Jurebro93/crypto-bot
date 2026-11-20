@@ -1730,6 +1730,10 @@ def main(argv=None):
         threading.Thread(target=_pt.skip_sampler_loop, daemon=True, name="preskoceni-uzivo").start()
         # 10.11. (Jure: "DCA ide ručno, granice postavljam ručno"): the owner's dokup orders, watched every second
         threading.Thread(target=_pt.dca_loop, daemon=True, name="dca-nalozi").start()
+    # 20.11. (2): the memory sampler names the page (and the stacks) while the memory is rising, not after
+    import threading as _th
+    from ops import mem as _mem
+    _th.Thread(target=_mem.sampler_loop, daemon=True, name="ui-memorija").start()
     # heaviest pages rendered in the background right away and every 5 min, so a visit never waits for them
     from ui import landing
     landing.start()   # live numbers of the public page, counted in the background
