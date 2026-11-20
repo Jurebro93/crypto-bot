@@ -42,6 +42,7 @@ from veliki import intra, rule
 PREFIX = "veliki replay: "
 D, H = 86400, 3600
 KV = "replay"
+KV_TRADES = "replay_trades"   # 20.11.: the base rule's trades for market/trziste.py
 SIZE_SOL = 0.1
 RT_FLOOR = float(os.environ.get("REPLAY_RT_FLOOR", "0.03"))   # the measured round trip at 0.1 SOL (3-3.5 %): never less
 MIN_DAYS = 5
@@ -572,6 +573,9 @@ def compute(con, now, btc_h, macro_days=None, budget_s=BUDGET_S, max_tokens=MAX_
     res["verdict"] = verdict(res)
     res["biases"] = biases(res)
     res["assumptions"] = list(ASSUMPTIONS)
+    # 20.11. (market/trziste.py, analysis only): the base rule's closed trades [token, entry ts, net ret], kept apart
+    # (kv KV_TRADES) so the market-regime analysis can tag each entry; run() pops it before the summary is stored
+    res["_trades"] = [[x["token"], int(x["ts"]), round(float(x["ret"]), 5)] for x in base if x.get("reason") != "kraj"]
     res["secs"] = round(time.time() - t0, 1)
     return res
 
@@ -630,6 +634,7 @@ def run(now=None, log=print, path=None, budget_s=None, max_tokens=None, floor=RT
                           MAX_TOKENS if max_tokens is None else max_tokens, floor, size, sol)
         finally:
             con.close()
+        trades = res.pop("_trades", None)
         kept = ""
         if save and not res.get("tokens") and (latest(path) or {}).get("tokens"):
             kept = "; nijedan token nije obrađen, zadnji spremljeni rezultat ostaje"   # a cut pass never erases one
@@ -637,6 +642,8 @@ def run(now=None, log=print, path=None, budget_s=None, max_tokens=None, floor=RT
             wcon = midcap.connect(path)
             try:
                 midcap.kv_put(wcon, KV, res)
+                if trades is not None:
+                    midcap.kv_put(wcon, KV_TRADES, {"ts": int(now), "trades": trades})
                 wcon.commit()
             finally:
                 wcon.close()

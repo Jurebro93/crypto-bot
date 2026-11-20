@@ -135,7 +135,7 @@ def fetch(c, get=None):
     """All pool pages; stops early (keeps what it has) when GeckoTerminal says the free minute is used up."""
     if get is None:
         from dugo import sources
-        get, busy = (lambda p: sources._gecko(p, c["gap_s"])), sources.GeckoBusy
+        get, busy = (lambda p: sources._gecko(p, c["gap_s"], job="aktivni")), sources.GeckoBusy   # 20.11.: key budget
     else:
         busy = _Never
     paths = [f"/pools?page={i}&sort=h24_tx_count_desc" for i in range(1, c["pages_all"] + 1)]

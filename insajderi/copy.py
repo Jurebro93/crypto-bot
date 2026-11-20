@@ -18,6 +18,7 @@ entry >= bond_mcap, a migration before the entry, or a midcap.db token (Pretpost
 import bisect
 import sqlite3
 import time
+from array import array
 from collections import defaultdict
 
 from insajderi import score, store
@@ -89,6 +90,34 @@ def wallet_trades(con, p, wallets):
     return sorted(res, key=lambda r: r[2])
 
 
+SOL_CACHE_PTS = 2_000_000   # prices of the cached SOL series together (16 bytes each in a Series: ~32 MB)
+
+
+class Series:
+    """A sorted price series [(ts, px)] held as two arrays (20.11.: 16 bytes a price instead of ~120 for a list of
+    tuples; a deep-read pump token has up to ~150k). Reads like the list: len, s[i] -> (ts, px), s[i:] -> an iterator
+    of (ts, px), bisect with (ts, px) keys."""
+    __slots__ = ("ts", "px")
+
+    def __init__(self, pts):
+        self.ts = array("q", [t for t, _x in pts])
+        self.px = array("d", [x for _t, x in pts])
+
+    def __len__(self):
+        return len(self.ts)
+
+    def __getitem__(self, i):
+        if isinstance(i, slice):
+            return zip(self.ts[i], self.px[i])
+        return self.ts[i], self.px[i]
+
+    def __iter__(self):
+        return zip(self.ts, self.px)
+
+    def __bool__(self):
+        return len(self.ts) > 0
+
+
 class Prices:
     """Price series per token, read LAZILY (only the tokens a trade is simulated on, the 512 MB server):
     ("usd", [(ts, px)]) from midcap.db candles around the trade, else ("sol", [(ts, px)]) from the token's trades."""
@@ -97,6 +126,7 @@ class Prices:
         self.con, self.p, self.c = con, p, c
         self.mc_now, self.supply, self.mig, self._sol, self._sol_usd = {}, {}, {}, {}, None
         self._meta = set()
+        self._n_pts = 0
 
     def _load_meta(self, tok):
         if tok in self._meta:
@@ -145,10 +175,15 @@ class Prices:
         for x in (ec, hc):
             if x is not None:
                 x.close()
-        self._sol[tok] = sorted(pts)
-        if len(self._sol) > 2000:   # bounded: the oldest token's series goes first
-            self._sol.pop(next(iter(self._sol)))
-        return self._sol[tok]
+        pts.sort()
+        ser = self._sol[tok] = Series(pts)
+        del pts
+        self._n_pts += len(ser)
+        # bounded: the oldest token's series goes first; 20.11. (production, the deep pump reads: a pump token's series
+        # is up to ~150k prices, ~18 MB) also by the number of prices held, never the one just read
+        while len(self._sol) > 1 and (len(self._sol) > 2000 or self._n_pts > SOL_CACHE_PTS):
+            self._n_pts -= len(self._sol.pop(next(iter(self._sol))))
+        return ser
 
     def series(self, tok, ts):
         self._load_meta(tok)

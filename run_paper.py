@@ -1106,8 +1106,19 @@ def _strat_loop(every=60):
 
 def _aktivni_loop(every=600):
     """Refreshes the "aktivni" list (paper/aktivni.py: older tokens with the most buys and sells) every refresh_h
-    hours in its own thread: about 15 GeckoTerminal calls spaced a few seconds apart must not hold the main loop."""
+    hours in its own thread: about 15 GeckoTerminal calls spaced a few seconds apart must not hold the main loop.
+    20.11.: sleeps while the owner switch fokus_midcap is on (ops/fokus.py): the list is read only by the demo's new
+    entries (trigger_entries, inside intake), which the switch stops; one line the first time it is skipped."""
+    said = False
     while True:
+        if _fokus():
+            if not said:
+                print("aktivni: fokus midcap uključen, popis aktivnih starijih tokena se ne osvježava (bez "
+                      "GeckoTerminal poziva) dok je uključen", file=sys.stderr, flush=True)
+                said = True
+            time.sleep(every)
+            continue
+        said = False
         try:
             cfg = sim.load_config()
             c = aktivni.config(cfg)

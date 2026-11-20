@@ -645,7 +645,7 @@ def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
             if fetch is None and hour != last_hour[0]:
                 last_hour[0] = hour
                 try:
-                    log(http.cg_hour_line(queue=left), flush=True)
+                    log(http.cg_hour_line(queue=left, account=True), flush=True)   # 20.11.: + plan, GET /key in 6 h
                 except Exception as e:  # noqa: BLE001 - a status line never stops the measurements
                     log(f"coingecko sat: {type(e).__name__}: {e}")
             if once:

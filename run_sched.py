@@ -10,6 +10,7 @@ process that ends and gives its memory back; this process only keeps the clock. 
   exits_rb run_exits.py rollback every exits/config.json rollback_every_h hours: a losing exit profile goes back fast
   market  run_market.py collect every MARKET_EVERY_MIN minutes (default 60); light (no heavy lock, 9.11.)
   usage   run_usage.py tick     every USAGE_EVERY_MIN minutes (default 15); light (no heavy lock, 9.11.)
+  trziste run_market.py trziste every TRZISTE_EVERY_MIN minutes (default 360): market timeline vs tokens, analysis only
   corr    run_corr.py run       every CORR_EVERY_MIN minutes (default 60)
   postai  run_learn.py postai   every POSTAI_EVERY_MIN minutes (default 30): AI labels of KOL posts (learn/postai.py; Telegram not since 19.11.)
   shadow  run_learn.py shadow   every SHADOW_EVERY_MIN minutes (default 60): shadow book points + labels (learn/shadow.py)
@@ -276,6 +277,9 @@ JOBS = [
     # to 42 min, so the macro gate (market/makro.py, 3 h window) and the spend warnings aged by an hour: light, no lock
     ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")), True)),
     ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")), True)),
+    # 20.11. (vlasnik: BTC, Fear & Greed i volumen meme platformi uz skokove i padove tokena; market/trziste.py): analysis
+    # only, local databases + one free DefiLlama call (the first run backfills: up to 6 free calls); light, nice 10
+    ("trziste", every, (["run_market.py", "trziste"], float(os.environ.get("TRZISTE_EVERY_MIN", "360")), True)),
     # 19.11. (vlasnik: "Makni 'za whatsapp' ... jer je nepotrebno"): the daily WhatsApp digest job is gone
     ("shadow", every, (["run_learn.py", "shadow"], float(os.environ.get("SHADOW_EVERY_MIN", "60")), False, True)),
     # 5.11.: mass shadow book (learn/masovno.py): thousands of invisible trades a day; history at night 01-06 Zagreb

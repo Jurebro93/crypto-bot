@@ -92,5 +92,183 @@ class Route(unittest.TestCase):
         self.assertEqual(h, {"x-cg-demo-api-key": "CG-demo"})
 
 
+class Plan(unittest.TestCase):
+    """20.11.: the day budget from CoinGecko's own GET /key (plan, monthly credit, remaining), read at most every 6 h."""
+    NOV1 = 1793534400          # 2026-11-01 12:00 UTC: 30 days left in the month, today included
+    NOV20 = 1795176000         # 2026-11-20 12:00 UTC: 11 days left
+
+    def setUp(self):
+        import calendar
+        import tempfile
+        self.assertEqual(calendar.timegm((2026, 11, 1, 12, 0, 0)), self.NOV1)
+        self.assertEqual(calendar.timegm((2026, 11, 20, 12, 0, 0)), self.NOV20)
+        self._env = {k: os.environ.get(k) for k in ("COINGECKO_API_KEY", "COINGECKO_DEMO", "CG_DAILY_CALLS", "DATA_DIR")}
+        for k in self._env:
+            os.environ.pop(k, None)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._gate = http.GATE_DIR
+        http.GATE_DIR = self._tmp.name
+
+    def tearDown(self):
+        http.GATE_DIR = self._gate
+        self._tmp.cleanup()
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def info(self, credit, remaining, ts, **kw):
+        return {"plan": "X", "credit": credit, "remaining": remaining, "used": credit - remaining, "ts": ts,
+                "day": http._day(ts), **kw}
+
+    def test_cap_formula(self):
+        f = http.cg_cap_from
+        self.assertEqual(f(self.info(100_000, 100_000, self.NOV1), self.NOV1), 3000)          # Basic: the floor
+        self.assertEqual(f(self.info(500_000, 500_000, self.NOV1), self.NOV1), 14_516)        # Analyst: 0.9 x 500k / 31
+        self.assertEqual(f(self.info(500_000, 413_000, self.NOV20), self.NOV20), 14_516)      # on pace: the plan part
+        # nearly used up: (40,000 - 5 % of 500k) / 11 days left
+        self.assertEqual(f(self.info(500_000, 40_000, self.NOV20), self.NOV20), 1_363)
+        self.assertEqual(f(self.info(500_000, 20_000, self.NOV20), self.NOV20), 0)            # inside the reserve
+        # the day's calls spent before the reading are in "remaining" already: added back the same day only
+        self.assertEqual(f(self.info(500_000, 40_000, self.NOV20, n_at=500), self.NOV20 + 3600), 1_863)
+        self.assertEqual(f(self.info(500_000, 40_000, self.NOV20 - 86400, n_at=500), self.NOV20), 1_363)
+        self.assertEqual(f(None, self.NOV20), 3000)                                             # no reading
+        self.assertEqual(f({"ts": self.NOV20, "plan": "X"}, self.NOV20), 3000)                 # no credit figure
+        self.assertEqual(f(self.info(500_000, 500_000, self.NOV20 - 40 * 3600), self.NOV20), 3000)   # too old
+        dec1 = self.NOV1 + 30 * 86400                                                          # 1.12.: November's
+        self.assertEqual(f(self.info(500_000, 1_000, dec1 - 13 * 3600), dec1), 14_516)          # remaining is not ours
+
+    def test_env_wins_and_no_reading_is_3000(self):
+        http._cg_account_save(self.info(500_000, 500_000, self.NOV1))
+        self.assertEqual(http.cg_cap(self.NOV1), 14_516)
+        os.environ["CG_DAILY_CALLS"] = "2500"
+        self.assertEqual(http.cg_cap(self.NOV1), 2500)
+        os.environ.pop("CG_DAILY_CALLS")
+        os.remove(http._cg_account_file())
+        self.assertEqual(http.cg_cap(self.NOV1), 3000)
+
+    def test_read_at_most_every_6h_counted_and_never_raises(self):
+        calls = []
+
+        def ok(url, headers):
+            calls.append((url, sorted(headers)))
+            return {"plan": "Analyst", "rate_limit_request_per_minute": 500, "monthly_call_credit": 500000,
+                    "current_total_monthly_calls": 87412, "current_remaining_monthly_calls": 412588}
+        self.assertIsNone(http.cg_account(self.NOV20, fetch=ok))                 # no key: no call
+        os.environ["COINGECKO_API_KEY"] = "CG-secret"
+        os.environ["COINGECKO_DEMO"] = "1"
+        self.assertIsNone(http.cg_account(self.NOV20, fetch=ok))                 # a demo key has no /key
+        os.environ.pop("COINGECKO_DEMO")
+        d = http.cg_account(self.NOV20, fetch=ok)
+        self.assertEqual(calls, [("https://pro-api.coingecko.com/api/v3/key", ["x-cg-pro-api-key"])])
+        self.assertEqual((d["plan"], d["credit"], d["used"], d["remaining"], d["rate"]),
+                         ("Analyst", 500000, 87412, 412588, 500))
+        self.assertEqual(http._cg_read(self.NOV20)["jobs"], {"racun": 1})      # the one call is counted
+        http.cg_account(self.NOV20 + 5 * 3600, fetch=ok)
+        self.assertEqual(len(calls), 1)                                          # not again within 6 h
+        self.assertEqual(http.cg_cap(self.NOV20), 14_516)
+        line = http.cg_account_line(self.NOV20)
+        self.assertIn("coingecko račun: plan Analyst, ovaj mjesec 87.412 od 500.000 poziva, 500/min", line)
+        self.assertIn("dnevni strop 14.516 (iz plana)", line)
+        self.assertNotIn("CG-secret", line)
+
+        def boom(url, headers):
+            raise OSError("down")
+        d = http.cg_account(self.NOV20 + 7 * 3600, fetch=boom)                  # fails: the old reading stays
+        self.assertEqual(d["plan"], "Analyst")
+        self.assertEqual(d["err"], "OSError")
+        os.remove(http._cg_account_file())
+        self.assertIsNone(http.cg_account(self.NOV20 + 14 * 3600, fetch=boom))
+        self.assertIsNone(http.cg_account(self.NOV20 + 21 * 3600, fetch=lambda u, h: ["?"]))   # odd answer
+        self.assertEqual(http.cg_cap(self.NOV20 + 21 * 3600), 3000)
+        self.assertIn("nije očitan (nepoznat odgovor)", http.cg_account_line(self.NOV20 + 21 * 3600))
+        with open(http._cg_account_file(), "w") as f:                           # a broken file
+            f.write("{nope")
+        self.assertIsNone(http.cg_account(self.NOV20 + 21 * 3600, fetch=boom))
+        self.assertEqual(http.cg_cap(self.NOV20 + 21 * 3600), 3000)
+
+    def test_hour_line_appends_the_account_only_when_asked(self):
+        os.environ["COINGECKO_API_KEY"] = "CG-secret"
+        http._cg_account_save(dict(self.info(500_000, 412_588, self.NOV20), plan="Analyst", rate=500,
+                                   tried=self.NOV20))
+        self.assertNotIn("račun", http.cg_hour_line(self.NOV20))
+        self.assertIn("coingecko račun: plan Analyst", http.cg_hour_line(self.NOV20 + 60, account=True))
+
+
+class Leaks(unittest.TestCase):
+    """20.11.: the public CoinGecko REST calls and dugo's GeckoTerminal calls go through the key's budget."""
+
+    def setUp(self):
+        import tempfile
+        import time as _t
+        from unittest import mock
+        self._env = {k: os.environ.get(k) for k in ("COINGECKO_API_KEY", "COINGECKO_DEMO", "CG_DAILY_CALLS", "DATA_DIR",
+                                                    "CAL_CACHE_DIR")}
+        for k in self._env:
+            os.environ.pop(k, None)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved = (http.GATE_DIR, http.CACHE_DIR)
+        http.GATE_DIR = os.path.join(self._tmp.name, "gate")
+        http.CACHE_DIR = os.path.join(self._tmp.name, "cache")
+        t = _t.time()
+        self._p = [mock.patch.object(http, "_now", return_value=t - t % 86400 + 23 * 3600 + 1800)]
+        self.reqs = []
+
+        def fake(req, timeout, retries=None):
+            self.reqs.append((req.full_url, {k.lower() for k in req.headers}))
+            if "pro-api" in req.full_url and getattr(self, "pro_fails", False):
+                raise OSError("pro down")
+            return {"url": req.full_url}
+        self._p.append(mock.patch.object(http, "_fetch", fake))
+        for p in self._p:
+            p.start()
+        http.set_cg_job("dugo")
+
+    def tearDown(self):
+        for p in self._p:
+            p.stop()
+        http.set_cg_job(None)
+        http.GATE_DIR, http.CACHE_DIR = self._saved
+        self._tmp.cleanup()
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    URL = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
+
+    def test_without_key_the_public_url_as_before(self):
+        from unittest import mock
+        with mock.patch.object(http, "get_json", return_value={"ok": 1}) as g:
+            self.assertEqual(http.cg_get_json(self.URL, {"days": 2}, ttl=60, retries=1), {"ok": 1})
+        g.assert_called_once_with(self.URL + "?days=2", None, ttl=60, timeout=30, retries=1)
+
+    def test_with_key_pro_host_counted_cached_and_free_fallback(self):
+        os.environ["COINGECKO_API_KEY"] = "CG-test"
+        d = http.cg_get_json(self.URL, {"days": 2}, ttl=600)
+        self.assertEqual(d["url"], "https://pro-api.coingecko.com/api/v3/coins/bitcoin/market_chart?days=2")
+        self.assertIn("x-cg-pro-api-key", self.reqs[0][1])
+        self.assertEqual(http.cg_status()["jobs"], {"dugo": 1})
+        http.cg_get_json(self.URL, {"days": 2}, ttl=600)                 # cached: no call, no budget
+        self.assertEqual((len(self.reqs), http.cg_status()["n"]), (1, 1))
+        self.pro_fails = True
+        d = http.cg_get_json(self.URL, {"days": 3}, ttl=600)             # the paid call fails: the public one
+        self.assertEqual(d["url"], self.URL + "?days=3")
+        self.assertNotIn("x-cg-pro-api-key", self.reqs[-1][1])
+        self.assertEqual(http.cg_status()["free"], {"dugo": 1})
+
+    def test_dugo_gecko_goes_through_the_key_for_its_job(self):
+        from dugo import sources
+        os.environ["COINGECKO_API_KEY"] = "CG-test"
+        d = sources._gecko("/tokens/M/info", 0, job="aktivni")
+        self.assertEqual(d["url"], "https://pro-api.coingecko.com/api/v3/onchain/networks/solana/tokens/M/info")
+        self.assertEqual(http.cg_status()["jobs"], {"aktivni": 1})
+        os.environ.pop("COINGECKO_API_KEY")
+        d = sources._gecko("/pools?page=1", 0)
+        self.assertEqual(d["url"], sources.GECKO + "/pools?page=1")
+
+
 if __name__ == "__main__":
     unittest.main()

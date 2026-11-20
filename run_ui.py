@@ -307,6 +307,9 @@ def route(path, qs):
         return usage.page(qs)
     if path == "/market":
         return market.page(qs)
+    if path == "/trziste":   # 20.11. market/trziste.py: BTC, Fear & Greed, meme volume vs the tokens (analysis only)
+        from ui import trziste
+        return trziste.page(qs)
     if path == "/analitika":
         from ui import analitika
         return analitika.page(qs)

@@ -55,6 +55,25 @@ def sol_prices(days=120, now=None):
     return sorted(out.items())
 
 
+def daily_closes(coin, days=120, now=None, fetch=None):
+    """[(day, usd)] the close of each finished UTC day of a CoinGecko id (DefiLlama coins chart, free, one call), as
+    sol_prices: the price at a UTC midnight closes the day before. 20.11. (market/trziste.py): market.db `btc` keeps the
+    price at the hour of the fetch; the timeline needs real closes. fetch(url, params) replaces http.get_json (tests)."""
+    import time
+    D = 86400
+    today = int((now or time.time()) // D * D)
+    url = f"https://coins.llama.fi/chart/coingecko:{coin}"
+    params = {"start": today - days * D, "span": days + 1, "period": "1d"}
+    data = fetch(url, params) if fetch else http.get_json(url, params, ttl=1800)
+    pts = (data.get("coins") or {}).get(f"coingecko:{coin}", {}).get("prices") or []
+    out = {}
+    for p in pts:
+        mid = int(round(int(p["timestamp"]) / D) * D)
+        if abs(int(p["timestamp"]) - mid) <= 3600 and mid <= today:
+            out[mid - D] = float(p["price"])
+    return sorted(out.items())
+
+
 BTC_PRICES = "https://coins.llama.fi/chart/coingecko:bitcoin"
 FNG = "https://api.alternative.me/fng/"   # free, keyless; attribution "Fear & Greed: alternative.me" required
 

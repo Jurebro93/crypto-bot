@@ -34,6 +34,9 @@ SECTIONS = [
            "dugorocno long term preživjeli veliki holderi burze"),
         _p("/strategije", "🏁", "Usporedba strategija", "Midcap strategije u demu, jedna uz drugu.",
            "strategije usporedba demo midcap"),
+        # 20.11. (vlasnik: BTC i Fear & Greed uz skokove i padove tokena; market/trziste.py)
+        _p("/trziste", "🌦", "Tržište i tokeni", "BTC, strah i pohlepa i volumen meme platformi uz skokove i padove "
+           "tokena.", "btc bitcoin fear greed strah pohlepa režim tržište korelacija skokovi padovi manipulacija"),
     ]),
     ("Alati", [
         _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak, gotov prije 8 h.", "email mail report sažetak"),
@@ -194,6 +197,10 @@ INTRO = {
                "mijenjaju težine kojima skener ocjenjuje sutra."),
     "/criteria": ("Pravila i težine, uživo iz koda", "Svaki prag i težina po modulu: eventi, DexScreener, klase i razine, hype, "
                   "rug filter, walleti, confidence, demo.", "Referenca: kad te zanima zašto je broj takav kakav jest."),
+    "/trziste": ("Prate li tokeni tržište", "BTC po danima u tri boje (raste, konsolidira, pada), indeks straha i "
+                 "pohlepe, volumen meme platformi, skokovi i padovi midcap liste i postojeći ulazi po stanju tržišta.",
+                 "Samo analiza: provjerava vrijedi li mirovati u strahu i kupovati kad BTC krene gore; ništa ne "
+                 "mijenja trgovanje."),
     "/market": ("Je li tržište vruće ili hladno", "Volumen po launchpadima i Solana DEX-u (DefiLlama), režim 0-100.",
                 "Vrućina tržišta je jedan od signala u hype ocjeni; koliko vrijedi, bot uči sam."),
     "/analitika": ("Kako nas ljudi nalaze na Googleu", "Klikovi, prikazi, CTR i prosječna pozicija iz Google Search "

@@ -199,6 +199,29 @@ class Clock:
         return _S()
 
 
+MEM_LOG_MB = 500   # 20.11.: ops/health.py kills one process over 800 MB RSS; the pass says so well before
+
+
+def rss_mb():
+    """The process's resident memory in MB (/proc/self/status VmRSS), None where it cannot be read."""
+    try:
+        with open("/proc/self/status", encoding="ascii") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def mem_line(step, limit=MEM_LOG_MB):
+    """'insajderi2: memorija 512 MB nakon koraka <step>' when the RSS is over `limit` MB, else None."""
+    r = rss_mb()
+    if r is None or r <= limit:
+        return None
+    return f"{PREFIX}memorija {r} MB nakon koraka {step}"
+
+
 def db_path():
     if os.environ.get("INSAJDERI_DB"):
         return os.environ["INSAJDERI_DB"]

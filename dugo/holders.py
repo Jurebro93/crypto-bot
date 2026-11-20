@@ -74,8 +74,8 @@ def holder_info(mint, gap=6):
 def listings(mint):
     """(top exchanges, all centralised exchanges, names) from CoinGecko, or None when CoinGecko doesn't list it."""
     try:
-        d = http.get_json(f"https://api.coingecko.com/api/v3/coins/solana/contract/{urllib.parse.quote(mint)}",
-                          ttl=6 * 3600, retries=1)
+        d = http.cg_get_json(f"https://api.coingecko.com/api/v3/coins/solana/contract/{urllib.parse.quote(mint)}",
+                             ttl=6 * 3600, retries=1)   # 20.11.: the key while its budget allows
     except Exception:
         return None
     cex = set()
