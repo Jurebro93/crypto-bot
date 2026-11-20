@@ -10,7 +10,9 @@ Signal: >= signal_min_clusters independent clusters' smart wallets buy the same 
 walk-forward (the smart set of day D from the events before D only; our entry after the k-th cluster's buy + delay,
 exit when one of them sells / stop / time, net of cost: copy.simulate). Demo only; never real money.
 """
+import bisect
 import hashlib
+import itertools
 import json
 from collections import Counter, defaultdict
 
@@ -44,15 +46,21 @@ def roles(stats, events, parts, as_of, c, hp=None):
     ev = {e["eid"]: e for e in events if e["win_end"] < as_of}
     early, sold = defaultdict(set), defaultdict(set)
     members = defaultdict(set)
+    # 20.11. (2) (called once a day by run's walk-forward, ~160k owners): the members only of the owners that can get a
+    # role (every early owner when there are holder profits to look up), not a set for every owner every day
     for r in parts:
-        if r[0] not in ev:
-            continue
-        o = r[2] or r[1]
-        members[o].add(r[1])
-        if r[8]:
+        if r[8] and r[0] in ev:
+            o = r[2] or r[1]
             early[o].add(r[0])
             if r[9]:
                 sold[o].add(r[0])
+    need = early if hp else {o for o, eids in early.items() if len(eids) >= int(c["smart_min_jumps"])
+                             or (stats.get(o) or {}).get("cls") == "insajder"}
+    for r in parts:
+        if r[0] in ev:
+            o = r[2] or r[1]
+            if o in need:
+                members[o].add(r[1])
     out = {}
     for o, eids in early.items():
         st = stats.get(o) or {}
@@ -63,7 +71,7 @@ def roles(stats, events, parts, as_of, c, hp=None):
             rl.append("rani kupac skokova")
         if st.get("cls") == "insajder":
             rl.append("insajder prije poziva" + (" (potvrđen)" if st.get("confirmed") else ""))
-        prof = sum((hp or {}).get(w, 0) for w in members[o])
+        prof = sum((hp or {}).get(w, 0) for w in members[o]) if hp else 0
         if prof > 0:
             rl.append("profitabilni holder")
         if not rl:
@@ -77,6 +85,101 @@ def roles(stats, events, parts, as_of, c, hp=None):
             out.setdefault(w, {"members": [w], "roles": ["profitabilni holder"], "n_jumps": 0, "n_sold": 0, "score": 1,
                                "holder_profit": v})
     return out
+
+
+class _DayRoles:
+    """The smart owners' members day by day for the walk-forward of run() (20.11. (2): roles() re-read ~600k rows and
+    classified ~160k owners every one of ~170 days, ~350 s and ~150 MB of short-lived objects a day). The same
+    {owner: sorted members} as {o: x["members"] for o, x in roles(classify(parts, events, d, c), events, parts, d, c)
+    .items()} (without holder profits), in the same order:
+      - the rows of the events closed before d are added once, as the days pass (an owner's early events and its
+        members only grow); per event its rows are taken together, so an owner's early event counts once;
+      - the class is needed only to drop an owner (relayer, "kupuje sve") or to give the insider role; with no bots
+        and no first trades only owners with n_hits >= min_tokens can be insiders and only those with n_early >= 10 x
+        busy_events_share "kupuje sve" (the counts over every event bound those of any day), so only those are
+        classified each day."""
+
+    def __init__(self, events, parts, c):
+        from array import array
+        self.c, self.events = c, events
+        end = {e["eid"]: int(e["win_end"]) for e in events}
+        order = sorted((i for i, r in enumerate(parts) if r[0] in end), key=lambda i: (end[parts[i][0]], parts[i][0]))
+        self.order = array("q", order)
+        del order
+        # per owner over every event: the events with an early row and those with an early and a sold row (as
+        # score.aggregate's bought / sold of an (owner, event)), one event at a time (its rows are together in order)
+        n_e, n_h = defaultdict(int), defaultdict(int)
+        k = 0
+        while k < len(self.order):
+            eid, bits = parts[self.order[k]][0], {}
+            while k < len(self.order) and parts[self.order[k]][0] == eid:
+                r = parts[self.order[k]]
+                o = r[2] or r[1]
+                bits[o] = bits.get(o, 0) | (1 if r[8] else 0) | (2 if r[9] else 0)
+                k += 1
+            for o, b in bits.items():
+                if b & 1:
+                    n_e[o] += 1
+                    if b & 2:
+                        n_h[o] += 1
+        n_min = int(c["smart_min_jumps"])
+        busy_min = 10 * float(c["busy_events_share"])
+        need_cls = {o for o in n_e if n_h.get(o, 0) >= int(c["min_tokens"]) or n_e[o] >= busy_min}
+        # the only owners that can ever have a role here: their members are kept
+        self.maybe = {o for o, n in n_e.items() if n >= n_min} | need_cls
+        del n_e, n_h
+        self.s_rows = [r for r in parts if (r[2] or r[1]) in need_cls]
+        self.end = end
+        self.parts = parts
+        self.k = 0
+        self.n_early, self.first, self.members = {}, {}, {}
+
+    def _close(self, rows):
+        """The rows of ONE event: its early owners count it once."""
+        early = set()
+        for i in rows:
+            r = self.parts[i]
+            o = r[2] or r[1]
+            if o in self.maybe:
+                m = self.members.get(o)
+                if m is None:
+                    self.members[o] = r[1]
+                elif isinstance(m, str):
+                    if m != r[1]:
+                        self.members[o] = {m, r[1]}
+                else:
+                    m.add(r[1])
+            if r[8]:
+                early.add(o)
+                if i < self.first.get(o, i + 1):
+                    self.first[o] = i
+        for o in early:
+            self.n_early[o] = self.n_early.get(o, 0) + 1
+
+    def at(self, d):
+        order, parts, end = self.order, self.parts, self.end
+        while self.k < len(order) and end[parts[order[self.k]][0]] < d:
+            eid = parts[order[self.k]][0]
+            j = self.k
+            while j < len(order) and parts[order[j]][0] == eid:
+                j += 1
+            self._close(order[self.k:j])
+            self.k = j
+        st = score.classify(self.s_rows, self.events, d, self.c, slim="light") if self.s_rows else {}
+        n_min = int(self.c["smart_min_jumps"])
+        out = []
+        for o, n in self.n_early.items():
+            s = st.get(o) or {}
+            if s.get("cls") in score.OUT or o.startswith("relayer:"):
+                continue
+            if n >= n_min or s.get("cls") == "insajder":
+                out.append(o)
+        out.sort(key=lambda o: self.first[o])
+        res = {}
+        for o in out:
+            m = self.members[o]
+            res[o] = [m] if isinstance(m, str) else sorted(m)
+        return res
 
 
 def clusters(owners_members, trades, c):
@@ -168,12 +271,16 @@ def run(con, p, c, now, stats, events, parts):
             by_w[t[0]].append(t)
         pr = None
         rt = copy.cost_rt(c)
+        days = None if hp else _DayRoles(events, parts, c)
         while d <= now:
-            st = score.classify(parts, events, d, c)
-            sm = roles(st, events, parts, d, c, hp)
-            if sm:
+            if days is not None:
+                mem = days.at(d)
+            else:   # holder profits give roles of their own: the full roles() each day
+                sm = roles(score.classify(parts, events, d, c, slim="light"), events, parts, d, c, hp)
                 mem = {o: x["members"] for o, x in sm.items()}
-                cld = clusters(mem, [t for t in trades if t[2] < d], c)
+            if mem:
+                # the trades before d: a prefix (copy.wallet_trades sorts by ts), read in place, not copied each day
+                cld = clusters(mem, itertools.islice(trades, bisect.bisect_left(trades, d, key=lambda t: t[2])), c)
                 for tok, ts, ks in signals(mem, cld, trades, c, d, min(d + 86400, now)):
                     if pr is None:
                         pr = copy.Prices(con, p, c, {t[1] for t in trades})

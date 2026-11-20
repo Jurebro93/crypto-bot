@@ -567,6 +567,17 @@ class Handler(BaseHTTPRequestHandler):
         i18n.LANG.set(self.lang)
 
     def do_GET(self):
+        # 20.11. (2): a request whose handling raises this process by 150+ MB is named in the log (ops/mem.watch)
+        from ops import mem
+        with mem.watch(urlsplit(self.path).path):
+            return self._do_get()
+
+    def do_POST(self):
+        from ops import mem
+        with mem.watch("POST " + urlsplit(self.path).path):
+            return self._do_post()
+
+    def _do_get(self):
         self._index = False   # every page is noindex unless it is one of the public, indexable ones
         self._public = False  # public pages have their own English version and are never run through ui/i18n
         self._set_lang()
@@ -1076,7 +1087,7 @@ class Handler(BaseHTTPRequestHandler):
         elif has and not ok:
             self.send_header("Set-Cookie", "cb_pt=; Path=/; Max-Age=0; SameSite=Lax")
 
-    def do_POST(self):
+    def _do_post(self):
         """/run/<job>: start an on-demand run (button on the page), then back to the page.
         /hook/kol?key=$KOL_HOOK_KEY: webhook for the KOL tracker on X (hype/sources.kol_monitor), its own key."""
         u = urlsplit(self.path)

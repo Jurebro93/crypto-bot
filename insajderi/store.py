@@ -199,7 +199,8 @@ class Clock:
         return _S()
 
 
-MEM_LOG_MB = 500   # 20.11.: ops/health.py kills one process over 800 MB RSS; the pass says so well before
+MEM_LOG_MB = 300   # 20.11.: ops/health.py kills one process over 800 MB RSS; the pass says so well before (20.11. (2):
+# from 300 MB, after every stage and step, so one pass in the log shows the whole profile)
 
 
 def rss_mb():
@@ -215,9 +216,9 @@ def rss_mb():
 
 
 def mem_line(step, limit=MEM_LOG_MB):
-    """'insajderi2: memorija 512 MB nakon koraka <step>' when the RSS is over `limit` MB, else None."""
+    """'insajderi2: memorija 512 MB nakon koraka <step>' when the RSS is `limit` MB or more, else None."""
     r = rss_mb()
-    if r is None or r <= limit:
+    if r is None or r < limit:
         return None
     return f"{PREFIX}memorija {r} MB nakon koraka {step}"
 
