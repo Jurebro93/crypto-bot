@@ -99,6 +99,35 @@ def inputs(events, parts, bad=frozenset(), first_trade=None, mm=frozenset()):
             "of": {w: sorted(x) for w, x in of.items()}}
 
 
+def inputs_db(con, walk, events, bad=frozenset(), first_trade=None, mm=frozenset()):
+    """inputs() of the WHOLE i2_part read from the database one event at a time (20.11.: the pass holds only the
+    relevant rows, score.load_parts(relevant=True), and the fingerprints must stay those of every participant).
+    The same values as inputs(events, score.load_parts(con), ...); "of" only for the wallets dirty_from asks about
+    (the flagged ones now and in the stored inputs of `walk`)."""
+    from insajderi import score
+    ev, end, tok = {}, {}, {}
+    cur = con.cursor()
+    for e in events:
+        h = hashlib.sha1(json.dumps([e.get(k) for k in ("kind", "token", "t0", "win_end", "tier", "n_part", "callers")],
+                                    sort_keys=True, default=str).encode())
+        for r in cur.execute(f"SELECT {score.PART_COLS} FROM i2_part WHERE eid = ? ORDER BY wallet", (e["eid"],)):
+            h.update(repr(r).encode())
+        ev[e["eid"]] = h.hexdigest()[:20]
+        end[e["eid"]] = int(e["win_end"])
+        tok[e["eid"]] = e["token"]
+    own = {}
+    for w in set(bad) | set(mm):
+        own[w] = ("b" if w in bad else "") + ("m" if w in mm else "")
+    ask = sorted(set(own) | set(_stored(con, walk)["own"]))
+    of = defaultdict(set)
+    for i in range(0, len(ask), 400):
+        ch = ask[i:i + 400]
+        for w, eid in store.q(con, f"SELECT wallet, eid FROM i2_part WHERE wallet IN ({','.join('?' * len(ch))})", ch):
+            of[w].add(eid)
+    return {"ev": ev, "end": end, "tok": tok, "own": own, "ft": {k: int(v) for k, v in (first_trade or {}).items()},
+            "of": {w: sorted(x) for w, x in of.items()}}
+
+
 def _stored(con, walk):
     out = {"ev": {}, "own": {}, "ft": {}, "end": {}}
     for kind, key, val in store.q(con, "SELECT kind, key, val FROM i2_walk_fp WHERE walk = ?", (walk,)):
@@ -274,9 +303,11 @@ class Fast:
 
 
 def run(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, mm=frozenset(), stop=None, prices=None,
-        trades_fn=None, walks=("pp", "ins"), timer=None, fast=True):
+        trades_fn=None, walks=("pp", "ins"), timer=None, fast=True, fp_db=False):
     """One pass of both walks (the pump walk first). -> {walk: {"done", "through", "n", "m", "from", "summary"}}.
-    trades_fn(members) -> trades (default copy.wallet_trades, read ONCE for both walks); timer(name, fn) times."""
+    trades_fn(members) -> trades (default copy.wallet_trades, read ONCE for both walks); timer(name, fn) times.
+    fp_db (20.11.): the inputs' fingerprints from the whole i2_part in the database (inputs_db), for a caller whose
+    `parts` are only the relevant rows (score.load_parts(relevant=True): the walks' selections are the same)."""
     ensure(con)
     out = {}
     if not events:
@@ -292,7 +323,9 @@ def run(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, mm=fro
             early_owners[eid].add(o or w)
     plan = {}
     for walk in walks:
-        inp = inputs(events, parts, bad, first_trade, mm if walk == "pp" else frozenset())
+        mm_w = mm if walk == "pp" else frozenset()
+        inp = (inputs_db(con, walk, events, bad, first_trade, mm_w) if fp_db
+               else inputs(events, parts, bad, first_trade, mm_w))
         k0, why = start_day(con, walk, c, days, inp)
         plan[walk] = {"inp": inp, "k0": k0, "sel": {}, "null": {}, "why": why}
 
