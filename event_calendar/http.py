@@ -105,8 +105,180 @@ def _now():
     return time.time()
 
 
-def cg_cap():
-    return int(_env_f("CG_DAILY_CALLS", 3000))
+CG_BASE_CAP = 3000          # the day's budget when the plan is unknown (and the floor of the measured one)
+CG_ACCOUNT_EVERY = 6 * 3600   # 20.11.: GET /key at most once in 6 h
+CG_ACCOUNT_VALID = 36 * 3600  # a reading older than this no longer sets the cap (back to CG_BASE_CAP)
+CG_PLAN_SHARE = 0.9           # of the monthly credit spread over 31 days
+CG_MONTH_RESERVE = 0.05       # of the monthly credit kept back at the end of the calendar month
+
+
+def cg_cap(now=None):
+    """The key's day budget. CG_DAILY_CALLS when set (the env wins); else 20.11. (CLAUDE.md: izmjeri pa koristi) from the
+    measured plan (cg_account(): CoinGecko's own GET /key, cached): cg_cap_from(); 3000 while it is unknown."""
+    if (os.environ.get("CG_DAILY_CALLS") or "").strip():
+        return int(_env_f("CG_DAILY_CALLS", CG_BASE_CAP))
+    now = now or _now()
+    return cg_cap_from(cg_account_cached(now), now)
+
+
+def _int(x):
+    try:
+        return int(float(x))
+    except (TypeError, ValueError):
+        return None
+
+
+def _days_left_in_month(now):
+    """Days of the calendar month (UTC) from today to its end, today included."""
+    import calendar
+    t = time.gmtime(now)
+    return calendar.monthrange(t.tm_year, t.tm_mon)[1] - t.tm_mday + 1
+
+
+def cg_cap_from(info, now):
+    """Pure: the day budget from a /key reading (cg_account's dict) at `now`.
+    max(3000, floor(0.9 x monthly_call_credit / 31)), but never more than what the month has left above a 5 % reserve,
+    spread over the days left in the calendar month (today included; the calls the day had already spent when the
+    reading was taken are added back, they are in its "remaining" already). No reading, an old one (36 h) or no credit
+    figure: 3000. A reading from another calendar month sets only the plan part (its "remaining" is not this month's)."""
+    if not isinstance(info, dict) or not info.get("ts") or now - info["ts"] > CG_ACCOUNT_VALID:
+        return CG_BASE_CAP
+    credit = _int(info.get("credit"))
+    if not credit or credit <= 0:
+        return CG_BASE_CAP
+    cap = max(CG_BASE_CAP, int(CG_PLAN_SHARE * credit / 31))
+    remaining = _int(info.get("remaining"))
+    if remaining is None and _int(info.get("used")) is not None:
+        remaining = credit - _int(info.get("used"))
+    if remaining is not None and time.strftime("%Y-%m", time.gmtime(info["ts"])) == time.strftime("%Y-%m", time.gmtime(now)):
+        spent_then = int(info.get("n_at") or 0) if info.get("day") == _day(now) else 0
+        spare = max(0.0, remaining - CG_MONTH_RESERVE * credit) / _days_left_in_month(now)
+        cap = min(cap, int(spent_then + spare))
+    return max(0, cap)
+
+
+def _cg_account_file():
+    """Next to the day file (the persistent disk when there is one)."""
+    return os.path.join(os.path.dirname(_cg_day_file()), "coingecko.key.json")
+
+
+_CG_ACC_MEMO = [None, None]   # (path, mtime) -> parsed file: cg_cap() runs on every call
+
+
+def _cg_account_load():
+    path = _cg_account_file()
+    try:
+        mt = os.path.getmtime(path)
+        if _CG_ACC_MEMO[0] == (path, mt):
+            return _CG_ACC_MEMO[1]
+        with open(path) as f:
+            d = json.load(f)
+        d = d if isinstance(d, dict) else {}
+        _CG_ACC_MEMO[0], _CG_ACC_MEMO[1] = (path, mt), d
+        return d
+    except (OSError, ValueError):
+        return {}
+
+
+def cg_account_cached(now=None):
+    """The last /key reading (dict: ts, plan, rate, credit, used, remaining, n_at, day) or None; never a network call."""
+    d = _cg_account_load()
+    return d if d.get("ts") else None
+
+
+def _cg_parse_key(data):
+    """CoinGecko GET /key -> our fields (docs.coingecko.com/reference/api-usage, checked 20.11.: plan,
+    rate_limit_request_per_minute, monthly_call_credit, current_total_monthly_calls, current_remaining_monthly_calls;
+    account-level values). Missing fields stay None."""
+    if not isinstance(data, dict):
+        return None
+    out = {"plan": str(data.get("plan"))[:40] if data.get("plan") is not None else None,
+           "rate": _int(data.get("rate_limit_request_per_minute")),
+           "credit": _int(data.get("monthly_call_credit")),
+           "used": _int(data.get("current_total_monthly_calls")),
+           "remaining": _int(data.get("current_remaining_monthly_calls"))}
+    return out if any(v is not None for v in out.values()) else None
+
+
+def cg_account(now=None, fetch=None):
+    """20.11.: the plan as CoinGecko counts it, read at most once in CG_ACCOUNT_EVERY (6 h, failures included) with one
+    call to GET https://pro-api.coingecko.com/api/v3/key (counted in the day file as job "racun"), cached in
+    coingecko.key.json next to coingecko.day. Only with a paid key (a demo key has no /key). Never raises; returns the
+    cached reading (or None). fetch(url, headers) -> dict replaces the network (tests)."""
+    now = now or _now()
+    try:
+        d = _cg_account_load()
+        key = _cg_key_raw()
+        if not key or os.environ.get("COINGECKO_DEMO") == "1":
+            return d if d.get("ts") else None
+        if now - float(d.get("tried") or 0) < CG_ACCOUNT_EVERY:
+            return d if d.get("ts") else None
+        new = dict(d, tried=int(now))
+        _cg_account_save(new)   # the attempt first: a failing endpoint is asked again only in 6 h
+
+        def count(st):
+            st["n"] += 1
+            st["jobs"]["racun"] = st["jobs"].get("racun", 0) + 1
+            return st["n"]
+        n_at = _cg_update(count, now)
+        url = "https://pro-api.coingecko.com/api/v3/key"
+        hdr = {"x-cg-pro-api-key": key}
+        try:
+            if fetch is not None:
+                data = fetch(url, hdr)
+            else:
+                req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json", **hdr})
+                data = _fetch(req, 15, retries=0)
+        except Exception as e:  # noqa: BLE001 - the budget falls back to 3000, the reason goes to the line
+            new["err"] = f"{type(e).__name__}"[:60] + (f" {e.code}" if isinstance(e, urllib.error.HTTPError) else "")
+            _cg_account_save(new)
+            return new if new.get("ts") else None
+        info = _cg_parse_key(data)
+        if not info:
+            new["err"] = "nepoznat odgovor"
+            _cg_account_save(new)
+            return new if new.get("ts") else None
+        new = {**info, "ts": int(now), "tried": int(now), "day": _day(now), "n_at": int(n_at or 0)}
+        _cg_account_save(new)
+        return new
+    except Exception:  # noqa: BLE001 - never raises
+        try:
+            d = _cg_account_load()
+            return d if d.get("ts") else None
+        except Exception:  # noqa: BLE001
+            return None
+
+
+def _cg_account_save(d):
+    try:
+        path = _cg_account_file()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(d, f, separators=(",", ":"))
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def cg_account_line(now=None):
+    """'coingecko račun: plan Analyst, ovaj mjesec 87.412 od 500.000 poziva, 500/min; dnevni strop 14.516 (iz plana)'
+    from the cached reading; "" without a key."""
+    now = now or _now()
+    if not _cg_key_raw():
+        return ""
+    d = _cg_account_load()
+    env = bool((os.environ.get("CG_DAILY_CALLS") or "").strip())
+    cap = cg_cap(now)
+    fresh = bool(d.get("ts")) and now - d["ts"] <= CG_ACCOUNT_VALID and _int(d.get("credit"))
+    how = "CG_DAILY_CALLS" if env else ("iz plana" if fresh else "plan nepoznat")
+    if not d.get("ts"):
+        why = f" ({d['err']})" if d.get("err") else ""
+        return f"coingecko račun: nije očitan{why}; dnevni strop {_fmt(cap)} ({how})"
+    q = lambda v: _fmt(v) if v is not None else "?"  # noqa: E731
+    age = time.strftime("%d.%m. %H:%M UTC", time.gmtime(d["ts"]))
+    return (f"coingecko račun: plan {d.get('plan') or '?'}, ovaj mjesec {q(d.get('used'))} od {q(d.get('credit'))} "
+            f"poziva, {q(d.get('rate'))}/min (očitano {age}); dnevni strop {_fmt(cap)} ({how})")
 
 
 def set_cg_job(name):
@@ -240,7 +412,7 @@ def allowance(cap, now):
 
 def cg_allow(st, job, now, cap=None, night=None):
     """(True, "") when `job` may spend one paid call now, else (False, why). Pure: st is the day state."""
-    cap = cg_cap() if cap is None else cap
+    cap = cg_cap(now) if cap is None else cap
     n = st.get("n", 0)
     if n >= cap:
         return False, "dnevni strop"
@@ -283,7 +455,7 @@ def _cg_take(now=None, job=None):
     """One call from today's budget for this job: True when the key may be used for it."""
     now = now or _now()
     job = job or cg_job()
-    cap = cg_cap()
+    cap = cg_cap(now)
 
     def take(st):
         ok, _ = cg_allow(st, job, now, cap)
@@ -332,7 +504,7 @@ def cg_status(now=None):
     """The day state plus cap and the allowance by now (the hourly line and the daily cost line)."""
     now = now or _now()
     st = _cg_read(now)
-    cap = cg_cap()
+    cap = cg_cap(now)
     return {**st, "cap": cap, "allowed": int(allowance(cap, now)), "key": bool(_cg_key_raw())}
 
 
@@ -340,10 +512,19 @@ def _fmt(n):
     return f"{int(n):,}".replace(",", ".")
 
 
-def cg_hour_line(now=None, queue=None):
+def cg_hour_line(now=None, queue=None, account=False):
     """One log line a UTC hour (kol/minute.loop): the key spent vs allowed by now, the 429 of the last hour, the
-    minute queue and the spend per job (11.11., Jure: preporuka 1)."""
+    minute queue and the spend per job (11.11., Jure: preporuka 1). account=True (the loop; 20.11.): first refresh the
+    plan reading (cg_account: one GET /key at most every 6 h) and append its line."""
     now = now or _now()
+    if account and _cg_key_raw():
+        cg_account(now)
+        acc = cg_account_line(now)
+        return _cg_hour_line(now, queue) + (f" | {acc}" if acc else "")
+    return _cg_hour_line(now, queue)
+
+
+def _cg_hour_line(now, queue):
     st = cg_status(now)
     h = time.gmtime(now).tm_hour
     prev = st["e429"].get(f"{(h - 1) % 24:02d}", 0) if h else 0

@@ -94,9 +94,16 @@ def coingecko(now):
         st = http.cg_status(now)
     except Exception:  # noqa: BLE001
         return {}
-    return {"kljuc": st["n"], "strop": st["cap"], "po_poslu": st["jobs"], "besplatno": st["free"],
-            "besplatno_ukupno": sum(st["free"].values()), "e429": st["e429"], "e429_ukupno": sum(st["e429"].values()),
-            "kljuc_postavljen": st["key"]}
+    out = {"kljuc": st["n"], "strop": st["cap"], "po_poslu": st["jobs"], "besplatno": st["free"],
+           "besplatno_ukupno": sum(st["free"].values()), "e429": st["e429"], "e429_ukupno": sum(st["e429"].values()),
+           "kljuc_postavljen": st["key"]}
+    try:   # 20.11.: CoinGecko's own count of the month (GET /key, cached by the minute loop; no network here)
+        acc = http.cg_account_cached(now) if st["key"] else None
+    except Exception:  # noqa: BLE001
+        acc = None
+    if acc:
+        out["racun"] = {k: acc.get(k) for k in ("plan", "used", "credit", "remaining", "rate", "ts")}
+    return out
 
 
 def graf(now):
@@ -337,7 +344,10 @@ def line(d):
         hours = ", ".join(f"{h}h {n}" for h, n in sorted((cg.get("e429") or {}).items())) or "-"
         parts.append(f"CoinGecko ključem {_n(cg.get('kljuc'))}/{_n(cg.get('strop'))} ({_top(cg.get('po_poslu'))}), "
                      f"besplatno {_n(cg.get('besplatno_ukupno'))} ({_top(cg.get('besplatno'))}), "
-                     f"429 ukupno {_n(cg.get('e429_ukupno'))} (po satu UTC: {hours})")
+                     f"429 ukupno {_n(cg.get('e429_ukupno'))} (po satu UTC: {hours})"
+                     + (f", račun plan {cr.get('plan') or '?'} {_n(cr.get('used'))}/{_n(cr.get('credit'))} ovaj mjesec"
+                        + time.strftime(" (očitano %d.%m. %H:%M UTC)", time.gmtime(cr["ts"]))
+                        if (cr := cg.get("racun") or {}).get("ts") else ""))
     gr = d.get("graf") or {}
     if gr.get("zahtjeva") is not None:
         parts.append(f"graf povijest {_n(gr.get('zahtjeva'))}/{_n(gr.get('strop'))} zahtjeva GeckoTerminalu")
