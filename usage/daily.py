@@ -20,6 +20,10 @@ Sources (all counted by the bot itself; nothing here is a provider's invoice):
                owner did with the critic's suggestions (accepted / rejected): what of the cost led to a decision
   vijeće       18.11. (vijece/): trade.db vijece_kv trosak:<day> (the council's OpenAI and Claude calls, apart from the
                critic's ledger), the reviews and decisions of the day, the accepted proposals waiting for code
+  Birdeye      20.11.: insajderi.db be_usage, the calendar month's CU and calls of every caller (insajderi/birdeye.py
+               and dugo's /defi/token_overview, usage/birdeye.py) against the month's cap (free plan 30,000 CU)
+  SimianX      20.11.: simianx.db, the quick reads (opinions) of the UTC day and the points they and the symbol searches
+               used, against simianx/config.json daily_points
 """
 import json
 import os
@@ -43,8 +47,15 @@ def _paths():
         mpath = mstore.db_path()
     except Exception:  # noqa: BLE001
         mpath = None
+    from usage import birdeye as be
+    try:
+        from simianx import store as sxstore
+        sxpath = sxstore.DB
+    except Exception:  # noqa: BLE001
+        sxpath = None
     return {"kol": kstore.DB, "scan": sstore.db_path(), "hype": lstore.HYPE_DB, "usage": meter.DB,
-            "ai": os.path.join(ROOT, "ai.db"), "trade": settings.DB, "makroinf": mpath}
+            "ai": os.path.join(ROOT, "ai.db"), "trade": settings.DB, "makroinf": mpath, "insajderi": be.db_path(),
+            "simianx": sxpath}
 
 
 def _ro(path):
@@ -94,9 +105,16 @@ def coingecko(now):
         st = http.cg_status(now)
     except Exception:  # noqa: BLE001
         return {}
-    return {"kljuc": st["n"], "strop": st["cap"], "po_poslu": st["jobs"], "besplatno": st["free"],
-            "besplatno_ukupno": sum(st["free"].values()), "e429": st["e429"], "e429_ukupno": sum(st["e429"].values()),
-            "kljuc_postavljen": st["key"]}
+    out = {"kljuc": st["n"], "strop": st["cap"], "po_poslu": st["jobs"], "besplatno": st["free"],
+           "besplatno_ukupno": sum(st["free"].values()), "e429": st["e429"], "e429_ukupno": sum(st["e429"].values()),
+           "kljuc_postavljen": st["key"]}
+    try:   # 20.11.: CoinGecko's own count of the month (GET /key, cached by the minute loop; no network here)
+        acc = http.cg_account_cached(now) if st["key"] else None
+    except Exception:  # noqa: BLE001
+        acc = None
+    if acc:
+        out["racun"] = {k: acc.get(k) for k in ("plan", "used", "credit", "remaining", "rate", "ts")}
+    return out
 
 
 def graf(now):
@@ -276,6 +294,37 @@ def vijece(now, paths):
         con.close()
 
 
+def birdeye(now, paths):
+    """20.11.: Birdeye CU and calls of the calendar month (all callers) and the cap; None without insajderi.db."""
+    p = paths.get("insajderi")
+    if not p or not os.path.exists(p):
+        return None
+    from usage import birdeye as be
+    calls, cu = be.used(now, p)
+    return {"cu_mjesec": cu, "poziva_mjesec": calls, "strop": be.cap(), "mjesec": be.month(now)}
+
+
+def simianx(now, paths):
+    """20.11.: SimianX quick reads (opinions) of the UTC day and the points used (reads + symbol searches) against the
+    day's budget; None without simianx.db."""
+    con = _ro(paths.get("simianx"))
+    if con is None:
+        return None
+    day0 = int(now) // 86400 * 86400
+    try:
+        n = int(_f(_one(con, "SELECT COUNT(*) FROM opinions WHERE ts >= ?", (day0,), 0)))
+        pts = _f(_one(con, "SELECT COALESCE(SUM(points), 0) FROM opinions WHERE ts >= ?", (day0,), 0))
+        pts += _f(_one(con, "SELECT v FROM kv WHERE k = ?", (f"map_points:{day0}",), 0))
+    finally:
+        con.close()
+    try:
+        with open(os.path.join(ROOT, "simianx", "config.json")) as f:
+            budget = json.load(f).get("daily_points")
+    except (OSError, ValueError):
+        budget = None
+    return {"poziva": n, "bodova": round(pts, 2), "strop_bodova": budget}
+
+
 def drustveni(now):
     """19.11. (vlasnik: influenceri i Telegram jednom u 5 dana; ops/drustveni.py): the social refresh window's state,
     so the saving is visible next to the cost (read-only: it never opens a window)."""
@@ -308,6 +357,7 @@ def collect(now=None, paths=None):
                      ("apify", lambda: apify(now, paths)), ("pumpportal", lambda: pumpportal(now, paths)),
                      ("helius", lambda: helius(now, paths)), ("ai", lambda: ai(now, paths)),
                      ("openai", lambda: openai(now, paths)), ("vijece", lambda: vijece(now, paths)),
+                     ("birdeye", lambda: birdeye(now, paths)), ("simianx", lambda: simianx(now, paths)),
                      ("drustveni", lambda: drustveni(now))):
         try:
             out[name] = fn()
@@ -337,7 +387,10 @@ def line(d):
         hours = ", ".join(f"{h}h {n}" for h, n in sorted((cg.get("e429") or {}).items())) or "-"
         parts.append(f"CoinGecko ključem {_n(cg.get('kljuc'))}/{_n(cg.get('strop'))} ({_top(cg.get('po_poslu'))}), "
                      f"besplatno {_n(cg.get('besplatno_ukupno'))} ({_top(cg.get('besplatno'))}), "
-                     f"429 ukupno {_n(cg.get('e429_ukupno'))} (po satu UTC: {hours})")
+                     f"429 ukupno {_n(cg.get('e429_ukupno'))} (po satu UTC: {hours})"
+                     + (f", račun plan {cr.get('plan') or '?'} {_n(cr.get('used'))}/{_n(cr.get('credit'))} ovaj mjesec"
+                        + time.strftime(" (očitano %d.%m. %H:%M UTC)", time.gmtime(cr["ts"]))
+                        if (cr := cg.get("racun") or {}).get("ts") else ""))
     gr = d.get("graf") or {}
     if gr.get("zahtjeva") is not None:
         parts.append(f"graf povijest {_n(gr.get('zahtjeva'))}/{_n(gr.get('strop'))} zahtjeva GeckoTerminalu")
@@ -369,6 +422,16 @@ def line(d):
     if vj and not vj.get("greska"):   # 18.11. (vijece/): the council's own calls, reviews, decisions, the work it queued
         parts.append(f"vijeće OpenAI ${_usd(vj.get('openai_usd'))}, Claude ${_usd(vj.get('claude_usd'))}, "
                      f"{_n(vj.get('ocjena'))} ocjena, {_n(vj.get('odluka'))} odluka, za izvedbu {_n(vj.get('za_izvedbu'))}")
+    be = d.get("birdeye") or {}
+    if be and not be.get("greska"):   # 20.11.: the month's CU of every caller (insajderi + dugo) against the cap
+        parts.append(f"Birdeye {_n(be.get('cu_mjesec'))}/{_n(be.get('strop'))} CU ovaj mjesec "
+                     f"({_n(be.get('poziva_mjesec'))} poziva, insajderi + dugo)")
+    sx = d.get("simianx") or {}
+    if sx and not sx.get("greska"):   # 20.11.: SimianX quick reads and points of the day
+        cap_ = sx.get("strop_bodova")
+        pts = lambda x: f"{_f(x):g}".replace(".", ",")  # noqa: E731
+        parts.append(f"SimianX {_n(sx.get('poziva'))} mišljenja, {pts(sx.get('bodova'))} bodova"
+                     + (f" od {pts(cap_)}" if cap_ is not None else ""))
     dr = d.get("drustveni") or {}
     if dr and not dr.get("greska"):   # 19.11.: influencers and Telegram once in 5 days: is the window open today
         parts.append(drustveni_part(dr))
@@ -420,7 +483,8 @@ def week(now=None, path=None, n=7):
          "coingecko_kljuc": 0, "coingecko_besplatno": 0, "e429": 0, "graf": 0, "x_usd": 0.0, "x_dijelovi": {}, "apify_usd_bot": 0.0,
          "apify_racun_usd": 0.0, "pumpportal_tradeova": 0, "pumpportal_sol": 0.0, "helius_bot": 0, "helius_racun": 0.0,
          "ai_usd": 0.0, "ai_objava": 0, "openai_usd": 0.0, "openai_poziva": 0, "openai_presuda": 0, "openai_odluke": {},
-         "vijece_usd": 0.0, "vijece_ocjena": 0, "vijece_odluka": 0}
+         "vijece_usd": 0.0, "vijece_ocjena": 0, "vijece_odluka": 0, "simianx_poziva": 0, "simianx_bodova": 0.0,
+         "birdeye_cu_mjesec": None, "birdeye_strop": None}
     for d in rows:
         cg, tw, ap, pp, he, ai_ = (d.get(k) or {} for k in ("coingecko", "twitterapi", "apify", "pumpportal", "helius", "ai"))
         s["coingecko_kljuc"] += int(cg.get("kljuc") or 0)
@@ -448,7 +512,14 @@ def week(now=None, path=None, n=7):
         s["vijece_usd"] += _f(vj.get("openai_usd")) + _f(vj.get("claude_usd"))
         s["vijece_ocjena"] += int(vj.get("ocjena") or 0)
         s["vijece_odluka"] += int(vj.get("odluka") or 0)
-    for k in ("x_usd", "apify_usd_bot", "apify_racun_usd", "pumpportal_sol", "ai_usd", "openai_usd", "vijece_usd"):
+        sx = d.get("simianx") or {}
+        s["simianx_poziva"] += int(sx.get("poziva") or 0)
+        s["simianx_bodova"] += _f(sx.get("bodova"))
+        be = d.get("birdeye") or {}
+        if s["birdeye_cu_mjesec"] is None and be.get("cu_mjesec") is not None:   # rows are newest first: the last reading
+            s["birdeye_cu_mjesec"], s["birdeye_strop"] = int(be["cu_mjesec"]), be.get("strop")
+    for k in ("x_usd", "apify_usd_bot", "apify_racun_usd", "pumpportal_sol", "ai_usd", "openai_usd", "vijece_usd",
+              "simianx_bodova"):
         s[k] = round(s[k], 4)
     return s
 
@@ -470,7 +541,11 @@ def week_md(s):
          "presuda otvorenih pozicija; odluke vlasnika o prijedlozima: "
          + (_top(s.get("openai_odluke")) if s.get("openai_odluke") else "nijedna")] if s.get("openai_poziva") else []) + (
         [f"- Vijeće (OpenAI + Claude): ${_usd(s.get('vijece_usd'))}, {_n(s.get('vijece_ocjena'))} ocjena, "
-         f"{_n(s.get('vijece_odluka'))} odluka"] if s.get("vijece_ocjena") or s.get("vijece_usd") else [])
+         f"{_n(s.get('vijece_odluka'))} odluka"] if s.get("vijece_ocjena") or s.get("vijece_usd") else []) + (
+        [f"- Birdeye: {_n(s['birdeye_cu_mjesec'])}/{_n(s.get('birdeye_strop'))} CU ovaj mjesec (insajderi + dugo)"]
+        if s.get("birdeye_cu_mjesec") is not None else []) + (
+        [f"- SimianX: {_n(s['simianx_poziva'])} mišljenja, {s['simianx_bodova']:g} bodova".replace(".", ",")]
+        if s.get("simianx_poziva") or s.get("simianx_bodova") else [])
 
 
 def run(now=None, log=print, paths=None, path=None):

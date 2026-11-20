@@ -402,5 +402,30 @@ class Priority(unittest.TestCase):
         self.assertIn("veliki prioritet: ", prioritet.line({"rows": [dict(prio["H"], symbol="HOT")]}))
 
 
+class AktivniSleeps(unittest.TestCase):
+    """20.11.: run_paper's "aktivni" thread (GeckoTerminal pool lists every 6 h) sleeps while fokus_midcap is on: its
+    list is read only by the demo's new entries, which the switch stops. One line the first time."""
+
+    def test_no_refresh_while_on_one_line(self):
+        import run_paper
+
+        class Stop(Exception):
+            pass
+        sleeps, lines = [], []
+
+        def sleep(s):
+            sleeps.append(s)
+            if len(sleeps) >= 3:
+                raise Stop()
+        with mock.patch.dict(os.environ, {"FOKUS_MIDCAP_FORCE": "1"}), \
+                mock.patch.object(run_paper.time, "sleep", sleep), \
+                mock.patch.object(run_paper.aktivni, "refresh", side_effect=AssertionError("network")), \
+                mock.patch("builtins.print", lambda *a, **k: lines.append(" ".join(map(str, a)))):
+            with self.assertRaises(Stop):
+                run_paper._aktivni_loop(every=1)
+        self.assertEqual(len(sleeps), 3)
+        self.assertEqual(sum("fokus midcap uključen" in x for x in lines), 1, lines)
+
+
 if __name__ == "__main__":
     unittest.main()

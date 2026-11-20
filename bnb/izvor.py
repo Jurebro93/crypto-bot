@@ -1,9 +1,12 @@
-"""The free market sources for BSC: GeckoTerminal (network "bsc": pool lists, OHLCV), DexScreener (chain "bsc": token
+"""The market sources for BSC: GeckoTerminal (network "bsc": pool lists, OHLCV), DexScreener (chain "bsc": token
 pairs with market cap, liquidity, pair age; live prices for the measurement) and Binance's public market-data mirror
 (data-api.binance.vision: BNBUSDT / SOLUSDT hourly klines, the USD of a WBNB amount and of 0.05 SOL at a time).
 
 GeckoTerminal goes through event_calendar/http.get_json, i.e. the repo's shared per-IP gate (3.5 s between calls of
-every process, a shared pause after a 429) and its cache; nothing here paces it on its own. DexScreener through
+every process, a shared pause after a 429) and its cache; nothing here paces it on its own. Not always free: with
+COINGECKO_API_KEY set, get_json sends these calls to CoinGecko's paid on-chain API while this job's share of the key's
+day budget lasts (counted per job in the CoinGecko day file), and only past it to the free GeckoTerminal; the
+"bsc-free" amount 0 below is our own tally, not what the key spent. DexScreener through
 dexscreener/client (its own 280 / 55 a minute throttles). Calls are counted per source in CALLS (the run line, the
 report) and in usage/ (service "bsc-free", amount 0).
 """

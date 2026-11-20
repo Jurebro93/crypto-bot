@@ -166,7 +166,7 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 ) &
 
 # wallet registry: every WALLETS_EVERY_H hours (default 3) pull wallets from all analyses, then score the queue.
-# score stops at --credits per run and at WALLET_CREDIT_SHARE of the monthly Helius credits (default 15% = 1.5M)
+# score stops at --credits per run and at WALLET_CREDIT_SHARE of the monthly Helius credits (default 25% = 2.5M; run_wallets.py)
 (
   sleep 600   # let the first hype learn finish so its smart wallets are imported
   while true; do
@@ -387,7 +387,7 @@ fi
 # MIDCAP_EVERY_S (90 s, counted from the start of a pass), outside the heavy lock: DexScreener trending / boosts /
 # profiles / CTO + GeckoTerminal trending + Jupiter lists every 15 min, every pass DexScreener numbers of the whole
 # 2M-200M list (free, 30 a request) -> midcap.db (one row a token a pass), GeckoTerminal 15m / 1h / 1d by volume inside
-# its own day cap (gt_day 4000; never the last part of veliki's key slice), RugCheck holders / LP, X momentum inside the scanner's day cap, the priority order of
+# its own day cap (gt_day 1500, veliki/config.json since 16.11.; never the last part of veliki's key slice), RugCheck holders / LP, X momentum inside the scanner's day cap, the priority order of
 # veliki/live; one "midcap: sat:" line an hour (counts, API use, MB a day). Switch off: the pass ends at once.
 ( sleep "${MIDCAP_FIRST_S:-120}"; while true; do r0=$(date +%s); low python3 run_veliki.py midcap || echo "midcap sakupljač nije uspio"; rs=$(( ${MIDCAP_EVERY_S:-90} - $(date +%s) + r0 )); [ "$rs" -lt 10 ] && rs=10; sleep "$rs"; done ) &
 ( sleep "${VELIKI_FIRST_S:-420}"; python3 -m ops.heavy run_veliki.py once || echo "veliki nije uspio"; while true; do sleep 3600; python3 -m ops.heavy --night run_veliki.py night || echo "veliki (noć) nije uspio"; done ) &
