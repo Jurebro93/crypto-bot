@@ -930,6 +930,44 @@ def get_json(url, params=None, ttl=CACHE_TTL, timeout=30, headers=None, retries=
     return data
 
 
+CG_PUBLIC = "https://api.coingecko.com/api/v3"
+
+
+def cg_get_json(url, params=None, ttl=CACHE_TTL, timeout=30, retries=None):
+    """20.11.: a public CoinGecko REST URL (https://api.coingecko.com/api/v3/...) the way makroinf/prices does it: with
+    the key set and while this job may spend a call of it (_cg_take: the day budget, the hour's slice, counted per job),
+    the same path on the paid host with the key in a header; else, or when the paid call fails, the public endpoint
+    (with the key set that call is counted as free). Cached under the public URL either way, so a cache hit costs
+    nothing and never takes from the budget. Without the key this is exactly get_json(url, ...)."""
+    if params:
+        url = f"{url}?{urllib.parse.urlencode(params)}"
+    key = _cg_key_raw()
+    if not key or not url.startswith(CG_PUBLIC):
+        return get_json(url, None, ttl=ttl, timeout=timeout, retries=retries)
+    digest = hashlib.sha1(url.encode()).hexdigest()
+    hit = _fresh(digest, ".json", ttl)
+    if hit:
+        with open(hit) as f:
+            return json.load(f)
+    data = None
+    if _cg_take():
+        demo = os.environ.get("COINGECKO_DEMO") == "1"
+        base = CG_PUBLIC if demo else "https://pro-api.coingecko.com/api/v3"
+        hdr = {("x-cg-demo-api-key" if demo else "x-cg-pro-api-key"): key}
+        req = urllib.request.Request(base + url[len(CG_PUBLIC):],
+                                     headers={"User-Agent": USER_AGENT, "Accept": "application/json", **hdr})
+        try:
+            data = _fetch(req, timeout, retries)
+        except Exception:  # noqa: BLE001 - the public endpoint below
+            data = None
+    if data is None:
+        _cg_free()
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+        data = _fetch(req, timeout, retries)
+    _write(_named(digest, ".json", ttl), json.dumps(data))
+    return data
+
+
 def get_text(url, params=None, ttl=CACHE_TTL, timeout=30):
     """Like get_json, for RSS/XML; cached as text."""
     if params:

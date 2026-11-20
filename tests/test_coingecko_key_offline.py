@@ -196,5 +196,79 @@ class Plan(unittest.TestCase):
         self.assertIn("coingecko račun: plan Analyst", http.cg_hour_line(self.NOV20 + 60, account=True))
 
 
+class Leaks(unittest.TestCase):
+    """20.11.: the public CoinGecko REST calls and dugo's GeckoTerminal calls go through the key's budget."""
+
+    def setUp(self):
+        import tempfile
+        import time as _t
+        from unittest import mock
+        self._env = {k: os.environ.get(k) for k in ("COINGECKO_API_KEY", "COINGECKO_DEMO", "CG_DAILY_CALLS", "DATA_DIR",
+                                                    "CAL_CACHE_DIR")}
+        for k in self._env:
+            os.environ.pop(k, None)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved = (http.GATE_DIR, http.CACHE_DIR)
+        http.GATE_DIR = os.path.join(self._tmp.name, "gate")
+        http.CACHE_DIR = os.path.join(self._tmp.name, "cache")
+        t = _t.time()
+        self._p = [mock.patch.object(http, "_now", return_value=t - t % 86400 + 23 * 3600 + 1800)]
+        self.reqs = []
+
+        def fake(req, timeout, retries=None):
+            self.reqs.append((req.full_url, {k.lower() for k in req.headers}))
+            if "pro-api" in req.full_url and getattr(self, "pro_fails", False):
+                raise OSError("pro down")
+            return {"url": req.full_url}
+        self._p.append(mock.patch.object(http, "_fetch", fake))
+        for p in self._p:
+            p.start()
+        http.set_cg_job("dugo")
+
+    def tearDown(self):
+        for p in self._p:
+            p.stop()
+        http.set_cg_job(None)
+        http.GATE_DIR, http.CACHE_DIR = self._saved
+        self._tmp.cleanup()
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    URL = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
+
+    def test_without_key_the_public_url_as_before(self):
+        from unittest import mock
+        with mock.patch.object(http, "get_json", return_value={"ok": 1}) as g:
+            self.assertEqual(http.cg_get_json(self.URL, {"days": 2}, ttl=60, retries=1), {"ok": 1})
+        g.assert_called_once_with(self.URL + "?days=2", None, ttl=60, timeout=30, retries=1)
+
+    def test_with_key_pro_host_counted_cached_and_free_fallback(self):
+        os.environ["COINGECKO_API_KEY"] = "CG-test"
+        d = http.cg_get_json(self.URL, {"days": 2}, ttl=600)
+        self.assertEqual(d["url"], "https://pro-api.coingecko.com/api/v3/coins/bitcoin/market_chart?days=2")
+        self.assertIn("x-cg-pro-api-key", self.reqs[0][1])
+        self.assertEqual(http.cg_status()["jobs"], {"dugo": 1})
+        http.cg_get_json(self.URL, {"days": 2}, ttl=600)                 # cached: no call, no budget
+        self.assertEqual((len(self.reqs), http.cg_status()["n"]), (1, 1))
+        self.pro_fails = True
+        d = http.cg_get_json(self.URL, {"days": 3}, ttl=600)             # the paid call fails: the public one
+        self.assertEqual(d["url"], self.URL + "?days=3")
+        self.assertNotIn("x-cg-pro-api-key", self.reqs[-1][1])
+        self.assertEqual(http.cg_status()["free"], {"dugo": 1})
+
+    def test_dugo_gecko_goes_through_the_key_for_its_job(self):
+        from dugo import sources
+        os.environ["COINGECKO_API_KEY"] = "CG-test"
+        d = sources._gecko("/tokens/M/info", 0, job="aktivni")
+        self.assertEqual(d["url"], "https://pro-api.coingecko.com/api/v3/onchain/networks/solana/tokens/M/info")
+        self.assertEqual(http.cg_status()["jobs"], {"aktivni": 1})
+        os.environ.pop("COINGECKO_API_KEY")
+        d = sources._gecko("/pools?page=1", 0)
+        self.assertEqual(d["url"], sources.GECKO + "/pools?page=1")
+
+
 if __name__ == "__main__":
     unittest.main()

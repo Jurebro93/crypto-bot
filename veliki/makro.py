@@ -155,7 +155,7 @@ def sector():
             cats = FETCH["sector"]()
         else:
             from event_calendar import http
-            cats = http.get_json(CG_CATS, None, ttl=3300, timeout=60, retries=1)
+            cats = http.cg_get_json(CG_CATS, None, ttl=3300, timeout=60, retries=1)   # 20.11.: key while allowed
         for x in cats or []:
             if x.get("id") == SECTOR:
                 return {"mcap": x.get("market_cap"), "vol24": x.get("volume_24h"),

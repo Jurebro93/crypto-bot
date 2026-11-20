@@ -26,11 +26,13 @@ class GeckoBusy(Exception):
     """GeckoTerminal's free per-minute limit is used up (by us or the KOL module): not an error, try next pass."""
 
 
-def _gecko(path, gap):
-    """GeckoTerminal GET without the disk cache (candles are stored in dugo.db anyway). The free API allows ~30
-    calls a minute per IP and the KOL module uses the same IP: calls are spaced `gap` seconds here and queue with
-    the other processes through http's shared gate. The Dugoročni lists refresh slowly anyway, so on a 429 (or
-    while the gate is paused after someone else's 429) we give way to the KOL measurements instead of waiting."""
+def _gecko(path, gap, job="dugo"):
+    """GeckoTerminal GET (cached 1 h: candles are stored in dugo.db anyway). The free API allows ~30 calls a minute per
+    IP and the KOL module uses the same IP: calls are spaced `gap` seconds here and queue with the other processes
+    through http's shared gate. The Dugoročni lists refresh slowly anyway, so on a 429 (or while the gate is paused
+    after someone else's 429) we give way to the KOL measurements instead of waiting.
+    20.11.: through http.get_json, so with the CoinGecko key the call goes to the paid on-chain API within the key's
+    budget and is counted for `job` ("dugo"; paper/aktivni passes "aktivni"); without the key the same free URL."""
     url = GECKO + path
     if http.cooling(url) > 0:
         raise GeckoBusy()
@@ -38,13 +40,16 @@ def _gecko(path, gap):
     if wait > 0:
         time.sleep(wait)
     _last[0] = time.monotonic()
-    req = urllib.request.Request(url, headers={"User-Agent": http.USER_AGENT, "Accept": "application/json"})
     try:
-        return http._fetch(req, 30, retries=0)
+        with http.cg_job_as(job):
+            d = http.get_json(url, ttl=3600, timeout=30, retries=0)
     except urllib.error.HTTPError as e:
         if e.code == 429:
             raise GeckoBusy() from None
         raise
+    if d is None:   # another process holds the free host (http.reserve): give way, as on a 429
+        raise GeckoBusy()
+    return d
 
 
 def _ro(name):
@@ -130,9 +135,9 @@ def candles(pair, gap, limit=400):
 
 
 def btc_closes(days=365):
-    """{day: close} BTC from CoinGecko's free endpoint (one call a day)."""
-    d = http.get_json("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart",
-                      {"vs_currency": "usd", "days": days, "interval": "daily"}, ttl=6 * 3600)
+    """{day: close} BTC from CoinGecko (one call in 6 h; 20.11.: with the key through its budget, http.cg_get_json)."""
+    d = http.cg_get_json("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart",
+                         {"vs_currency": "usd", "days": days, "interval": "daily"}, ttl=6 * 3600)
     # a CoinGecko point at 00:00 UTC is the close of the PREVIOUS day; GeckoTerminal candles are keyed by their open day
     return {int(t / 1000) // D * D - D: p for t, p in d.get("prices", []) if int(t / 1000) % D < 3600}
 
