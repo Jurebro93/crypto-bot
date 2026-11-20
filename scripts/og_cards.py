@@ -21,16 +21,17 @@ SRC = os.path.join(ROOT, "scripts", "og_src")
 
 # key -> lang -> (headline, sub, chips, footer, images); images: [("phone"|"page", path)]
 CARDS = {
-    "home": {
-        "en": ("Smarter entries into <em>Solana tokens.</em>",
-               "Token picks, influencer scores, wallet tracking and event tokens in one app.",
-               ["Token picks", "Influencer scores", "Wallet tracking", "Rug shield"], "Free for now · access on request",
-               [("phone", f"{OUT}/en-mob-kol-profil.jpg"), ("phone", f"{OUT}/en-mob-tokeni.jpg")]),
-        "hr": ("Pametniji ulaz u <em>Solana tokene.</em>",
-               "Prijedlozi tokena, ocjena influencera, praćenje novčanika i event tokeni u jednoj aplikaciji.",
-               ["Prijedlozi tokena", "Ocjena influencera", "Praćenje novčanika", "Štit od ruga"],
+    "home": {   # 20.11. (vlasnik 19.11.: novi fokus): wallets that buy before a jump, measured
+        "en": ("Wallets that buy <em>before the jump.</em>",
+               "We find them in public on-chain data and measure whether following them pays, after real costs.",
+               ["Wallets worth following", "Measured buy by buy", "Tokens from 2 M $", "Macro influencers"],
+               "Free for now · access on request",
+               [("phone", f"{OUT}/en-mob-mjerenje.jpg"), ("phone", f"{OUT}/en-mob-novcanici.jpg")]),
+        "hr": ("Novčanici koji kupuju <em>prije skoka.</em>",
+               "Nalazimo ih u javnim podacima s lanca i mjerimo isplati li se pratiti ih, nakon stvarnog troška.",
+               ["Novčanici koje vrijedi pratiti", "Mjereno kupnju po kupnju", "Tokeni od 2 M $", "Makro influenceri"],
                "Za sada besplatno · pristup na zahtjev",
-               [("phone", f"{OUT}/mob-kol-profil.jpg"), ("phone", f"{OUT}/mob-tokeni.jpg")]),
+               [("phone", f"{OUT}/mob-mjerenje.jpg"), ("phone", f"{OUT}/mob-novcanici.jpg")]),
     },
     "kols": {
         "en": ("Which crypto influencers <em>actually move the price?</em>",
@@ -119,10 +120,12 @@ def html(key, lang):
             f"<div class=foot><span class=dot></span>{foot}<span class=url>memesonar.app</span></div></div>")
 
 
-def main():
+def main(only=None):
     tmp = tempfile.mkdtemp(prefix="og-")
     jobs = []
     for key in CARDS:
+        if only and key not in only:
+            continue
         for lang in ("en", "hr"):
             name = f"og-{key}{'' if lang == 'en' else '-hr'}.jpg"
             page = os.path.join(tmp, name + ".html")
@@ -139,4 +142,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:] or None)   # python3 scripts/og_cards.py home  (only those cards)

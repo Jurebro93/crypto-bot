@@ -20,6 +20,8 @@ touch "$DATA_DIR/events.db"; ln -sfn "$DATA_DIR/events.db" events.db
 touch "$DATA_DIR/insajderi.db"; ln -sfn "$DATA_DIR/insajderi.db" insajderi.db
 # 15.11. makroinf.db (makro influenceri, makroinf/store.py): persistent too
 touch "$DATA_DIR/makroinf.db"; ln -sfn "$DATA_DIR/makroinf.db" makroinf.db
+# 19.11. bnb.db (BNB Smart Chain: pumpe i novčanici, bnb/store.py): persistent too
+if [ "${BNB_ON:-0}" = "1" ]; then touch "$DATA_DIR/bnb.db"; ln -sfn "$DATA_DIR/bnb.db" bnb.db; fi
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1 UI_SNAP_DIR="$DATA_DIR/pagecache"
 # memory: glibc gives every thread its own malloc arena (up to 8 per CPU the host reports, not our 0.5 CPU), and
 # freed memory stays parked in them, so the threaded dashboard climbed to ~200 MB and the 512 MB server ran out
@@ -327,6 +329,13 @@ low keep zonewatch python3 run_zonewatch.py loop
 ( sleep "${INSAJDERI_FIRST_S:-600}"; if [ "${INSAJDERI_ONCE:-1}" = "1" ]; then python3 -m ops.heavy run_insajderi.py once || echo "insajderi2 nije uspio"; fi; while true; do sleep 3600; python3 -m ops.heavy --night run_insajderi.py night || echo "insajderi2 (noć) nije uspio"; done ) &
 if [ "${INSAJDERI_INCR:-1}" = "1" ]; then
 ( sleep "${INSAJDERI_INCR_FIRST_S:-3600}"; while true; do python3 -m ops.heavy run_insajderi.py incr || echo "insajderi2 (3 h) nije uspio"; sleep "${INSAJDERI_INCR_S:-10800}"; done ) &
+# 19.11. (vlasnik: "dodaj BNB chain i praćenje novčanika"; bnb/, run_bnb.py): BSC pumps, who bought before and sold
+# into them, the class "kupuje prije pumpe" (insajderi/prijepumpe.classify), the measurement of their new buys (bnb.db
+# bnb_mjera); free sources only (GeckoTerminal, DexScreener, public BSC RPC, Binance market data), analysis only, never
+# trades. Low priority, NOT under the heavy lock (network bound), 30 min after a start then every 3 h, a pass bounded by
+# bnb/config.json pass_max_s.pass and calls_day. Dormant unless BNB_ON=1 (unset: the loop only sleeps, no bnb.db).
+# One line "bnb: ..." and output/bnb_novcanici.md.
+( sleep "${BNB_FIRST_S:-1800}"; while true; do if [ "${BNB_ON:-0}" = "1" ]; then nice -n 10 python3 run_bnb.py pass || echo "bnb nije uspio"; fi; sleep "${BNB_EVERY_S:-10800}"; done ) &
 fi
 
 # 15.11. (vlasnik: "Slažem se s prijedlogom koraka za plan makroinfluencera s dopunama kritičara"; makroinf/,
@@ -461,13 +470,11 @@ if [ -n "${KOL_BACKFILL_USD:-}" ]; then
   ) &
 fi
 
-# Telegram call channels: discovery every hour, hot channels read every 30 s via t.me/s (free) -> tg.db,
-# hype.db tg_mentions, and kol.db calls on the next run_kol round. TGStat (TGSTAT_TOKEN) adds paid search by CA.
-keep tg python3 run_tg.py loop
-# optional live listener on a Telegram account (paid option: needs a phone number), only with its secrets set
-# 19.11. (ops/drustveni): it listens only inside the social refresh window and ends when the window closes; the loop
-# starts it again and it waits for the next window (one line a day)
-if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then ( while true; do python3 run_tg.py telethon || echo "telethon nije uspio"; sleep 60; done ) & fi
+# 19.11. (vlasnik: "Makni Telegram KOL-ove iz izračuna. Ali zadrži popis kanala, osvježen jednom tjedno, samo za broj
+# pratitelja"): the Telegram call reader (run_tg.py loop), the Telethon listener, discovery, history and TGStat are
+# gone. Left: the follower count of the existing channel list, a channel at most once in TG_FOLLOWERS_EVERY_D (7)
+# days (tg/pratitelji.py); asked once a day, it reads only the due channels (one free t.me page each, header only).
+( sleep "${TG_FOLLOWERS_FIRST_S:-2700}"; while true; do low python3 run_tg.py pratitelji || echo "telegram pratitelji nisu uspjeli"; sleep 86400; done ) &
 
 # loops that work only now and then, each run a short process that ends and hands its memory back (run_sched.py):
 #   spend on Helius/Apify every 15 min (warnings on /usage and a banner on every page), correlations every

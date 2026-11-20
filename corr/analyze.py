@@ -56,38 +56,13 @@ def load_calls(kol_db):
     try:
         syms = dict(con.execute("SELECT token, symbol FROM tokens"))
         rows = con.execute("""SELECT handle, token, MIN(ts), max24, r1h, pre2h, views, followers, url, symbol
-                              FROM calls WHERE kind='call' GROUP BY handle, token""").fetchall()
+                              FROM calls WHERE kind='call' AND handle NOT LIKE 'tg:%' GROUP BY handle, token""").fetchall()
     except sqlite3.OperationalError:
         return []
     finally:
         con.close()
     return [{"handle": h, "token": t, "ts": ts, "max24": m, "r1h": r1, "pre2h": p, "views": v, "followers": f,
              "url": u, "symbol": s or syms.get(t), "src": "x"} for h, t, ts, m, r1, p, v, f, u, s in rows]
-
-
-def load_tg(hype_db):
-    """Telegram channel posts with a contract address, as calls by 'tg:<channel>' (no price outcome)."""
-    import datetime as dt
-    con = _ro(hype_db)
-    if con is None:
-        return []
-    try:
-        rows = con.execute("SELECT channel, time, ca FROM tg_mentions WHERE ca IS NOT NULL AND ca != ''").fetchall()
-    except sqlite3.OperationalError:
-        return []
-    finally:
-        con.close()
-    first = {}
-    for ch, when, ca in rows:
-        try:
-            ts = int(dt.datetime.fromisoformat(str(when).replace("Z", "+00:00")).timestamp())
-        except ValueError:
-            continue
-        k = ("tg:" + ch, ca)
-        first[k] = min(first.get(k, ts), ts)
-    return [{"handle": h, "token": t, "ts": ts, "max24": None, "r1h": None, "pre2h": None, "views": None,
-             "followers": None, "url": f"https://t.me/{h[3:]}", "symbol": None, "src": "tg"}
-            for (h, t), ts in first.items()]
 
 
 def load_trades(wallet_db, kol_db=None, days=30, now=None):
@@ -594,7 +569,7 @@ def build(kol_db, wallet_db, rug_db, hype_db, c=None, now=None):
     """The whole snapshot as one JSON-able dict."""
     c = c or cfg()
     t0 = time.time()
-    calls = load_calls(kol_db) + load_tg(hype_db)
+    calls = load_calls(kol_db)   # 19.11. (vlasnik, kol/tgout.py): no Telegram calls (load_tg is gone)
     trades = load_trades(wallet_db, kol_db, c.get("trade_days", 30), now)
     info, fedges = load_wallet_info(wallet_db)
     redges, rclusters, hubs, flags = load_rug(rug_db)

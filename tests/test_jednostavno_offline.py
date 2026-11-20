@@ -351,8 +351,8 @@ class Prekidaci(Page):
         self.assertEqual(apjed.flag_toast("mikrokap_moonshot", "paper"), "Uključeno: Iznimka za male tokene.")
         self.assertEqual(apjed.flag_toast("makroinf_indeks", "shadow"), "Samo mjeri: Makro influenceri.")
         self.assertIsNone(apjed.flag_toast("range_dca", "paper"))               # a plan's rule keeps the old line
-        back = pravitrade.post("/pravi-trade/flag", {"name": "dca_guard", "mode": "shadow"}, "Jure")
-        self.assertIn("Zastavica%20dca_guard", back)
+        back = pravitrade.post("/pravi-trade/flag", {"name": "stop_grace", "mode": "shadow"}, "Jure")
+        self.assertIn("Zastavica%20stop_grace", back)
         self.assertIn("samo%20vlasnik", pravitrade.post("/pravi-trade/flag", {"name": "pravi_novac_veliki",
                                                                                  "mode": "live"}, "Ivan"))
         self.assertEqual(settings.flag("pravi_novac_veliki", con=self.con), "off")
@@ -457,8 +457,8 @@ class Postavke(Page):
             self.assertNotIn(f"id=fl-{name}", html, name)
             self.assertEqual(settings.flag(name, con=self.con), settings.FLAG_DEFAULTS.get(name, "off"))   # untouched
         self.assertRegex(html, r"Skriveno \d+ pravila? starih strategija")
-        self.assertIn("id=fl-dca_guard", html)                                 # a rule that still means something
-        self.assertIn("name=name value=dca_guard", html)
+        self.assertIn("id=fl-stop_grace", html)                                 # a rule that still means something
+        self.assertIn("name=name value=stop_grace", html)
         # without the focus every rule is listed again
         settings.set_flag(self.con, settings.FOKUS, "off", "Jure")
         full = apterm.lazy("ostalo", "Jure")

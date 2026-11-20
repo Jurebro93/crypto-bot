@@ -17,8 +17,11 @@ Budget: OPENAI_DEEP_USD (2.00) per session (each turn's most is checked before i
 answer), the month cap with the priority reserves (critic/store.py). Each API turn is a critic_calls row (kind deep).
 
 Schedule (run_sched kriticar_dubinski -> run_critic.py deep --auto every 10 min): the FIRST session right after the
-deploy that brings this (once: critic_kv deep_first), then every KRITICAR_DEEP_EVERY_H (48) hours, inside the night
-window 01-06 Zagreb (ops/heavy.NIGHT). Log: "kritičar: dubinski pregled spremljen, N nalaza, upita Q, trošak X $".
+deploy that brings this (once: critic_kv deep_first), then every KRITICAR_DEEP_EVERY_H (24; 48 until 19.11., vlasnik:
+"dubinski pregled svaki dan umjesto 48 h? Da.") hours, inside the night window 01-06 Zagreb (ops/heavy.NIGHT). The
+interval is checked with DUE_SLACK_S less, so the 10-min schedule does not push the start a few minutes later each
+night until it falls out of the window: the session starts near 01:00 every night. The budget is unchanged
+(OPENAI_DEEP_USD per session, the month cap with its reserves): a session that does not fit is skipped as before. Log: "kritičar: dubinski pregled spremljen, N nalaza, upita Q, trošak X $".
 """
 import datetime as dt
 import glob
@@ -35,7 +38,8 @@ from critic import openai_api, privacy, prompts
 from critic import store
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EVERY_H = float(os.environ.get("KRITICAR_DEEP_EVERY_H") or 48)
+EVERY_H = float(os.environ.get("KRITICAR_DEEP_EVERY_H") or 24)   # 19.11.: daily (was 48)
+DUE_SLACK_S = 3600
 MAX_QUERIES = 30
 MAX_ROWS = 200
 MAX_RESULT_CHARS = 20_000
@@ -315,7 +319,7 @@ def due(tcon, now, night_fn=None):
     if not store.kv_get(tcon, "deep_first"):
         return True, "prvi dubinski pregled nakon deploya"
     last = store.kv_get(tcon, "deep_last") or {}
-    if now - int(last.get("ts") or 0) < EVERY_H * 3600:
+    if now - int(last.get("ts") or 0) < EVERY_H * 3600 - DUE_SLACK_S:
         return False, None
     if night_fn is None:
         from ops import heavy

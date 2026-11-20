@@ -303,8 +303,9 @@ def scores(econ, now=None, days=SCORE_DAYS, log=print):
         if k in seen:
             continue
         seen.add(k)
-        sk = "wallet" if kind == "wallet_buy" else ("channel" if source == "telegram" or actor.startswith("tg:")
-                                                     else "caller")
+        if source == "telegram" or str(actor).startswith("tg:"):
+            continue   # 19.11. (vlasnik, kol/tgout.py): a Telegram channel gets no score (its stored outcomes stay)
+        sk = "wallet" if kind == "wallet_buy" else "caller"
         a = agg.setdefault((sk, actor), {"n": 0, "m4": [], "m24": [], "ev": [], "last": 0})
         a["n"] += 1
         a["last"] = max(a["last"], ts)

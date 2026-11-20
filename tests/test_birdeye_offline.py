@@ -232,14 +232,14 @@ class Admin(unittest.TestCase):
             pp = {"birdeye": {"groups_checked": 5, "groups_seen_in_top": 2, "tag_agree": 1, "tag_disagree": 0}}
             with mock.patch.dict(os.environ, {"BIRDEYE_API_KEY": "x"}):
                 html = novadmin.birdeye_html(ro, pp, NOW)
-            self.assertIn("360 / 25 000 CU", html.replace("\xa0", " "))
-            self.assertIn("Birdeye: u vrhu po ostvarenoj zaradi na 3+ pumpe", html)
+            self.assertIn("360 od 25 000 jedinica", html.replace("\xa0", " "))
+            self.assertIn("Novi novčanici iz Birdeyea: među najboljima po zaradi na 3 ili više skokova", html)
             self.assertIn("Kopiraj", html)
             self.assertIn("solscan.io/account/", html)
             self.assertNotIn("<b>Star", html)                                 # escaped
             with mock.patch.dict(os.environ, {"BIRDEYE_API_KEY": "", "BIRDEYE_PROXY_KEY": ""}):
                 empty = novadmin.birdeye_html(sqlite3.connect(":memory:"), {}, NOW)
-            self.assertIn("Birdeye ključ nije postavljen", empty)
+            self.assertIn("Ključ za Birdeye nije postavljen", empty)
             with mock.patch.dict(os.environ, {"BIRDEYE_API_KEY": "x"}):
                 nothing = novadmin.birdeye_html(sqlite3.connect(":memory:"), {}, NOW)
             self.assertIn("Birdeye još ništa nije pročitao", nothing)

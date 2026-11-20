@@ -21,8 +21,8 @@ Outside the window a gated job does nothing that costs and says so in ONE line a
 Who asks (see JOBS for the command lines; tests/test_social_offline.py checks every one):
   ops/heavy.main, run_sched.run   skip_cmd(argv) before the lock / the child (like ops/fokus)
   runners started directly        gate_main() at the top of their __main__ (run_makroinf, run_konsenzus, ...)
-  loops / parts of a job          gate(job) where the social part starts (run_kol round, minute loop, tg loop,
-                                  Telethon, X momentum, the AI detective)
+  loops / parts of a job          gate(job) where the social part starts (run_kol round, minute loop,
+                                  X momentum, the AI detective)
 
 python3 -m ops.drustveni     the start line (and the first window's start, once)
 """
@@ -60,13 +60,12 @@ JOBS = (
     (("run_makroinf", "provjera"), "makroinf", "makro influenceri: provjera uzoraka", "kritičar do 1 $"),
     (("run_makroinf", "prosiri"), "makroinf", "makro influenceri: proširenje", "twitterapi / OpenAI jednokratni stropovi"),
     (("run_veliki", "moc"), "moc", "moć poziva midcapova (X pretraga)", "strop 4 $ dnevno, ~2,50 $ po prolazu, svaka 3 h"),
-    (("run_tg", "once"), "tg", "Telegram kanali, jedan ručni krug", "t.me/s, TGStat uz ključ"),
 )
+# 19.11. kasnije (vlasnik: "Makni Telegram KOL-ove iz izračuna"): the Telegram reader, discovery, history, TGStat and
+# Telethon are gone (not gated: removed); run_tg.py only counts followers once a week on its own cadence
+# (tg/pratitelji.py, TG_FOLLOWERS_EVERY_D), outside this gate.
 # parts of a job that keeps running (the gate is asked inside it): key -> what stops outside the window
 PARTS = (
-    ("tg", "Telegram kanali (run_tg.py loop: t.me/s svakih 30 s, otkrivanje i povijest svaki sat, TGStat uz ključ): "
-           "petlja živi, ali ne čita ništa"),
-    ("tg_telethon", "Telegram račun uživo (run_tg.py telethon): spaja se samo u prozoru, na kraju prozora izlazi"),
     ("kol_krug", "KOL krug: X webhook pravila (twitterapi), xquik monitor, snimke, konvergencija, ekipe, ocjene, "
                  "mjerenje, provjera obrisanih; ostaju novčanici (popis i Helius webhook /hook/chain), tokovi i tragovi"),
     ("kol_minute", "minutne svijeće nakon poziva (GeckoTerminal) i provjera tpsl; ostaju preskočene kupnje Autopilota"),

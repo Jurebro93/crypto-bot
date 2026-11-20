@@ -492,13 +492,14 @@ def wallets(qs):
             tags[t] = (["dokazan dvaput"] if t in marks["proven"] else []) + (
                 ["prati Autopilot"] if t in marks["followed"] and t not in marks["proven"] else [])
         tbl = rangtable.table(top_, "wallet", now, tags=tags, empty=(
-            "Trenutno nema dokazanih novčanika (10+ zatvorenih u 30 dana). Rang se računa nakon ocjenjivanja, svaka 3 h."
+            "Trenutno nema dokazanih novčanika (10+ zatvorenih u 30 dana). Rang se računa iz ocjena novčanika."
             if allr else None))
         more = ""
         if few:
             more = ('<details class="ms-more" style="margin-top:14px"><summary>Još nisu dokazani (manje od 10 zatvorenih) · '
                     f'{rd.num(len(few))}</summary>{rangtable.table(few, "wallet", now, tags=tags)}</details>')
-        body = (rd.top("Novčanici", sub) + hero + _vrijedi_pratiti() + sw + fld + str(tbl) + more + str(rangtable.note("wallet"))
+        # 19.11. (fokus na novčanike koji kupuju prije pumpe): the card "Novčanici koje vrijedi pratiti" first
+        body = (rd.top("Novčanici", sub) + _vrijedi_pratiti() + hero + sw + fld + str(tbl) + more + str(rangtable.note("wallet"))
                 + _wallets_foot(scored, marks, now) + _wallets_hint())
         return "Novčanici", W_CSS + f'<div class="ms-page ms-wide">{body}</div>' + _W_JS
     srt = qs.get("s") if qs.get("s") in {k for k, _, _ in SORTS} else "copy"
@@ -1164,7 +1165,7 @@ def _callers_html(mint, mcap_now, now):
     import json
     from ui import redak as R
     from ui import tokenchart
-    cs = tokenchart.calls(mint)
+    cs = [c for c in tokenchart.calls(mint) if not str(c[1]).startswith("tg:")]   # 19.11.: Telegram not listed
     try:
         from ui import kol as _kol
         full = _kol.token_section(mint)
@@ -1195,7 +1196,7 @@ def _callers_html(mint, mcap_now, now):
         else:
             reason = R.cat(R.dot(v["dot"]) if v.get("dot") else "", v["word"], " · ", when)
         growth = (mcap_now / m0 - 1) * 100 if (mcap_now and m0) else None
-        name = (hnd[3:] + " (TG)") if hnd.startswith("tg:") else "@" + hnd
+        name = "@" + hnd
         items.append(R.row(name, reason=reason, value=R.usd(m0) if m0 else R.DASH,
                            sub=R.pct(growth) if growth is not None else None, sub_tone=R.tone(growth), href=f"/kol/{hnd}"))
     return (head + R.rows(items) + R.hint("Desno: mcap kod poziva i koliko je od tada narastao.")
@@ -1273,6 +1274,19 @@ def _sum_row(title, sub=None, value=None):
             + '<span class="ms-chev" aria-hidden="true"></span></summary>')
 
 
+def buy_line(paused=None):
+    """The purchase line under "Kupi" (19.11.: state-driven; Natjecanje is gone, so the only buy left is the owner's
+    manual one on the Autopilot; adm-only, removed from everybody else's copy). While automatic real-money buying is
+    paused (ui/pauza, trade.db pravi_novac_pauza) the line says so."""
+    if paused is None:
+        from ui import pauza
+        paused = pauza.on()
+    if paused:
+        return ('<span class="adm-only">Kupnja: samo ručno na Autopilotu. Automatske kupnje pravim novcem su '
+                'pauzirane.</span>')
+    return '<span class="adm-only">Kupnja: ručno na Autopilotu (pravi novac).</span>'
+
+
 def token(mint, qs):
     from ui import redak as R
     now = time.time()
@@ -1298,6 +1312,18 @@ def token(mint, qs):
     url = (pair or {}).get("url") or url
     dead = bool(st) and not st.get("has_pair") and not pair
     analysed = bool(ev or sigs or rugs)
+    try:   # 19.11.: tracked = on the midcap list (ui/midcaplist); its market cap when nothing fresher is known
+        from ui import midcaplist
+        mci = midcaplist.mcap_now([mint], now).get(mint)
+    except Exception:  # noqa: BLE001
+        mci = None
+    tracked = bool(mci and mci[1])
+    if not sym or not name:   # 19.11.: a tracked midcap without hype / rug rows still has its symbol and name
+        try:
+            msym, mname = midcaplist.info(mint)
+        except Exception:  # noqa: BLE001
+            msym, mname = None, None
+        sym, name = sym or msym, name or mname
 
     locked = why_bad = rec_note = None
     top = None
@@ -1342,7 +1368,12 @@ def token(mint, qs):
     sn, an, pr, pa = sansa.score(conf, cs)
     best = max(ev, key=lambda e: e["score"] or 0) if ev else None
     mcap_now = (pair or {}).get("marketCap") or (pair or {}).get("fdv") or ((st or {}).get("mcap") if (st or {}).get("has_pair") else None) \
-        or (sig or {}).get("mcap") or mk.get("mcap")
+        or (sig or {}).get("mcap") or mk.get("mcap") or (mci[0] if mci else None)
+    # 19.11. (vlasnik, Cooldog 3,1k $): a token the tool does not follow and that is worth under 30k $ (or has no market)
+    # gets no "Kupi" and no purchase line; the box says what the page is
+    from ui import midcaplist as _ml
+    small_untracked = (not analysed and not tracked and not dlist
+                       and ((mcap_now is not None and mcap_now < _ml.RULE_MCAP) or (dead and not mcap_now)))
     ch = (pair or {}).get("priceChange") or {}
     h1 = ch.get("h1")
     m0 = _zone_mcap0(mint, now) if analysed else None
@@ -1358,7 +1389,7 @@ def token(mint, qs):
     if qs.get("err"):
         b.append(f'<p class="tkp-msg neg">Nije prošlo, ništa nije spremljeno: {esc(qs["err"])}</p>')
     elif qs.get("ok"):
-        b.append(f'<p class="tkp-msg">{esc(qs["ok"])} <a href="/natjecanje#moj">Vidi svoj račun na Natjecanju</a></p>')
+        b.append(f'<p class="tkp-msg">{esc(qs["ok"])}</p>')
     b.append('<a class="tkp-back" href="/tokens">Tokeni</a>')
     # 13.11.: the name is a name (translate=no): in English it is a placeholder, not a new sentence per token (ui/i18n)
     sub = R.cat(R.raw(f"<bdi translate=no>{esc(name)}</bdi> · ") if name and name != sym else "",
@@ -1382,6 +1413,15 @@ def token(mint, qs):
         lbl = R.cat(R.dot(kind) if kind in ("warn", "bad") else "", f"Pouzdanost {conf} · šansa za skok {sn}")
         panel = (f'<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">{lbl}</div><div class="ms-name">{esc(word)}</div>'
                  f'<p>{esc(sentence)}</p><div class="tkp-go"><b>Za:</b> {zt} <b>Protiv:</b> {pt}</div></div>')
+    elif tracked:
+        panel = ('<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">Pratimo</div><div class="ms-name">'
+                 'Na popisu midcap tokena</div><p>Pratimo ga na popisu midcap tokena (od 2 M $): vrijednost, skokovi i '
+                 'novčanici koji su kupili prije skoka su na stranici <a href="/tokens">Tokeni</a>; tržište i vanjske '
+                 'stranice su ispod.</p></div>')
+    elif small_untracked:
+        panel = ('<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">Ne pratimo</div><div class="ms-name">'
+                 'Nije u analizi</div><p>Ovaj token ne pratimo: vrijedi ispod 30.000 $ (pratimo tokene od 2 M $ naviše). '
+                 'Ispod su samo podaci s tržišta i poveznice.</p></div>')
     else:
         panel = (f'<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">Bez analize</div><div class="ms-name">'
                  f'{"Na popisu " + esc(dlist) if dlist else "Nije u analizi"}</div><p>'
@@ -1389,12 +1429,16 @@ def token(mint, qs):
                     "Ovaj token nije ni u jednoj analizi. Tržište i vanjske stranice su ispod.") + "</p></div>")
     if rec_note:
         panel += R.hint(rec_note)
-    buy_txt = (f"Kupnja je zaključana: {locked}." if locked else
-               'Kupnja: demo 50 $ na Natjecanju<span class="adm-only"> ili Autopilot (pravi novac)</span>.')
-    actions = ('<div class="tkp-btns"><button type="button" class="tkp-btn p" data-buy'
-               + (' aria-disabled="true"' if locked else "") + '>Kupi</button>'
-               f'<button type="button" class="tkp-btn s" data-copy="{esc(mint)}"><span class="tkp-cl">Kopiraj adresu</span></button></div>'
-               f'<p class="tkp-links"><span>{buy_txt}</span><br>{_token_links(mint, url, dead)}</p>')
+    buy_txt = (f"Kupnja je zaključana: {locked}." if locked else buy_line())
+    if small_untracked:
+        actions = ('<div class="tkp-btns">'
+                   f'<button type="button" class="tkp-btn s" data-copy="{esc(mint)}"><span class="tkp-cl">Kopiraj adresu</span></button></div>'
+                   f'<p class="tkp-links">{_token_links(mint, url, dead)}</p>')
+    else:
+        actions = ('<div class="tkp-btns"><button type="button" class="tkp-btn p adm-only" data-buy'
+                   + (' aria-disabled="true"' if locked else "") + '>Kupi</button>'
+                   f'<button type="button" class="tkp-btn s" data-copy="{esc(mint)}"><span class="tkp-cl">Kopiraj adresu</span></button></div>'
+                   f'<p class="tkp-links"><span>{buy_txt}</span><br>{_token_links(mint, url, dead)}</p>')
     chart = tokenchart.chart_html(mint, sym or "", now)
     if chart:
         b.append(f'<div class="tkp-g2 a"><div>{chart}</div><div>{panel}{actions}</div></div>')
@@ -1446,7 +1490,7 @@ def token(mint, qs):
         b.append(tokenstranica.private_html(mint, qs))
     except Exception as e:  # noqa: BLE001 - the token page stays up without them
         print(f"tokenstranica: {type(e).__name__}: {e}"[:200])
-    b.append(quickbuy.buy_sheet(mint, sym, locked) + "</div>" + TOKEN_JS)
+    b.append(("" if small_untracked else quickbuy.buy_sheet(mint, sym, locked)) + "</div>" + TOKEN_JS)
     # a detail page of about three screens: no row of section chips on top (ui/secnav builds one from 3+ <h2>)
     return sym or short(mint), "".join(b).replace("<h2", '<h2 data-sec=""')
 

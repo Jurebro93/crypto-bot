@@ -460,9 +460,15 @@ def _leaderboard_rows():
     return _cached(("lb", _path("kol"), _path("minute")), build)
 
 
+TG_NOTE = ("Telegram channels are out of every calculation since 19.11. (owner): their calls are not measured, ranked "
+           "or copied; stored rows are informational only")
+
+
 def caller_leaderboard(platform=None, min_calls=None, sort=None, limit=None, offset=None, min_measured=None):
     limit, offset = _page(limit, offset)
-    rows = list(_leaderboard_rows())
+    # 19.11. (vlasnik: Telegram out of every calculation, kol/tgout.py): Telegram channels leave the leaderboard;
+    # platform "telegram" answers an empty page with the reason (the tool's shape is unchanged)
+    rows = [r for r in _leaderboard_rows() if r["platform"] != "telegram"]
     if platform in ("x", "telegram"):
         rows = [r for r in rows if r["platform"] == platform]
     if min_calls:
@@ -477,7 +483,7 @@ def caller_leaderboard(platform=None, min_calls=None, sort=None, limit=None, off
     field = "call_power" if key == "score" else key
     rows.sort(key=lambda r: (r.get(field) is None, -(r.get(field) or 0), r["handle"]))
     cost = _cost()
-    return _paged(rows, limit, offset, sort=key, min_measured=mm,
+    return _paged(rows, limit, offset, sort=key, min_measured=mm, telegram=TG_NOTE,
                   definitions={"hit_rate": f"24 h WICK, not tradable: share of measured calls whose highest price at any "
                                            f"moment within 24 h reached +{int(HIT * 100)} % (nobody sells the top); "
                                            "rank by ev_lower instead",
@@ -641,7 +647,8 @@ def caller_history(handle, platform=None, since_ts=None, limit=None, offset=None
                     r["max_1h_source"] = o["src"]
     finally:
         _close(kc, mc, hc)
-    return _paged(rows, limit, offset, total=total, handle=h, platform=platform_of(h),
+    extra = {"informational": TG_NOTE} if platform_of(h) == "telegram" else {}   # 19.11.: history stays readable
+    return _paged(rows, limit, offset, total=total, handle=h, platform=platform_of(h), **extra,
                   definitions={"max_1h/min_1h": "highest / lowest move in the first 60 min after the minute of the call "
                                                 "(minute candles, fraction of the entry); max_1h_source minute | "
                                                 "minute_candles, null = not measured (minute_status says why: "
@@ -1518,6 +1525,8 @@ def submit_caller_weights(weights, source="mcp", kid="local"):
         if not isinstance(w, dict):
             return {"error": f"item {i} is not an object"}
         plat = str(w.get("platform") or "x").lower()
+        if plat == "telegram":
+            return {"error": f"item {i}: {TG_NOTE}"}
         if plat not in ("x", "telegram"):
             return {"error": f"item {i}: platform must be x or telegram"}
         h = _handle(w.get("handle"), plat)

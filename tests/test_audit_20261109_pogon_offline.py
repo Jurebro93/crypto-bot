@@ -417,18 +417,14 @@ class AutopilotMenuForAdmins(unittest.TestCase):
     def test_menu_has_the_admin_button_under_the_core_items(self):
         from ui import admstrip, html
         menu = html.side_menu("/pregled")
-        self.assertIn('class="sec-ap adm-only"', menu)
-        self.assertIn('href="/pravi-trade" class="ap"', menu)
-        # 10.11. (Jure, prijedlog 3.5): the side menu is the core items, the Autopilot and Više; the other groups moved
-        # to the /vise page, so "before every other group" became "right after Novčanici, before Više"
-        self.assertLess(menu.index('href="/wallets"'), menu.index("sec-ap"))
-        self.assertLess(menu.index("sec-ap"), menu.index('href="/vise"'))
+        # 19.11. (vlasnik: "Autopilot stavi u drugi plan dok rekonstruiramo app"): out of the side menu, under Više
+        self.assertNotIn('href="/pravi-trade"', menu)
+        self.assertIn('<a href="/pravi-trade" class="adm-only">', html.vise_page({})[1])
         self.assertNotIn("linear-gradient", html.ADMIN_CSS[html.ADMIN_CSS.find(".side .sec-ap"):][:200])   # no orange block
-        self.assertEqual(menu.count("/pravi-trade"), 1)                           # no second, plain entry below
         self.assertNotIn("<h4>Autopilot</h4>", menu)
-        self.assertIn('class="ap on"', html.side_menu("/pravi-trade"))
+        self.assertIn('class="vise on"', html.side_menu("/pravi-trade", "/pravi-trade"))   # it lights Više
         stripped = admstrip.strip(menu)
-        self.assertNotIn("/pravi-trade", stripped)                                # a non-admin's copy has no trace of it
+        self.assertNotIn("/pravi-trade", admstrip.strip(html.vise_page({})[1]))   # a non-admin's copy has no trace of it
         self.assertIn('href="/pregled"', stripped)                                # ... and keeps the rest of the menu
         self.assertIn("Autopilot", html.ADMIN)
         self.assertIn(".side .sec-ap a.ap", html.ADMIN_CSS)

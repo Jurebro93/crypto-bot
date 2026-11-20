@@ -593,7 +593,7 @@ class LiveGate(TradeBase):
         self.rounds(40, 0.10)                                                # 11.11.: EV +5.6 %, interval above 0
         self.assertIsNone(gate.refusal())
         self.assertEqual(settings.set_flag(self.con, "range_dca", "live", "Jure", paper=paper, now=self.now)["mode"], "live")
-        self.assertIsNone(settings.live_refusal(self.con, "dca_guard", paper, self.now) and None)
+        self.assertIsNone(settings.live_refusal(self.con, "stop_grace", paper, self.now) and None)
 
     def test_live_without_proof_trades_only_the_demo_account(self):
         self.mode("live")

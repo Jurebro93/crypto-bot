@@ -2,7 +2,7 @@
 
   /crypto-influencer-calls     /hr/pozivi-kripto-influencera
 
-How many calls influencers made on X and Telegram per day against their own week, how many different callers, how many
+How many calls influencers made on X per day (19.11.: Telegram channels are no longer measured, kol/tgout.py) against their own week, how many different callers, how many
 of the calls reached +50 % within 24 h, the median market cap at the call, the rug share, how calls do in a cold vs a
 hot market, graduated pump.fun tokens we saw per day and how many tokens trade in a range right now.
 
@@ -42,7 +42,7 @@ def _x(now, first, regime_of):
     if con is None:
         return None
     q = ("SELECT c.ts, c.handle, c.token, c.first_by_kol, c.max24, c.mcap0, c.rug FROM calls c {join} "
-         "WHERE c.kind='call' AND c.ts>=? AND c.ts<? {bot}")
+         "WHERE c.kind='call' AND c.ts>=? AND c.ts<? AND c.handle NOT LIKE 'tg:%' {bot}")   # 19.11.: X only
     try:
         try:
             rows = con.execute(q.format(join="LEFT JOIN kols k ON k.handle=c.handle", bot="AND COALESCE(k.bot,0)=0"),
@@ -94,25 +94,6 @@ def _x(now, first, regime_of):
             "regime": {k: {"n": n, "rate": h / n} for k, (n, h) in reg.items() if n >= 30}}
 
 
-def _tg(now, first):
-    """Telegram posts that carried a token address, per UTC day: posts and different channels."""
-    try:
-        from tg import store as tstore
-        con = _ro(tstore.DB)
-    except Exception:  # noqa: BLE001
-        con = None
-    if con is None:
-        return {}
-    try:
-        return {int(day): {"posts": n, "channels": ch} for day, n, ch in con.execute(
-            "SELECT ts/86400*86400, COUNT(*), COUNT(DISTINCT channel) FROM posts WHERE cas != '' AND ts>=? AND ts<? "
-            "GROUP BY 1", (first, now))}
-    except sqlite3.Error:
-        return {}
-    finally:
-        con.close()
-
-
 def _ranges():
     """How many bonded tokens trade in a range right now (rangedca), a number only."""
     try:
@@ -144,7 +125,6 @@ def stats(now=None, regime_of=lambda day: None):
     x = _x(now, first, regime_of)
     if not x or not x["x"]:
         return None
-    tg = _tg(now, first)
     full = [d_ for d_ in x["x"] if d_ < today]
     if not full:
         return None
@@ -157,7 +137,6 @@ def stats(now=None, regime_of=lambda day: None):
 
     calls = lambda d_: (xs.get(d_) or {}).get("calls")          # noqa: E731
     callers = lambda d_: (xs.get(d_) or {}).get("callers")      # noqa: E731
-    posts = lambda d_: (tg.get(d_) or {}).get("posts")          # noqa: E731
     oday = max((d_ for d_ in outs if d_ <= day - D and outs[d_]["n"] >= MIN_OUT), default=None)
 
     def pooled(end, n, key):
@@ -166,9 +145,9 @@ def stats(now=None, regime_of=lambda day: None):
         return sum(outs[d_][key] * outs[d_]["n"] for d_ in ds) / tot if tot >= MIN_OUT else None
 
     return {
-        "day": day, "days": days, "x": xs, "out": outs, "tg": tg, "grad": x["grad"], "regime": x["regime"],
-        "ranges": _ranges(), "today": xs.get(today), "today_tg": tg.get(today), "hours_today": (now - today) / 3600,
-        "calls_avg7": wk(calls, day - D), "callers_avg7": wk(callers, day - D), "posts_avg7": wk(posts, day - D),
+        "day": day, "days": days, "x": xs, "out": outs, "grad": x["grad"], "regime": x["regime"],
+        "ranges": _ranges(), "today": xs.get(today), "hours_today": (now - today) / 3600,
+        "calls_avg7": wk(calls, day - D), "callers_avg7": wk(callers, day - D),
         "out_day": oday,
         "hit7": pooled(oday, 7, "hit") if oday else None, "hit30": pooled(oday, 30, "hit") if oday else None,
         "x27": pooled(oday, 7, "x2") if oday else None, "rug7": pooled(oday, 7, "rug") if oday else None,
@@ -189,14 +168,12 @@ def page(lang):
     if not d or not c:
         return M._empty("calls", lang)
     t, en = M.T[lang], lang == "en"
-    day, xs, outs, tg = c["day"], c["x"], c["out"], c["tg"]
+    day, xs, outs = c["day"], c["x"], c["out"]
     usd, pct, _n = M.usd, M.pct, M._n
     num = lambda v: "–" if v is None else _n(f"{v:,.0f}", lang)      # noqa: E731
     g = lambda a, b: (a / b - 1) if a is not None and b else None    # noqa: E731
     y = xs.get(day) or {}
-    ytg = tg.get(day) or {}
     ch_calls, ch_callers = g(y.get("calls"), c["calls_avg7"]), g(y.get("callers"), c["callers_avg7"])
-    ch_tg = g(ytg.get("posts"), c["posts_avg7"])
     louder = (("busier" if (ch_calls or 0) > 0.1 else "quieter" if (ch_calls or 0) < -0.1 else "about as busy") if en else
               ("glasniji" if (ch_calls or 0) > 0.1 else "tiši" if (ch_calls or 0) < -0.1 else "podjednako glasni"))
     inf = "/influencers" if en else "/hr/influenceri"
@@ -204,7 +181,6 @@ def page(lang):
         h1 = "Crypto influencer calls today"
         lead = (f"On {M._date(day, lang)} the influencers we track made <b>{num(y.get('calls'))} token calls on X</b> "
                 f"from {num(y.get('callers'))} different accounts"
-                + (f" and <b>{num(ytg.get('posts'))} Telegram posts with a token address</b>" if ytg.get("posts") else "")
                 + f": {louder} than their own week"
                 + (f" ({pct(ch_calls)})" if ch_calls is not None else "") + "."
                 + (f" Of the first calls in the last 7 measured days, <b>{pct(c['hit7'], signed=False)}</b> rose 50%+ "
@@ -214,18 +190,17 @@ def page(lang):
         h1 = "Pozivi kripto influencera danas"
         lead = (f"Dana {M._date(day, lang)} influenceri koje pratimo objavili su <b>{num(y.get('calls'))} poziva tokena na X-u</b> "
                 f"s {num(y.get('callers'))} različitih računa"
-                + (f" i <b>{num(ytg.get('posts'))} Telegram objava s adresom tokena</b>" if ytg.get("posts") else "")
                 + f": {louder} nego u svom tjednu"
                 + (f" ({pct(ch_calls, lang)})" if ch_calls is not None else "") + "."
                 + (f" Od prvih poziva u zadnjih 7 izmjerenih dana, <b>{pct(c['hit7'], lang, signed=False)}</b> je u nekom "
                    f"trenutku unutar 24 sata naraslo 50%+." if c["hit7"] is not None else "")
                 + f" Tko stoji iza brojki: <a href={inf}>ljestvica influencera</a>.")
-    L = (dict(calls="Calls on X · last full day", callers="Different callers on X", tg="Telegram posts with a token address",
+    L = (dict(calls="Calls on X · last full day", callers="Different callers on X",
               hit="First calls that rose 50%+ within 24 h (7 days)", mc="Median market cap at the call (7 days)",
               rug="First calls that ended as a rug (7 days)", multi=f"Tokens called by {MULTI}+ influencers that day",
               grad="Graduated pump.fun tokens we saw", rng="Tokens trading in a range right now", vs7="vs 7-day average",
               vs30="30-day figure", sofar="so far today (UTC)") if en else
-         dict(calls="Pozivi na X-u · zadnji puni dan", callers="Različitih callera na X-u", tg="Telegram objave s adresom tokena",
+         dict(calls="Pozivi na X-u · zadnji puni dan", callers="Različitih callera na X-u",
               hit="Prvi pozivi koji su narasli 50%+ u 24 h (7 dana)", mc="Medijan market capa u trenutku poziva (7 dana)",
               rug="Prvi pozivi koji su završili kao rug (7 dana)", multi=f"Tokeni koje je taj dan zvalo {MULTI}+ influencera",
               grad="Graduirani pump.fun tokeni koje smo vidjeli", rng="Tokeni koji se sada trguju u rasponu",
@@ -241,8 +216,6 @@ def page(lang):
 
     grad_y = c["grad"].get(day)
     cards = [card(num(y.get("calls")), L["calls"], chg=ch_calls), card(num(y.get("callers")), L["callers"], chg=ch_callers)]
-    if ytg.get("posts"):
-        cards.append(card(num(ytg.get("posts")), L["tg"], chg=ch_tg))
     if c["hit7"] is not None:
         cards.append(card(pct(c["hit7"], lang, signed=False), L["hit"],
                           sub=f"{L['vs30']}: {pct(c['hit30'], lang, signed=False)}" if c["hit30"] is not None else None))
@@ -263,19 +236,16 @@ def page(lang):
     if td and c["hours_today"] >= 1:
         body.append(f"<p class=mut style='margin:-8px 0 22px'><span class=lvdot></span>{L['sofar']}: <b>{num(td['calls'])}</b> "
                     + ("calls on X from " if en else "poziva na X-u s ") + f"<b>{num(td['callers'])}</b> "
-                    + ("accounts" if en else "računa")
-                    + (f", <b>{num(c['today_tg']['posts'])}</b> " + ("Telegram posts" if en else "Telegram objava")
-                       if c.get("today_tg") else "") + ".</p>")
+                    + ("accounts" if en else "računa") + ".</p>")
     body.append(N.boxes("calls", d, lang))
     days = c["days"]
     xl = M._xs(days, lang)
     series = [("X: " + ("calls" if en else "pozivi"), M.C1, [(xs.get(x) or {}).get("calls") for x in days], None, None)]
-    if any((tg.get(x) or {}).get("posts") for x in days):
-        series.append(("Telegram: " + ("posts with an address" if en else "objave s adresom"), M.C2,
-                       [(tg.get(x) or {}).get("posts") for x in days], None, None))
     body.append(M.line_chart("Influencer calls per day (30 days)" if en else "Pozivi influencera po danu (30 dana)",
-                             "Token calls on X and Telegram posts that carried a token address. Bot accounts are left out."
-                             if en else "Pozivi tokena na X-u i Telegram objave s adresom tokena. Bot računi su izostavljeni.",
+                             "Token calls on X. Bot accounts are left out. Telegram channels are no longer measured "
+                             "(since 19 Nov 2026)."
+                             if en else "Pozivi tokena na X-u. Bot računi su izostavljeni. Telegram kanale više ne mjerimo "
+                             "(od 19. 11. 2026.).",
                              xl, series, fmt="num", lang=lang))
     odays = [x for x in days if x in outs and outs[x]["n"] >= MIN_OUT]
     if len(odays) >= 5:
@@ -301,16 +271,16 @@ def page(lang):
                                 "Rose 50%+ in 24 h" if en else "Naraslo 50%+ u 24 h"], rows))
     rows = []
     for x in reversed(days):
-        a, o, tgx = xs.get(x) or {}, outs.get(x) or {}, tg.get(x) or {}
+        a, o = xs.get(x) or {}, outs.get(x) or {}
         ok = o.get("n", 0) >= MIN_OUT
         rows.append([M._date(x, lang, year=False), num(a.get("calls")), num(a.get("callers")), num(a.get("tokens")),
-                     num(a.get("multi")), num(tgx.get("posts")), pct(o.get("hit"), lang, signed=False) if ok else "–",
+                     num(a.get("multi")), pct(o.get("hit"), lang, signed=False) if ok else "–",
                      usd(o.get("med_mc"), lang) if ok else "–", num(c["grad"].get(x))])
     body.append(("<h2 class=s>Day by day (30 days)</h2><p class=mut>Full UTC days. Results appear once a call is 24 hours old.</p>"
                  if en else "<h2 class=s>Po danu (30 dana)</h2><p class=mut>Puni UTC dani. Rezultat se vidi kad poziv "
                  "navrši 24 sata.</p>")
                 + M._table([t["day"], "X calls" if en else "X pozivi", "Callers" if en else "Calleri",
-                            "Tokens" if en else "Tokeni", f"{MULTI}+ callers" if en else f"{MULTI}+ callera", "Telegram",
+                            "Tokens" if en else "Tokeni", f"{MULTI}+ callers" if en else f"{MULTI}+ callera",
                             "+50% in 24 h" if en else "+50% u 24 h", "Median mcap" if en else "Medijan mcapa",
                             "Graduated" if en else "Graduirani"], rows))
     body.append(N.locked("calls", lang))
@@ -328,8 +298,8 @@ def page(lang):
                "could match). Only an account's first call of a token is used for results. Bot accounts are left out."),
               ("Why can't I see which tokens were called?", "The page shows totals only. Which tokens are being called "
                "right now, by whom and how those callers did before is what members see live."),
-              ("Where is this data from?", "From MemeSonar's own tracking of crypto influencers on X and Telegram and "
-               "price checks of every called token. It refreshes automatically every 30 minutes.")]
+              ("Where is this data from?", "From MemeSonar's own tracking of crypto influencers on X and "
+               "price checks of every called token. Telegram channels are no longer measured (since 19 Nov 2026). It refreshes automatically every 30 minutes.")]
         title = f"Crypto Influencer Calls Today ({M._date(day, lang)}): How Many, How Many Work | MemeSonar"
         desc = (f"{num(y.get('calls'))} token calls on X from {num(y.get('callers'))} influencers on {M._date(day, lang)}"
                 + (f", {pct(c['hit7'], signed=False)} of first calls rose 50%+ within 24 h" if c["hit7"] is not None else "")
@@ -347,8 +317,8 @@ def page(lang):
                "mogli spojiti). Za rezultate se uzima samo prvi poziv tokena po računu. Bot računi su izostavljeni."),
               ("Zašto ne vidim koji su tokeni pozvani?", "Stranica pokazuje samo zbrojeve. Koje tokene upravo zovu, tko ih zove "
                "i kako su ti calleri prije prošli, članovi vide uživo."),
-              ("Odakle su podaci?", "Iz MemeSonarovog vlastitog praćenja kripto influencera na X-u i Telegramu i provjere "
-               "cijene svakog pozvanog tokena. Osvježava se automatski svakih 30 minuta.")]
+              ("Odakle su podaci?", "Iz MemeSonarovog vlastitog praćenja kripto influencera na X-u i provjere "
+               "cijene svakog pozvanog tokena. Telegram kanale više ne mjerimo (od 19. 11. 2026.). Osvježava se automatski svakih 30 minuta.")]
         title = f"Pozivi kripto influencera danas ({M._date(day, lang)}): koliko ih je i koliko prolazi | MemeSonar"
         desc = (f"{num(y.get('calls'))} poziva tokena na X-u od {num(y.get('callers'))} influencera, {M._date(day, lang)}"
                 + (f"; {pct(c['hit7'], lang, signed=False)} prvih poziva naraslo je 50%+ u 24 h" if c["hit7"] is not None else "")

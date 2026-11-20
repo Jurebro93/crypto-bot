@@ -504,13 +504,15 @@ def rank_wallets(con, now=None, paths=None, days=WINDOW_D):
 # ---------- influencers ---------------------------------------------------------------------------------------------
 
 def kol_calls(paths, now, days=WINDOW_D):
-    """[(tweet_id, token, handle, ts, mcap0, r1h)] the first call per account and token in the window (kind 'call')."""
+    """[(tweet_id, token, handle, ts, mcap0, r1h)] the first call per account and token in the window (kind 'call').
+    19.11. (vlasnik): Telegram channels are out of the ranking (kol/tgout.py): X influencers only."""
+    from kol import tgout
     con = _ro(paths.get("kol"))
     if con is None:
         return []
     try:
         rows = con.execute("SELECT tweet_id, token, handle, ts, mcap0, r1h FROM calls WHERE kind = 'call' AND ts >= ? "
-                           "AND ts <= ? ORDER BY ts", (now - days * 86400, now - 3600)).fetchall()
+                           f"AND ts <= ? AND {tgout.sql()} ORDER BY ts", (now - days * 86400, now - 3600)).fetchall()
     except sqlite3.Error:
         return []
     finally:
@@ -658,6 +660,7 @@ def load(kind="wallet", path=None):
     hit = _CACHE.get(key)
     if hit and time.time() - hit[0] < CACHE_S:
         return hit[1]
+    from kol import tgout
     out = {}
     con = _ro(path)
     if con is not None:
@@ -668,6 +671,8 @@ def load(kind="wallet", path=None):
                     d = json.loads(data or "{}")
                 except ValueError:
                     d = {}
+                if kind == "kol" and tgout.is_tg(t):
+                    continue   # 19.11.: a Telegram row stored before the exclusion is not ranked any more
                 d.update(target=t, as_of=as_of, score=sc, proven=bool(pr), copyable=bool(cp), n=n)
                 out[t] = d
         except sqlite3.Error:

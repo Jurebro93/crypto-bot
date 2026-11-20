@@ -239,7 +239,8 @@ def sources():
         # calls: X and Telegram posts in kol.db (kol/collect.save; Telegram via tg.db on the KOL round). kol.db calls
         # are not inserted in time order (the history backfill adds old tweets), hence ordered=False for the backfill
         Source("calls", "kol", "calls", "rowid, tweet_id, token, handle, ts, kind, source, followers, mcap0", map_call,
-               ("call",), where="kind = 'call' AND COALESCE(source, '') != 'chain' AND handle NOT LIKE 'w:%'",
+               ("call",), where="kind = 'call' AND COALESCE(source, '') != 'chain' AND handle NOT LIKE 'w:%' "
+                                "AND handle NOT LIKE 'tg:%'",   # 19.11. (vlasnik, kol/tgout.py): no Telegram calls
                ordered=False, ts_index=True),
         # the wallet feed: Helius webhook (kol/chainwatch) and PumpPortal's followed wallets (live/store.mirror_chain)
         Source("chain_trades", "hype", "chain_trades", "rowid, sig, wallet, mint, side, ts, sol", map_wallet,

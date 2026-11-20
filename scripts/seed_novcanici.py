@@ -12,6 +12,7 @@ pages read with a made-up but plausible set, for the offline tests and for the l
 
     python3 scripts/seed_novcanici.py DIR            # into DIR (the screenshots: the worktree root)
     python3 scripts/seed_novcanici.py DIR --empty    # empty insajderi.db (the empty states)
+    python3 scripts/seed_novcanici.py DIR --prva-noc # the first night: lists, the copy test walking, no measurement
 
 seed(paths, empty=False, now=None) is what the tests call with their temporary paths.
 """
@@ -40,7 +41,9 @@ def paths_in(d):
     return {k: os.path.join(d, f"{k}.db") for k in ("insajderi", "wallets", "holderi", "league", "trade")}
 
 
-def seed(paths, empty=False, now=None, n_groups=40, paused=True):
+def seed(paths, empty=False, now=None, n_groups=40, paused=True, first_night=False):
+    """first_night (20.11.): the lists exist, the copy test is still walking ("izračunato do ..."), the per-entry
+    measurement has no row yet and Birdeye has read nothing."""
     now = int(now or time.time())
     R = random.Random(19112026)
     from insajderi import store as istore
@@ -127,7 +130,14 @@ def seed(paths, empty=False, now=None, n_groups=40, paused=True):
               "groups": 20, "confirmed": 8, "classes": {"prije_pumpe": 20, "kandidat": 10, "bot": 2, "snajper": 2,
                                                         "relayer": 2, "kupuje_sve": 1, "market_maker": 2,
                                                         "bez_placanja": 1, "jednokratni": 1234, "promatra": 88},
-              "market_makers": 2, "bundles": 5, "copy": copy, "min_tokens": 3, "min_n": 20, "slip_fast_pct": 1.0}
+              "market_makers": 2, "bundles": 5, "copy": copy, "min_tokens": 3, "min_n": 20, "slip_fast_pct": 1.0,
+              "lijevak": {"pumpe15_1h": 22, "pumpe15_1d": 18, "pumpe2_1h": 12, "pumpe2_1d": 8, "duboko": 31,
+                          "rani": 4812, "rani_prodali": 1907, "blizu_praga": 143, "grupe": 20, "potvrdjeno": 8,
+                          "pokrivenost_pre_med": 62.5, "pokrivenost_skok_med": 88.0, "n_pokrivenost": 31}}
+        if first_night:
+            pp["copy"] = None
+            pp["copy_progress"] = (f"kopija: izračunato do {time.strftime('%d.%m.', time.gmtime(now - 3 * D))} "
+                                   "(42 od 45 dana)")
         con.execute("INSERT OR REPLACE INTO i2_kv VALUES ('summary', ?)", (json.dumps({"prije_pumpe": pp}),))
         con.execute("INSERT OR REPLACE INTO i2_kv VALUES ('stage_s', ?)", (json.dumps(
             {"dogadaji": 3.2, "lanac": 612.0, "popis": 41.5, "kopija": 88.1, "ostalo": 12.0, "ts": now - 5 * H,
@@ -148,6 +158,21 @@ def seed(paths, empty=False, now=None, n_groups=40, paused=True):
                                                                         "cap": 3500, "cap_how": "zadano"})))
         con.execute("INSERT OR REPLACE INTO i2_groups (owner, why, n_hits) VALUES (?,?,?)",
                     (b58("owner2"), "kupio prije poziva na 4 tokena", 4))
+        from insajderi import birdeye
+        birdeye.ensure(con)
+        for t in ("be_usage", "be_tok", "be_top", "be_cand", "be_pp"):
+            con.execute(f"DELETE FROM {t}")
+        if not first_night:   # 19.11. navečer: Birdeye read the pump tokens and cross-checked the groups
+            con.execute("INSERT INTO be_usage VALUES (?,?,?)", (time.strftime("%Y-%m", time.gmtime(now)), 42, 2100))
+            for i, e in enumerate(events[:20]):
+                con.execute("INSERT INTO be_tok VALUES (?,?,?,?,?)", (e[1], "24h", 30, "ok", now - H))
+            for gi in range(12):
+                con.execute("INSERT INTO be_pp VALUES (?,?,?,?,?,?,?)", (b58(f"owner{gi}"), "prije_pumpe", 3 + gi % 3,
+                                                                      gi % 4, "[]", None, now))
+            for i in range(6):
+                con.execute("INSERT INTO be_cand VALUES (?,?,?,?,?,?,?,?)",
+                            (b58(f"becand{i}"), 3 + i % 3, 1 + i % 2, 12000.0 - i * 900,
+                             json.dumps(["smart_trader"] if i % 2 else []), now - i * H, 2 if i % 2 else 0, now))
     con.commit()
     con.close()
 
@@ -271,7 +296,7 @@ def seed(paths, empty=False, now=None, n_groups=40, paused=True):
     from league import mjera
     mjera.ensure(lc)
     lc.execute("DELETE FROM signal_mjera")
-    if not empty:
+    if not empty and not first_night:
         srcs = mjera.SOURCES
         for i in range(60):
             src = srcs[i % len(srcs)]
@@ -307,5 +332,5 @@ def seed(paths, empty=False, now=None, n_groups=40, paused=True):
 
 if __name__ == "__main__":
     d = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ROOT)
-    res = seed(paths_in(d), empty="--empty" in sys.argv)
+    res = seed(paths_in(d), empty="--empty" in sys.argv, first_night="--prva-noc" in sys.argv)
     print(f"seed: {len(res['groups'])} grupa ({len(res['confirmed'])} potvrđeno) u {d}")

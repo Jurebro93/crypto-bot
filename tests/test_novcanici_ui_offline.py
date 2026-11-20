@@ -32,8 +32,9 @@ from ui import novadmin, novkartice, novpodaci as P, pauza  # noqa: E402
 from wallets import rang, store as wstore  # noqa: E402
 
 HOSTILE = re.compile(r"<script>alert|<img src=x|\"><img")
-SECTIONS = ("Stanje", "Kupuje prije pumpe", "Bundle novčanici (pomiču cijenu)", "Isključeni i zašto", "Test kopiranja",
-            "Povijesni PnL novčanika", "Veliki holderi s dugom poviješću")
+SECTIONS = ("Koga smo izbacili i zašto", "Stanje pretraživanja", "Koliko smo duboko gledali", "Sve skupine u tablici",
+            "Skupine koje kupuju zajedno", "Test kopiranja na prošlim podacima", "Mjerenje uživo, kupnja po kupnja",
+            "Povijest trgovanja novčanika", "Veliki dugoročni vlasnici tokena", "Druga provjera (Birdeye)")
 ADMIN_ONLY = ("Ostvareno", "Test kopiranja", "Isključeni", "95 % interval", "SOL", "PnL", "insajder", "Insajder")
 
 
@@ -75,24 +76,24 @@ class Admin(Base):
         self.assertEqual(rows[:8], ["2"] * 8)
         self.assertNotIn("2", rows[8:])
         # the status strip from the stored numbers; what is not stored says so
-        self.assertIn("29 pokriveno od 40", html)
-        self.assertIn("dohvaćeno: nije još izmjereno", html)          # fetched for 2-15M is not stored
-        self.assertIn("trajanje 757 s; prekinut vremenskim limitom: da", html)   # i2_kv stage_s
+        self.assertIn("29 pregledano od 40", html)
+        self.assertIn("skinuti podaci: nije još izmjereno", html)     # fetched for 2-15M is not stored
+        self.assertIn("trajala 757 s; prekinuta jer je isteklo vrijeme: da", html)   # i2_kv stage_s
         self.assertIn("pauziran", html)
         visible = re.sub(r"<style>.*?</style>|<script>.*?</script>|<[^>]+>", " ", html, flags=re.S)
         for raw in ("helius_day", "i2_", "holder_pos", ".db", "first_ts", "night ·"):
             self.assertNotIn(raw, visible, raw)
         self.assertIn("dnevni strop", visible)
         # the copy test's verdict computed from the stored interval
-        self.assertIn("Još nije dokazano: interval dira nulu (+3,4 %, [−1,8; +8,9], n=64).", html)
-        self.assertIn("brzo 2 s (Pretpostavka klizanja 1 %)", html)
+        self.assertIn("Zasad da: u prosjeku +3,4\xa0% po kupnji nakon troška, ali raspon još dira nulu.", html)
+        self.assertIn("kupnja 2 sekunde nakon njih (pretpostavka: 1 % lošija cijena)", html)
         # exclusions: counts per reason incl. the one-time wallets that are not stored one by one
-        self.assertRegex(html, r"<b>jednokratni</b> · 1\xa0234")
-        self.assertIn("<b>market maker</b> · 2", html)
+        self.assertRegex(html, r"<b>pojavili se samo jednom</b> · 1\xa0234")
+        self.assertIn("<b>market makeri (kupuju i prodaju cijelo vrijeme)</b> · 2", html)
         # a group's detail: its pumps, its wallets with copy + Solscan in a new tab, what links them
         self.assertIn("min prije skoka", html)
         self.assertIn('target=_blank rel="noopener noreferrer">Solscan ↗', html)
-        self.assertIn("isti platitelj naknada", html)
+        self.assertIn("isti novčanik plaća naknade", html)
         # list rows: the short address (6 … 6) with the full one in the title and the copy payload; the detail keeps it
         part = html.split('id="grupe"')[1].split('id="bundle"')[0]
         full = self.seed["members"][0]
@@ -103,20 +104,20 @@ class Admin(Base):
         self.assertIn('data-cp="', html)
         # history and holders
         self.assertRegex(html, r"\d+ od \d+ navedenih novčanika ima izračunatu povijest, \d+ čeka")
-        self.assertIn("Udio u ponudi", html)
-        self.assertIn("početak držanja iz snimki holdera seže oko 45 dana unatrag", html)
+        self.assertIn("Udio u svim tokenima", html)
+        self.assertIn("naše snimke vlasnika sežu oko 45 dana unatrag", html)
         # the history job's status and the groups' members' own history (i2_pp_hist), neutral wording
-        self.assertIn("Čeka po izvoru:</b> grupe prije pumpe", html)
-        self.assertIn("rani kupci pumpi ≥ 15 M $", html)
-        self.assertIn("Zadnji prolaz povijesti</span><b>noćni", html)
-        self.assertIn("trajanje 1\xa0830 s; prekinut vremenskim limitom: da", html)
-        self.assertIn("5\xa0400 / 60\xa0000 kr.", html)
-        self.assertRegex(html, r"Povijest članova:</b> ocijenjeno \d+ od \d+, u plusu \d+\xa0%, ostvareno [+−][\d,]+\xa0SOL; "
-                               r"(slaže se|ne slaže se) s rezultatom na pumpama\.")
+        self.assertIn("Čeka po izvoru:</b> skupine koje kupuju prije skoka", html)
+        self.assertIn("rani kupci tokena od 15 M $", html)
+        self.assertIn("Zadnja obrada povijesti</span><b>noćna", html)
+        self.assertIn("trajala 1\xa0830 s; prekinuta jer je isteklo vrijeme: da", html)
+        self.assertIn("5\xa0400 od 60\xa0000 jedinica", html)
+        self.assertRegex(html, r"Povijest novčanika u skupini:</b> izračunata za \d+ od \d+, u plusu \d+\xa0% njih, "
+                               r"zaradili [+−][\d,]+\xa0SOL; (slaže se|ne slaže se) s rezultatom na skokovima\.")
         self.assertIn("<span class=mut>još nema povijesti</span>", html)          # a group without a history row
         holders = html.split('id="holderi"')[1]
         self.assertLess(holders.index("15–200 M $"), holders.index("2–15 M $"))   # 15-200M first
-        self.assertIn("zatv. ·", holders)                                         # a holder's own scored history
+        self.assertIn("zatvorenih ·", holders)                                    # a holder's own scored history
         self.assertIn("još se računa", holders)
 
     def test_filter_and_pagination(self):
@@ -126,7 +127,7 @@ class Admin(Base):
         with mock.patch.object(novadmin, "PAGE_N", 7):
             _t, p2 = novadmin.page({"p": "2"}, "Jure", self.now)
         part = p2.split('id="grupe"')[1].split('id="bundle"')[0]
-        self.assertIn("Stranica 2 od 5 · 30 grupa", part)
+        self.assertIn("Stranica 2 od 5 · 30 skupina", part)
         self.assertEqual(len(re.findall(r"<tr class=rt-r ", part)), 7)
         _t, bad = novadmin.page({"p": "x' OR 1=1", "f": "<b>", "t": "99"}, "Jure", self.now)   # junk in the query
         self.assertIn("Stranica 1 od", bad)
@@ -142,7 +143,7 @@ class Admin(Base):
         t = time.time()
         _t, html = novadmin.page({}, "Jure", self.now)
         self.assertLess(time.time() - t, 1.5)                        # ~0.1 s here; the bound leaves room for a busy CI
-        self.assertIn("5\xa0030 grupa", html)
+        self.assertIn("5\xa0030 skupina", html)
 
 
 class AdminEmpty(Base):
@@ -152,9 +153,9 @@ class AdminEmpty(Base):
         _t, html = novadmin.page({}, "Jure", self.now)
         for s in SECTIONS:
             self.assertIn(f"<span>{s}</span>", html, s)
-        self.assertGreaterEqual(html.count("još nema podataka: prvi noćni prolaz"), 3)
-        self.assertIn("Test kopiranja još nije pokrenut", html)
-        self.assertIn("Zadnji prolaz</span><b>nije još izmjereno", html)
+        self.assertGreaterEqual(html.count("još nema podataka: puni ih prva noćna obrada"), 2)
+        self.assertIn("Još ne znamo: test kopiranja još nije napravljen", html)
+        self.assertIn("Zadnja obrada</span><b>nije još izmjereno", html)
         self.assertNotIn("Traceback", html)
 
     def test_no_database_at_all(self):
@@ -164,7 +165,7 @@ class AdminEmpty(Base):
             _t, html = novadmin.page({}, "Jure", self.now)
             card = novkartice.card_html()
         self.assertIn("(baza još ne postoji)", html)
-        self.assertIn("Popis velikih holdera još ne postoji", html)
+        self.assertIn("Popis velikih vlasnika još ne postoji", html)
         self.assertIn("Red za povijest novčanika još ne postoji", html)
         self.assertIn(novkartice.CARD_EMPTY, card)
 
@@ -356,9 +357,9 @@ class MissingTables(Base):
         _t, html = novadmin.page({}, "Jure", self.now)
         for s in SECTIONS:
             self.assertIn(f"<span>{s}</span>", html, s)
-        self.assertIn("Popis velikih holdera još ne postoji", html)
+        self.assertIn("Popis velikih vlasnika još ne postoji", html)
         self.assertIn("<span class=mut>još nema povijesti</span>", html)
-        self.assertIn("trajanje nije još izmjereno", html)
+        self.assertIn("trajala nije još izmjereno", html)
         demo = novkartice.demo_html(True, self.now)
         self.assertIn("Demo praćenje novčanika", demo)
         self.assertIn("insajderi2", demo)

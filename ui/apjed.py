@@ -86,8 +86,7 @@ IDLE_FLAGS = {
     "insider_copy": "insajderi prije poziva", "pre_shill": "kupci prije shill mreže", "group_discovery": "ekipe callera",
     "fast_path": "brzi put", "x_call_scalp": "brzi put", "konsenzus": "konsenzus", "oscilator": "oscilator",
     settings.IZVORI: "konsenzus", settings.OSC_SWITCH: "oscilator", settings.ZADNJIH5: "zadnjih 5",
-    "early_score": "nova lansiranja", "early_persist": "nova lansiranja",
-}
+}   # 19.11.: early_score / early_persist removed with the dead flags (trade/settings.FLAGS)
 IDLE_LIMITS = ("range_scalp_trades_day", "range_scalp_target_usd")   # run_range does not run: the fields are carried hidden
 LOCKED_BOXES = ("follow_paper", "simianx")                           # locked since 4.11. (settings.LOCKED): never did anything
 IDLE_CARDS = ("fast-path", "konsenzus", "oscilator")                 # diagnostics of strategies that do not run

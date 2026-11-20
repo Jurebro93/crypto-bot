@@ -148,7 +148,9 @@ class Tools(Base):
         # 10.11. (Grok MCP audit 5): the default list needs 10 measured calls; these callers have 1-2 (min_measured=0)
         self.assertEqual(mcpdata.caller_leaderboard()["total"], 0)
         out = mcpdata.caller_leaderboard(limit=2, sort="score", min_measured=0)
-        self.assertEqual((out["limit"], out["offset"], out["total"], out["next_offset"]), (2, 0, 3, 2))
+        # 19.11. (vlasnik, kol/tgout.py): the Telegram channel left the leaderboard (3 callers -> 2, one page)
+        self.assertEqual((out["limit"], out["offset"], out["total"], out.get("next_offset")), (2, 0, 2, None))
+        self.assertIn("Telegram", out["telegram"])
         top = out["rows"][0]
         self.assertEqual((top["handle"], top["platform"], top["calls"], top["call_power"]), ("ansem", "x", 2, 72.0))
         self.assertEqual((top["hit_rate"], top["x2_share"], top["rug_count"]), (0.5, 0.5, 1))
@@ -159,8 +161,9 @@ class Tools(Base):
         self.assertTrue(top["big_name"])
         murad = next(r for r in mcpdata.caller_leaderboard(limit=500, min_measured=0)["rows"] if r["handle"] == "murad")
         self.assertTrue(murad["rising_star"] and murad["bragger"])
-        tg = mcpdata.caller_leaderboard(platform="telegram", min_measured=0)["rows"]
-        self.assertEqual([r["handle"] for r in tg], ["tg:alpha"])
+        tg = mcpdata.caller_leaderboard(platform="telegram", min_measured=0)
+        self.assertEqual((tg["rows"], tg["total"]), ([], 0))
+        self.assertTrue(all(r["platform"] != "telegram" for r in mcpdata.caller_leaderboard(limit=500, min_measured=0)["rows"]))
         self.assertEqual([r["handle"] for r in mcpdata.caller_leaderboard(min_calls=2, min_measured=0)["rows"]], ["ansem"])
         self.assertEqual(mcpdata.caller_leaderboard(sort="x2_share", limit=1, min_measured=0)["rows"][0]["handle"], "murad")
         self.assertEqual(mcpdata.caller_leaderboard(limit=9999)["limit"], 500)
@@ -177,7 +180,10 @@ class Tools(Base):
         self.assertTrue(out["rows"][0]["rug"])
         page = mcpdata.caller_history("ansem", "x", limit=1, offset=1)
         self.assertEqual((len(page["rows"]), page.get("next_offset")), (1, None))
-        self.assertEqual(mcpdata.caller_history("alpha", "telegram")["total"], 1)
+        hist = mcpdata.caller_history("alpha", "telegram")      # the stored history stays readable, flagged
+        self.assertEqual(hist["total"], 1)
+        self.assertIn("informational", hist)
+        self.assertNotIn("informational", mcpdata.caller_history("ansem", "x"))
         self.assertEqual(mcpdata.caller_history("ansem", since_ts=NOW - 4000)["total"], 1)
 
     def test_3_token_history(self):
@@ -251,10 +257,13 @@ class Tools(Base):
         from ui import mcpdata, pravitrade
         from ui import assistnotes
         settings.put(self.con, "caller_weights", {"ansem": 0.8})
-        out = mcpdata.submit_caller_weights([{"handle": "@ansem", "platform": "x", "weight": 1.5, "reason": "x2 rate"},
-                                             {"handle": "alpha", "platform": "telegram", "weight": 0}], kid="grok")
-        self.assertEqual((out["stored"], out["status"], len(out["applied"])), (2, "primijenjeno", 2))
-        self.assertEqual(settings.raw(self.con)["caller_weights"], {"ansem": 1.5, "tg:alpha": 0.0})
+        # 19.11. (vlasnik): a Telegram weight is refused (no channel is in any calculation), the X one is applied
+        refused = mcpdata.submit_caller_weights([{"handle": "alpha", "platform": "telegram", "weight": 0}], kid="grok")
+        self.assertIn("Telegram", refused["error"])
+        out = mcpdata.submit_caller_weights([{"handle": "@ansem", "platform": "x", "weight": 1.5, "reason": "x2 rate"}],
+                                            kid="grok")
+        self.assertEqual((out["stored"], out["status"], len(out["applied"])), (1, "primijenjeno", 1))
+        self.assertEqual(settings.raw(self.con)["caller_weights"], {"ansem": 1.5})
         self.assertEqual(settings.flag("caller_weights", con=self.con), "off")      # the flag is the owner's
         log = {a["key"]: a for a in settings.raw(self.con)["applied_log"]}
         a = log["caller_weights.ansem"]
@@ -262,7 +271,7 @@ class Tools(Base):
         self.assertIn(a["note_id"], out["ids"])
         self.assertEqual(assistnotes.notes(self.con, "novo", "suggestion")[1], 0)
         rows, total = assistnotes.notes(self.con, "primijenjeno", "suggestion")
-        self.assertEqual(total, 2)
+        self.assertEqual(total, 1)
         notes = mcpdata.assistant_notes(status="primijenjeno")["rows"]
         self.assertTrue(all(r["applied_ts"] for r in notes))
         self.assertIn("error", mcpdata.submit_caller_weights([{"handle": "x", "weight": 3}]))   # the 0-2 check

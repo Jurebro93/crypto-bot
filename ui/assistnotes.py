@@ -1078,6 +1078,29 @@ def owner_pauza_1911(con, now=None):
     return done
 
 
+IZBACI_KEY = "owner_once:izbaci_neaktivne_1911"
+
+
+def owner_izbaci_1911(con, now=None):
+    """The owner's order of 19.11. ("Izbaci sve korisnike koji nisu posjetili aplikaciju zadnjih 5 dana bez da me pitaš
+    išta dodatno"), from the dashboard's dca_loop at most hourly. Visits were never recorded before, so it waits for
+    5 days of them (league/posjeti.py) and then runs ONCE (league/izbaceni.run_order); the result goes to the applied
+    log (the owner sees it with his other orders) and this settings marker. True when nothing more is to be done."""
+    if settings.raw(con).get(IZBACI_KEY):
+        return True
+    from league import izbaceni
+    res, fresh = izbaceni.run_order(now)
+    if res is None:
+        return False
+    if fresh:
+        out = res.get("izbaceni") or []
+        record_applied(con, 0, "korisnici:izbaci_neaktivne_1911", f"{len(out) + res.get('ostaje', 0)} korisnika",
+                       f"izbačeno {len(out)}: {', '.join(out) or 'nitko'}; ostaje {res.get('ostaje', 0)}",
+                       izbaceni.WHY + " (vraća ih admin na /korisnici, gumb Vrati)")
+    settings.put(con, IZBACI_KEY, res, "Jure")
+    return True
+
+
 def owner_nauceno_real(con, now=None, result=None):
     """One pass of the conditional order of 18.11. (see above). True when no further pass is needed: it was executed,
     parked for the owner, or decided on an earlier pass; False while it waits for the purged learner result (or a

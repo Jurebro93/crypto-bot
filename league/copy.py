@@ -15,6 +15,8 @@ import os
 import sqlite3
 import time
 
+from kol import tgout   # 19.11. (vlasnik): Telegram channels out of every calculation
+
 from . import store
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -191,8 +193,12 @@ def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode
     if kind not in KIND_HR:
         raise ValueError("nepoznata vrsta praćenja")
     target = (target or "").strip()
+    if kind == "kol" and tgout.is_tg(target):
+        raise ValueError(TG_REFUSED)
     if kind == "ekipa":
-        mem = sorted(set(members_of(target)))
+        mem = sorted(set(tgout.drop(members_of(target))))
+        if not mem and members_of(target):
+            raise ValueError(TG_REFUSED)
         if not mem:
             raise ValueError("upiši račune ekipe odvojene zarezom (npr. tg:kanal1, tg:kanal2, @ime)")
         target = ",".join(mem)
@@ -275,6 +281,31 @@ def set_exit(con, user, follow_id, tp="", sl=""):
     con.execute("UPDATE follows SET exit=? WHERE id=?", (json.dumps(ex), follow_id))
     con.commit()
     return ex
+
+
+TG_REFUSED = "Telegram kanali se od 19.11. ne prate i ne kopiraju (vlasnik: Telegram je izvan svih izračuna)"
+TG_STOPPED = " (Telegram isključen 19.11.)"
+
+
+def stop_tg_follows(con, now=None):
+    """19.11. (vlasnik: "Makni Telegram KOL-ove iz izračuna"): every ACTIVE follow of a Telegram channel (kind 'kol'
+    with target 'tg:<channel>', or a crew whose members are all Telegram channels) becomes inactive with the plain
+    note TG_STOPPED at the end of its label; nothing is deleted (its copy_log and trades stay). A crew with X members
+    keeps following them: events() leaves its Telegram members out. Reads first and writes only when there is one, so
+    the copy pass takes no write lock for it. -> [(id, user, target)] stopped now."""
+    ensure(con)
+    found = []
+    for fid, user, kind, target in con.execute("SELECT id, user, kind, target FROM follows WHERE active = 1 AND "
+                                               "kind IN ('kol', 'ekipa')").fetchall():
+        mem = members_of(target) if kind == "ekipa" else [target]
+        if mem and not tgout.drop(mem):
+            found.append((fid, user, target))
+    if found:
+        now = int(now or time.time())
+        con.executemany("UPDATE follows SET active = 0, stopped = ?, label = COALESCE(label, '') || ? WHERE id = ? "
+                        "AND active = 1", [(now, TG_STOPPED, fid) for fid, _u, _t in found])
+        con.commit()
+    return found
 
 
 def unfollow(con, user, follow_id):
@@ -396,10 +427,10 @@ def events(kol_handles, wallets, since, paths=None):
     """[(target, token, side, ts)] of the followed KOLs ('buy' = a call) and wallets ('buy' / 'sell') since `since`."""
     p = paths or _paths()
     out = []
+    kol_handles = tgout.drop(kol_handles)   # 19.11.: a Telegram channel's call is no copy signal (tg.db is not read)
     if kol_handles:
-        x = [h for h in kol_handles if not h.startswith("tg:")]
-        tg = [h[3:] for h in kol_handles if h.startswith("tg:")]
-        kc, hc, tc = _ro(p["kol"]), _ro(p["hype"]), _ro(p["tg"])
+        x = list(kol_handles)
+        kc, hc = _ro(p["kol"]), _ro(p["hype"])
         try:
             if kol_handles:
                 q = ",".join("?" * len(kol_handles))
@@ -411,14 +442,8 @@ def events(kol_handles, wallets, since, paths=None):
                 for h, ca, ts in _q(hc, f"SELECT handle, ca, ts FROM kol_mentions WHERE ts >= ? AND ca != '' "
                                         f"AND handle IN ({q})", (since, *x)):
                     out.append((h, ca, "buy", ts))
-            if tg:
-                q = ",".join("?" * len(tg))
-                for ch, ts, cas, fwd in _q(tc, f"SELECT channel, ts, cas, fwd_from FROM posts WHERE ts >= ? "
-                                               f"AND cas != '' AND channel IN ({q})", (since, *tg)):
-                    if not fwd:   # a forward is somebody else's call
-                        out.extend((f"tg:{ch}", ca, "buy", ts) for ca in cas.split(",") if ca)
         finally:
-            for c in (kc, hc, tc):
+            for c in (kc, hc):
                 if c is not None:
                     c.close()
     if wallets:
@@ -707,7 +732,8 @@ def first_call(token, paths=None, before=None):
     if kc is None:
         return None
     try:
-        sql = "FROM calls WHERE token = ? AND kind = 'call'" + (" AND ts <= ?" if before else "") + " ORDER BY ts LIMIT 1"
+        sql = (f"FROM calls WHERE token = ? AND kind = 'call' AND {tgout.sql()}" + (" AND ts <= ?" if before else "")
+               + " ORDER BY ts LIMIT 1")
         args = (token, int(before)) if before else (token,)
         rows = _q(kc, f"SELECT ts, p0, mcap0, handle {sql}", args) or _q(kc, f"SELECT ts, NULL, NULL, handle {sql}", args)
     except sqlite3.Error:   # a damaged or locked file: unknown, never the reason a copy pass stops
@@ -735,6 +761,7 @@ def _signal_handles(f):
 def _signal_call(token, handles, ev_ts, paths=None):
     """(handle, mcap0) of the followed account's call the entry was based on (kol.db calls of `handles` on the token
     nearest ev_ts, within 10 min), or (None, None). mcap0 None until the KOL round measured it."""
+    handles = tgout.drop(handles)
     if not handles or not ev_ts:
         return None, None
     kc = _ro((paths or _paths())["kol"])
@@ -913,7 +940,8 @@ def signal_for(tok, now, wallet=None, window_s=SIGNAL_WINDOW_S, paths=None):
     if kc is not None:
         try:
             r = kc.execute("SELECT handle FROM calls WHERE token=? AND kind='call' AND handle NOT LIKE 'w:%' "
-                           "AND ts BETWEEN ? AND ? ORDER BY ts DESC LIMIT 1", (tok, now - window_s, now + 60)).fetchone()
+                           f"AND {tgout.sql()} AND ts BETWEEN ? AND ? ORDER BY ts DESC LIMIT 1",
+                           (tok, now - window_s, now + 60)).fetchone()
             if r:
                 return True, f"poziv {r[0]}"
         except sqlite3.Error:
@@ -949,7 +977,8 @@ def confluence_for(tok, now, window_s=SIGNAL_WINDOW_S, paths=None):
     if kc is not None:
         try:
             callers = [h for (h,) in kc.execute("SELECT DISTINCT handle FROM calls WHERE token=? AND kind='call' AND "
-                                               "handle NOT LIKE 'w:%' AND ts BETWEEN ? AND ?", (tok, now - window_s, now + 60))]
+                                               f"handle NOT LIKE 'w:%' AND {tgout.sql()} AND ts BETWEEN ? AND ?",
+                                               (tok, now - window_s, now + 60))]
         except sqlite3.Error:
             pass
         finally:
@@ -1102,8 +1131,8 @@ def _grace_at_entry(con, f, tid, liq):
 
 
 def followed_handles(user=None, path=None):
-    """X handles and tg:channels of every active KOL and crew follow (of `user`, or everyone): the accounts the bot
-    must hear from within seconds (tg/poll.py reads them every 2 s, kol/xhook.py puts them in the X webhook)."""
+    """X handles of every active KOL and crew follow (of `user`, or everyone): the accounts the bot must hear from
+    within seconds (kol/xhook.py puts them in the X webhook). 19.11.: Telegram channels are left out (kol/tgout.py)."""
     from . import store as lstore
     p = path or lstore.DB
     if not os.path.exists(p):
@@ -1119,7 +1148,7 @@ def followed_handles(user=None, path=None):
     out = set()
     for kind, target in rows:
         out |= set(members_of(target)) if kind == "ekipa" else {target}
-    return out
+    return set(tgout.drop(out))   # 19.11.: no Telegram channel is read any more
 
 
 def data_exit(f, now=None):
@@ -1237,6 +1266,11 @@ def run_once(con, market_fn=None, now=None, paths=None):
         flags.sync_paper(con, now)
     except Exception as e:  # noqa: BLE001 - never stops the copy pass
         print(f"copy: paper račun nije usklađen ({type(e).__name__}: {e})", flush=True)
+    try:   # 19.11. (vlasnik): a follow of a Telegram channel stops (inactive, with a note; nothing deleted)
+        for fid, user, target in stop_tg_follows(con, now):
+            print(f"copy: praćenje #{fid} ({user}: {target}) isključeno: Telegram je izvan izračuna od 19.11.", flush=True)
+    except Exception as e:  # noqa: BLE001 - never stops the copy pass
+        print(f"copy: Telegram praćenja nisu isključena ({type(e).__name__}: {e})", flush=True)
     fl = follows(con)
     if not fl:
         return []

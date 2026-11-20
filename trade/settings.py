@@ -31,40 +31,19 @@ PAPER_USER = "autopilot-paper"
 FLAG_MODES = ("off", "shadow", "paper", "live")
 PAPER_DAYS = 7
 FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
-    "auto_exit_data": ("1.1", "Auto praćenja influencera izlaze po podacima (kol/tpsl), rok 60 min"),
-    "sl_default_v2": ("1.2", "Zadani stop −25 % i izlaz nakon 1 h"),
-    "dca_guard": ("1.4", "DCA dokup samo bez dumpa i prodaje insajdera; stop ostaje na prvom ulazu"),
     "caller_ev_rank": ("2.1", "Calleri po donjoj granici EV-a, samo iz poziva prije signala"),
-    "latency_entry": ("2.2", "Mjerenje ulaza s pravim kašnjenjem"),
     "runup_default": ("2.3", "Preskok kad je cijena više od 10 % iznad prvog poziva"),
-    "holder_hard": ("2.4", "Bez podataka o holderima nema auto kupnje; blok na prodaju deva i insajdera"),
-    "proof_v2": ("2.5", "Pravi novac tek nakon 25 zatvorenih i donje granice EV-a iznad nule"),
-    "survivor_fix": ("2.6", "Poziv bez para ili svijeće broji se kao gubitak, ne ispada"),
-    "zombie_guard": ("2.7", "Zombie token (više od 7 dana na krivulji prije migracije): manji ulog ili preskok, "
-                            "bez kasnog ulaza i DCA-a"),
-    "organic_volume": ("2.8", "Volumen bez weba, socijala i praćenog callera nije organski: jedinstveni kupci i "
-                              "udio sitnih tradeova"),
-    "xhook_fast": ("3.1", "Brži X webhook za 15 najboljih callera (plaćeno)"),
-    "helius_streams": ("3.2", "Helius streamovi za walletove i devove (plaćeno)"),
-    "holder_snap": ("3.3", "Snimka holdera u trenutku signala"),
-    "clusters_ext": ("3.4", "Klasteri holdera i povlačenje likvidnosti"),
     "x_features_ingest": ("3.6", "X značajke od Groka (MCP upis)"),
-    "junk_skip": ("3b.1", "Meko preskakanje smeća (računi, kanali, walleti, tokeni)"),
-    "junk_flags": ("3b.2", "Oznake smeća od Groka na pregled"),
-    "event_flags": ("3c", "Rane oznake događaja i Polymarketa od Groka"),
     "grok_predictions": ("3d", "Grok predviđanja (nepromjenjiva) za usporedbu s MemeSonarom"),
-    "grok_features_fit": ("3d.4", "Grok značajke kao kandidati u učenju"),
-    "regime_sizing": ("4.1", "Ulog i broj ulaza prema režimu tržišta"),
-    "time_filter": ("4.2", "Bez ulaza u satima s negativnim EV-om"),
-    "caller_decay": ("4.3", "Novija forma callera vrijedi više (poluživot 14 dana)"),
-    "ladder_exit": ("4.4", "Izlaz u koracima: pola na +30 %, stop na ulaz, trailing 25 %"),
+    # 19.11. (vlasnik: "Ukloniti dvadesetak prekidača koji ništa ne rade? Da."): removed 26 flags no code read (plan 1.1,
+    # 1.2, 1.4, 2.2, 2.4-2.8, 3.1-3.4, 3b.1-3b.2, 3c, 3d.4, 4.1-4.4, 3e.1, 3e.2, 3e.4 x2, 3e.5): auto_exit_data,
+    # sl_default_v2, dca_guard, latency_entry, holder_hard, proof_v2, survivor_fix, zombie_guard, organic_volume,
+    # xhook_fast, helius_streams, holder_snap, clusters_ext, junk_skip, junk_flags, event_flags, grok_features_fit,
+    # regime_sizing, time_filter, caller_decay, ladder_exit, early_score, early_persist, wallet_stream, sender_exec,
+    # demo_grok. A row "flag:<name>" of one of them in trade.db is simply not listed any more (flag_state iterates
+    # FLAGS) and never read. Back: git (this commit).
     # 10.11. (addendum, Phase 3e)
-    "early_score": ("3e.1", "Rana ocjena tokena iz PumpPortal streama (0-100)"),
-    "early_persist": ("3e.2", "Rani tokovi tradeova spremljeni dulje od 48 h"),
     "smart_discovery": ("3e.3", "Otkrivanje novčanika koji rano ulaze u pobjednike"),
-    "wallet_stream": ("3e.4", "Novčanici u stvarnom vremenu (Helius WebSocket)"),
-    "sender_exec": ("3e.4", "Slanje swapa preko Helius Sendera (napojnica)"),
-    "demo_grok": ("3e.5", "Demo strategije MemeSonar, Grok i oboje zajedno"),
     # 10.11. (Grok MCP audit 4): a proven caller's copy is not stopped out in the first minutes (league/auto.grace)
     "stop_grace": ("G4", "Prve 3 min bez stopa za dokazane callere (osim kod ruga)"),
     # 10.11. (Jure: "Primijeni" na Grokov prijedlog mijenja ove postavke, svaku iza zastavice, prvo sjena)
@@ -134,6 +113,10 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # shadow = list and measure, paper = the demo account takes a proposal in its entry zone; never live (LIVE_GATES)
     "proposals": ("G21", "Prijedlozi svih strategija na Autopilotu: sjena = popis i mjerenje, paper = demo račun uzima "
                          "svaki prikazani prijedlog s planom izlaza; pravi račun kupuje samo na tvoj dodir"),
+    # 19.11. (vlasnik, zatvoreno kao napušteno): market-maker scalp, the team catalyst watcher (team_catalyst, G22) and
+    # the stake by token tier (G23) are closed as abandoned ideas; none of them has a flag here (G22 / G23 stay
+    # reserved numbers); the blog from the research is dropped. Code that runs today (zonewatch, the catalyst
+    # proposal rows, tiers/) is not removed by this note.
     # 11.11. (Jure: "real-time zone alarm na Grok Bot", zonewatch/): a data flag (DATA_FLAGS): off = nothing watched or
     # posted; any other mode = the zones are watched and every alarm is POSTed to the Grok Bot webhook (when its env
     # is set). It never trades.
@@ -574,8 +557,7 @@ LIVE_GATES["fast_path"] = "fast.paper:live_refusal"   # >= 30 closed fast-path p
 LIVE_GATES["range_flip"] = "rangedca.gate:flip_live_refusal"   # 11.11.: nightly backtest, new max DD <= today's
 LIVE_GATES["range_missed"] = "rangedca.gate:missed_live_refusal"   # 11.11.: >= 20 rounds of source missed, EV proof
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
-DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
-                        "early_persist", "zonewatch"})
+DATA_FLAGS = frozenset({"x_features_ingest", "grok_predictions", "zonewatch"})   # 19.11.: 4 dead ones removed
 _FLAG_CACHE = {}       # db path -> (monotonic read time, {name: mode})
 FLAG_CACHE_S = 2.0     # loops ask every second; a change on the page holds within this
 

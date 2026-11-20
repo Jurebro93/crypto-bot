@@ -181,6 +181,7 @@ class Moonshot(GateBase):
     def strong(self):
         for h in ("clustera", "clusterb", "solo1", "alertbot", "cryptoprolegend", "shillnet1", "w:WALLETX"):
             self.call(h)   # 2 clustered (= 1), 1 solo, a bot, a paid shiller (kol/shillers.json), a shill network
+        self.call("gemx")   # 19.11.: an X caller (a Telegram channel no longer counts, kol/tgout.py)
         self.tg("gemchannel")
         self.tg("fwdchannel", fwd="other")   # a forward is no call
         self.call("solo2")
@@ -203,6 +204,7 @@ class Moonshot(GateBase):
     def test_clustered_and_bot_callers_do_not_make_four(self):
         for h in ("clustera", "clusterb", "solo1", "alertbot", "cryptoprolegend", "shillnet1"):
             self.call(h)
+        self.call("gemx")   # 19.11.: an X caller (a Telegram channel no longer counts, kol/tgout.py)
         self.tg("gemchannel")
         self.xm()
         self.top10(30.0)

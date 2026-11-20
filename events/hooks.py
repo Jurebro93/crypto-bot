@@ -38,7 +38,7 @@ def calls_saved(con, calls):
             rows += con.execute(
                 "SELECT rowid, tweet_id, token, handle, ts, kind, source, followers, mcap0 FROM calls WHERE tweet_id IN "
                 f"({','.join('?' * len(part))}) AND kind = 'call' AND COALESCE(source, '') != 'chain' "
-                "AND handle NOT LIKE 'w:%'", part).fetchall()
+                "AND handle NOT LIKE 'w:%' AND handle NOT LIKE 'tg:%'", part).fetchall()   # 19.11.: no Telegram
         out = []
         for r in rows:
             if (r[1], r[2]) in want:

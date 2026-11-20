@@ -55,7 +55,7 @@ T = {
     "en": dict(
         nav="Market", nav_d="Solana meme coin market data, updated daily",
         asof="Data as of {d} (last full UTC day). Source: DefiLlama, checked every hour. Updated automatically.",
-        asof_own="Data as of {d} (last full UTC day). Source: MemeSonar's own tracking of influencers on X and Telegram. "
+        asof_own="Data as of {d} (last full UTC day). Source: MemeSonar's own tracking of influencers on X. "
                  "Updated automatically every 30 minutes.",
         asof_mix="Data as of {d} (last full UTC day). Source: DefiLlama for volume, MemeSonar's own tracking for "
                  "influencer calls. Updated automatically.",
@@ -79,8 +79,8 @@ T = {
     "hr": dict(
         nav="Tržište", nav_d="Podaci o Solana meme coin tržištu, svaki dan",
         asof="Podaci za {d} (zadnji puni UTC dan). Izvor: DefiLlama, provjera svaki sat. Osvježava se samo.",
-        asof_own="Podaci za {d} (zadnji puni UTC dan). Izvor: MemeSonarovo vlastito praćenje influencera na X-u i "
-                 "Telegramu. Osvježava se samo svakih 30 minuta.",
+        asof_own="Podaci za {d} (zadnji puni UTC dan). Izvor: MemeSonarovo vlastito praćenje influencera na X-u. "
+                 "Osvježava se samo svakih 30 minuta.",
         asof_mix="Podaci za {d} (zadnji puni UTC dan). Izvor: DefiLlama za volumen, MemeSonarovo praćenje za pozive "
                  "influencera. Osvježava se samo.",
         nf_calls="Nije financijski savjet. Poziv koji je narastao nije preporuka da pratiš callera; većina pozvanih "
@@ -209,7 +209,8 @@ def _hours(now):
         except sqlite3.OperationalError:
             vol = None
         q = ("SELECT (c.ts / 3600) % 24, COUNT(*), SUM(CASE WHEN c.max24 >= ? THEN 1 ELSE 0 END), MIN(c.ts), MAX(c.ts) "
-             "FROM calls c {join} WHERE c.kind='call' AND c.first_by_kol=1 AND c.max24 IS NOT NULL AND c.ts < ? {bot} "
+             "FROM calls c {join} WHERE c.kind='call' AND c.first_by_kol=1 AND c.max24 IS NOT NULL AND c.ts < ? "
+             "AND c.handle NOT LIKE 'tg:%' {bot} "
              "GROUP BY 1")
         try:
             rows = con.execute(q.format(join="LEFT JOIN kols k ON k.handle=c.handle", bot="AND COALESCE(k.bot,0)=0"),

@@ -362,8 +362,10 @@ MACHINES = [
        "adam": "čeka vlasnika (Adam)"},
       scan=(("makroinf/discover.py", "status"),), extra=("aktivan", "neaktivan")),
     M("tg_channel", "Telegram kanal", "podaci", "tg.db channels.status",
-      {"candidate": "kandidat", "active": "aktivan", "quiet": "tih", "slow": "spor", "dead": "mrtav"},
-      scan=(("tg/poll.py", "status"), ("tg/store.py", "status"))),
+      {"active": "aktivan", "quiet": "tih", "slow": "spor"},
+      scan=(("tg/pratitelji.py", "status"),),   # 19.11.: the reader (tg/poll.py) is gone; only the follower count
+      caveats=("Od 19.11. nitko ne mijenja status: popis je zamrznut (bez otkrivanja). Stari retci 'candidate' i 'dead' "
+               "ostaju u bazi, ali se ne prikazuju i ne broje.",)),
     M("zone_alert", "Zonski alarm Grok Botu", "podaci", "zonewatch.db alerts.status",
       {"pending": "čeka slanje", "sent": "poslan", "failed": "nije poslan", "config_error": "greška postavki",
        "not_configured": "webhook nije postavljen", "off": "isključeno", "expired": "istekao"},
@@ -398,6 +400,12 @@ MACHINES = [
       board=True),
     # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, sve resurse na novčanike; ops/drustveni.py)
     # 19.11. (vlasnik: "Demo money maybe no longer makes sense ... Yes, start with both steps"; league/mjera.py)
+    # 19.11. (vlasnik: BNB chain i praćenje novčanika; bnb/prati.py): mjerenje novih kupnji BSC novčanika, bez novca
+    M("bnb_measure_row", "BNB: mjerenje jedne nove kupnje praćenog novčanika", "strategije", "bnb.db bnb_mjera.status",
+      {"open": "otvoreno (čeka ulaz ili izlaz)", "closed": "zatvoreno (izmjereno)", "miss": "promašaj (ne ulazi u prosjek)"},
+      [("-", "open", "program: poll vidi kupnju"), ("open", "closed", "program: prodali su / stop / vrijeme"),
+       ("open", "miss", "program: bez cijene, likvidnost, MC ispod 30k")],
+      scan=(("bnb/prati.py", "status"),), caveats=("Samo redci u postotku; nikad trade ni novac.",)),
     M("wallet_measure_mode", "Praćenje novčanika: demo novac ili mjerenje po ulazu", "strategije",
       "trade.db settings 'mjera_nacin' (auto / demo / mjera) + league.db mjera_kv 'prebaceno'",
       {"auto": "auto: demo dok se mjerenje ne potvrdi na istim tradeovima, zatim samo mjerenje",

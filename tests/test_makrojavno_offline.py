@@ -283,8 +283,8 @@ class App(Base):
                 mock.patch.object(kol, "rang_pane", lambda now=None: ""):
             title, html = kol.page({})
         self.assertEqual(title, "Influenceri")
-        self.assertIn('<a href="#makro">Makro</a>', html)
-        self.assertIn('data-src="/kol-makro/lista"', html)
+        self.assertIn('<a href="#makro" class="on" aria-current="page">Makro</a>', html)   # 19.11.: first and open
+        self.assertIn('id=makro', html)
         for long_, short in (("Za kopiranje", "Kopiranje"), ("Upravo zvali", "Pozivi")):
             self.assertIn(f"<span class=tl>{long_}</span><span class=ts>{short}</span>", html)
         self.assertIn("hs==='makro'", html)
