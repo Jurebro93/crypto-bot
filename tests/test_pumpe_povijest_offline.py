@@ -182,7 +182,9 @@ class Backfill(unittest.TestCase):
         d20 = calendar.timegm((2026, 11, 20, 3, 0, 0))
         d26 = calendar.timegm((2026, 11, 26, 3, 0, 0))
         d18 = calendar.timegm((2026, 11, 18, 3, 0, 0))
-        self.assertEqual(store.helius_cap(c, d20), (250000, "punjenje povijesti do 25.11."))
+        d21 = calendar.timegm((2026, 11, 21, 0, 30, 0))
+        self.assertEqual(store.helius_cap(c, d20), (250000, "punjenje povijesti do 20.11."))
+        self.assertEqual(store.helius_cap(c, d21)[0], 60000)   # 20.11.: the backfill ended a day after it began
         self.assertEqual(store.helius_cap(c, d26)[0], 60000)
         self.assertEqual(store.helius_cap(c, d18)[0], 60000)
         self.assertEqual((store.effective(c, d20)["pass_max_s"]["once"], store.effective(c, d20)["incr_share"]),
