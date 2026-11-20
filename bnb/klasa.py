@@ -11,6 +11,8 @@ distinct pump tokens, a paid buy >= min_sol (sol_in here is the buy's USD / SOLU
   snajper       first buy within sniper_secs of the pool's creation (first_trade = GeckoTerminal / DexScreener pool age)
   kupuje_sve    early in >= busy_events_share of >= 10 covered pumps
   market_maker  >= mm_min_side buys AND sells of one token inside one window [t0 - 6 h, win_end] on >= 2 windows
+                (overlapping windows of one token merged into one: a difference from the Solana code, which can count
+                two pumps of one token 6 h apart as two windows)
   jednokratni   seen in one event only
 And two the chain adds (applied over classify's verdict, they take precedence):
   ugovor        the address has code (eth_getCode, read only for addresses with >= 2 hits: the list and "near the
@@ -80,6 +82,14 @@ def market_makers(con, events, c):
             by_tok[e["token"]].append((int(e["t0"]) - 6 * 3600, int(e["win_end"])))
     side_min, ev_min = int(c["mm_min_side"]), int(c["mm_min_events"])
     hits = Counter()
+    for tok in list(by_tok):   # overlapping windows of ONE token are one window (two pumps 6 h apart are not 2 windows)
+        merged = []
+        for lo, hi in sorted(by_tok[tok]):
+            if merged and lo <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], hi)
+            else:
+                merged.append([lo, hi])
+        by_tok[tok] = merged
     for tok, wins in by_tok.items():
         rows = store.q(con, "SELECT trader, ts, side FROM bnb_trades WHERE token = ?", (tok,))
         for lo, hi in wins:

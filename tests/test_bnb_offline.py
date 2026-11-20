@@ -508,6 +508,13 @@ class Klasa(Db):
                 self.trade(tok, "0xmm", e["t0"] - H + k, "buy", 50)
                 self.trade(tok, "0xmm", e["t0"] + H + k, "sell", 50)
         self.assertEqual(klasa.market_makers(self.con, evs, self.c), {"0xmm"})
+        # two pumps of one token 2 h apart: overlapping windows are one window, not two
+        tok2 = "0x" + "e2" * 20
+        close = [self.ev(i, tok2, t0=1_791_000_000 + i * 2 * H) for i in range(2)]
+        for k in range(3):
+            self.trade(tok2, "0xone", 1_791_000_000 + k, "buy", 50)
+            self.trade(tok2, "0xone", 1_791_000_000 + H + k, "sell", 50)
+        self.assertNotIn("0xone", klasa.market_makers(self.con, close, self.c))
 
 
 # ---------- the measurement ------------------------------------------------------------------------------------------
