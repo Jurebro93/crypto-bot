@@ -37,10 +37,56 @@ def _med(xs):
     return statistics.median(xs) if xs else None
 
 
-def load_parts(con):
-    """[(eid, wallet, owner, buy_ts, sol_in, n_sells, sol_out, first_sell_ts, bought_before, sold_into, lead_s)]."""
-    return store.q(con, "SELECT eid, wallet, owner, buy_ts, sol_in, n_sells, sol_out, first_sell_ts, bought_before, "
-                        "sold_into, lead_s FROM i2_part")
+PART_COLS = "eid, wallet, owner, buy_ts, sol_in, n_sells, sol_out, first_sell_ts, bought_before, sold_into, lead_s"
+# the owner group of a row, as `r[2] or r[1]` in Python (an empty owner falls back to the wallet too)
+OWNER_KEY = "(CASE WHEN owner IS NULL OR owner = '' THEN wallet ELSE owner END)"
+
+
+def load_parts(con, relevant=False):
+    """[(eid, wallet, owner, buy_ts, sol_in, n_sells, sol_out, first_sell_ts, bought_before, sold_into, lead_s)].
+
+    relevant (20.11., production: the full pass was killed at 800 MB RSS; i2_part holds ~1M rows after the deep pump
+    reads, almost all of them wallets that only sold into one jump): only the rows of the owner groups that can be
+    anything but "promatra" in score.classify / prijepumpe.classify / smart.roles, i.e. EVERY row of an owner that
+    bought early (bought_before) in at least one event, of a relayer owner, and of any owner sharing a wallet with
+    those. An owner with no early buy anywhere is "promatra" in score.classify (it has no early event: not a sniper,
+    not "kupuje sve", never in score.bots' candidates), absent from prijepumpe.classify and smart.roles, and never
+    stored (score.save skips promatra with n_early + n_hits < 2); quiet_owners() counts them for the class counts. Same
+    row order as the full read (rowid), so every per-owner sum is added in the same order."""
+    if not relevant:
+        return store.q(con, f"SELECT {PART_COLS} FROM i2_part")
+    con.execute("DROP TABLE IF EXISTS temp.i2_rel")
+    con.execute("CREATE TEMP TABLE i2_rel (k TEXT PRIMARY KEY)")
+    con.execute(f"INSERT OR IGNORE INTO temp.i2_rel SELECT {OWNER_KEY} FROM i2_part WHERE bought_before OR "
+                f"owner LIKE 'relayer:%'")
+    con.execute(f"INSERT OR IGNORE INTO temp.i2_rel SELECT {OWNER_KEY} FROM i2_part WHERE wallet IN (SELECT wallet "
+                f"FROM i2_part WHERE {OWNER_KEY} IN (SELECT k FROM temp.i2_rel))")
+    rows = store.q(con, f"SELECT {PART_COLS} FROM i2_part WHERE {OWNER_KEY} IN (SELECT k FROM temp.i2_rel) "
+                        "ORDER BY rowid")
+    con.execute("DROP TABLE temp.i2_rel")
+    return rows
+
+
+def covered_ids(events, as_of):
+    """The event ids classify() counts at as_of (its `covered`)."""
+    ev = {e["eid"]: e for e in events if e["win_end"] < as_of}
+    return {eid for eid in ev if ev[eid].get("n_part")} or set(ev)
+
+
+def quiet_owners(con, events, as_of, parts):
+    """The number of owner groups classify(full i2_part, events, as_of) would hold that are NOT in `parts` (a
+    load_parts(relevant=True) read): each of them is "promatra" there (see load_parts)."""
+    cov = covered_ids(events, as_of)
+    if not cov:
+        return 0
+    con.execute("DROP TABLE IF EXISTS temp.i2_cov")
+    con.execute("CREATE TEMP TABLE i2_cov (eid TEXT PRIMARY KEY)")
+    con.executemany("INSERT INTO temp.i2_cov VALUES (?)", [(x,) for x in cov])
+    n_all = (store.q(con, f"SELECT COUNT(DISTINCT {OWNER_KEY}) FROM i2_part WHERE eid IN (SELECT eid FROM temp.i2_cov)")
+             or [(0,)])[0][0]
+    con.execute("DROP TABLE temp.i2_cov")
+    mine = {r[2] or r[1] for r in parts if r[0] in cov}
+    return max(0, int(n_all or 0) - len(mine))
 
 
 def first_trades(p, toks):
@@ -119,7 +165,7 @@ def classify(parts, events, as_of, c, bad=frozenset(), first_trade=None):
     """{owner: stats} from `parts` over the events whose window ended before as_of (pure). bad: wallets that are bots
     (score.bots); first_trade: {token: ts}."""
     ev = {e["eid"]: e for e in events if e["win_end"] < as_of}
-    covered = {eid for eid in ev if ev[eid].get("n_part")} or set(ev)
+    covered = covered_ids(events, as_of)
     calls = [eid for eid in covered if ev[eid]["kind"] == "call"]
     order = sorted(covered, key=lambda x: ev[x]["t0"])
     cut_t = ev[order[int(len(order) * 2 / 3)]]["t0"] if len(order) >= 3 else None

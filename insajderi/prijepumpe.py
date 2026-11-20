@@ -189,12 +189,20 @@ def bundles(con, events, c, as_of, stop=None):
     """{bid: {"kind", "members", "pumps", "pumps15", "shares", "sold", "tokens", "last"}} of the pump windows ended
     before as_of (see the module text). Reads i2_trades (slot, payer) and i2_part (owner, sold_into)."""
     pumps = [e for e in events if e.get("tier") and e["win_end"] < as_of]
-    owner = {w: o for w, o in store.q(con, "SELECT DISTINCT wallet, owner FROM i2_part WHERE owner IS NOT NULL")}
-    sold = defaultdict(set)
-    for eid, w in store.q(con, "SELECT eid, wallet FROM i2_part WHERE sold_into = 1"):
-        sold[eid].add(w)
+    # 20.11. (production: the full pass killed at 800+ MB): the wallet -> owner map of every participant (~1M after the
+    # deep reads) is resolved in a temp table (the same "last row wins" of a dict over the same query) and only the
+    # wallets whose owner is not themselves come into memory (owner.get(w, w) answers the same); the sellers are read
+    # per event
+    con.execute("DROP TABLE IF EXISTS temp.i2_wown")
+    con.execute("CREATE TEMP TABLE i2_wown (wallet TEXT PRIMARY KEY, owner TEXT)")
+    try:
+        con.execute("INSERT OR REPLACE INTO temp.i2_wown SELECT DISTINCT wallet, owner FROM i2_part WHERE owner IS NOT "
+                    "NULL")
+        owner = {w: o for w, o in store.q(con, "SELECT wallet, owner FROM temp.i2_wown WHERE owner IS NOT wallet")}
+    finally:
+        con.execute("DROP TABLE IF EXISTS temp.i2_wown")
     min_w, share_min = int(c["bundle_min_wallets"]), float(c["bundle_share"])
-    out = {}
+    out, sold = {}, {}
 
     def put(bid, kind, ws, e, share):
         b = out.setdefault(bid, {"kind": kind, "members": set(), "pumps": set(), "pumps15": set(), "shares": {},
@@ -222,6 +230,8 @@ def bundles(con, events, c, as_of, stop=None):
                             "ts BETWEEN ? AND ?", (e["token"], t0 - 6 * 3600, end))
         if not rows:
             continue
+        sold = {e["eid"]: {w for (w,) in store.q(con, "SELECT wallet FROM i2_part WHERE eid = ? AND sold_into = 1",
+                                                  (e["eid"],))}}
         tot = sum(r[3] or 0 for r in rows)
         early_sol = defaultdict(float)
         early_w = defaultdict(set)

@@ -122,11 +122,39 @@ def store_participants(con, eid, rows):
     con.execute("UPDATE i2_events SET n_part = ? WHERE eid = ?", (len(rows), eid))
 
 
+BUILD_ROWS = 150_000   # 20.11.: our own rows (i2_trades) of one build chunk's tokens, at most (one token may be more)
+
+
+def _build_chunks(con, events, n_max=100, rows_max=None):
+    """The events in order, in chunks of at most n_max whose tokens hold at most rows_max of our Helius rows together
+    (20.11., production: a chunk of 100 deep-read pumps put ~2M trades in memory at once; a token's trades are read
+    with its chunk and participants() sees only its own token's rows, so the chunking never changes a result)."""
+    rows_max = BUILD_ROWS if rows_max is None else rows_max
+    toks = sorted({e["token"] for e in events})
+    size = {}
+    for i in range(0, len(toks), 400):
+        ch = toks[i:i + 400]
+        size.update(store.q(con, f"SELECT mint, COUNT(*) FROM i2_trades WHERE mint IN ({_in(ch)}) GROUP BY mint", ch))
+    out, cur, seen, rows = [], [], set(), 0
+    for e in events:
+        add = 0 if e["token"] in seen else int(size.get(e["token"]) or 0)
+        if cur and (len(cur) >= n_max or rows + add > rows_max):
+            out.append(cur)
+            cur, seen, rows = [], set(), 0
+            add = int(size.get(e["token"]) or 0)
+        cur.append(e)
+        seen.add(e["token"])
+        rows += add
+    if cur:
+        out.append(cur)
+    return out
+
+
 def build(con, p, c, events, stop=None):
     """i2_part of `events` from every source we have now. Returns the number of events built. stop() true (19.11.:
     the pass's time budget): no further chunk; the events not built keep n_part NULL and are built by the next pass."""
     n = 0
-    for ch in _chunks(events, 100):
+    for ch in _build_chunks(con, events):
         if stop is not None and stop():
             break
         src = sources(con, p, sorted({e["token"] for e in ch}))
@@ -134,6 +162,7 @@ def build(con, p, c, events, stop=None):
             store_participants(con, e["eid"], participants(e, src.get(e["token"]) or [], c))
             n += 1
         con.commit()
+        del src   # before the next chunk's read, not after it
     return n
 
 
@@ -488,13 +517,19 @@ def corr_groups(corr_db):
     return out
 
 
-def owners(con, p, c, wallets, mints):
+def owners(con, p, c, wallets, mints, ties_only=False):
     """({wallet: owner id}, relayers): same funder (not a hub, not a relayer), a non-relayer fee payer, corr.db owner
-    groups. A wallet without a tie is its own owner."""
+    groups. A wallet without a tie is its own owner. ties_only (20.11., assign_owners: ~1M participants after the deep
+    pump reads): the map holds only the wallets whose owner is not themselves (.get(w, w) gives the same answers), and
+    `wallets` (a set) is used as is and loses the relayers instead of being copied."""
     from kol import groupdisc as gd
     paid = paid_pairs(con, p)
     relay = gd.relayers(paid, int(c["relayer_min"]))
-    ws = set(wallets) - relay
+    if ties_only:
+        ws = wallets
+        ws -= relay
+    else:
+        ws = set(wallets) - relay
     funders = gd._funders(p, list(mints), ws) if ws else defaultdict(set)
     for pay, w in paid:
         if w in ws and pay not in relay:
@@ -506,24 +541,33 @@ def owners(con, p, c, wallets, mints):
     fan = Counter(f for fs in funders.values() for f in fs)
     hubs = {f for f, n in fan.items() if n > int(c["hub_min"])}
     own = gd.owner_ids(funders, hubs, relay)
+    if ties_only:
+        return {w: o for w, o in own.items() if o != w and w in ws}, relay
     return {w: own.get(w, w) for w in ws}, relay
 
 
 def assign_owners(con, p, c):
-    """Write i2_part.owner for every participant. Returns (owner map, relayers)."""
+    """Write i2_part.owner for every participant. Returns (owner map, relayers); the map holds the wallets whose owner
+    is not themselves (20.11.: .get(w, w) as before; a map of every participant was ~1M entries)."""
     wallets = {w for (w,) in store.q(con, "SELECT DISTINCT wallet FROM i2_part")}
     mints = {m for (m,) in store.q(con, "SELECT DISTINCT token FROM i2_events")}
-    own, relay = owners(con, p, c, wallets, mints)
+    own, relay = owners(con, p, c, wallets, mints, ties_only=True)
+    relay_in = {w for w in relay if w is not None}
+    del wallets
     # 19.11. navečer (production: the list stage sat 21 min here): one UPDATE per wallet on i2_part, which had no
     # index on wallet (the key is eid, wallet), was a full scan per wallet: 150k wallets x 700k rows. Now the owner
     # map goes into a temp table and ONE set-based UPDATE writes only the rows whose owner changed (plus the index
     # i2_part_wallet in store.SCHEMA for every other lookup by wallet).
     con.execute("DROP TABLE IF EXISTS temp.i2_own")
     con.execute("CREATE TEMP TABLE i2_own (wallet TEXT PRIMARY KEY, owner TEXT)")
-    con.executemany("INSERT INTO temp.i2_own VALUES (?, ?)",
-                    [(w, own.get(w, w) if w not in relay else "relayer:" + w) for w in wallets])
+    # 20.11.: only the wallets with a tie and the relayers go into it; every other participant is its own owner (one
+    # more set-based UPDATE): the same table as with a row for every wallet
+    con.executemany("INSERT INTO temp.i2_own VALUES (?, ?)", [(w, o) for w, o in own.items() if w not in relay])
+    con.executemany("INSERT OR REPLACE INTO temp.i2_own VALUES (?, ?)", [(w, "relayer:" + w) for w in relay_in])
     con.execute("UPDATE i2_part SET owner = m.owner FROM temp.i2_own m WHERE m.wallet = i2_part.wallet AND "
                 "i2_part.owner IS NOT m.owner")
+    con.execute("UPDATE i2_part SET owner = wallet WHERE wallet IS NOT NULL AND owner IS NOT wallet AND wallet NOT IN "
+                "(SELECT wallet FROM temp.i2_own)")
     con.execute("DROP TABLE temp.i2_own")
     con.commit()
     return own, relay

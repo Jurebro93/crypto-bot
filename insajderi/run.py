@@ -286,6 +286,11 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
         _log(log, f"lijevak ({type(e).__name__}: {e})")
     cut_at = []
 
+    def mem(name):   # 20.11.: one line when the process is over store.MEM_LOG_MB (the watchdog kills at 800 MB)
+        m = store.mem_line(name)
+        if m:
+            log(m)
+
     def lstop():
         return clk.over() or clk.fn() - t_list >= list_max
 
@@ -300,6 +305,7 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
             return fn()
         finally:
             clk.sub[name] = round(clk.sub.get(name, 0.0) + clk.fn() - t0, 1)
+            mem(name)
     own = relay = parts = ft = bad = stats = cats = None
     n_groups = None
     pp, mm = {}, set()
@@ -307,7 +313,9 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
         r = step("vlasnici", lambda: chain.assign_owners(con, p, c))
         if r is not None:
             own, relay = r
-        parts = step("dijelovi", lambda: score.load_parts(con))
+        # 20.11. (production: the full pass killed at 800+ MB): only the rows of owners that can be anything but
+        # "promatra" (score.load_parts); the rest are counted (quiet_owners) and the sellers counted in SQL
+        parts = step("dijelovi", lambda: score.load_parts(con, relevant=True))
         ft = step("prvi", lambda: score.first_trades(p, {e["token"] for e in evs}))
 
         def _bots():
@@ -315,7 +323,9 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
             cand = {r_[1] for r_ in parts if (r_[2] or r_[1]) in owners_hit}
             return score.bots(con, p, c, cand, now - int(c["days"]) * 86400)
         bad = step("botovi", _bots)
-        stats = step("klase", lambda: score.classify(parts, evs, now + 1, c, bad, ft))
+        r = step("klase", lambda: (score.classify(parts, evs, now + 1, c, bad, ft),
+                                   score.quiet_owners(con, evs, now + 1, parts)))
+        stats, n_quiet = r if r is not None else (None, 0)
         n_groups = step("spremanje", lambda: score.save(con, stats, now))
         cats = step("katalizatori", lambda: ev.catalyze(con, p, evs, chain.waves(con, c)))
 
@@ -379,7 +389,7 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
             walks = ("pp", "ins") if (pp_fresh and mm is not None) else ("ins",)
             try:
                 wres = walkcache.run(con, p, c, evs, parts, now, bad, ft, mm or frozenset(), stop=stop, walks=walks,
-                                     timer=timer)
+                                     timer=timer, fp_db=True)
             except Exception as e:  # noqa: BLE001 - the copy test never costs the pass
                 _log(log, f"kopija ({type(e).__name__}: {e})")
                 wres = {}
@@ -398,16 +408,20 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
                 else:
                     ins_progress = walkcache.progress(r_ins)
                     clk.cut(f"kopija insajdera: {ins_progress} (zaostaje, nastavlja sljedeći prolaz)")
-    sellers = {r[1] for r in parts if r[9]}
+        mem("kopija")
+    n_sellers = (store.q(con, "SELECT COUNT(*) FROM (SELECT DISTINCT wallet FROM i2_part WHERE sold_into)")
+                 or [(0,)])[0][0]
     before = {r[1] for r in parts if r[9] and r[8]}
     conf = score.confirmed(stats)
     cls = {}
     for s in stats.values():
         cls[s["cls"]] = cls.get(s["cls"], 0) + 1
+    if n_quiet:   # the owners load_parts left out: each is "promatra"
+        cls["promatra"] = cls.get("promatra", 0) + n_quiet
     summary = {"ts": now, "events": len(evs), "call_events": sum(1 for e in evs if e["kind"] == "call"),
                "jump_events": sum(1 for e in evs if e["kind"] == "jump"),
                "covered": sum(1 for e in evs if e.get("n_part")), "fetched": sum(1 for e in evs if e.get("fetched")),
-               "sellers": len(sellers), "bought_before": len(before), "groups_stored": n_groups,
+               "sellers": n_sellers, "bought_before": len(before), "groups_stored": n_groups,
                "confirmed": len(conf), "classes": cls, "relayers": len(relay), "bots": len(bad),
                "catalysts": cats, "copy": cs, "copyable": ok, "verdict": why, "copy_progress": ins_progress,
                "helius_today": store.helius_spent(con, now),
@@ -438,6 +452,7 @@ def analyze(con, p, c, now, log=print, light=False, clk=None):
                 summary["smart"] = smart.run(con, p, c, now, stats, evs, parts)
             except Exception as e:  # noqa: BLE001
                 _log(log, f"pametni novac ({type(e).__name__}: {e})")
+            mem("ostalo")
     store.kv(con, "summary", json.dumps(summary, ensure_ascii=False, default=str))
     con.commit()
     return summary
