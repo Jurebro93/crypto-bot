@@ -357,6 +357,20 @@ class Line(unittest.TestCase):
             self.assertIn(want, ln)
         self.assertIn("još nema prolaza", pp.line(None))
 
+    def test_one_token_carrying_the_mean_is_named(self):
+        # 20.11. (production: 60 s +82.4 % [-13.3; +272.7] beside 2 s -8.3 %): the median and the mean without the
+        # token that adds most stand beside the mean
+        rows = [{"owner": "o", "token": "AAAAAAAAAA", "ret": 400.0, "ret_big": 400.0, "miss": None},
+                {"owner": "o", "token": "AAAAAAAAAA", "ret": 100.0, "ret_big": 100.0, "miss": None}]
+        rows += [{"owner": "o", "token": f"T{i}", "ret": -0.1, "ret_big": -0.1, "miss": None} for i in range(8)]
+        st = pp.stats(rows, {"boot_n": 50})
+        self.assertEqual((st["med_pct"], st["ex_top_pct"], st["top_token"], st["top_n"], st["top_max_pct"]),
+                         (-10.0, -10.0, "AAAAAAAAAA", 2, 40000.0))
+        self.assertEqual(pp._robust(st), "; medijan -10.0 %, bez najjačeg tokena -10.0 % (najjači AAAAAA: 2 kopija, "
+                                         "najviše +40000 %)")
+        self.assertEqual(pp._robust({"n": 3}), "")
+        self.assertIsNone(pp.stats([], {"boot_n": 5})["med_pct"])
+
 
 class Pass(unittest.TestCase):
     def test_a_whole_pass_writes_the_list_and_the_line(self):
