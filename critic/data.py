@@ -356,6 +356,13 @@ def reports(now=None, budget_chars=2500):
             put("veliki_tokeni_range", v, None)
     except Exception:  # noqa: BLE001
         pass
+    try:   # 20.11. (market/trziste.py): BTC colour, Fear & Greed, meme volume against jumps / drops and the trades
+        from market import trziste
+        rz = trziste.critic_summary()
+        if rz:
+            put("rezim_trzista", rz, rz.get("ts"))
+    except Exception:  # noqa: BLE001
+        pass
     try:   # 15.11. (holderi/): listing signals with outcomes, insider cautions, profitable holders' buys
         from holderi import view as hview
         h = hview.critic_summary()

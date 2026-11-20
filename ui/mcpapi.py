@@ -1992,6 +1992,26 @@ TOOLS.append(
          "key": {"type": "string", "description": "one machine by its key, e.g. position, mcp_request, grok_autotrade"}}}})
 
 
+# 20.11. (owner: BTC, Fear & Greed and the meme platforms' volume against the tokens' jumps and drops;
+# market/trziste.py): the market regime analysis, read-only
+TOOLS.append(
+    {"name": "get_market_regime", "annotations": _READ,
+     "description": ("The market regime analysis (analysis only, nothing here changes trading). BTC's colour per day "
+                     "(zeleno = 7-day change >= +3 % and the close at or above its 10-day average, crveno = <= -3 % and "
+                     "below it, zuto = the rest; point in time), the Crypto Fear & Greed class (alternative.me) and the "
+                     "meme platforms' volume trend (pump.fun, PumpSwap, LaunchLab, Meteora DBC; 7 days against the 7 "
+                     "before). Returns the last full day, the state known now, the newest 4-hour colour, the plain "
+                     "answers, does the midcap list follow BTC (correlation, beta, tokens that often move against the "
+                     "market: a statistic, never an accusation), every stored jump and drop by the market state of its "
+                     "start (rate per 100 token-days, median size), the existing trades (day-rule replay, shadow book, "
+                     "demo, wallet-following measurement; net after >= 3 % round trip) by state, the owner's filters "
+                     "(stand still in fear, buy when BTC turns green) chosen on the first two thirds of the days and "
+                     "reported on the last third, and the platforms' volume lead / lag. With `token` (mint) also that "
+                     "token's own follow-the-market numbers. Propose changes as notes; a gate is the owner's call."),
+     "inputSchema": {"type": "object", "properties": {
+         "token": {"type": "string", "description": "a token mint for its own numbers (optional)"}}}})
+
+
 # 18.11. (owner: "1000 demo tradeova treba raditi dnevno da bi program mogao naučiti što prolazi, a što ne";
 # veliki/sjena.py): the shadow book, read-only
 TOOLS.append(
@@ -2223,6 +2243,10 @@ def _tool(name, args, kid="local"):
     if name == "get_call_power":   # 18.11. veliki/moc.py, read-only
         from veliki import moc
         return moc.mcp(args), False
+    if name == "get_market_regime":   # 20.11. market/trziste.py, read-only
+        from market import trziste
+        d = trziste.mcp(args)
+        return d, "error" in d
     if name == "get_shadow_book":   # 18.11. veliki/sjena.py, read-only
         from veliki import sjena
         d = sjena.mcp(args)

@@ -1485,6 +1485,11 @@ def token(mint, qs):
     b.append('<div class="ms-list">' + "".join(full) + "</div>")
     b.append(R.hint("Pouzdanost: koliko se neovisni izvori slažu. Šansa za skok: koliko je sličnih tokena nastavilo rasti.")
              .replace("</p>", ' <a class="ms-acc" href="/pojmovnik#confidence" style="text-decoration:none">Pojmovnik</a></p>'))
+    try:   # 20.11. (market/trziste.py): does this token follow the market; a compact timeline with its own jumps / drops
+        from ui import trziste as _tz
+        b.append(_tz.token_html(mint))
+    except Exception as e:  # noqa: BLE001 - the token page stays up without it
+        print(f"trziste: {type(e).__name__}: {e}"[:200])
     try:   # 15.11.: the token page's sections, fresh (tokenstranice/, ui/tokenstranica.py) + link to the public page
         from ui import tokenstranica
         b.append(tokenstranica.private_html(mint, qs))
