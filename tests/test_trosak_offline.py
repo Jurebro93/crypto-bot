@@ -366,6 +366,38 @@ class DailyCostLine(_CG):
         u.close()
         self.assertIn("stanje računa: /usage ručno", daily.line(daily.collect(self.now, self.paths)))
 
+    def test_birdeye_simianx_and_the_coingecko_account_rows(self):
+        """20.11.: Birdeye (CU of the month, insajderi + dugo, of the cap), SimianX (reads and points of the day) and
+        the CoinGecko plan reading in the daily line and the week."""
+        from usage import birdeye as be, daily
+        d = os.path.dirname(self.paths["usage"])
+        paths = dict(self.paths, insajderi=os.path.join(d, "insajderi.db"), simianx=os.path.join(d, "simianx.db"))
+        for _ in range(3):
+            self.assertTrue(be.take(18, self.now, paths["insajderi"]))
+        from simianx import store as sx
+        c = sx.connect(paths["simianx"])
+        c.execute("INSERT INTO opinions (mint, ts, points) VALUES ('M', ?, 1.5)", (DAY0 + H,))
+        c.execute("INSERT INTO opinions (mint, ts, points) VALUES ('M', ?, 1.5)", (DAY0 - H,))   # yesterday
+        sx.add_map_points(c, DAY0, 0.5)
+        c.commit()
+        c.close()
+        http._cg_account_save({"ts": self.now - H, "tried": self.now - H, "plan": "Analyst", "credit": 500000,
+                               "used": 87412, "remaining": 412588, "rate": 500, "day": "2026-11-12", "n_at": 0})
+        got = daily.collect(self.now, paths)
+        self.assertEqual(got["birdeye"], {"cu_mjesec": 54, "poziva_mjesec": 3, "strop": be.cap(), "mjesec": "2026-11"})
+        self.assertEqual((got["simianx"]["poziva"], got["simianx"]["bodova"]), (1, 2.0))
+        ln = daily.line(got)
+        self.assertIn(f"Birdeye 54/{be.cap():,} CU ovaj mjesec".replace(",", ".") + " (3 poziva, insajderi + dugo)", ln)
+        self.assertIn("SimianX 1 mišljenja, 2 bodova od 15", ln)
+        self.assertIn("račun plan Analyst 87.412/500.000 ovaj mjesec", ln)
+        self.assertNotIn("CG-test", ln)
+        daily.save(got, self.paths["usage"])
+        w = daily.week(self.now, path=self.paths["usage"])
+        self.assertEqual((w["birdeye_cu_mjesec"], w["simianx_poziva"], w["simianx_bodova"]), (54, 1, 2.0))
+        md = "\n".join(daily.week_md(w))
+        self.assertIn("- Birdeye: 54/", md)
+        self.assertIn("- SimianX: 1 mišljenja, 2 bodova", md)
+
     def test_scheduled_in_the_last_minute_of_the_utc_day(self):
         import datetime as dt
         import run_sched

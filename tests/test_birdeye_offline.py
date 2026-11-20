@@ -247,5 +247,38 @@ class Admin(unittest.TestCase):
             con.close()
 
 
+class SharedBudget(unittest.TestCase):
+    """20.11.: dugo's /defi/token_overview (18 CU) books into the same be_usage month row and stops at the cap of the
+    month's total (insajderi + dugo); insajderi's own left_cu() sees dugo's spend."""
+
+    def test_take_cap_and_dugo_stops(self):
+        from usage import birdeye as budget
+        from dugo import sources
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "insajderi.db")
+            con = store.connect(p)
+            be.ensure(con)
+            con.execute("INSERT INTO be_usage VALUES (?, 10, 24970)", (be.month(NOW),))   # insajderi's 25,000 - 30
+            con.commit()
+            self.assertTrue(budget.take(18, NOW, p, limit=25000))
+            self.assertFalse(budget.take(18, NOW, p, limit=25000))                        # 24,988 + 18 > 25,000
+            self.assertEqual(budget.used(NOW, p), (11, 24988))
+            self.assertEqual(be.usage(con, NOW), (11, 24988))                            # insajderi sees it
+            con.close()
+            self.assertEqual(budget.used(NOW + 40 * 86400, p), (0, 0))                   # a new month
+            calls = []
+            with mock.patch.dict(os.environ, {"BIRDEYE_API_KEY": "x", "INSAJDERI_DB": p}), \
+                    mock.patch.object(sources.http, "_fetch", lambda req, t, retries=None: calls.append(1) or
+                                      {"data": {"holder": 7}}), \
+                    mock.patch.object(sources, "_BE_CAPPED", [False]), mock.patch("builtins.print"):
+                self.assertEqual(sources.holders_birdeye("M", now=NOW + 40 * 86400), 7)   # next month: room
+                self.assertEqual(budget.used(NOW + 40 * 86400, p), (1, 18))
+                self.assertIsNone(sources.holders_birdeye("M", now=NOW))                  # this month: capped
+                self.assertIsNone(sources.holders_birdeye("M", now=NOW + 40 * 86400))     # and stays off this process
+            self.assertEqual(len(calls), 1)
+        self.assertEqual(budget.CU_TOKEN_OVERVIEW, 18)
+        self.assertEqual(budget.cap(), be.config(store.config())["cu_month"])
+
+
 if __name__ == "__main__":
     unittest.main()

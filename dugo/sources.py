@@ -142,10 +142,23 @@ def btc_closes(days=365):
     return {int(t / 1000) // D * D - D: p for t, p in d.get("prices", []) if int(t / 1000) % D < 3600}
 
 
-def holders_birdeye(mint):
-    """Holder count from Birdeye (paid, only with BIRDEYE_API_KEY). None without the key or on error."""
+_BE_CAPPED = [False]
+
+
+def holders_birdeye(mint, now=None):
+    """Holder count from Birdeye (only with BIRDEYE_API_KEY). None without the key, on error or past the month's CU.
+    20.11.: every call is booked first in the month's Birdeye CU row shared with insajderi/birdeye.py (usage/birdeye:
+    /defi/token_overview = 18 CU); once the month's total (insajderi + dugo) reaches the cap no more calls this process
+    (one line)."""
     key = os.environ.get("BIRDEYE_API_KEY")
-    if not key:
+    if not key or _BE_CAPPED[0]:
+        return None
+    from usage import birdeye as be_budget
+    if not be_budget.take(be_budget.CU_TOKEN_OVERVIEW, now):
+        _BE_CAPPED[0] = True
+        calls, cu = be_budget.used(now)
+        print(f"dugo: Birdeye mjesečni strop ({cu:,}/{be_budget.cap():,} CU, insajderi + dugo) dosegnut, broj holdera "
+              "preskočen do idućeg mjeseca".replace(",", "."), flush=True)
         return None
     req = urllib.request.Request(f"https://public-api.birdeye.so/defi/token_overview?address={mint}",
                                  headers={"X-API-KEY": key, "x-chain": "solana", "Accept": "application/json",
