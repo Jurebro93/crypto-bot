@@ -60,14 +60,22 @@ def plain(html):
     return re.sub(r"\n\s*\n+", "\n\n", txt).strip()
 
 
+def ascii_html(html):
+    """20.11. (vlasnik: the HTML report does not show č, š, ž in his mail app): every non-ASCII letter of the HTML part
+    as a numeric character reference (č -> &#269;), which every client renders whatever it does with the charset.
+    The plain-text part stays UTF-8."""
+    return (html or "").encode("ascii", "xmlcharrefreplace").decode("ascii")
+
+
 def send(subject, html, to=None):
     to = to or recipients()
+    text, html = plain(html), ascii_html(html)
     m = method()
     if not to or not m:
         raise RuntimeError("e-mail nije podešen: nedostaje " + ", ".join(missing()))
     if m == "resend":
         body = json.dumps({"from": os.environ.get("REPORT_EMAIL_FROM") or "Crypto bot <onboarding@resend.dev>",
-                           "to": to, "subject": subject, "html": html, "text": plain(html)}).encode()
+                           "to": to, "subject": subject, "html": html, "text": text}).encode()
         req = urllib.request.Request("https://api.resend.com/emails", data=body, method="POST", headers={
             "Authorization": f"Bearer {os.environ['RESEND_API_KEY']}", "Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=60) as r:
@@ -76,7 +84,7 @@ def send(subject, html, to=None):
     msg = EmailMessage()
     msg["Subject"], msg["To"] = subject, ", ".join(to)
     msg["From"] = os.environ.get("REPORT_EMAIL_FROM") or f"Crypto bot <{user}>"
-    msg.set_content(plain(html))
+    msg.set_content(text)
     msg.add_alternative(html, subtype="html")
     host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
     port = int(os.environ.get("SMTP_PORT", "465"))
