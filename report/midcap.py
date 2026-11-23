@@ -131,7 +131,13 @@ def ev_ci(rets):
 
 VCOLS = ("id", "user", "token", "symbol", "opened_ts", "closed_ts", "status", "kind", "size_sol", "size_usd",
          "entry_px", "tp_px", "stop_px", "rt", "ret", "pnl_usd", "reason", "half_ts", "half_px", "be_px", "trade_id",
-         "lots", "why", "makro", "prio")
+         "lots", "why", "makro", "prio", "gate")
+
+
+def gated(r):
+    """23.11. (veliki/live.PROOF_ROWS): a demo entry made while a market gate (makro risk-off / BTC slobodan pad) held
+    real money: shown apart, never in the numbers that speak for real money."""
+    return bool(r.get("gate"))
 
 
 def rule_of(r):
@@ -296,9 +302,13 @@ def trading(now, p=None):
         for acc, user in (("demo", u["demo"]), ("pravi", u["pravi"])):
             mine = [r for r in rows if r.get("user") == user]
             for rk, _name in RULES:
-                rr = [r for r in mine if rule_of(r) == rk]
+                rr = [r for r in mine if rule_of(r) == rk and not gated(r)]
+                gg = [r for r in mine if rule_of(r) == rk and gated(r)]
                 x = {"racun": acc, "pravilo": rk, "jucer": window(rr, y0, d0), "7d": window(rr, now - 7 * DAY, now + 1),
                      "danas": window(rr, d0, now + 1), "otvoreno": sum(1 for r in rr if r.get("status") == "open")}
+                if gg:   # 23.11.: the demo's entries under a market gate, apart
+                    x["u_filtru"] = {"jucer": window(gg, y0, d0), "7d": window(gg, now - 7 * DAY, now + 1),
+                                     "otvoreno": sum(1 for r in gg if r.get("status") == "open")}
                 if acc == "pravi":
                     x["lanac"] = {"jucer": chain(p["trade"], rr, y0, d0), "7d": chain(p["trade"], rr, now - 7 * DAY, now + 1)}
                 out_rows.append(x)
@@ -724,16 +734,24 @@ def strategies(now=None, p=None, rinfo=None, hd=None, rp=None, kp=None):
     for acc, vrsta in (("demo", "demo"), ("pravi", "pravi")):
         for rk, rname in RULES:
             rr = [r for r in allc if r.get("user") == u[acc] and rule_of(r) == rk]
-            ev, ci = ev_ci([r["ret"] for r in rr])
-            hit = round(sum(1 for r in rr if (r.get("pnl_usd") or 0) > 0) / len(rr), 3) if rr else None
             ri = rinfo.get(rk) or {}
             if acc == "demo":
                 opis = ("0,1 SOL, cijeli profit na +10 % neto, BE na +5 %" if rk == "intra"
                         else "0,5 SOL, zona 7 d, stop −20 %, BE na +5 %")
             else:
                 opis = "dopušten sada" if ri.get("pravi") else ("ne kupuje: " + (ri.get("pravi_zasto") or "?"))
+            gg = [r for r in rr if gated(r)]   # 23.11.: entries real money would not have taken, apart
+            rr = [r for r in rr if not gated(r)]
+            ev, ci = ev_ci([r["ret"] for r in rr])
+            hit = round(sum(1 for r in rr if (r.get("pnl_usd") or 0) > 0) / len(rr), 3) if rr else None
             out.append(_row(f"Midcap {rname}", vrsta, len(rr), ev, ci, hit, _wnd(rr, now - DAY), _wnd(rr, now - 7 * DAY),
                             opis))
+            if gg:
+                gev, gci = ev_ci([r["ret"] for r in gg])
+                ghit = round(sum(1 for r in gg if (r.get("pnl_usd") or 0) > 0) / len(gg), 3)
+                out.append(_row(f"Midcap {rname} u filtru tržišta", vrsta, len(gg), gev, gci, ghit, _wnd(gg, now - DAY),
+                                _wnd(gg, now - 7 * DAY), "ulazi dok makro risk-off / BTC slobodan pad drži pravi novac; "
+                                "izvan dokaza"))
     di = demo_insajderi(now, p)
     if di is not None:
         out.append(_row("Insajderi 2.0 (kopija grupa)", "demo", di["n"], di["ev_pct"], di["ci"], di["pogodak"],
