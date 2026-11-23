@@ -412,7 +412,12 @@ class PublicPages(Tmp):
         tstore.kv_set(con, "pratitelji_zadnji", {"ts": NOW, "rows": 1})
         con.commit()
         con.close()
-        env = mock.patch.dict(os.environ, {"TG_DB": self.p("tg.db"), "KOL_DB": self.p("nema-kol.db"),
+        # 23.11. (SEO): the public list is only the channels tracked as crypto call channels (10+ clean measured
+        # calls in kol.db, kept since 19.11.): alphacalls and betagems; candidate1 has none
+        calls = [(f"tg:{ch}/{j}", TOK, f"tg:{ch}", NOW - (3 + j) * D, 0.1, 0.2, 100_000, 0.5, 0.1)
+                 for ch in ("alphacalls", "betagems") for j in range(12)]
+        kol = self.kol(calls)
+        env = mock.patch.dict(os.environ, {"TG_DB": self.p("tg.db"), "KOL_DB": kol,
                                            "RENDER_EXTERNAL_URL": "https://example.com"})
         env.start()
         self.addCleanup(env.stop)
@@ -425,16 +430,17 @@ class PublicPages(Tmp):
         code, raw, _ = public.route("/telegram-channels")
         html = raw.decode()
         self.assertEqual(code, 200)
-        self.assertIn("Since 19 Nov 2026 we no longer measure what the calls in these channels did", html)
+        self.assertIn("Only the Telegram channels we tracked as crypto call channels", html)
+        self.assertIn("Since 19 Nov 2026 we no longer measure the calls", html)
         self.assertLess(html.index("betagems"), html.index("alphacalls"))
         self.assertNotIn("candidate1", html)
         self.assertIn("+1,000", html)
-        self.assertIn("<title>Crypto Telegram channels: follower counts", html)
+        self.assertIn("<title>Crypto Telegram call channels: follower counts", html)
         self.assertIn('hreflang=hr href="https://example.com/hr/telegram-kanali"', html)
         main = html[html.index("<h1>"):html.index("</table>")]
         self.assertNotRegex(main, r"(?i)hit rate|reached \+15|rugs\b|tgstat|telethon|TG_DB|api[_ ]?key")
         hr = public.route("/hr/telegram-kanali")[1].decode()
-        self.assertIn("Od 19. 11. 2026. više ne mjerimo što su napravili pozivi", hr)
+        self.assertIn("Od 19. 11. 2026. pozive više ne mjerimo", hr)
         self.assertIn("+1.000", hr)
 
     def test_channel_card_is_noindex_and_sitemap_has_the_hub_only(self):
@@ -443,8 +449,8 @@ class PublicPages(Tmp):
         self.assertIn("noindex", card)
         self.assertIn("https://t.me/alphacalls", card)
         self.assertIn("5,000", card)
-        self.assertEqual(public.route("/telegram/candidate1")[0], 404)
-        self.assertEqual(public.route("/hr/telegram/nema")[0], 404)
+        self.assertEqual(public.route("/telegram/candidate1")[0], 410)   # 23.11.: not a filtered channel: gone
+        self.assertEqual(public.route("/hr/telegram/nema")[0], 410)
         sm = public.route("/sitemap.xml")[1].decode()
         self.assertIn("<loc>https://example.com/telegram-channels</loc><lastmod>2026-11-18</lastmod>", sm)
         self.assertNotIn("/telegram/alphacalls", sm)

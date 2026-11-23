@@ -24,6 +24,14 @@ DEFAULT = COLORS["guides"]
 
 # One big number per post (EN slug): (EN number, EN caption, HR number, HR caption). Same figures as in the posts.
 COVER = {
+    "wallets-that-buy-before-a-solana-token-jumps": ("8,273", "of 47,752 early buyers sold into the pump",
+                                                     "8.273", "od 47.752 ranih kupaca prodalo je u pumpu"),
+    "does-copying-smart-wallets-pay": ("-7.6%", "average fast copy after 1% slippage",
+                                       "-7,6%", "prosjek brze kopije uz 1% slippagea"),
+    "do-solana-meme-coins-follow-bitcoin": ("0.28", "median correlation of a meme coin with BTC",
+                                            "0,28", "medijan korelacije meme coina s BTC-om"),
+    "how-memesonar-measures": ("3%", "minimum cost we assume on every meme coin trade",
+                               "3%", "najmanji trošak koji računamo po tradeu"),
     "best-crypto-telegram-channels": ("5%", "of 40,772 Telegram calls had a measured outcome",
                                       "5%", "od 40.772 Telegram poziva imalo je izmjeren ishod"),
     "top-crypto-twitter-accounts-by-call-accuracy": ("29%", "of influencer calls were up one hour later",

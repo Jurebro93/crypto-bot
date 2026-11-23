@@ -626,10 +626,14 @@ class Views(Base):
         sm = self.public.route("/sitemap.xml")[1].decode()
         day = time.strftime("%Y-%m-%d", time.gmtime(self.now))
         for k in range(12):
-            self.assertIn(f"/macro-influencer/acct{k}</loc><lastmod>{day}", sm)
-            self.assertIn(f"/hr/makro-influencer/acct{k}</loc>", sm)
-            page = self.public.route(f"/macro-influencer/acct{k}")[1].decode()
-            self.assertNotIn("noindex", page)
+            # 23.11. (SEO, ui/seoindex): only ranked accounts (10+ scored episodes) can be in the core; these are
+            # still collecting evidence: published (200), noindex,follow, out of the sitemap
+            self.assertNotIn(f"/macro-influencer/acct{k}<", sm)
+            self.assertNotIn(f"/hr/makro-influencer/acct{k}<", sm)
+            code, page = self.public.route(f"/macro-influencer/acct{k}")[:2]
+            page = page.decode()
+            self.assertEqual(code, 200)
+            self.assertIn('content="noindex,follow"', page.split("</head>")[0])
             self.assertIn("still collecting evidence", page)
             self.clean(page.split("<main", 1)[1].split("</main>", 1)[0], f"profile {k}")
         self.assertRegex(sm, r"/macro-influencers</loc><lastmod>" + day)

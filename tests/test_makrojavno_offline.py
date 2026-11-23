@@ -184,8 +184,9 @@ class Public(Base):
         self.assertNotIn("/status/100\"", rich)
         self.assertIn("https://x.com/MacroMan/status/113", rich)    # the others link to the original
         small = self.get("/macro-influencer/SmallFry")[1]
-        self.assertNotIn("noindex", small)                          # 15.11. navečer: every page indexable ...
-        self.assertIn("still collecting evidence", small)           # ... with the honest label
+        # 23.11. (SEO, ui/seoindex): under 10 episodes the page is published with the honest label, but noindex,follow
+        self.assertIn('content="noindex,follow"', small.split("</head>")[0])
+        self.assertIn("still collecting evidence", small)
         hr = self.get("/hr/makro-influencer/MacroMan")[1]
         self.assertIn("naknadno nedostupno", hr)
         for p in self.PATHS:
@@ -194,7 +195,7 @@ class Public(Base):
         day = time.strftime("%Y-%m-%d", time.gmtime(NOW))
         self.assertIn("/macro-influencer/MacroMan</loc>", sm)
         self.assertIn("/hr/makro-influencer/MacroMan</loc>", sm)
-        self.assertIn("/macro-influencer/SmallFry</loc>", sm)        # under 10 episodes: offered to Google too
+        self.assertNotIn("/macro-influencer/SmallFry</loc>", sm)     # 23.11.: under 10 episodes: not in the core
         self.assertRegex(sm, r"/macro-influencers</loc><lastmod>" + day)
         self.assertEqual([u[0] for u in mpub.urls()], ["/macro-influencers", "/macro-influencer/MacroMan",
                                                        "/macro-influencer/SmallFry"])
@@ -227,9 +228,7 @@ class Public(Base):
 
     def test_cache_dropped_after_a_scoring(self):
         self.live()
-        self.assertIn("/macro-influencer/SmallFry</loc><lastmod>", self.get("/sitemap.xml")[1])
-        self.assertRegex(self.get("/sitemap.xml")[1], r"/macro-influencer/SmallFry</loc><lastmod>[\d-]+</lastmod>"
-                                                      r"<priority>0\.4<")   # still collecting evidence
+        self.assertNotIn("/macro-influencer/SmallFry</loc>", self.get("/sitemap.xml")[1])   # still collecting evidence
         hub = self.get("/hr/makro-influenceri")[1]
         self.assertIn("Rangirani računi · 1", hub)
         tab = web.tab_html()
@@ -249,7 +248,7 @@ class Public(Base):
         self.assertEqual(store.kv_json(self.con, "javno")["sitemap"], 2)
         self.assertIn("Rangirani računi · 2", self.get("/hr/makro-influenceri")[1])
         self.assertRegex(self.get("/sitemap.xml")[1], r"/macro-influencer/SmallFry</loc><lastmod>[\d-]+</lastmod>"
-                                                      r"<priority>0\.5<")   # ranked now: the new sitemap at once
+                                                      r"<priority>0\.6<")   # ranked now: in the core at once (cap 20)
         self.assertIn("Najtočniji · 2", web.tab_html())
         with pagecache._lock:
             keys = set(pagecache._store)

@@ -33,6 +33,8 @@ h2.s a{color:inherit}h2.s a:hover{color:var(--acc)}
 .art .blv{background:var(--soft)}.art .blv .bst{margin:0 0 10px;grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
 .art .blv .card{padding:14px 16px}.art .blv .card b{font-size:24px}.art .blv .blvm{font-weight:600;font-size:15px}
 .art .blv .card span{display:block;line-height:1.4;margin-top:4px}
+.src{max-width:740px}.src ul{padding-left:20px;margin:6px 0}.src li{font-size:15.5px;line-height:1.55;margin:6px 0}
+.src a{color:var(--acc)}
 """
 
 
@@ -83,6 +85,11 @@ TERMS = {
     "fake-volume-check": ("trading-volume", "liquidity", "dex", "cex", "wallet-cluster"),
     "after-kaito-yaps": ("kol", "crypto-call", "bot-account"),
     "fair-token-launch-cca": ("launchpad", "sniper-bot", "bundler", "liquidity", "fdv"),
+    "wallets-that-buy-before-a-solana-token-jumps": ("smart-money", "wallet-cluster", "insider-wallet", "bundler",
+                                                     "sniper-bot", "market-cap"),
+    "does-copying-smart-wallets-pay": ("copy-trading", "smart-money", "slippage", "priority-fee", "insider-wallet"),
+    "do-solana-meme-coins-follow-bitcoin": ("memecoin", "launchpad", "trading-volume", "market-cap", "meme-coin-season-index"),
+    "how-memesonar-measures": ("slippage", "priority-fee", "copy-trading", "wallet-cluster", "hit-rate"),
 }
 
 
@@ -93,7 +100,7 @@ CATS = [
      "Korak po korak: kupnja meme coina, swap na Jupiteru, plan trgovanja, DCA i koliko košta slippage.",
      ("how-to-buy-solana-meme-coins", "how-to-use-jupiter-swap", "how-to-trade-meme-coins", "what-is-pump-fun",
       "market-cap-liquidity-slippage", "what-is-dca-in-crypto", "perps-settings-after-october-10",
-      "what-to-do-with-an-airdrop", "how-to-spot-a-pump-fun-runner")),
+      "what-to-do-with-an-airdrop", "how-to-spot-a-pump-fun-runner", "do-solana-meme-coins-follow-bitcoin")),
     ("exchanges-and-cards", "mjenjacnice-i-kartice", "Exchanges and cards", "Mjenjačnice i kartice",
      "Where to buy crypto legally in Croatia and the EU, and which cards let you spend it.",
      "Gdje legalno kupiti kripto u Hrvatskoj i EU i kojim karticama ga možeš trošiti.",
@@ -108,9 +115,10 @@ CATS = [
      ("how-to-spot-a-rug-pull", "what-is-a-pump-and-dump", "bundles-and-snipers", "fake-volume-check",
       "address-poisoning", "zero-trust-support-calls")),
     ("wallets-and-influencers", "novcanici-i-influenceri", "Wallets and influencers", "Novčanici i influenceri",
-     "Wallet tracking, copy trading and crypto influencer (KOL) calls: what the data says works.",
-     "Praćenje novčanika, copy trading i pozivi kripto influencera (KOL): što prema podacima radi.",
-     ("what-is-a-kol-in-crypto", "why-big-influencer-calls-are-hard-to-trade", "influencer-clustering",
+     "Wallets that buy before pumps, copy trading tested after real costs, and influencer (KOL) calls: what the data says works.",
+     "Novčanici koji kupuju prije pumpe, copy trading testiran nakon stvarnih troškova i pozivi influencera (KOL): što prema podacima radi.",
+     ("wallets-that-buy-before-a-solana-token-jumps", "does-copying-smart-wallets-pay", "how-memesonar-measures",
+      "what-is-a-kol-in-crypto", "why-big-influencer-calls-are-hard-to-trade", "influencer-clustering",
       "what-is-wallet-tracking", "what-is-copy-trading", "tokens-sent-to-kol-wallets",
       "top-crypto-twitter-accounts-by-call-accuracy", "how-to-check-a-kol-track-record",
       "best-crypto-telegram-channels", "memecoin-telegram-groups-explained")),
@@ -145,7 +153,7 @@ def cat_nav(lang, active=None):
 
 L = {
     "en": dict(base="/blog", home="/", crumb="← Blog", all="All posts", c_title="{c}: crypto articles on the MemeSonar blog",
-               c_more="More on MemeSonar", read="min read", by="MemeSonar research", short="Short answer",
+               c_more="More on MemeSonar", read="min read", by="MemeSonar research", short="Short answer", upd="updated",
                terms="Terms in this post", all_terms="All terms →", next="Read next", cta="Request access",
                lock="MemeSonar does this for you in real time: every new Solana token, every influencer call and every "
                     "tracked wallet, scored and filtered for rugs.",
@@ -154,8 +162,8 @@ L = {
                i_h1="Solana meme coin research, in plain words",
                i_lead="How to buy, trade and stay safe with Solana meme coins, where to buy crypto legally in Croatia and "
                       "the EU, and how it is taxed. Measured on thousands of tokens we track every day.",
-               i_lock="Members see these signals live: new tokens, influencer calls and wallets worth copying, with a rug "
-                      "shield on every buy.",
+               i_lock="Members see these signals live: new tokens, influencer calls and wallets that buy before pumps, "
+                      "with a rug shield on every buy.",
                i_title="MemeSonar blog: Solana meme coins, crypto tax in Croatia, rug pulls",
                i_desc="Data-backed crypto guides: buying Solana meme coins, MiCA-licensed exchanges and cards in Croatia, "
                       "crypto tax, wallet tracking, copy trading and how to spot a rug pull.",
@@ -163,7 +171,7 @@ L = {
                        "October", "November", "December")),
     "hr": dict(base="/hr/blog", home="/hr", crumb="← Blog", all="Svi članci", c_title="{c}: kripto članci na MemeSonar blogu",
                c_more="Još na MemeSonaru", read="min čitanja", by="MemeSonar istraživanje",
-               short="Kratki odgovor", terms="Pojmovi u ovom tekstu", all_terms="Svi pojmovi →", next="Pročitaj još",
+               short="Kratki odgovor", upd="ažurirano", terms="Pojmovi u ovom tekstu", all_terms="Svi pojmovi →", next="Pročitaj još",
                cta="Zatraži pristup",
                lock="MemeSonar to radi za tebe u stvarnom vremenu: svaki novi Solana token, svaki poziv influencera i "
                     "svaki praćeni novčanik, ocijenjen i provjeren na rug.",
@@ -172,8 +180,8 @@ L = {
                i_h1="Istraživanje Solana meme coina, jednostavnim riječima",
                i_lead="Kako kupiti, trgovati i ostati siguran sa Solana meme coinima, gdje legalno kupiti kripto u "
                       "Hrvatskoj i EU i kako se oporezuje. Izmjereno na tisućama tokena koje pratimo svaki dan.",
-               i_lock="Članovi vide ove signale uživo: nove tokene, pozive influencera i novčanike koje vrijedi "
-                      "kopirati, uz zaštitu od ruga na svakoj kupnji.",
+               i_lock="Članovi vide ove signale uživo: nove tokene, pozive influencera i novčanike koji kupuju prije "
+                      "pumpe, uz zaštitu od ruga na svakoj kupnji.",
                i_title="MemeSonar blog: Solana meme coini, porez na kripto, rug pullovi",
                i_desc="Kripto vodiči uz stvarne podatke: kupnja Solana meme coina, mjenjačnice i kartice s MiCA licencom u "
                       "Hrvatskoj, porez na kriptovalute, praćenje novčanika, copy trading i rug pullovi.",
@@ -234,7 +242,11 @@ TOOLS_FOR = {"what-is-wallet-tracking": ("wallet-trackers",), "what-is-copy-trad
              "top-crypto-twitter-accounts-by-call-accuracy": ("crypto-analysis-tools",),
              "memecoin-telegram-groups-explained": ("telegram-trading-bots", "wallet-trackers"),
              "how-to-spot-a-pump-fun-runner": ("trading-bots", "rug-checkers"),
-             "how-to-check-a-kol-track-record": ("crypto-analysis-tools",)}
+             "how-to-check-a-kol-track-record": ("crypto-analysis-tools",),
+             "wallets-that-buy-before-a-solana-token-jumps": ("wallet-trackers", "copy-trading-platforms"),
+             "does-copying-smart-wallets-pay": ("copy-trading-platforms", "wallet-trackers"),
+             "do-solana-meme-coins-follow-bitcoin": ("crypto-analysis-tools",),
+             "how-memesonar-measures": ("wallet-trackers", "crypto-analysis-tools")}
 TOOL_NAME = {"en": {"wallet-trackers": "Best wallet trackers", "crypto-analysis-tools": "Best crypto analysis tools",
                     "trading-bots": "Best Solana trading bots", "rug-checkers": "Best rug checkers",
                     "copy-trading-platforms": "Best copy trading platforms", "crypto-wallets": "Best crypto wallets",
@@ -268,6 +280,7 @@ DATA_FOR = {
     "how-to-use-jupiter-swap": ("dex", "market"), "market-cap-liquidity-slippage": ("dex", "market"),
     "what-is-dca-in-crypto": _MKT, "bundles-and-snipers": ("launchpads", "besttime"),
     "what-is-a-pump-and-dump": ("calls", "season"), "fake-volume-check": ("dex", "launchpads"),
+    "do-solana-meme-coins-follow-bitcoin": ("market", "launchpads", "dex", "season"),
 }
 DATA_NAME = {"en": {"inf": "Influencer ranking: the big accounts, measured"}, "hr": {"inf": "Ljestvica influencera: velika imena, izmjereno"}}
 
@@ -295,6 +308,12 @@ def _chips(en_slug, lang="en"):
     return (f"<h2 class=s>{t['terms']}</h2><div class=chips>"
             + "".join(f"<a href={h}>{esc(n)}</a>" for h, n in links)
             + f"<a href={'/glossary' if lang == 'en' else '/hr/rjecnik'}>{t['all_terms']}</a></div>")
+
+
+def _sources(en_slug, lang="en"):
+    """'Sources' / 'Izvori' block: outside links that were checked (ui/blogsources.py)."""
+    from ui import blogsources as BS
+    return BS.block(BS.POSTS.get(en_slug, ()), lang)
 
 
 def _posts():
@@ -479,22 +498,27 @@ def page(slug, lang="en"):
     i = next(k for k, v in enumerate(vs) if v["en"] == p["en"])
     rel = [v for r in p.get("related", ()) for v in vs if v["en"] == r] or [vs[(i + k) % len(vs)] for k in (1, 2, 3)]
     url = f"{_base()}{t['base']}/{slug}"
+    from ui import blogsources as BS
+    src_urls = [BS.url(k) for k in BS.POSTS.get(p["en"], ())]
     jsonld = _ld({"@context": "https://schema.org", "@graph": [
         {"@type": "BlogPosting", "headline": p["h1"], "description": p["desc"], "datePublished": p["date"],
-         "dateModified": lastmod(p), "mainEntityOfPage": url, "image": _base() + _og(p, lang),
+         "dateModified": lastmod(p), "mainEntityOfPage": url, "url": url, "image": _base() + _og(p, lang),
          "inLanguage": lang, "keywords": ", ".join(p["kw"]), "author": {"@type": "Organization", "name": "MemeSonar"},
-         "publisher": {"@type": "Organization", "name": "MemeSonar"}},
+         "publisher": {"@type": "Organization", "name": "MemeSonar", "url": _base() + t["home"]},
+         **({"citation": src_urls} if src_urls else {})},
         {"@type": "BreadcrumbList", "itemListElement": [
             {"@type": "ListItem", "position": 1, "name": "Blog", "item": _base() + t["base"]},
             *([{"@type": "ListItem", "position": 2, "name": CAT_OF[p["en"]][2 if lang == "en" else 3],
                 "item": _base() + cat_path(CAT_OF[p["en"]], lang)}] if p["en"] in CAT_OF else []),
             {"@type": "ListItem", "position": 3 if p["en"] in CAT_OF else 2, "name": p["h1"], "item": url}]}]})
     c = CAT_OF.get(p["en"])
+    upd = (f" · {t['upd']} <time datetime={p['updated']}>{_date(p['updated'], lang)}</time>"
+           if p.get("updated") and p["updated"] != p["date"] else "")
     crumb_cat = (f"<a href={cat_path(c, lang)}>{c[2 if lang == 'en' else 3]}</a>" if c else esc(p["tag"]))
     body = (f"<article class=art><section class=ph1><div class=crumb><a href={t['base']}>{t['crumb']}</a> · "
-            f"{crumb_cat}</div><h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'], lang)} · {p['mins']} "
+            f"{crumb_cat}</div><h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'], lang)}{upd} · {p['mins']} "
             f"{t['read']} · {t['by']}</div><figure class=bcov>{svg(p, lang)}</figure><div class=tldr><b>{t['short']}</b><p>{p['tldr']}</p></div></section>"
-            f"{_link_terms(p['body'], lang)}{_live(p['en'], lang)}{_tools(p['en'], lang)}{_data(p['en'], lang)}<div class=lock><p>{t['lock']}</p>"
+            f"{_link_terms(p['body'], lang)}{_live(p['en'], lang)}{_sources(p['en'], lang)}{_tools(p['en'], lang)}{_data(p['en'], lang)}<div class=lock><p>{t['lock']}</p>"
             f"<a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div><p class=note>{t['note']}</p></article>"
             f"{_chips(p['en'], lang)}<h2 class=s>{t['next']}</h2><div class=bl>{''.join(_card(r, lang) for r in rel[:3])}</div>")
     en = f"/blog/{p['en']}"

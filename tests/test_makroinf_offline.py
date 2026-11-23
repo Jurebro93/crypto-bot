@@ -638,17 +638,20 @@ class Public(Base):
         self.assertEqual(self.public.route("/macro-influencer/nobody")[0], 404)
         self.assertIsNone(self.public.route("/hr/macro-influencer/MacroMan"))          # no mixed-language paths
 
-    def test_small_n_is_indexable_with_the_honest_label(self):
-        # 15.11. navečer (the owner: "Neka Google sve indeksira"): no noindex any more, the label stays
+    def test_small_n_is_published_with_the_honest_label(self):
+        # 15.11. navečer: published with the label; 23.11. (SEO, ui/seoindex): under 10 episodes noindex,follow and
+        # out of the sitemap (only ranked accounts can be in the indexed core)
         self.flag(settings.MAKROINF_JAVNO, "live")
         self.con.execute("DELETE FROM calls WHERE CAST(id AS INTEGER) > 104")
         self.con.commit()
         run.score_all(self.con, NOW)
-        page = self.public.route("/macro-influencer/MacroMan")[1].decode()
-        self.assertNotIn('noindex', page)
+        code, page = self.public.route("/macro-influencer/MacroMan")[:2]
+        page = page.decode()
+        self.assertEqual(code, 200)
+        self.assertIn('content="noindex,follow"', page.split("</head>")[0])
         self.assertIn("still collecting evidence", page)
         self.assertIn("insufficient evidence", page)
-        self.assertIn("/macro-influencer/MacroMan", self.public.sitemap())
+        self.assertNotIn("/macro-influencer/MacroMan<", self.public.sitemap())
 
 
 # ---------- wiring ----------------------------------------------------------------------------------------------------

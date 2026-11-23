@@ -413,17 +413,22 @@ class SitemapDates(Base):
     def test_blog_posts_carry_the_day_they_changed_and_data_pages_today(self):
         today = time.strftime("%Y-%m-%d", time.gmtime())
         lm = self.lastmods()
-        self.assertEqual(lm["/blog/crypto-tax-croatia"], "2026-11-01")           # its own date, not "today" every day
-        self.assertEqual(lm["/hr/blog/porez-na-kriptovalute"], "2026-11-01")
+        self.assertEqual(lm["/blog/company-crypto-investment-croatia"], "2026-11-01")   # its own date, not "today"
+        self.assertEqual(lm["/hr/blog/ulaganje-firme-u-kriptovalute"], "2026-11-01")
+        self.assertEqual(lm["/blog/crypto-tax-croatia"], "2026-11-23")           # 23.11.: refreshed (JOPPD for 2+ years)
         self.assertEqual(lm["/blog/best-crypto-telegram-channels"], "2026-11-09")
-        self.assertEqual(lm["/influencers"], today)                              # rebuilt from the databases all day
-        self.assertEqual(lm["/blog"], today)
+        # 23.11. (SEO, ui/seoindex): a data hub carries the day its data last changed (no influencer data here: the
+        # ranking is not even in the sitemap), the blog hub the day of its newest post, never simply "today"
+        self.assertNotIn("/influencers", lm)
+        from ui import blog
+        self.assertEqual(lm["/blog"], max(u[3] for u in blog.urls(with_lastmod=True) if u[3]))
+        self.assertLessEqual(lm["/blog"], today)
         now = time.time()
         bloglive.refresh(now, measured={"telegram": {"tg_channels": 9, "tg_measured": 90}})
         lm = self.lastmods()
         self.assertEqual(lm["/blog/best-crypto-telegram-channels"], min(sitelog.local_day(now), today))   # numbers changed tonight
         self.assertEqual(lm["/hr/blog/najbolji-kripto-telegram-kanali"], lm["/blog/best-crypto-telegram-channels"])
-        self.assertEqual(lm["/blog/crypto-tax-croatia"], "2026-11-01")
+        self.assertEqual(lm["/blog/company-crypto-investment-croatia"], "2026-11-01")
         from ui import blog
         self.assertEqual(len(blog.urls()[0]), 3)                                 # the old shape stays for other callers
         self.assertEqual(json.dumps(blog.urls()), json.dumps([u[:3] for u in blog.urls(with_lastmod=True)]))
