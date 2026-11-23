@@ -637,10 +637,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, landing.page_html(qs, logged_in=ok and AUTH and not site, ok=qs.get("poslano") == "1", lang=lang)
                               .encode("utf-8"))
         from ui import public
-        pub = public.route(path)
+        # 23.11. (hitno): a visitor who is not logged in builds an uncached public page only with a free slot
+        # (ui/javniteret: crawler bursts of per-entity pages stopped this process 11 times in 2.5 days)
+        pub = public.route(path, gate=not (AUTH and ok))
         if pub:   # indexable pages: influencer leaderboard and profiles, robots.txt, sitemap.xml
             self._public = True
             self._index = pub[0] == 200
+            if pub[0] == 503:
+                from ui import javniteret
+                return self._send(503, pub[1], pub[2], retry_after=javniteret.RETRY_AFTER)
             return self._send(pub[0], pub[1], pub[2])
         if path.startswith("/static/landing/"):
             return self._static(path[len("/static/landing/"):])
@@ -995,7 +1000,7 @@ class Handler(BaseHTTPRequestHandler):
         code, data = mcpapi.trade_request(body)
         return self._send(code, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json")
 
-    def _send(self, code, body, ctype="text/html", gz=None, translated=False):
+    def _send(self, code, body, ctype="text/html", gz=None, translated=False, retry_after=None):
         """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""
         if (body is not None and not translated and ctype == "text/html" and getattr(self, "lang", "hr") == "en"
                 and not getattr(self, "_public", False)):
@@ -1017,7 +1022,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(out)))
         self.send_header("Cache-Control", "no-store")
         if code == 503:   # 9.11. (audit P33, review): _last_copy's "try again in a minute" says so to the browser too
-            self.send_header("Retry-After", "60")
+            self.send_header("Retry-After", str(retry_after or 60))
         self.send_header("Vary", "Accept-Encoding")
         if not getattr(self, "_index", False):
             self.send_header("X-Robots-Tag", "noindex, nofollow")

@@ -6,6 +6,7 @@ Cost: about 1 Helius credit per delivered event (~1-2k events a day for 100 acti
 import json
 import os
 import sqlite3
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -382,7 +383,21 @@ def spool(payload, hype_db=None, now=None, log=print):
 
 def drain(hype_db=None, log=print, max_files=200, timeout=None):
     """Spooled webhook payloads -> hype.db (the next successful ingest and run_kol collect). Returns rows written;
-    a file stays when hype.db is still locked. `timeout`: sqlite busy wait (the webhook handler passes a short one)."""
+    a file stays when hype.db is still locked. `timeout`: sqlite busy wait (the webhook handler passes a short one).
+    23.11. (hitno): one drain at a time per process: under a burst of ~30 webhook posts every one of them read the
+    same up-to-200 spooled payloads into memory at once; the others now skip (the running drain takes them)."""
+    if not _DRAIN_LOCK.acquire(blocking=False):
+        return 0
+    try:
+        return _drain(hype_db, log, max_files, timeout)
+    finally:
+        _DRAIN_LOCK.release()
+
+
+_DRAIN_LOCK = threading.Lock()
+
+
+def _drain(hype_db, log, max_files, timeout):
     d = spool_dir(hype_db)
     try:
         names = sorted(os.listdir(d))[:max_files]

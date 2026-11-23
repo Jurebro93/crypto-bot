@@ -363,8 +363,15 @@ def _stance_text(r, lang):
     return DIR[lang].get(st["dir"], st["dir"]) if st else T[lang]["no_stance"]
 
 
+VIEW_TTL_S = 300
+
+
 def _view():
-    return web.view(fresh=False)
+    """23.11. (hitno): web.view reads every score (JSON per account) and counts the tweets; a burst of account pages
+    did it once per page. One shared copy per process now, rebuilt when the scores move (web.stamp) or after
+    VIEW_TTL_S. Shared: do not change it."""
+    from ui import javniteret
+    return javniteret.shared(("makro_view",), VIEW_TTL_S, lambda: web.view(fresh=False), version=web.stamp())
 
 
 def _jsonld(obj):
