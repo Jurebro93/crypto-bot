@@ -592,7 +592,8 @@ class Hub800(Base):
             self.assertIn(f'<link rel=canonical href="https://example.com/macro-influencers/{p}">', page)
             self.assertIn(f'hreflang=hr href="https://example.com/hr/makro-influenceri/{p}"', page)
             self.assertIn(f"page {p}", page.split("<title>", 1)[1].split("</title>", 1)[0])
-            self.assertNotIn("noindex", page)
+            # 23.11. (SEO, ui/seoindex): the next pages are published and followed, not indexed (page 1 is the hub)
+            self.assertIn('content="noindex,follow"', page.split("</head>")[0])
             self.assertNotIn("How we measure</h2>", m)                             # only the list on the next pages
             prev = "/macro-influencers#rank" if p == 2 else f"/macro-influencers/{p - 1}"
             self.assertIn(f'<a rel=prev href="{prev}">', m)
@@ -619,20 +620,28 @@ class Hub800(Base):
         self.assertIsNone(mpub.match("/macro-influencers/x"))
 
     def test_sitemap_has_every_account_and_every_hub_page(self):
+        # 23.11. (SEO, ui/seoindex): of 800 published accounts the sitemap has the SEO_MACRO (20) ranked ones with the
+        # most scored episodes and the hub's first page; the rest are 200 + noindex,follow
         sm = self.get("/sitemap.xml")[1]
         day = time.strftime("%Y-%m-%d", time.gmtime(self.now))
-        for k in range(self.N):
-            self.assertIn(f"/macro-influencer/acc{k:03d}</loc><lastmod>{day}", sm)
-            self.assertIn(f"/hr/makro-influencer/acc{k:03d}</loc>", sm)
+        v = mpub._view()
+        best = sorted(v["ranked"], key=lambda r: (-r["n_epizoda"], r["handle"].lower()))[:20]
+        inside = re.findall(r"/macro-influencer/(acc\d{3})</loc>", sm)
+        self.assertEqual(sorted(set(inside)), sorted(r["handle"] for r in best))
+        for r in best:
+            self.assertIn(f"/macro-influencer/{r['handle']}</loc><lastmod>{day}", sm)
+            self.assertIn(f"/hr/makro-influencer/{r['handle']}</loc>", sm)
         for p in range(2, 9):
-            self.assertIn(f"https://example.com/macro-influencers/{p}</loc>", sm)
-            self.assertIn(f"https://example.com/hr/makro-influenceri/{p}</loc>", sm)
-        self.assertNotIn("/macro-influencers/9<", sm)
-        self.assertEqual(web.sitemap_count(), 800)
+            self.assertNotIn(f"https://example.com/macro-influencers/{p}</loc>", sm)
+        self.assertIn("https://example.com/macro-influencers</loc>", sm)
+        self.assertEqual(web.sitemap_count(), 800)                                  # what makroinf offers ...
         self.assertEqual(len([u for u in mpub.urls() if u[0].startswith("/macro-influencer/")]), 800)
         code, prof = self.get("/macro-influencer/acc799")                           # a second-wave account's own page
         self.assertEqual(code, 200)
-        self.assertNotIn("noindex", prof)
+        self.assertIn('content="noindex,follow"', prof.split("</head>")[0])        # ... and what the core takes
+        hub = self.get("/macro-influencers")[1]
+        for r in best:                                                              # every core profile linked
+            self.assertIn(f'href="/macro-influencer/{r["handle"]}"', hub)
 
     def test_app_list_is_paged_too(self):
         tab = web.tab_html()

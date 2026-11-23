@@ -278,7 +278,10 @@ class PublicPage(Base):
         self.assertIn("/coin/mida<", sm)
         self.assertIn("/hr/coin/mida<", sm)
         self.assertNotIn("/coin/thin<", sm)
-        self.assertEqual(sm.count("example.com/coin/peng</loc>"), 1)   # the top 100 coin is listed once
+        # the top 100 coin is listed at most once; 23.11. (SEO, ui/seoindex): only with enough of our own data
+        # (14+ days, two of calls / holders / statistics), which this fixture's PENG does not have
+        self.assertEqual(sm.count("example.com/coin/peng</loc>"), 0)
+        self.assertIn('content="noindex,follow"', self.html("/coin/peng")[1].split("</head>")[0])
         self.assertEqual(self.html("/coin/nema-takvog")[0], 404)
 
     def test_frozen_page_keeps_working(self):

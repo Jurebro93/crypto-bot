@@ -592,6 +592,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _do_get(self):
         self._index = False   # every page is noindex unless it is one of the public, indexable ones
+        self._robots = None   # the X-Robots-Tag of a noindex page (default "noindex, nofollow")
         self._public = False  # public pages have their own English version and are never run through ui/i18n
         self._set_lang()
         ok = not AUTH or self._authorized()
@@ -620,6 +621,11 @@ class Handler(BaseHTTPRequestHandler):
         to = slash_redirect(path)   # 23.11. (SEO): "/influencers/" was the 401 login page with noindex
         if to:
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
+        if path == "/robots.txt" and APP_URL and _host(self.headers.get("Host")) == _host(APP_URL):
+            # 23.11. (SEO): the app host has its own robots.txt (nothing there is for search), no 301 to the site
+            from ui import public
+            self._index = True
+            return self._send(200, public.APP_ROBOTS.encode("utf-8"), "text/plain", cache_control="public, max-age=3600")
         to = moved_to_site(self.headers.get("Host"), path, ok and AUTH)
         if to:
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
@@ -649,16 +655,23 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/en" and (site or not ok):
                 return self._redirect("/", code=301 if site else 303)
             lang = "en" if path in ("/", "/en") else "hr"   # /en: the English page for logged-in users (canonical /)
-            self._index = path not in ("/dobrodosli", "/en")
+            from ui import seoindex   # 23.11.: the policy of ui/seoindex (the homepage is always in its core)
+            self._index = path not in ("/dobrodosli", "/en") and seoindex.indexable(path)
             return self._send(200, landing.page_html(qs, logged_in=ok and AUTH and not site, ok=qs.get("poslano") == "1", lang=lang)
                               .encode("utf-8"))
         from ui import public
         # 23.11. (hitno): a visitor who is not logged in builds an uncached public page only with a free slot
         # (ui/javniteret: crawler bursts of per-entity pages stopped this process 11 times in 2.5 days)
         pub = public.route(path, gate=not (AUTH and ok))
-        if pub:   # indexable pages: influencer leaderboard and profiles, robots.txt, sitemap.xml
+        if pub:   # public pages: indexable only when ui/seoindex says so (its core); robots.txt, sitemap.xml
+            from ui import seoindex
             self._public = True
-            self._index = pub[0] == 200
+            self._index = pub[0] == 200 and seoindex.indexable(path)
+            if pub[0] == 200 and not self._index:   # 23.11. (SEO): reachable, its links followed, not in the index
+                self._robots = "noindex, follow"
+            if pub[0] == 410:   # 23.11. (SEO): a Telegram channel that is not on the filtered list: gone, cacheable
+                self._robots = "noindex"
+                return self._send(410, pub[1], pub[2], cache_control="public, max-age=86400")
             if pub[0] == 503:   # the gate: Retry-After, no noindex header, no login page (23.11.)
                 from ui import javniteret
                 return self._send(503, pub[1], pub[2], retry_after=javniteret.RETRY_AFTER)
@@ -1044,7 +1057,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Retry-After", str(retry_after or 60))
         self.send_header("Vary", "Accept-Encoding")
         if not getattr(self, "_index", False) and not retry_after:   # a gate 503 is "come back", not "never index"
-            self.send_header("X-Robots-Tag", "noindex, nofollow")
+            self.send_header("X-Robots-Tag", getattr(self, "_robots", None) or "noindex, nofollow")
         if zipped:
             self.send_header("Content-Encoding", "gzip")
         if ctype == "text/html" and not getattr(self, "_public", False):
@@ -1455,7 +1468,8 @@ class Handler(BaseHTTPRequestHandler):
             lang = "hr" if path == apjavno.PATH_HR else "en"
         self._public = not ok   # a visitor gets no app cookies; a player's copy carries the form token cookie
         # 10.11. (Jure: "da", u Google): the visitor's copy of the page is indexable; the chat fragment and the in-app copy are not
-        self._index = not ok and path in (apjavno.PATH, apjavno.PATH_HR)
+        from ui import seoindex
+        self._index = not ok and path in (apjavno.PATH, apjavno.PATH_HR) and seoindex.indexable(path)
         try:
             if path == apjavno.CHAT_PATH:
                 html = apjavno.chat_fragment(user, qs)
@@ -1768,6 +1782,8 @@ def main(argv=None):
         print(f"marketpub: {e}", flush=True)
     from ui import coins
     coins.start()     # public top-100 Solana meme coins (Jupiter list every 3 h) -> public.db
+    from ui import seoindex
+    seoindex.start()  # 23.11. (SEO): the indexed core (sitemap, noindex) recomputed every 6 h -> public.db seo_core
     try:
         from analytics import gsc
         gsc.start()   # Google Search Console every 6 h -> analytics.db (only with GSC_SERVICE_ACCOUNT_JSON)

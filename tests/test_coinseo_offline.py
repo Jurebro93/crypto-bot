@@ -67,8 +67,13 @@ class CoinSeo(unittest.TestCase):
 
     def test_sitemap_and_robots(self):
         sm = public.route("/sitemap.xml")[1].decode()
-        for p in ("/coin/bonk/price-prediction", "/hr/kako-kupiti/bonk", "/rug-check/pengu", "/solana-meme-coins/new"):
+        # 23.11. (SEO, ui/seoindex): the hubs and the daily lists are in the sitemap; the per-coin template pages are
+        # noindex,follow and out of it until they grow in (their coin in the core and indexed)
+        for p in ("/how-to-buy", "/hr/provjera", "/solana-meme-coins/new", "/hr/solana-meme-coini/popularni"):
             self.assertIn(f"https://example.com{p}<", sm, p)
+        for p in ("/coin/bonk/price-prediction", "/hr/kako-kupiti/bonk", "/rug-check/pengu"):
+            self.assertNotIn(f"https://example.com{p}<", sm, p)
+            self.assertIn('content="noindex,follow"', public.route(p)[1].decode().split("</head>")[0], p)
         rb = public.route("/robots.txt")[1].decode()
         self.assertIn("Allow: /how-to-buy\n", rb)
         self.assertIn("Allow: /hr/provjera\n", rb)

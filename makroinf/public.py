@@ -571,7 +571,7 @@ def hub(lang, page=1):
     ld = {"@context": "https://schema.org", "@type": "CollectionPage", "name": t["h1"], "url": url,
           "inLanguage": lang, "description": t["desc"].format(n=n), "dateModified": _iso(v.get("ts")),
           "isPartOf": {"@type": "WebSite", "name": "MemeSonar", "url": base + P.L[lang]["home"]}}
-    if ranked or few:   # this page's account pages (ranked first): all of them are indexable and in the sitemap
+    if ranked or few:   # this page's account pages (ranked first); 23.11.: only the core ones are indexable (ui/seoindex)
         ld["mainEntity"] = {"@type": "ItemList", "numberOfItems": total, "itemListElement": [
             {"@type": "ListItem", "position": k, "name": "@" + r["handle"], "url": f"{base}{t['prof']}{r['handle']}"}
             for k, r in enumerate(ranked + few, a)]}
@@ -590,6 +590,7 @@ def hub(lang, page=1):
             f"{esc(t['lead'].format(n=n))}</p>{kpi}</section>"
             f"{mood_html(lang, m)}{topics_html(lang, tp, known)}{assets_html(lang, m)}"
             f"<h2 class=s>{t['idx_h']}</h2>{idx}{rank_html}{few_html}{pager}"
+            f"{P.core_links('macro', lang, skip={t['prof'] + r['handle'] for r in ranked + few})}"
             f"<h2 class=s id={t['how_id']}>{t['how_h']}</h2><ul class=how>{how}</ul>"
             f"<div class=lock><p>{t['lock']}</p><a class='btn sm' href={P.L[lang]['home']}#pristup>{t['cta']}</a></div>"
             f"<p class=mut style='font-size:13px'>{t['foot_note']}</p>")
