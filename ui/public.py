@@ -1509,7 +1509,7 @@ def glossary_term(slug, lang):
             f"<p class=lead><b style='color:var(--fg)'>{esc(name)}:</b> {esc(short)}</p></section>"
             f"<div class=gbody>" + (f"<p>{esc(long)}</p>" if long else "")
             + (f"<div class=card style='margin:18px 0'><span class=mut style='font-size:13px'>{g['ex']}</span>"
-               f"<p style='margin:6px 0 0'>{esc(ex)}</p></div>" if ex else "") + live + "</div>"
+               f"<p style='margin:6px 0 0'>{esc(ex)}</p></div>" if ex else "") + live + GP.extra(e, lang) + "</div>"
             + (f"<h2 class=s>{g['rel']}</h2><div class=chips>{rel}</div>" if rel else "")
             + f"<div class=lock><p>{L[lang]['lb_lock']}</p><a class='btn sm' href={L[lang]['home']}#pristup>"
               f"{L[lang]['cta']}</a></div>")
@@ -1520,8 +1520,13 @@ def glossary_term(slug, lang):
          "url": f"{base}{g['path']}{s_}",
          "inDefinedTermSet": {"@type": "DefinedTermSet", "name": g["h1"], "url": base + g["idx"]}},
         {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
-            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": answer}}]}],
+            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": answer}}]},
+        {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [   # 23.11.
+            {"@type": "ListItem", "position": 1, "name": g["h1"], "item": base + g["idx"]},
+            {"@type": "ListItem", "position": 2, "name": name, "item": f"{base}{g['path']}{s_}"}]}],
         ensure_ascii=False) + "</script>")
     title = g["t_title"].format(q=q, name=name)
-    desc = (short + " " + long)[:155].rsplit(" ", 1)[0] + "…" if len(short + " " + long) > 155 else short
+    if len(seo_title(title)) > 60:      # 23.11.: "What is FDV (...)? FDV (...) explained" repeats itself; the question alone
+        title = q
+    desc = (short + " " + long)[:155].rsplit(" ", 1)[0] + "…" if len(short + " " + long) > 155 else (short + " " + long).strip()
     return _shell(lang, title, desc, f"/glossary/{e['en']}", f"/hr/rjecnik/{e['hr']}", body, jsonld=jsonld)

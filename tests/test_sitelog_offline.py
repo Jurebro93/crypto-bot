@@ -268,16 +268,16 @@ class BlogLive(Base):
         self.assertEqual(bloglive.html("what-is-wallet-tracking", "hr"), "")  # before the first night: no block
         before = blog.page("sto-je-pracenje-novcanika", "hr")
         self.assertNotIn("live-data", before)
-        self.assertIn('"dateModified": "2026-11-01"', before)
+        self.assertIn('"dateModified": "2026-11-23"', before)       # 23.11.: the post itself was refreshed that day
         bloglive.refresh(ts(2026, 11, 10, 1, 5), measured={"wallets": {"wallets": 1234, "scored": 300, "trades": 56789},
                                                            "kol": {"x_accounts": 7000, "board": 350}})
         hr = blog.page("sto-je-pracenje-novcanika", "hr")
         for s in ("id=live-data", "Stanje danas", "<b>1.234</b><span>praćenih novčanika</span>", "56.789",
-                  "10. studenoga 2026.", '"dateModified": "2026-11-10"'):
+                  "10. studenoga 2026.", '"dateModified": "2026-11-23"'):   # the later of the two days
             self.assertIn(s, hr)
         en = blog.page("what-is-a-kol-in-crypto", "en")
         for s in ("Today's numbers", "<b>7,000</b><span>X accounts tracked</span>", "10 November 2026",
-                  "href=/influencers>Open the live leaderboard"):
+                  "href=/influencers>Open the live leaderboard", '"dateModified": "2026-11-10"'):
             self.assertIn(s, en)
         self.assertNotIn("live-data", blog.page("crypto-tax-croatia", "en"))  # a post we count nothing for
         self.assertNotIn("—", bloglive.html("what-is-a-kol-in-crypto", "hr") + bloglive.html("what-is-a-kol-in-crypto", "en"))
