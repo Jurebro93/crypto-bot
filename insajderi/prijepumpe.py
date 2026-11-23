@@ -435,7 +435,19 @@ def stats(rows, c):
     done = [r for r in rows if r.get("ret") is not None]
     m, lo, hi = boot(done, "ret", c["boot_n"])
     mb, _l, _h = boot(done, "ret_big", 1)
-    return {"n_buys": len(rows), "n": len(done), "n_tokens": len({r["token"] for r in done}),
+    # 20.11. (production: 60 s +82.4 % [-13.3; +272.7] n=537 beside 2 s -8.3 % [-10.9; -5.5] n=528): a mean one token
+    # carries says nothing, so the median and the mean without the token that adds most are kept beside it
+    xs = sorted(r["ret"] for r in done)
+    med = (xs[len(xs) // 2] if len(xs) % 2 else (xs[len(xs) // 2 - 1] + xs[len(xs) // 2]) / 2) if xs else None
+    by_tok = defaultdict(list)
+    for r in done:
+        by_tok[r["token"]].append(r["ret"])
+    top = max(by_tok, key=lambda t: sum(by_tok[t])) if by_tok else None
+    rest = [x for t, v in by_tok.items() if t != top for x in v]
+    return {"med_pct": pct(med), "ex_top_pct": pct(sum(rest) / len(rest)) if rest else None,
+            "top_token": top, "top_n": len(by_tok[top]) if top else 0,
+            "top_max_pct": pct(max(by_tok[top])) if top else None,
+            "n_buys": len(rows), "n": len(done), "n_tokens": len({r["token"] for r in done}),
             "n_owners": len({r["owner"] for r in done}),
             "misses": dict(Counter(r["miss"] for r in rows if r.get("miss"))),
             "miss_pct": round(100 * sum(1 for r in rows if r.get("miss")) / len(rows), 1) if rows else None,
@@ -660,6 +672,15 @@ def _ci(s):
     return f"{s['ev_pct']:+.1f} %{ci} n={s['n']}"
 
 
+def _robust(s):
+    """"; medijan -4.0 %, bez najjačeg tokena -6.1 % (najjači ABCDEF: 9 kopija, najviše +48213 %)" or ""."""
+    if not s or s.get("med_pct") is None or not s.get("top_token"):
+        return ""
+    ex = f"{s['ex_top_pct']:+.1f} %" if s.get("ex_top_pct") is not None else "nema drugih"
+    return (f"; medijan {s['med_pct']:+.1f} %, bez najjačeg tokena {ex} (najjači {s['top_token'][:6]}: "
+            f"{s.get('top_n', 0)} kopija, najviše {s['top_max_pct']:+.0f} %)")
+
+
 def line(pp, helius_today=0, helius_cap=0):
     """The ONE daily log line (see the order of 19.11.)."""
     if not pp:
@@ -679,9 +700,9 @@ def line(pp, helius_today=0, helius_cap=0):
                 f"{pp.get('min_n', 20)}; grupa treba {pp.get('min_tokens', 3)} pumpe i potvrdu na novijim danima); "
                 f"nasumični: {_ci(z)}; {heli}")
     a15 = (cp.get("60s") or {}).get("15M+") or {}
-    return (head + f"; kopija 60 s: {_ci(a)} (promašeno {a.get('miss_pct')} %; MC ≥ 15M pri ulazu {_ci(a15)}; "
+    return (head + f"; kopija 60 s: {_ci(a)}{_robust(a)} (promašeno {a.get('miss_pct')} %; MC ≥ 15M pri ulazu {_ci(a15)}; "
             f"uz 0,5 SOL {a.get('ev_big_pct')} %), brzo 2 s (Pretpostavka klizanja {pp.get('slip_fast_pct', 1):g} %): "
-            f"{_ci(f)} (promašeno {f.get('miss_pct')} %), nasumični: {_ci(z)} (promašeno {z.get('miss_pct')} %), "
+            f"{_ci(f)}{_robust(f)} (promašeno {f.get('miss_pct')} %), nasumični: {_ci(z)} (promašeno {z.get('miss_pct')} %), "
             f"odabrani minus nasumični {cp.get('razlika_pct')} pp; {heli}")
 
 

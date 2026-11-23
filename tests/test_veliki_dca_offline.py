@@ -286,12 +286,16 @@ class Live(SwitchBase):
         self.assertEqual((st, reason), ("closed", "los"))
         self.assertIn("depozit za prodaju", why)
 
-    def test_macro_risk_off_no_new_entries(self):
+    def test_macro_risk_off_real_held_demo_enters_tagged(self):
+        # 23.11. (vlasnik: "Demo tradanje nikad ne treba prestati"): risk_off holds real money only; the demo enters,
+        # tagged with the gate (before: no entry at all)
         from veliki import makro
         with mock.patch.object(makro, "current", lambda now=None, **k: {"regime": "risk_off", "why": "x", "ts": now}):
             out = live.tick(self.lg, self.mk(1.0e-4), now=self.now, force=True)
-        self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM veliki_trades").fetchone()[0], 0)
-        self.assertTrue(any("veliki makro režim: risk_off" in x for x in out), out)
+        rows = [tuple(r) for r in self.lg.execute("SELECT user, gate FROM veliki_trades").fetchall()]
+        self.assertEqual(rows, [(PU, live.GATE_MAKRO)])
+        self.assertTrue(any("veliki makro režim: risk_off" in x and "pravi novac bez novih ulaza" in x for x in out),
+                        out)
 
     def test_run_trade_adds_the_dca_only_to_an_open_first_lot(self):
         import run_trade

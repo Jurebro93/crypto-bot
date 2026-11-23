@@ -114,6 +114,14 @@ def facts(r):
             "dip": r.get("dip") or "?", "oprez": "oprez" if r.get("oprez") else "bez", "grok": r.get("grok") or "?"}
 
 
+def gated(f):
+    """23.11. (vlasnik: "Dokaz za pravi novac broji samo ulaze koje bi i pravi novac uzeo"): True when a market gate
+    held REAL money at this row's entry (the macro regime risk_off or BTC's free fall: veliki/live.market_gates). The
+    model still learns from such rows (makro and BTC are facts); the walk-forward's proof leaves them out and reports
+    them apart (res["u_filtru"])."""
+    return (f or {}).get("makro") == "risk_off" or (f or {}).get("btc") == "slobodan_pad"
+
+
 # ---------- history: the shadow book over candles ---------------------------------------------------------------------
 
 def simulate(b15, h1, rt, token, symbol, liq, crash=None, macro_days=None, cfg=None, max_h=None, rounds=None, pit=None):
@@ -323,6 +331,7 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK, model=Non
         by_day.setdefault(r["opened_ts"] // D, []).append(r)
     days = sorted(by_day)
     picks, every, prof_all, prof_pick = [], [], {}, {}
+    g_picks, g_every = [], []   # 23.11.: candidates real money would not have taken (gated()): apart from the proof
     detail, fixed = [], {k: [] for k in VAR_FIXED}   # detail: (token-day, ret, prediction, rt) of every choice above thr
     seen = 0
     pending, seq = [], 0      # (closed_ts, seq, row, facts): scored already, their result not yet known to the model
@@ -335,6 +344,14 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK, model=Non
             cand = {}
             for r, f in batch:
                 key = (r["token"], d)
+                if gated(f):   # still learned from (the model takes every closed row), never scored as proof
+                    g_every.append((key, r["ret"]))
+                    pr = m.predict(r["profil"], f)
+                    if pr is not None:
+                        c = cand.get((r["token"], r["opened_ts"]))
+                        if c is None or pr > c[0]:
+                            cand[(r["token"], r["opened_ts"])] = (pr, r, key)
+                    continue
                 every.append((key, r["ret"]))
                 prof_all.setdefault(r["profil"], []).append((key, r["ret"]))
                 if (f["band"], r["profil"]) in fixed:
@@ -346,7 +363,9 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK, model=Non
                 if c is None or pr > c[0]:
                     cand[(r["token"], r["opened_ts"])] = (pr, r, key)
             for pr, r, key in cand.values():
-                if pr > thr:
+                if pr > thr and gated(facts(r)):
+                    g_picks.append((key, r["ret"]))
+                elif pr > thr:
                     picks.append((key, r["ret"]))
                     prof_pick.setdefault(r["profil"], []).append((key, r["ret"]))
                     detail.append((key, r["ret"], pr, r.get("rt")))
@@ -372,6 +391,7 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK, model=Non
            "test_days": max(0, len(days) - min_train_days), "thr": thr, "purge": True, "model_rows": in_model,
            "not_closed": len(rows) - in_model - late, "closed_later": late,
            "picked": _stat(picks), "all": _stat(every),
+           "u_filtru": {"picked": _stat(g_picks), "all": _stat(g_every)},
            "by_profile": {p: {"all": _stat(prof_all.get(p, [])), "picked": _stat(prof_pick.get(p, [])),
                               "base": m.base(p)} for p in sjena.PROFILES},
            "worst": eff[:6], "best": eff[-6:][::-1], "variants": _variants(detail, fixed)}
@@ -426,12 +446,16 @@ def line(res):
     bf = res.get("backfill") or {}
     best = "; ".join(_e(e) for e in (res.get("best") or [])[:3]) or "—"
     worst = "; ".join(_e(e) for e in (res.get("worst") or [])[:3]) or "—"
+    uf = res.get("u_filtru") or {}
     return (f"{PREFIX}{res['rows']} zamišljenih tradeova ({bf.get('rows', 0)} iz povijesti {bf.get('tokens', 0)} tokena"
             f"{' (djelomično)' if bf.get('partial') else ''}, {res.get('live_rows', 0)} uživo), {res['days']} dana, "
             f"provjera na zadnjih {res['test_days']} neviđenih"
             f"{', rezultat ulazi u učenje tek kad je trade zatvoren' if res.get('purge') else ''}; presuda: "
             f"{VERDICT_HR.get(res.get('verdict'), '?')}; "
-            f"odabrani: {_s(res.get('picked'))}; svi tih dana: {_s(res.get('all'))}; najviše pomaže: {best}; "
+            f"odabrani: {_s(res.get('picked'))}; svi tih dana: {_s(res.get('all'))}; "
+            + (f"u filtru tržišta (risk-off / BTC slobodan pad, pravi novac bi stajao, izvan presude): odabrani "
+               f"{_s(uf.get('picked'))}, svi {_s(uf.get('all'))}; " if (uf.get("all") or {}).get("n") else "")
+            + f"najviše pomaže: {best}; "
             f"najviše šteti: {worst} ({res.get('secs', 0)} s)")
 
 

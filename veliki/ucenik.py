@@ -71,6 +71,9 @@ least 30 token-days, the interval's low above zero) and is otherwise parked for 
        (live.liq_drop). The day rule's own exits (break-even at +5 %, the BTC tight stop, reasoned exits, trailing,
        DCA) never touch it: live.tick skips these rows in manage(). Outside this module only the owner can close it:
        "Prodaj sve", a manual sale, an exit plan he or Grok puts on that token.
+  23.11. (vlasnik: "Demo tradanje nikad ne treba prestati"): while a market gate holds real money (live.real_gate:
+  makro risk-off / BTC slobodan pad) the demo account still enters, the row stores the gate (veliki_trades.gate) and
+  the verdict counts only the rows without it (stats "u_filtru" holds the others); the real twin is refused.
   It does not read or change pravi_novac_veliki; both may be on. The real account holds one position a token, so a
   token the day rule holds with real money gets no real twin (and the reverse).
 """
@@ -217,18 +220,20 @@ def try_enter(con, out, held, tok, q, now, sol, z, b15, icfg, btc, pr=None, lset
         cur = con.execute(
             "INSERT INTO veliki_trades (user, token, symbol, opened_ts, trade_id, size_sol, size_usd, entry_px, tp_px, "
             "stop_px, rt, drt, liq, mcap, cfg, zone, regime, status, why, btc_state, trail, time_h, dip, kind, half_frac, "
-            "be_px, first_px, makro, lots, varijanta) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,0.0,?,?,'intra',"
-            "0.0,?,?,?,1,?)",
+            "be_px, first_px, makro, lots, varijanta, gate) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,0.0,?,?,"
+            "'intra',0.0,?,?,?,1,?,?)",
             (USER, tok, sym, int(now), tid, size_sol, size_usd, px, tp_px, stop_px, rt, rule.demo_rt(size_usd, liq), liq,
              mcap, KEY, json.dumps(zj), live._regime(now), src[:200], (btc or {}).get("state"), float(sjena.MAX_H),
-             k["dip"], rule.be_price(px, rt, {"exit_slip": 0.0}), px, k["makro"], TAG + prof))
+             k["dip"], rule.be_price(px, rt, {"exit_slip": 0.0}), px, k["makro"], TAG + prof, live.real_gate()))
         vid = cur.lastrowid
         con.execute(SCHEMA)
         con.execute("INSERT OR REPLACE INTO veliki_ucenik (id, ts, token, profil, pred, model_ts, facts) VALUES "
                     "(?,?,?,?,?,?,?)", (vid, int(now), tok, prof, pred, m.ts, json.dumps(f, ensure_ascii=False)))
         con.commit()
         held.add((USER, tok))
-        out.append(f"veliki naučeno ulaz [{prof}] {sym} {size_sol:g} SOL na MC ${(mcap or 0) / 1e6:,.1f}M: prognoza "
+        gtag = live.real_gate()
+        out.append(f"veliki naučeno ulaz [{prof}]{' [' + gtag + ': pravi novac bi stajao]' if gtag else ''} {sym} "
+                   f"{size_sol:g} SOL na MC ${(mcap or 0) / 1e6:,.1f}M: prognoza "
                    f"{pred:+.1%} neto (prag {THR:+.0%}), cilj {tp_px:.6g} ({tp_px / px - 1:+.1%}), stop {stop_px:.6g} "
                    f"({stop_px / px - 1:+.0%}), najdulje {sjena.MAX_H} h; pravi trošak runde {rt:.2%}")
     except Exception as e:  # noqa: BLE001
@@ -258,7 +263,8 @@ def _enter_real(con, out, held, tok, q, now, sol, z, icfg, btc, pr, lset, priori
         from veliki import live, sjena
         user = settings.LEAGUE_USER
         p = (pr or {}).get(tok) or {}
-        why = _real_ready()
+        rg = live.real_gate()   # 23.11.: a market gate holds real money (live.enter refuses it again)
+        why = f"{rg}: pravi novac bez novih ulaza" if rg else _real_ready()
         if not why:
             if (p.get("dip") or {}).get("kind") == "los":
                 why = "pad iz lošeg razloga"
@@ -487,10 +493,20 @@ def stats(con, now, user=None):
     user = user or USER
     rows, n_open, first, preds = [], 0, None, {}
     tag = TAG + "%"
+    gated = []
+    try:   # 23.11.: the verdict counts only the entries real money would have taken (no market gate at the entry)
+        con.execute("SELECT gate FROM veliki_trades LIMIT 0")
+        pr = " AND COALESCE(gate, '') = ''"
+    except sqlite3.Error:
+        pr = ""
     try:
         rows = con.execute("SELECT id, token, opened_ts, ret, pnl_usd, varijanta FROM veliki_trades WHERE user=? AND "
-                           "varijanta LIKE ? AND status='closed' AND ret IS NOT NULL ORDER BY closed_ts",
+                           f"varijanta LIKE ? AND status='closed' AND ret IS NOT NULL{pr} ORDER BY closed_ts",
                            (user, tag)).fetchall()
+        if pr:
+            gated = con.execute("SELECT token, opened_ts, ret, pnl_usd FROM veliki_trades WHERE user=? AND varijanta "
+                                "LIKE ? AND status='closed' AND ret IS NOT NULL AND COALESCE(gate, '')<>''",
+                                (user, tag)).fetchall()
         n_open = con.execute("SELECT COUNT(*) FROM veliki_trades WHERE user=? AND varijanta LIKE ? AND status='open'",
                              (user, tag)).fetchone()[0]
         first = con.execute("SELECT MIN(opened_ts) FROM veliki_trades WHERE user=? AND varijanta LIKE ?",
@@ -517,7 +533,10 @@ def stats(con, now, user=None):
         mts, ok = nauceno.model_ts(now=now), nauceno.load_model(now=now) is not None
     except Exception:  # noqa: BLE001 - an unreadable model is no model
         mts, ok = None, False
-    return {"open": n_open, "first_ts": first, "days": days, "closed": st, "usd": sum(r[4] or 0.0 for r in rows),
+    gst = nauceno._stat([((tok, op // D), ret) for tok, op, ret, _u in gated])
+    gst["usd"] = sum(r[3] or 0.0 for r in gated)
+    return {"u_filtru": gst,
+            "open": n_open, "first_ts": first, "days": days, "closed": st, "usd": sum(r[4] or 0.0 for r in rows),
             "verdict": verdict, "by_profile": {k: nauceno._stat(v) for k, v in by_p.items()},
             "by_band": {k: nauceno._stat(v) for k, v in by_b.items()}, "model_ts": mts, "model_ok": ok}
 
@@ -535,6 +554,10 @@ def line(con, now, s=None):
         txt += (f" ({st['clusters']} token-dana), prosjek po token-danu {st['ev']:+.1%}{ci}, pogodak {st['hit']:.0%}, "
                 f"zbroj {s['usd']:+.2f} $")
     txt += f"; presuda nakon {VERDICT_DAYS} dana ili {VERDICT_CLUSTERS} token-dana: {VERDICT_HR[s['verdict']]}"
+    g = s.get("u_filtru") or {}
+    if g.get("n"):   # 23.11.: entries made while a market gate held real money: apart, not in the verdict
+        txt += (f"; u filtru tržišta (pravi novac bi stajao, izvan presude): n={g['n']}, prosjek po token-danu "
+                f"{g['ev']:+.1%}, zbroj {g['usd']:+.2f} $")
     if not s["model_ok"]:
         txt += "; BEZ NOVIH ULAZA: " + (
             "model učenja još nije spremljen" if not s["model_ts"] else

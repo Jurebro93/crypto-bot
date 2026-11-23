@@ -51,6 +51,12 @@
   dosad od 2 M $ (otvorene pozicije se ne diraju). Influenceri, Telegram i skeniranje X-a osvježavaju se jednom u 5 dana
   i ne dobivaju druge resurse. Kopiranje pravim novcem tek kad povijesni test izvan uzorka (odabir samo iz prošlosti,
   kašnjenje, stvarni trošak, promašene kupnje brojane) bude u plusu s intervalom iznad nule; prekidač pali samo vlasnik.
+- Demo nikad ne staje (23.11., vlasnik: „Demo tradanje nikad ne treba prestati. Bez obzira koliko je volumen pao, to
+  treba vrijediti samo za pravi novac. Ne vrijede ista pravila za demo."): filtri tržišta (makro risk-off, pad volumena,
+  BTC u padu, strah, medvjeđi indeks) zaustavljaju samo pravi novac; demo, istraživač i knjiga sjene uvijek ulaze, svaki
+  ulaz s oznakom režima. Demo traži profitabilnu strategiju, ona se zatim koristi na pravom novcu, a demo i dalje radi u
+  pozadini. Dokaz za pravi novac broji samo ulaze koje bi i pravi novac uzeo. Ostaju čuvari kvalitete tokena (rug, lažni
+  pool, krivulja, likvidnost) i prag 30k $.
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.

@@ -14,7 +14,7 @@ variant answers whether one filter earns its keep:
          measured on trades, the only X signal we have while twitterapi has no credit
 
 Everything else is the rule's own: the zone must be valid (never a zone too narrow / too wide / trending / sliding),
-never under the zone, never in BTC's free fall, never a token with a bad dip reason, a holder block or a static risk
+never under the zone, never a token with a bad dip reason, a holder block or a static risk
 (live.intra_entries skips those before it asks here), live.enter's guards, costs and the "exit would sell at once"
 check, the same stop, target and exits (live.manage sells every open row, whoever owns it), 0.1 SOL.
 
@@ -23,6 +23,11 @@ cooldown and rounds; the rule's cooldown ignores its exits (live.intra_entries),
 only, the hourly "veliki demo" line and the morning report leave it out (report/midcap.vrows). Its result is one line
 an hour, "veliki istraživač: ...", per variant next to the rule's own demo trades of the same days.
 VEL_ISTRAZIVAC=0 switches it off.
+
+23.11. (vlasnik: "Demo tradanje nikad ne treba prestati ... Ne vrijede ista pravila za demo"): the market gates (the
+macro regime risk_off, BTC's free fall) no longer stop it; such an entry stores the gate (veliki_trades.gate, set by
+live.enter) and its result is reported apart ("u filtru tržišta"), never in the per-variant numbers that are compared
+with the rule.
 """
 import os
 import time
@@ -79,7 +84,9 @@ def try_enter(con, out, held, tok, q, now, sol, z, b15, icfg, btc, pr=None, prio
         return None
     try:
         from veliki import intra, live
-        tag = variant(q[0], z, b15, icfg, (btc or {}).get("state"), ((pr or {}).get(tok) or {}).get("grok"), now)
+        st = (btc or {}).get("state")   # 23.11.: BTC's free fall is a market gate (real money only): not asked
+        tag = variant(q[0], z, b15, icfg, None if st == "slobodan_pad" else st,
+                      ((pr or {}).get(tok) or {}).get("grok"), now)
         if not tag:
             return None
         last = con.execute("SELECT MAX(closed_ts) FROM veliki_trades WHERE token=? AND user=?", (tok, USER)).fetchone()[0]
@@ -123,15 +130,21 @@ def stats(con, now, days=DAYS):
     from veliki import live
     t0 = int(now) - days * 86400
     by = {}
+    try:   # 23.11.: entries made while a market gate held real money are reported apart (live.PROOF_ROWS)
+        con.execute("SELECT gate FROM veliki_trades LIMIT 0")
+        pr = live.PROOF_ROWS
+    except Exception:  # noqa: BLE001 - an old database: no gated rows
+        pr = ""
     for v in VARIANTS:
         by[v] = _stat(con.execute("SELECT ret, pnl_usd FROM veliki_trades WHERE user=? AND varijanta=? AND "
-                                  "status='closed' AND closed_ts>=?", (USER, v, t0)).fetchall())
+                                  f"status='closed' AND closed_ts>=?{pr}", (USER, v, t0)).fetchall())
     rule = _stat(con.execute("SELECT ret, pnl_usd FROM veliki_trades WHERE user=? AND kind='intra' AND status='closed' "
-                             "AND closed_ts>=?", (settings.PAPER_USER, t0)).fetchall())
+                             f"AND closed_ts>=?{pr}", (settings.PAPER_USER, t0)).fetchall())
+    gated = live.gated_stats(con, USER, t0) if pr else {"n": 0, "ev": None, "usd": 0.0, "open": 0}
     n_open = con.execute("SELECT COUNT(*) FROM veliki_trades WHERE user=? AND status='open'", (USER,)).fetchone()[0]
     n_day = con.execute("SELECT COUNT(*) FROM veliki_trades WHERE user=? AND opened_ts>=?",
                         (USER, live._day_start(now))).fetchone()[0]
-    return {"open": n_open, "today": n_day, "by": by, "rule": rule, "days": days}
+    return {"open": n_open, "today": n_day, "by": by, "rule": rule, "days": days, "u_filtru": gated}
 
 
 def _txt(s):
@@ -144,8 +157,11 @@ def line(con, now):
     """The hour's line: what the explorer opened and how each variant did against the rule's own demo trades."""
     if not on():
         return "veliki istraživač: isključen (VEL_ISTRAZIVAC=0)"
+    from veliki import live
     s = stats(con, now)
     parts = "; ".join(f"{v} ({VARIANTS[v]}): {_txt(s['by'][v])}" for v in VARIANTS)
     return (f"veliki istraživač (demo, odbijeni kandidati): danas otvoreno {s['today']}, sada otvorenih {s['open']}; "
             f"zadnjih {s['days']} d po varijanti: {parts}; pravilo (demo, dnevni raspon) u istom razdoblju: "
-            f"{_txt(s['rule'])}")
+            f"{_txt(s['rule'])}"
+            + (f"; u filtru tržišta (pravi novac bi stajao, izvan usporedbe): {live.gated_text(s['u_filtru'])}"
+               if s["u_filtru"]["n"] or s["u_filtru"]["open"] else ""))

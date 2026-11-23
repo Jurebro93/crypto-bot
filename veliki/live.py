@@ -114,6 +114,18 @@ M15 = 900
 # the demo account's and its real twins on LEAGUE_USER, carry varijanta "nauceno:<profil>" and have their own line).
 # The real account's CAPS (room) deliberately count every row of the account: the caps are shared.
 RULE_ROWS = " AND COALESCE(varijanta, '') NOT LIKE 'nauceno:%'"
+# 23.11. (vlasnik: "Demo tradanje nikad ne treba prestati. Bez obzira koliko je volumen pao, to treba vrijediti samo
+# za pravi novac ... Ne vrijede ista pravila za demo"): the MARKET gates (the macro regime risk_off, BTC's free fall)
+# hold only the REAL account's new entries. Every demo account (the rule's demo, the explorer, the učenik, the shadow
+# book) keeps entering; each such entry stores which gate held real money (veliki_trades.gate), and everything that
+# is PROOF for real money (demo_stats / gate.demo_proof, ucenik.stats, istrazivac.stats, report/midcap) counts only
+# the rows without it (PROOF_ROWS), the gated ones apart. The token-quality guards (guards(), the dip reason, holders,
+# MC, liquidity, the "exit would sell at once" check) stay for the demo exactly as they are. A gated position's own
+# gate never closes it: the reasoned exit and the DCA refusal of that gate do not apply to it (_gate_ctx).
+GATE_MAKRO = "makro risk-off"
+GATE_BTC = "BTC slobodan pad"
+GATE_MAKROINF = "makroinf medvjeđi"
+PROOF_ROWS = " AND COALESCE(gate, '') = ''"
 _ST = {"tick": 0.0, "bar": {}, "said": {}, "gt": {}, "gt_ts": 0.0, "btc": None, "btc_ts": 0.0, "q": {}}
 _LIVE = {}      # token -> [[ts, o, h, l, c], ...] own 15m bars (the last may be in progress)
 
@@ -128,8 +140,10 @@ def ensure(con):
                      ("first_px", "REAL"), ("lots", "INTEGER"), ("dca_trade_id", "INTEGER"), ("dca_px", "REAL"),
                      ("dca_ts", "INTEGER"), ("dca_why", "TEXT"), ("exit_why", "TEXT"), ("makro", "TEXT"),
                      ("wide_px", "REAL"), ("tight_ts", "INTEGER"),
-                     ("varijanta", "TEXT")):   # 18.11.: the explorer's tag (veliki/istrazivac) or the učenik's
+                     ("varijanta", "TEXT"),    # 18.11.: the explorer's tag (veliki/istrazivac) or the učenik's
                                                # "nauceno:<profil>" (veliki/ucenik); NULL for the rule's rows
+                     ("gate", "TEXT"),         # 23.11.: the market gate(s) that held REAL money at a demo entry
+                     ("gate_info", "TEXT")):   # 23.11.: a demo-only market tag real money never reads (makroinf)
         if col not in have:
             con.execute(f"ALTER TABLE veliki_trades ADD COLUMN {col} {typ}")
 
@@ -318,6 +332,62 @@ def open_rows(con, user=None):
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
+def market_gates(macro=None, btc_state=None):
+    """[names] of the market gates that hold REAL money's new entries now: the macro regime risk_off (veliki/makro)
+    and BTC's free fall (rule.Crash.regime). Never asked about a demo account's entry (only to tag it)."""
+    out = []
+    if macro == "risk_off":
+        out.append(GATE_MAKRO)
+    if btc_state == "slobodan_pad":
+        out.append(GATE_BTC)
+    return out
+
+
+def real_gate():
+    """The market gate text that holds real money's new entries at this tick (tick() sets it before any entry), or
+    None."""
+    return _ST.get("real_gate") or None
+
+
+def _gate_ctx(r, ctx):
+    """23.11.: the reasoned exits' / DCA's context of one open row without the market gate its DEMO entry was made
+    under: a demo position opened in risk_off is not cut or capped at +1 % by that same risk_off (a churn with a
+    guaranteed cost), and its DCA follows the demo's normal rule; positions opened outside a gate (and every real
+    position) keep today's exits, so the rule's own measurement stays comparable."""
+    g = (r or {}).get("gate") or ""
+    if not g or (r or {}).get("user") == _league_user():
+        return ctx
+    c = dict(ctx or {})
+    if GATE_MAKRO in g and c.get("macro") == "risk_off":
+        c["macro"] = None
+    if GATE_BTC in g and c.get("btc_state") == "slobodan_pad":
+        c["btc_state"] = None
+    return c
+
+
+def gated_stats(con, user, since=None, kind=None):
+    """{n, ev, usd, open, today} of one demo account's rows entered under a market gate (closed with a result since
+    `since`; kind 'intra' / 'range' / None all): the numbers that are reported next to the proof, never in it."""
+    ks = "" if kind is None else (" AND kind='intra'" if kind == "intra" else " AND COALESCE(kind, 'range')<>'intra'")
+    try:
+        rows = con.execute(f"SELECT ret, pnl_usd FROM veliki_trades WHERE user=? AND COALESCE(gate, '')<>'' AND "
+                           f"status='closed' AND ret IS NOT NULL AND closed_ts>=?{ks}{RULE_ROWS}",
+                           (user, int(since or 0))).fetchall()
+        n_open = con.execute(f"SELECT COUNT(*) FROM veliki_trades WHERE user=? AND COALESCE(gate, '')<>'' AND "
+                             f"status='open'{ks}{RULE_ROWS}", (user,)).fetchone()[0]
+    except Exception:  # noqa: BLE001 - an old database without the column: nothing gated
+        return {"n": 0, "ev": None, "usd": 0.0, "open": 0}
+    rets = [x[0] for x in rows]
+    return {"n": len(rets), "ev": (sum(rets) / len(rets)) if rets else None, "usd": sum(x[1] or 0.0 for x in rows),
+            "open": n_open}
+
+
+def gated_text(s):
+    if not s or not s.get("n"):
+        return f"još nema zatvorenih (otvoreno {(s or {}).get('open') or 0})"
+    return f"n={s['n']}, prosjek {s['ev']:+.1%}, zbroj {s['usd']:+.2f} $ (otvoreno {s.get('open') or 0})"
+
+
 def caps(user, btc_state=None, kind=None):
     """The caps of one account for one rule: real (gate.REAL, shared by both rules: 0.1 SOL, 5 open, 20 buys a day
     incl. the DCA lots, a day's loss 0.3 SOL); demo: the 7-day rule DEMO_* (x DOWN_BONUS while BTC's bottom forms),
@@ -397,14 +467,17 @@ def stress_room(con, user, add_usd, stop_frac):
 
 
 def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_id=None, meta=None, kind="range",
-          plan=None):
+          plan=None, gate_info=None):
     """One entry; (text or None, why not or None, veliki_trades id or None). kind "range" (the 7-day rule, rule.py)
     or "intra" (veliki/intra.py: the stop under the intraday zone, half at +10 % net).
     plan (18.11., veliki/ucenik: the learned rule's REAL twin; the rules themselves never pass it): {"src", "tp_px",
     "stop_px", "time_h", "key", "varijanta", "size_sol", "rt", "proof"}. Every check, cap, guard and booking of this
     account's entry is the same code as the day rule's; only what the position IS comes from the plan: a fixed target
     and stop (no wide / tight / break-even phase, no half, no trailing), its time limit, its cost, its source and its
-    tag. The text returned is then the source."""
+    tag. The text returned is then the source.
+    23.11.: while a market gate holds real money (real_gate(), set by tick: makro risk-off / BTC slobodan pad) the
+    REAL account is refused here, whoever calls; a demo entry goes on and stores the gate (veliki_trades.gate);
+    gate_info: a demo-only market tag (makroinf's index) stored in gate_info."""
     import json
     from league import store as lstore
     from trade import settings
@@ -414,6 +487,10 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     if plan and plan.get("size_sol"):
         cp = dict(cp, size_sol=min(cp["size_sol"], plan["size_sol"]))
     real = user == settings.LEAGUE_USER
+    rg = real_gate()
+    if real and rg:   # 23.11.: market gates stop REAL money only (and here, whoever calls enter for the real account)
+        return None, f"{rg}: pravi novac bez novih ulaza", None
+    mgate = None if real else rg     # (not "gate": that name is the veliki/gate module here)
     if con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (user, tok)).fetchone():
         return None, "račun već drži token", None
     why = room(con, user, now, sol, cp)
@@ -472,8 +549,8 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     # (rule.reasoned_exit on live.context: a bad reason, a volume collapse) is not bought, on either account.
     try:
         ctx = context(tok, now)
-        rs, _tight = rule.reasoned_exit({"entry": price, "first": price, "stop_px": stop}, price, c["rt"], ctx,
-                                        {**cfg, "exit_slip": 0.0})
+        rs, _tight = rule.reasoned_exit({"entry": price, "first": price, "stop_px": stop}, price, c["rt"],
+                                        _gate_ctx({"gate": mgate, "user": user}, ctx), {**cfg, "exit_slip": 0.0})
     except Exception:  # noqa: BLE001 - an unreadable context is no reason to buy blind with real money
         rs, ctx = ("nepoznato" if real else None), {}
     if rs:
@@ -520,17 +597,20 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     cur = con.execute(
         "INSERT INTO veliki_trades (user, token, symbol, opened_ts, trade_id, size_sol, size_usd, entry_px, tp_px, "
         "stop_px, rt, drt, liq, mcap, cfg, zone, regime, status, why, btc_state, proof, link_id, trail, time_h, prio, "
-        "dip, kind, half_frac, be_px, first_px, makro, wide_px, tight_ts, lots, varijanta) VALUES (?,?,?,?,?,?,?,?,?,?,"
-        "?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+        "dip, kind, half_frac, be_px, first_px, makro, wide_px, tight_ts, lots, varijanta, gate, gate_info) VALUES "
+        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
         (user, tok, sym, int(now), tid, cp["size_sol"], size_usd, price, tp, stop, c["rt"], drt, liq, mcap,
          key, json.dumps(zj), regime, why[:200], st, proof, link_id, 0.0 if plan else cfg.get("trail") or 0.0,
          plan["time_h"] if plan else cfg["time_h"], (meta or (None, None))[0], (meta or (None, None))[1], kind, half,
          rule.be_price(price, c["rt"], {"exit_slip": 0.0}), price, _ST.get("makro_tag"), wide_px, tight_ts,
-         (plan or {}).get("varijanta")))
+         (plan or {}).get("varijanta"), mgate, None if real else gate_info))
     con.commit()
     if plan:
         return why, None, cur.lastrowid
     head = "veliki PRAVI NOVAC: kupnja" if real else "veliki demo ulaz"
+    if mgate or (gate_info and not real):
+        head += f" [{'; '.join(x for x in (mgate, gate_info) if x)}: pravi novac bi stajao]" if mgate else \
+            f" [{gate_info}]"
     rname = "dnevni raspon" if kind == "intra" else "raspon 7 d"
     return (f"{head} {sym} ({rname}) {cp['size_sol']:g} SOL na MC ${(mcap or 0) / 1e6:,.1f}M, zona {zt}, stop "
             f"{stop:.6g} ({stop / price - 1:+.0%}), TP {tp:.6g} ({tp / price - 1:+.1%}"
@@ -693,7 +773,7 @@ def manage(con, r, q, age, now, cfg):
     if col:
         out.append(close(con, r, price, q[1], q[3], "rug", now))
         return out
-    ctx = context(r["token"], now)
+    ctx = _gate_ctx(r, context(r["token"], now))   # 23.11.: a gated demo position is not closed by its own gate
     rs, tight = rule.reasoned_exit(pos, price, r["rt"], ctx, {**rc, "exit_slip": 0.0})
     if rs:
         return out + [close(con, r, price, q[1], q[3] if len(q) > 3 else None, rs, now, why=ctx_text(ctx))]
@@ -1147,10 +1227,18 @@ def report_line(con, now):
             kinds[r[2]] = kinds.get(r[2], 0) + 1
         half = con.execute("SELECT COUNT(*) FROM veliki_trades WHERE user=? AND half_ts>=?", (user, d0)).fetchone()[0]
         dca = con.execute("SELECT COUNT(*) FROM veliki_trades WHERE user=? AND dca_ts>=?", (user, d0)).fetchone()[0]
+        gpart = ""
+        if user != settings.LEAGUE_USER:   # 23.11.: the demo's entries made while a market gate held real money
+            gs = gated_stats(con, user, d0)
+            ng = con.execute(f"SELECT COUNT(*) FROM veliki_trades WHERE user=? AND opened_ts>=? AND "
+                             f"COALESCE(gate, '')<>''{RULE_ROWS}", (user, d0)).fetchone()[0]
+            if ng or gs["n"] or gs["open"]:
+                gpart = (f"; od toga u filtru tržišta (pravi novac bi stajao, izvan dokaza): otvoreno {ng} danas, "
+                         f"zatvoreno {gated_text(gs)}")
         parts.append(f"{name}: otvoreno {n_o} danas ({n_open} sada otvorenih), zatvoreno {len(rows)} (dobit "
                      f"{win:+.2f} $, gubitak {loss:+.2f} $, neto {win + loss:+.2f} $; ≥ +10 %: {ten}; dnevni raspon "
                      f"{kinds.get('intra', 0)}, raspon 7 d {kinds.get('range', 0)}), pola na cilju {half}, DCA {dca}"
-                     + (chain_line(con, user, d0) if user == settings.LEAGUE_USER else ""))
+                     + gpart + (chain_line(con, user, d0) if user == settings.LEAGUE_USER else ""))
     return "; ".join(parts)
 
 
@@ -1366,6 +1454,9 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             except Exception as e:  # noqa: BLE001
                 out.append(f"veliki sjena: red nije složen ({type(e).__name__})")
             out.append(refusal_line())
+            gl = gate_line(con, now)
+            if gl:
+                out.append(gl)
         _ST["rep_h"] = hour
     if not users or not poll_all:
         return out
@@ -1398,11 +1489,16 @@ def tick(con, market_fn, now=None, force=False, toks=None):
     if _ST.get("macro_said") != mac:
         _ST["macro_said"] = mac
         out.append(f"veliki makro režim: {mac or 'nepoznat (neutralno)'}"
-                   + (f" — {snap.get('why')}" if snap else "") + ("; bez novih ulaza i bez DCA" if mac == "risk_off"
-                                                                 else "; demo stropovi x1,5" if mac == "risk_on" else ""))
-    if mac == "risk_off":
-        _refused("makro risk-off: bez novih ulaza")
-        return out
+                   + (f" — {snap.get('why')}" if snap else "")
+                   + ("; pravi novac bez novih ulaza i bez DCA, demo ulazi s oznakom" if mac == "risk_off"
+                      else "; demo stropovi x1,5" if mac == "risk_on" else ""))
+    # 23.11. (vlasnik: "Demo tradanje nikad ne treba prestati ... to treba vrijediti samo za pravi novac"): the market
+    # gates hold the REAL account only; the demo accounts enter and each entry stores the gate (see GATE_*)
+    gates = market_gates(mac, btc["state"])
+    _ST["real_gate"] = "; ".join(gates) or None
+    if _ST["real_gate"] and settings.LEAGUE_USER in users:
+        users = [u for u in users if u != settings.LEAGUE_USER]
+        _ST["gate_held"] = _ST.get("gate_held", 0) + 1
     sol = _sol()
     tx = rule.tx_sol()[0]
     held = {(r["user"], r["token"]) for r in open_rows(con)}
@@ -1463,10 +1559,10 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             if user != settings.PAPER_USER:   # 15.11. (holderi/): real entries after the loop, own order (no listing bonus)
                 deferred.append((real_rank.get(tok, len(real_rank)), tok, user, q, zone, regime, bars, i, link))
                 continue
-            if _makroinf_blocks(now, out):   # 15.11. (makroinf/, flag makroinf_indeks): a DEMO input only
-                continue
+            # 15.11. (makroinf/, flag makroinf_indeks): a DEMO input only; 23.11.: never a stop, the entry's tag
+            mi = _makroinf_blocks(now, out)
             link = _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx,
-                              prioritet, pr) or link
+                              prioritet, pr, gate_info=mi) or link
     for _k, tok, user, q, zone, regime, bars, i, link in sorted(deferred, key=lambda x: x[0]):
         _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, prioritet, pr)
     out += intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet)
@@ -1477,37 +1573,68 @@ def tick(con, market_fn, now=None, force=False, toks=None):
 
 
 def _makroinf_blocks(now, out):
-    """True when the DEMO account must skip a new 7-day-rule entry because of makroinf's index (flag makroinf_indeks
-    paper, the input active, the index of the most accurate accounts bearish beyond its threshold: veliki/makro.
-    demo_regime). Shadow only logs "bi preskočio". Once an hour a line; never raises; never asked for the real account."""
+    """The tag GATE_MAKROINF when makroinf's index would have held the DEMO account's new 7-day-rule entry (flag
+    makroinf_indeks paper, the input active, the index of the most accurate accounts bearish beyond its threshold:
+    veliki/makro.demo_regime), else None. 23.11. (vlasnik: demo never stops for the market): it no longer skips the
+    entry, the entry carries the tag (veliki_trades.gate_info); real money never read this index, so the tag does not
+    take the row out of the proof. Shadow mode only logs. Once an hour a line; never raises."""
     try:
         from veliki import makro
         blocks, why, mode = makro.demo_index(now)
     except Exception:  # noqa: BLE001 - unreadable: no effect
-        return False
+        return None
     if not blocks:
-        return False
+        return None
     hour = int(now) // 3600
     if _ST.get("mi_said") != hour:
         _ST["mi_said"] = hour
-        out.append(f"veliki demo: {'bez novih ulaza' if mode == 'paper' else 'sjena, demo bi preskočio ulaze'} — {why}")
+        out.append(f"veliki demo: {'ulazi s oznakom indeksa' if mode == 'paper' else 'sjena, indeks medvjeđi'} — {why}")
     if mode != "paper":
-        return False
-    _refused("makro influenceri: indeks najtočnijih medvjeđi")
-    return True
+        return None
+    return GATE_MAKROINF
 
 
-def _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, prioritet, pr):
-    """One user's entry on one token when the 7 d rule signals (the cost at its size). The new trade id or None."""
+def gate_line(con, now):
+    """The hour's line while (or after) a market gate held real money today: real money held, the demo entering with
+    the tag, today's count. None when nothing was gated today and no gate holds now."""
+    from trade import settings
+    d0 = _day_start(now)
+    try:
+        n = con.execute("SELECT COUNT(*) FROM veliki_trades WHERE COALESCE(gate, '')<>'' AND opened_ts>=? AND user<>?",
+                        (d0, settings.LEAGUE_USER)).fetchone()[0]
+    except Exception:  # noqa: BLE001
+        n = 0
+    g = real_gate()
+    if not g and not n:
+        return None
+    try:
+        from veliki import sjena
+        ns = sjena.gated_today(con, now)
+    except Exception:  # noqa: BLE001
+        ns = None
+    head = (f"veliki {g}: pravi novac bez novih ulaza; demo ulazi s oznakom" if g else
+            "veliki filtri tržišta danas (sada ne drže pravi novac)")
+    return head + f" (danas {n} demo ulaza" + (f", sjena {ns}" if ns is not None else "") + ")"
+
+
+def _try_enter(con, out, held, user, tok, q, now, sol, zone, cfg, regime, btc, link, bars, i, tx, prioritet, pr,
+               gate_info=None):
+    """One user's entry on one token when the 7 d rule signals (the cost at its size). The new trade id or None.
+    23.11.: BTC's free fall refuses only the real account here (rule.signal's crash filter); the demo's signal is read
+    without it and its entry carries the gate (enter)."""
+    from trade import settings
     from veliki import rule
     cp = caps(user, btc["state"])
     c = rule.cost_at(cp["size_sol"], q[1], sol, rule.fee_side_of(url=q[2] if len(q) > 2 else None), tx)
-    why = rule.signal(bars, i, zone, c["rt"], cfg, btc["crash_obj"])
+    crash = btc["crash_obj"]
+    if user != settings.LEAGUE_USER and btc.get("state") == "slobodan_pad":
+        crash = None     # the free fall is a market gate: real money only (the zone itself is unchanged)
+    why = rule.signal(bars, i, zone, c["rt"], cfg, crash)
     if why is not None:
         _refused("7 d: " + why)
         return None
     text, no, vid = enter(con, user, tok, q, now, sol, zone, cfg, regime, btc, link,
-                          meta=prioritet.meta(tok, pr) if prioritet else None)
+                          meta=prioritet.meta(tok, pr) if prioritet else None, gate_info=gate_info)
     if text:
         out.append(text)
         held.add((user, tok))
@@ -1557,7 +1684,8 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
         if (pr.get(tok) or {}).get("risk"):   # 15.11. popodne (prioritet.static_risk): known before the buy
             _refused("dnevni: oprez (koncentracija / dev / ovlasti)")
             continue
-        why = intra.signal(q[0], z, b15, icfg, btc["state"])
+        # 23.11.: BTC's free fall is a market gate (real money only, below): the signal is read without it
+        why = intra.signal(q[0], z, b15, icfg, None if btc["state"] == "slobodan_pad" else btc["state"])
         if why:
             _refused("dnevni: " + why)
             # 18.11. (owner: "što više demo tradeova"): what the rule refuses goes to the explorer's own DEMO account,
@@ -1573,6 +1701,12 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
         link = None
         for user in users:
             if (user, tok) in held:
+                continue
+            if user == settings.LEAGUE_USER and real_gate():   # 23.11.: never reached (tick drops the real account)
+                _refused("dnevni pravi: " + real_gate())
+                continue
+            if user == settings.LEAGUE_USER and btc["state"] == "slobodan_pad":
+                _refused("dnevni pravi: BTC slobodan pad: bez novih ulaza")
                 continue
             if user == settings.LEAGUE_USER and tok not in lset:
                 _refused("dnevni pravi: samo tokeni velike liste (starost >= 15 d)")
@@ -1641,7 +1775,9 @@ def zones_now(now=None):
 
 def demo_stats(lcon=None, user=None):
     """The closed veliki trades of the demo account: n, open, today, hit, ev_pct (real cost), ev_demo_pct, pnl_usd,
-    pnl_booked_usd, ci90_lo_pct (bootstrap of the mean), by_regime."""
+    pnl_booked_usd, ci90_lo_pct (bootstrap of the mean), by_regime. 23.11.: the PROOF numbers (gate.demo_proof) count
+    only the entries real money would have taken (PROOF_ROWS: no market gate at the entry); the gated ones are in
+    "u_filtru" ({n, ev_pct, pnl_usd, open}) and nowhere else."""
     from trade import settings
     user = user or settings.PAPER_USER
     own = lcon is None
@@ -1654,16 +1790,26 @@ def demo_stats(lcon=None, user=None):
     try:
         if lcon.execute("SELECT 1 FROM sqlite_master WHERE name='veliki_trades'").fetchone() is None:
             return {"n": 0, "open": 0, "size_sol": DEMO_SOL}
+        has_gate = any(r[1] == "gate" for r in lcon.execute("PRAGMA table_info(veliki_trades)"))
+        pr = PROOF_ROWS if has_gate else ""
         rows = lcon.execute("SELECT ret, pnl_usd, ret_demo, pnl_booked, reason, regime FROM veliki_trades WHERE "
-                            "user=? AND status='closed' AND ret IS NOT NULL", (user,)).fetchall()
-        n_open = lcon.execute("SELECT COUNT(*) FROM veliki_trades WHERE user=? AND status='open'", (user,)).fetchone()[0]
+                            f"user=? AND status='closed' AND ret IS NOT NULL{pr}", (user,)).fetchall()
+        n_open = lcon.execute(f"SELECT COUNT(*) FROM veliki_trades WHERE user=? AND status='open'{pr}",
+                              (user,)).fetchone()[0]
+        gated = (lcon.execute("SELECT ret, pnl_usd FROM veliki_trades WHERE user=? AND status='closed' AND ret IS NOT "
+                              "NULL AND COALESCE(gate, '')<>''", (user,)).fetchall() if has_gate else [])
+        g_open = (lcon.execute("SELECT COUNT(*) FROM veliki_trades WHERE user=? AND status='open' AND "
+                               "COALESCE(gate, '')<>''", (user,)).fetchone()[0] if has_gate else 0)
         n_day = lcon.execute("SELECT COUNT(*) FROM veliki_trades WHERE user=? AND opened_ts>=?",
                              (user, _day_start(time.time()))).fetchone()[0]
     finally:
         if own:
             lcon.close()
     n = len(rows)
-    out = {"n": n, "open": n_open, "today": n_day, "size_sol": DEMO_SOL}
+    out = {"n": n, "open": n_open, "today": n_day, "size_sol": DEMO_SOL,
+           "u_filtru": {"n": len(gated), "open": g_open,
+                        "ev_pct": round(sum(g[0] for g in gated) / len(gated) * 100, 3) if gated else None,
+                        "pnl_usd": round(sum(g[1] or 0 for g in gated), 2)}}
     if n:
         import random
         rets = [r[0] for r in rows]
