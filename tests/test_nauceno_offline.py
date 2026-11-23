@@ -109,8 +109,9 @@ class Learner(unittest.TestCase):
             w, lo = (lose, win) if flip_from is not None and d >= flip_from else (win, lose)
             for k in range(per_day):
                 tok = f"T{k}"
-                rows.append(row(tok, 20000 + d, k, "skalp", 0.04 + 0.001 * (k % 3), band=w))
-                rows.append(row(tok, 20000 + d, k + 6, "skalp", -0.05 - 0.001 * (k % 3), band=lo))   # the same hours
+                # 23.11.: "kratko" (target +6 % net): a result its exit cannot pay is clipped (nauceno.ret_bounds)
+                rows.append(row(tok, 20000 + d, k, "kratko", 0.04 + 0.001 * (k % 3), band=w))
+                rows.append(row(tok, 20000 + d, k + 6, "kratko", -0.05 - 0.001 * (k % 3), band=lo))   # the same hours
         return sorted(rows, key=lambda r: r["opened_ts"])
 
     def test_a_fact_that_wins_is_chosen_on_days_it_had_not_seen(self):
@@ -206,9 +207,9 @@ class Learner(unittest.TestCase):
 
     def test_purge_a_row_closed_on_or_after_the_scored_days_start_is_not_in_the_model(self):
         def book(closed):
-            rows = [row(f"T{k}", 20000 + d, k, "skalp", -0.03, band="vrh") for d in range(7) for k in range(6)]
-            rows += [row(f"T{k}", 20006, 10 + k, "skalp", 0.20, band="dno", closed_ts=closed) for k in range(6)]
-            rows += [row(f"T{k}", 20007, k, "skalp", 0.20, band="dno") for k in range(6)]     # the scored day
+            rows = [row(f"T{k}", 20000 + d, k, "siroko", -0.03, band="vrh") for d in range(7) for k in range(6)]
+            rows += [row(f"T{k}", 20006, 10 + k, "siroko", 0.20, band="dno", closed_ts=closed) for k in range(6)]
+            rows += [row(f"T{k}", 20007, k, "siroko", 0.20, band="dno") for k in range(6)]     # the scored day
             return sorted(rows, key=lambda r: r["opened_ts"])
         start = 20007 * D
         on = nauceno.learn(book(start), shrink=1)                 # closed exactly at the day's start: not before it
@@ -245,10 +246,10 @@ class Learner(unittest.TestCase):
     def test_shrinkage_and_unknown_facts(self):
         m = nauceno.Model(shrink=150)
         for i in range(10):
-            m.add(row("A", 1, i, "skalp", 0.10, band="dno"))
+            m.add(row("A", 1, i, "uski", 0.10, band="dno"))
         for i in range(990):
-            m.add(row("B", 1, i, "skalp", 0.0, band="vrh"))
-        self.assertAlmostEqual(m.effect("skalp", "band", "dno"), (0.10 - 0.001) * 10 / 160, places=6)   # 10 rows: weak
+            m.add(row("B", 1, i, "uski", 0.0, band="vrh"))
+        self.assertAlmostEqual(m.effect("uski", "band", "dno"), (0.10 - 0.001) * 10 / 160, places=6)   # 10 rows: weak
         f = nauceno.facts(row("A", 1, 0, "skalp", 0.0, band=None, btc=None, makro=None, width=None))
         self.assertEqual((f["band"], f["btc"], f["makro"], f["sirina"], f["grok"]), ("?", "?", "?", "?", "?"))
         self.assertEqual(nauceno.facts(row("A", 1, 0, "skalp", 0.0, makro="oporavak/blago_bik"))["makro"], "oporavak")

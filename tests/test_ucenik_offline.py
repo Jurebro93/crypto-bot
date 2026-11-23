@@ -287,7 +287,7 @@ class Demo(Fix):
     def test_an_error_never_costs_the_rules_pass(self):
         self.model()
         self.px = 0.95e-4
-        with mock.patch.object(nauceno, "predict_best", side_effect=RuntimeError("x")):
+        with mock.patch.object(nauceno, "predict_checked", side_effect=RuntimeError("x")):
             out = self.tick()
         self.assertEqual([r[0] for r in self.lg.execute("SELECT user FROM veliki_trades")], [PU], out)
         self.assertTrue(any("veliki naučeno: ulaz nije uspio (RuntimeError" in x for x in out), out)
