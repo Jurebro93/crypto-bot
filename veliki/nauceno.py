@@ -261,15 +261,42 @@ def _stat(pairs):
             "hit": sum(1 for _k, x in pairs if x > 0) / n, "lo": lo, "hi": hi}
 
 
+# 23.11. (production right after the risk-off deploy: "veliki naučeno ulaz [siroko] ... prognoza +4071.1% neto" while
+# the profile pays at most +20 % net): the model is a sum of shrunken per-fact adjustments, so a forecast can only be
+# that large when rows with results far above what their exit can pay are in its sums. Such a row cannot be a real
+# trade: a book row's exit is its target (a level), its stop, or the time limit under the target; only a live
+# book row's fill at the NEXT quote (veliki/sjena.mark, a spiky or wrongly priced quote) or a wrong entry quote can put
+# +4000 % in it. Bounds now hold on both ends: a row's result enters the sums clipped to what its profile can pay
+# (ret_bounds: at most the target net of cost, at least -100 %), and a forecast is clipped the same way
+# (predict_checked); a forecast whose raw sum lies outside those bounds, or that uses a fact value the model never
+# saw for that profile, is "izvan raspona učenja" and says so.
+def ret_bounds(prof):
+    """(lowest, highest) net result one trade of the exit profile can have: -100 % (everything lost) and the profile's
+    target, which sjena.levels / tp_price place NET of the round trip (skalp +3 %, pravilo +10 %, siroko +20 %)."""
+    from veliki import sjena
+    tp = (sjena.PROFILES.get(prof) or (None,))[0]
+    return -1.0, (float(tp) / 100.0 if tp is not None else float("inf"))
+
+
+def _clip(prof, x):
+    lo, hi = ret_bounds(prof)
+    return min(max(x, lo), hi)
+
+
 class Model:
     """Running sums: per profile, and per (profile, fact, value)."""
 
     def __init__(self, shrink=SHRINK):
         self.tot, self.cell, self.shrink = {}, {}, shrink
         self.ts = self.rows = self.days = None    # set on a stored model (dump / from_dict)
+        self.clipped = 0                          # rows whose result lay outside ret_bounds (23.11.)
 
     def add(self, r, f=None):
         p, x = r["profil"], r["ret"]
+        cx = _clip(p, x)
+        if cx != x:
+            self.clipped += 1
+            x = cx
         t = self.tot.setdefault(p, [0, 0.0])
         t[0] += 1
         t[1] += x
@@ -292,6 +319,17 @@ class Model:
         b = self.base(p)
         return None if b is None else b + sum(self.effect(p, k, v) for k, v in f.items() if v != "?")
 
+    def predict_clip(self, p, f):
+        """predict() clipped to what the profile can pay (ret_bounds)."""
+        x = self.predict(p, f)
+        return None if x is None else _clip(p, x)
+
+    def explain(self, p, f):
+        """[(fact, value, effect, rows in that cell)] of one forecast, the largest effect first (the diagnosis of a
+        forecast: which fact carries it)."""
+        out = [(k, v, self.effect(p, k, v), (self.cell.get((p, k, v)) or [0])[0]) for k, v in f.items() if v != "?"]
+        return sorted(out, key=lambda e: -abs(e[2]))
+
     def dump(self, ts, rows=None, days=None):
         """The stored form (kv "model"): the sums, not the predictions, so a reader computes exactly what this does."""
         return {"ts": int(ts), "shrink": self.shrink, "tot": {p: [t[0], t[1]] for p, t in self.tot.items()},
@@ -304,6 +342,36 @@ class Model:
         m.cell = {(p, k, v): [int(n), float(x)] for p, k, v, n, x in d.get("cell") or []}
         m.ts, m.rows, m.days = int(d["ts"]), d.get("rows"), d.get("days")
         return m
+
+
+def predict_checked(model, f):
+    """The forecast the učenik may act on: {"profil", "pred" (clipped to ret_bounds), "raw" (the plain sum), "izvan"
+    (None, or why the raw sum is outside what the profile can pay: "izvan raspona učenja"), "nevideno" (fact values no
+    row of that profile had: they add nothing by construction, Model.effect 0, so they are said, not excluded),
+    "doprinos" (the fact with the largest effect)}; the profile with the highest CLIPPED forecast. None when no
+    profile has a base yet. Every fact is categorical: a value outside the training adds 0, never an extrapolation;
+    only rows with results outside the bounds (clipped in Model.add since 23.11.) can push the sum past them."""
+    from veliki import sjena
+    best = None
+    for p in sjena.PROFILES:
+        raw = model.predict(p, f)
+        if raw is None:
+            continue
+        pred = _clip(p, raw)
+        if best is None or pred > best["pred"]:
+            lo, hi = ret_bounds(p)
+            why = []
+            if raw > hi:
+                why.append(f"sirova prognoza {raw:+.1%} iznad cilja profila {hi:+.1%}")
+            elif raw < lo:
+                why.append(f"sirova prognoza {raw:+.1%} ispod -100 %")
+            unseen = [f"{FEAT_HR.get(k, k)} {v}" for k, v in f.items() if v != "?" and (p, k, v) not in model.cell]
+            ex = model.explain(p, f)
+            best = {"profil": p, "pred": pred, "raw": raw, "izvan": ("; ".join(why) or None),
+                    "nevideno": ", ".join(unseen) or None,
+                    "doprinos": (f"{FEAT_HR.get(ex[0][0], ex[0][0])} {ex[0][1]} {ex[0][2]:+.1%} (n={ex[0][3]})"
+                                 if ex else None)}
+    return best
 
 
 def predict_best(model, f):
@@ -327,6 +395,14 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK, model=Non
     from veliki import sjena
     m = model if model is not None else Model(shrink)
     by_day = {}
+    n_out = 0
+    fixed_rows = []
+    for r in rows:   # 23.11.: a result its exit cannot pay (a spiky fill quote) is clipped, in the sums and the proof
+        if r.get("ret") is not None and _clip(r["profil"], r["ret"]) != r["ret"]:
+            r = {**r, "ret": _clip(r["profil"], r["ret"]), "ret_izvorno": r["ret"]}
+            n_out += 1
+        fixed_rows.append(r)
+    rows = fixed_rows
     for r in rows:
         by_day.setdefault(r["opened_ts"] // D, []).append(r)
     days = sorted(by_day)
@@ -346,7 +422,7 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK, model=Non
                 key = (r["token"], d)
                 if gated(f):   # still learned from (the model takes every closed row), never scored as proof
                     g_every.append((key, r["ret"]))
-                    pr = m.predict(r["profil"], f)
+                    pr = m.predict_clip(r["profil"], f)
                     if pr is not None:
                         c = cand.get((r["token"], r["opened_ts"]))
                         if c is None or pr > c[0]:
@@ -356,7 +432,7 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK, model=Non
                 prof_all.setdefault(r["profil"], []).append((key, r["ret"]))
                 if (f["band"], r["profil"]) in fixed:
                     fixed[(f["band"], r["profil"])].append((key, r["ret"]))
-                pr = m.predict(r["profil"], f)
+                pr = m.predict_clip(r["profil"], f)
                 if pr is None:
                     continue
                 c = cand.get((r["token"], r["opened_ts"]))
@@ -390,7 +466,7 @@ def learn(rows, min_train_days=MIN_TRAIN_DAYS, thr=THR, shrink=SHRINK, model=Non
     res = {"rows": len(rows), "live_rows": sum(1 for r in rows if r.get("src") == "uzivo"), "days": len(days),
            "test_days": max(0, len(days) - min_train_days), "thr": thr, "purge": True, "model_rows": in_model,
            "not_closed": len(rows) - in_model - late, "closed_later": late,
-           "picked": _stat(picks), "all": _stat(every),
+           "picked": _stat(picks), "all": _stat(every), "izvan_cilja": n_out,
            "u_filtru": {"picked": _stat(g_picks), "all": _stat(g_every)},
            "by_profile": {p: {"all": _stat(prof_all.get(p, [])), "picked": _stat(prof_pick.get(p, [])),
                               "base": m.base(p)} for p in sjena.PROFILES},
@@ -455,6 +531,8 @@ def line(res):
             f"odabrani: {_s(res.get('picked'))}; svi tih dana: {_s(res.get('all'))}; "
             + (f"u filtru tržišta (risk-off / BTC slobodan pad, pravi novac bi stajao, izvan presude): odabrani "
                f"{_s(uf.get('picked'))}, svi {_s(uf.get('all'))}; " if (uf.get("all") or {}).get("n") else "")
+            + (f"{res['izvan_cilja']} redaka s rezultatom izvan onoga što izlaz može platiti (svjećica / kriva "
+               f"cijena) svedeno na granicu; " if res.get("izvan_cilja") else "")
             + f"najviše pomaže: {best}; "
             f"najviše šteti: {worst} ({res.get('secs', 0)} s)")
 

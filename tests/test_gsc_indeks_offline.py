@@ -143,12 +143,21 @@ class InspectTest(Base):
         self.assertEqual(self.calls[7:], [B + "/sm/%d" % i for i in range(5)])
         self.assertEqual(len(self.calls), 12)
         self.assertEqual(self.sleeps, [1.0] * 11)       # ~1 per second
-        self.assertEqual(lines[0], "gsc indeks: pregledano 12; Submitted and indexed 8, Blocked due to unauthorized "
-                                   "request (401) 1, Crawled - currently not indexed 1, Excluded by 'noindex' tag 1, "
-                                   "Server error (5xx) 1")
-        self.assertEqual(sorted(lines[1:]), ["gsc indeks primjeri Blocked due to unauthorized request (401): /x/other",
-                                             "gsc indeks primjeri Excluded by 'noindex' tag: /coin/wif",
-                                             "gsc indeks primjeri Server error (5xx): /telegram/dead"])
+        c = " (crawl 2026-11-18)"
+        self.assertEqual(lines, [
+            "gsc indeks: pregledano 12; Submitted and indexed 8, Blocked due to unauthorized request (401) 1, "
+            "Crawled - currently not indexed 1, Excluded by 'noindex' tag 1, Server error (5xx) 1; "
+            "ukupno u bazi 12, sitemap još nepregledano 496",
+            "gsc indeks primjeri Submitted and indexed: " + ", ".join(
+                p + c for p in ["/", "/hr", "/influencers"] + ["/sm/%d" % i for i in range(5)]),
+            "gsc indeks primjeri Blocked due to unauthorized request (401): /x/other" + c,
+            "gsc indeks primjeri Crawled - currently not indexed: /hr/rjecnik/rug" + c,
+            "gsc indeks primjeri Excluded by 'noindex' tag: /coin/wif" + c,
+            "gsc indeks primjeri Server error (5xx): /telegram/dead" + c,
+            "gsc crawl: od 12 pregledanih zadnji crawl zadnjih 3 d 12, 4-7 d 0, 8-14 d 0, starije 0, nikad 0; "
+            "najnoviji crawl 2026-11-18",
+            "gsc indeks po sekciji: /telegram/* 0/0/0, /coin/* 0/0/0, /influencer/* 1/0/0, /macro-influencer/* 0/0/0, "
+            "/glossary/* 0/1/0, /blog/* 0/0/0, /how-to-buy/* 0/0/0, /rug-check/* 0/0/0, naslovnica 2/0/0, ostalo 5/0/0"])
         # cap reached for today: nothing more
         self.calls.clear()
         with mock.patch.dict(os.environ, {"GSC_INSPECT_DAY": "12"}):
@@ -164,12 +173,59 @@ class InspectTest(Base):
         self.assertEqual(row, ("FAIL", "Server error (5xx)", "SERVER_ERROR", "2026-11-18T10:00:00Z"))
         con.close()
 
-    def test_examples_capped_at_15(self):
+    def test_examples_capped_at_20(self):
         sm = [B + "/blog/p%d" % i for i in range(30)]
         lines = gsc.inspect_lines(self.db, TODAY, lambda u: {"verdict": "NEUTRAL", "coverageState": "Page with redirect",
                                                              "pageFetchState": "SUCCESSFUL"}, lambda s: None, sm)
         ex = [x for x in lines if x.startswith("gsc indeks primjeri Page with redirect: ")][0]
-        self.assertEqual(len(ex.split(": ", 1)[1].split(", ")), 15)
+        self.assertEqual(len(ex.split(": ", 1)[1].split(", ")), 20)
+        self.assertTrue(ex.endswith("/blog/p12 (crawl –)"))
+
+    def test_crawl_buckets_and_sections(self):
+        con = gsc.connect(self.db)
+        rows = [("/blog/a", "PASS", "Submitted and indexed", "2026-11-19T01:00:00Z"),
+                ("/blog/b", "NEUTRAL", gsc.CRAWLED_NOT, "2026-11-14T01:00:00Z"),
+                ("/hr/blog/c", "NEUTRAL", gsc.CRAWLED_NOT, "2026-11-10T01:00:00Z"),
+                ("/coin/x", "NEUTRAL", gsc.CRAWLED_NOT, "2026-10-01T01:00:00Z"),
+                ("/coin/y", "NEUTRAL", gsc.UNKNOWN, ""),
+                ("/hr/coin/z", "NEUTRAL", gsc.UNKNOWN, None)]
+        con.executemany("INSERT INTO gsc_inspect (url, ts, verdict, coverage_state, last_crawl) VALUES (?,1,?,?,?)",
+                        [(B + u, v, st, lc) for u, v, st, lc in rows])
+        con.commit()
+        self.assertEqual(gsc.stats_lines(con, TODAY), [
+            "gsc crawl: od 6 pregledanih zadnji crawl zadnjih 3 d 1, 4-7 d 1, 8-14 d 1, starije 1, nikad 2; "
+            "najnoviji crawl 2026-11-19",
+            "gsc indeks po sekciji: /telegram/* 0/0/0, /coin/* 0/1/2, /influencer/* 0/0/0, /macro-influencer/* 0/0/0, "
+            "/glossary/* 0/0/0, /blog/* 1/2/0, /how-to-buy/* 0/0/0, /rug-check/* 0/0/0, naslovnica 0/0/0, ostalo 0/0/0"])
+        con.close()
+
+    def test_sitemap_lines(self):
+        api = {"sitemap": [{"path": B + "/sitemap.xml", "lastDownloaded": "2026-11-11T05:06:07.000Z",
+                            "isPending": False, "errors": "0", "warnings": "2",
+                            "contents": [{"type": "web", "submitted": "242", "indexed": "0"}]},
+                           {"path": B + "/sitemap-blog.xml", "isPending": True}]}
+        seen = {}
+
+        def http(url, body=None):
+            seen["url"] = url
+            return api
+        with mock.patch.object(gsc, "_http", http):
+            lines = gsc.sitemap_lines(self.db, TODAY)
+        self.assertEqual(seen["url"], gsc.API + "/sites/sc-domain%3Amemesonar.app/sitemaps")
+        self.assertEqual(lines, [
+            "gsc sitemap: https://memesonar.app/sitemap.xml zadnje preuzimanje 2026-11-11, obrada ok, greške 0, "
+            "upozorenja 2, poslano 242",
+            "gsc sitemap: https://memesonar.app/sitemap-blog.xml zadnje preuzimanje –, obrada isPending, greške 0, "
+            "upozorenja 0, poslano 0"])
+        self.assertEqual(gsc.sitemap_lines(self.db, TODAY, lambda: []), [])          # once a day
+        self.assertEqual(gsc.sitemap_lines(self.db, TODAY + dt.timedelta(days=1), lambda: []),
+                         ["gsc sitemap: nijedan sitemap nije poslan u Search Console"])
+
+        def boom():
+            raise gsc.GscError("Google kaže da previše pitamo (limit); idući pokušaj za nekoliko sati.")
+        lines = gsc.sitemap_lines(self.db, TODAY + dt.timedelta(days=2), boom)
+        self.assertEqual(lines, ["gsc sitemap: Google kaže da previše pitamo (limit); idući pokušaj za nekoliko sati."])
+        self.assertNoSecret(lines)
 
     def test_default_cap_300(self):
         with mock.patch.dict(os.environ, {"GSC_INSPECT_DAY": ""}):
@@ -220,13 +276,14 @@ class InspectTest(Base):
     def test_unexpected_exception_contained(self):
         def bad(url):
             raise RuntimeError("secret " + TOKEN)
-        lines = gsc.diagnose(self.db, TODAY, fake_query, bad, lambda s: None, self.sm)
+        lines = gsc.diagnose(self.db, TODAY, fake_query, bad, lambda s: None, self.sm, lambda: [])
         self.assertIn("gsc indeks: neočekivana greška RuntimeError", lines)
         self.assertNoSecret(lines)
 
     def test_full_diagnose_no_secret_and_collect_403_message(self):
-        lines = gsc.diagnose(self.db, TODAY, fake_query, fake_inspect, lambda s: None, self.sm)
-        for p in ("gsc dani: ", "gsc stranice: ", "gsc indeks: pregledano ", "gsc indeks primjeri "):
+        lines = gsc.diagnose(self.db, TODAY, fake_query, fake_inspect, lambda s: None, self.sm, lambda: [])
+        for p in ("gsc dani: ", "gsc stranice: ", "gsc indeks: pregledano ", "gsc indeks primjeri ", "gsc crawl: od ",
+                  "gsc indeks po sekciji: ", "gsc sitemap: "):
             self.assertTrue(any(x.startswith(p) for x in lines), p)
         self.assertNoSecret(lines)
 
@@ -239,12 +296,19 @@ class InspectTest(Base):
     def test_page_section(self):
         from ui import analitika
         gsc.inspect_lines(self.db, TODAY, fake_inspect, lambda s: None, self.sm[:5])
+        gsc.sitemap_lines(self.db, TODAY, lambda: [])
+        con = gsc.connect(self.db)
+        gsc._set(con, sm_urls=json.dumps(self.sm[:5]))
+        con.commit()
+        con.close()
         with mock.patch.object(gsc, "DB", self.db), mock.patch.object(gsc.dt, "date", wraps=dt.date) as d:
             d.today.return_value = TODAY
             _, body = analitika.page({})
         sec = body.split("<h3>Indeksiranost</h3>")[1].split("<h3>Zemlje</h3>")[0]
         for s in ("Submitted and indexed", "Server error (5xx)", "Izgubile sve prikaze", "/telegram/dead", "/coin/wif",
-                  "Nisu u indeksu", "SERVER_ERROR", "2026-11-18", "pregledano 12"):
+                  "Nisu u indeksu", "SERVER_ERROR", "2026-11-18", "pregledano 12",
+                  "Zadnji crawl: zadnjih 3 d <b>12</b>", "Crawled, nije u indeksu", "još nepregledano 0 od 5",
+                  "Sitemap u Search Consoleu", "Nijedan sitemap nije poslan"):
             self.assertIn(s, sec, s)
         self.assertLess(sec.index("/coin/wif"), sec.index("/telegram/dead"))   # lost: most impressions first
 

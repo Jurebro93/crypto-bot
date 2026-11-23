@@ -36,6 +36,19 @@ PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(
                          r"embed/.*|static/landing/.*|share/novosti\.png)$")
 
 
+
+
+def slash_redirect(path):
+    """23.11. (SEO): a known public path with a trailing slash ("/influencers/", "/hr/", "/coin/x/") -> the same
+    path without it (301, the caller keeps the query); None for "/" and for every app path."""
+    if len(path) < 2 or not path.endswith("/"):
+        return None
+    bare = path.rstrip("/")
+    if bare and (PUBLIC_PATH.match(bare) or bare == "/dobrodosli" or re.fullmatch(r"/(en/|hr/)?autopilot", bare)):
+        return bare
+    return None
+
+
 APP_URL = os.environ.get("APP_URL", "").strip().rstrip("/") if SITE_URL else ""
 if APP_URL:
     os.environ["APP_URL"] = APP_URL
@@ -604,6 +617,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return None
+        to = slash_redirect(path)   # 23.11. (SEO): "/influencers/" was the 401 login page with noindex
+        if to:
+            return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
         to = moved_to_site(self.headers.get("Host"), path, ok and AUTH)
         if to:
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
@@ -637,10 +653,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, landing.page_html(qs, logged_in=ok and AUTH and not site, ok=qs.get("poslano") == "1", lang=lang)
                               .encode("utf-8"))
         from ui import public
-        pub = public.route(path)
+        # 23.11. (hitno): a visitor who is not logged in builds an uncached public page only with a free slot
+        # (ui/javniteret: crawler bursts of per-entity pages stopped this process 11 times in 2.5 days)
+        pub = public.route(path, gate=not (AUTH and ok))
         if pub:   # indexable pages: influencer leaderboard and profiles, robots.txt, sitemap.xml
             self._public = True
             self._index = pub[0] == 200
+            if pub[0] == 503:   # the gate: Retry-After, no noindex header, no login page (23.11.)
+                from ui import javniteret
+                return self._send(503, pub[1], pub[2], retry_after=javniteret.RETRY_AFTER)
+            if path in ("/robots.txt", "/sitemap.xml") and pub[0] == 200:
+                # 23.11. (SEO): Cloudflare keeps them an hour, so a restart of this process never hides robots.txt
+                return self._send(pub[0], pub[1], pub[2], cache_control="public, max-age=3600")
             return self._send(pub[0], pub[1], pub[2])
         if path.startswith("/static/landing/"):
             return self._static(path[len("/static/landing/"):])
@@ -995,7 +1019,7 @@ class Handler(BaseHTTPRequestHandler):
         code, data = mcpapi.trade_request(body)
         return self._send(code, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json")
 
-    def _send(self, code, body, ctype="text/html", gz=None, translated=False):
+    def _send(self, code, body, ctype="text/html", gz=None, translated=False, retry_after=None, cache_control=None):
         """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""
         if (body is not None and not translated and ctype == "text/html" and getattr(self, "lang", "hr") == "en"
                 and not getattr(self, "_public", False)):
@@ -1015,11 +1039,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(out)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache_control or "no-store")
         if code == 503:   # 9.11. (audit P33, review): _last_copy's "try again in a minute" says so to the browser too
-            self.send_header("Retry-After", "60")
+            self.send_header("Retry-After", str(retry_after or 60))
         self.send_header("Vary", "Accept-Encoding")
-        if not getattr(self, "_index", False):
+        if not getattr(self, "_index", False) and not retry_after:   # a gate 503 is "come back", not "never index"
             self.send_header("X-Robots-Tag", "noindex, nofollow")
         if zipped:
             self.send_header("Content-Encoding", "gzip")

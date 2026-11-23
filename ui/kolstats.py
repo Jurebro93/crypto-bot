@@ -16,6 +16,7 @@ Fewer than MIN_CLEAN clean calls = "premalo podataka": the page says so, carries
 import json
 import sqlite3
 import statistics
+import threading
 import time
 
 MIN_CLEAN = 10
@@ -98,23 +99,22 @@ def baseline(con, now=None, min_n=MIN_CLEAN, cache=None):
     cache = _BASE if cache is None else cache
     if cache.get("ts", 0) > now - 3600 and cache.get("v"):
         return cache["v"]
+    with _BASE_LOCK:   # 23.11. (hitno): a burst of profile pages read every call of every account once each
+        if cache.get("ts", 0) > now - 3600 and cache.get("v"):
+            return cache["v"]
+        return _baseline(con, now, min_n, cache)
+
+
+def _baseline(con, now, min_n, cache):
     bots = _bots(con)
     q = ",".join("?" * len(BIASED_SOURCES))
-    try:
-        rows = con.execute(f"""SELECT handle, r1h, r24h, max24 FROM calls WHERE kind = 'call' AND max24 IS NOT NULL
-            AND bad IS NULL AND ts < ? AND COALESCE(pre2h, 0) < 1.0 AND COALESCE(source, '') NOT IN ({q})
-            AND handle NOT LIKE 'w:%' AND handle NOT LIKE 'tg:%'""", (int(now - PUBLIC_DELAY_S), *BIASED_SOURCES)).fetchall()
-    except sqlite3.OperationalError:   # 19.11. (vlasnik, kol/tgout.py): the median account is an X account
-        rows = []
-    by = {}
-    for h, r1, r24, mx in rows:
-        if h in bots:
-            continue
-        by.setdefault(h, []).append((r1, r24, mx))
-    ups, hits, meds = [], [], []
-    for h, v in by.items():
+    ups, hits, meds, accounts = [], [], [], 0
+
+    def one(v):
+        nonlocal accounts
         if len(v) < min_n:
-            continue
+            return
+        accounts += 1
         u = _share([x[0] for x in v], lambda x: x > 0)
         hh = _share([x[2] for x in v], lambda x: x >= HIT)
         r = [x[1] for x in v if x[1] is not None]
@@ -124,7 +124,24 @@ def baseline(con, now=None, min_n=MIN_CLEAN, cache=None):
             hits.append(hh)
         if r:
             meds.append(statistics.median(r))
-    v = {"accounts": len([1 for x in by.values() if len(x) >= min_n]),
+    # 23.11. (hitno): one account at a time (ORDER BY handle, the calls_handle index) instead of every call of every
+    # account in memory twice (fetchall + per-handle lists: ~120 MB on a 300k-call fixture); the medians are the same
+    cur, v = None, []
+    try:
+        for h, r1, r24, mx in con.execute(f"""SELECT handle, r1h, r24h, max24 FROM calls WHERE kind = 'call' AND max24 IS NOT NULL
+            AND bad IS NULL AND ts < ? AND COALESCE(pre2h, 0) < 1.0 AND COALESCE(source, '') NOT IN ({q})
+            AND handle NOT LIKE 'w:%' AND handle NOT LIKE 'tg:%' ORDER BY handle""",
+                                           (int(now - PUBLIC_DELAY_S), *BIASED_SOURCES)):
+            if h in bots:
+                continue
+            if h != cur:
+                one(v)
+                cur, v = h, []
+            v.append((r1, r24, mx))
+        one(v)
+    except sqlite3.OperationalError:   # 19.11. (vlasnik, kol/tgout.py): the median account is an X account
+        ups, hits, meds, accounts = [], [], [], 0
+    v = {"accounts": accounts,
          "up1h": statistics.median(ups) if ups else None, "hit15": statistics.median(hits) if hits else None,
          "med24": statistics.median(meds) if meds else None}
     cache["ts"], cache["v"] = now, v
@@ -132,6 +149,7 @@ def baseline(con, now=None, min_n=MIN_CLEAN, cache=None):
 
 
 _BASE = {}
+_BASE_LOCK = threading.Lock()
 
 
 def clean_counts(con, now=None, prefix=None):

@@ -183,7 +183,7 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                 return json.loads(store.kv(con, "summary") or "{}")
         since = now - (2 * 86400 if kind == "incr" else int(c["days"]) * 86400)
         if kind != "report":
-            with clk.stage("dogadaji"):
+            with clk.stage("dogadaji"), store.step_mem("dogadaji", log):
                 calls = ev.call_events(p, c, now, since)
                 jumps = ev.market_events(p, c, now, max(since, now - int(c["mkt_days"]) * 86400))
                 merged = ev.merge(calls, jumps)
@@ -206,7 +206,7 @@ def run(kind="once", now=None, cfg=None, credits=None, fetch=None, log=print, cl
                 if built < len(todo):
                     clk.cut(f"{len(todo) - built} događaja još bez sudionika")
             mem(log, "dogadaji")
-            with clk.stage("lanac"):
+            with clk.stage("lanac"), store.step_mem("lanac", log):
                 cap, how = store.helius_cap(c, now, p.get("usage_db"))
                 left = store.helius_left(con, c, now, p.get("usage_db"))
                 if credits is not None:
@@ -284,7 +284,7 @@ def _rest(con, p, c, kind, now, credits, fetch, log, clk, summary=None):
         if clk.over():
             clk.cut("sporedni novčanici influencera preskočeni")
         else:
-            with clk.stage("kol"):
+            with clk.stage("kol"), store.step_mem("kol", log):
                 try:
                     from insajderi import kolwallets
                     kolwallets.run_pass(con, p, c, now, kind=kind, fetch=fetch, credits=credits, log=log,
@@ -389,7 +389,8 @@ def analyze(con, p, c, now, log=print, light=False, clk=None, upto=None):
             return None
         t0 = clk.fn()
         try:
-            return fn()
+            with store.step_mem(f"popis: {name}", log):   # 23.11.: a line every 30 s while the step runs
+                return fn()
         finally:
             clk.sub[name] = round(clk.sub.get(name, 0.0) + clk.fn() - t0, 1)
             mem_(name)
@@ -451,7 +452,7 @@ def analyze(con, p, c, now, log=print, light=False, clk=None, upto=None):
     n_groups = n_groups if n_groups is not None else prev.get("groups_stored")
     pp_fresh = bool(pp) and pp is not prev_pp   # the list was computed in this pass (the copy walk needs it)
     if not clk.over():   # 19.11. navečer: Birdeye, a bounded second source (report only; insajderi/birdeye.py)
-        with clk.stage("birdeye"):
+        with clk.stage("birdeye"), store.step_mem("birdeye", log):
             try:
                 from insajderi import birdeye
                 b = birdeye.run(con, c, evs, now, stop=clk.over, log=log)
@@ -474,7 +475,9 @@ def analyze(con, p, c, now, log=print, light=False, clk=None, upto=None):
                 t0 = clk.fn()
                 part = "redovi" if name in clk.copy_sub else "odabir"   # walkcache.run: the selection, then the rows
                 try:
-                    return fn()
+                    with store.step_mem(f"{ {'pp': 'kopija prije pumpe', 'ins': 'kopija insajderi'}.get(name, name)} "
+                                        f"({part})", log):
+                        return fn()
                 finally:
                     clk.copy_sub[name] = round(clk.copy_sub.get(name, 0.0) + clk.fn() - t0, 1)
                     mem_(f"{ {'pp': 'kopija prije pumpe', 'ins': 'kopija insajderi'}.get(name, name)} ({part})")
@@ -546,15 +549,17 @@ def ostalo(con, p, c, now, summary, prev, stats, evs, parts, light, clk, log):
         with clk.stage("ostalo"):
             try:
                 from insajderi import trending
-                summary["trending"] = trending.run(con, p, c, now)
+                with store.step_mem("trending", log):
+                    summary["trending"] = trending.run(con, p, c, now)
             except Exception as e:  # noqa: BLE001 - one part costs only itself
                 _log(log, f"trending ({type(e).__name__}: {e})")
             mem(log, "trending")
             try:
                 from insajderi import smart
-                if parts is None:
-                    parts = score.load_parts(con, relevant=True)
-                summary["smart"] = smart.run(con, p, c, now, stats, evs, parts)
+                with store.step_mem("pametni novac", log):
+                    if parts is None:
+                        parts = score.load_parts(con, relevant=True)
+                    summary["smart"] = smart.run(con, p, c, now, stats, evs, parts)
             except Exception as e:  # noqa: BLE001
                 _log(log, f"pametni novac ({type(e).__name__}: {e})")
             mem(log, "pametni novac")

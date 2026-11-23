@@ -137,18 +137,24 @@ class _DayRoles:
     def _close(self, rows):
         """The rows of ONE event: its early owners count it once."""
         early = set()
+        maybe = self.maybe
         for i in rows:
             r = self.parts[i]
             o = r[2] or r[1]
-            if o in self.maybe:
-                m = self.members.get(o)
-                if m is None:
-                    self.members[o] = r[1]
-                elif isinstance(m, str):
-                    if m != r[1]:
-                        self.members[o] = {m, r[1]}
-                else:
-                    m.add(r[1])
+            if o not in maybe:
+                # 23.11. (production 01:56, stage c killed at 911 MB inside "pametni novac"; the fixture's walk grew
+                # 520 -> 692 MB): an owner outside `maybe` can never get a role on any day (its early events over
+                # EVERY event are under smart_min_jumps and it is never classified), so its day counts and first row
+                # are not kept any more; at() lists the same owners in the same order
+                continue
+            m = self.members.get(o)
+            if m is None:
+                self.members[o] = r[1]
+            elif isinstance(m, str):
+                if m != r[1]:
+                    self.members[o] = {m, r[1]}
+            else:
+                m.add(r[1])
             if r[8]:
                 early.add(o)
                 if i < self.first.get(o, i + 1):
@@ -244,11 +250,14 @@ def signals(smart_members, cl, trades, c, since, until):
 
 def run(con, p, c, now, stats, events, parts):
     """The list, the clusters, the walk-forward of the signal and what they buy now -> summary dict."""
-    hp = holder_profit(p.get("listing_db"))
-    cur = roles(stats, events, parts, now + 1, c, hp)
+    with store.substep("uloge"):   # 23.11.: the names in the memory line while the step runs (store.step_mem)
+        hp = holder_profit(p.get("listing_db"))
+        cur = roles(stats, events, parts, now + 1, c, hp)
     allw = {w for x in cur.values() for w in x["members"]}
-    trades = copy.wallet_trades(con, p, allw) if allw else []
-    cl = clusters({o: x["members"] for o, x in cur.items()}, trades, c)
+    with store.substep("trgovine"):
+        trades = copy.wallet_trades(con, p, allw) if allw else []
+    with store.substep("klasteri"):
+        cl = clusters({o: x["members"] for o, x in cur.items()}, trades, c)
     last = {}
     for w, m, ts, side, _s, _t in trades:
         if side == "buy":
@@ -271,26 +280,27 @@ def run(con, p, c, now, stats, events, parts):
             by_w[t[0]].append(t)
         pr = None
         rt = copy.cost_rt(c)
-        days = None if hp else _DayRoles(events, parts, c)
-        while d <= now:
-            if days is not None:
-                mem = days.at(d)
-            else:   # holder profits give roles of their own: the full roles() each day
-                sm = roles(score.classify(parts, events, d, c, slim="light"), events, parts, d, c, hp)
-                mem = {o: x["members"] for o, x in sm.items()}
-            if mem:
-                # the trades before d: a prefix (copy.wallet_trades sorts by ts), read in place, not copied each day
-                cld = clusters(mem, itertools.islice(trades, bisect.bisect_left(trades, d, key=lambda t: t[2])), c)
-                for tok, ts, ks in signals(mem, cld, trades, c, d, min(d + 86400, now)):
-                    if pr is None:
-                        pr = copy.Prices(con, p, c, {t[1] for t in trades})
-                    ws = {w for o, ms in mem.items() if cld.get(o, o) in ks for w in ms}
-                    sells = sorted((t for w in ws for t in by_w.get(w, []) if t[1] == tok and t[3] == "sell" and t[2] > ts),
-                                   key=lambda t: t[2])
-                    sim = copy.simulate((None, tok, ts, "buy", None, None), sells, pr, c, rt)
-                    sig_rows.append((tok, ts, len(ks), json.dumps(ks), sim and sim["mcap"], sim and sim["ret"],
-                                     sim and sim["exit"]))
-            d += 86400
+        with store.substep("hod po danima"):
+            days = None if hp else _DayRoles(events, parts, c)
+            while d <= now:
+                if days is not None:
+                    mem = days.at(d)
+                else:   # holder profits give roles of their own: the full roles() each day
+                    sm = roles(score.classify(parts, events, d, c, slim="light"), events, parts, d, c, hp)
+                    mem = {o: x["members"] for o, x in sm.items()}
+                if mem:
+                    # the trades before d: a prefix (copy.wallet_trades sorts by ts), read in place, not copied each day
+                    cld = clusters(mem, itertools.islice(trades, bisect.bisect_left(trades, d, key=lambda t: t[2])), c)
+                    for tok, ts, ks in signals(mem, cld, trades, c, d, min(d + 86400, now)):
+                        if pr is None:
+                            pr = copy.Prices(con, p, c, {t[1] for t in trades})
+                        ws = {w for o, ms in mem.items() if cld.get(o, o) in ks for w in ms}
+                        sells = sorted((t for w in ws for t in by_w.get(w, []) if t[1] == tok and t[3] == "sell" and t[2] > ts),
+                                       key=lambda t: t[2])
+                        sim = copy.simulate((None, tok, ts, "buy", None, None), sells, pr, c, rt)
+                        sig_rows.append((tok, ts, len(ks), json.dumps(ks), sim and sim["mcap"], sim and sim["ret"],
+                                         sim and sim["exit"]))
+                d += 86400
     con.execute("DELETE FROM i2_signals")
     con.executemany("INSERT OR REPLACE INTO i2_signals VALUES (?,?,?,?,?,?,?)", sig_rows)
     con.commit()

@@ -7,6 +7,8 @@ Public = history and scores: calls older than PUBLIC_DELAY_S with their outcome.
 copy trading and everything else stay behind the login (and are sent with X-Robots-Tag: noindex by run_ui).
 Pages are cached for CACHE_S, so search-engine crawlers cost almost nothing.
 """
+import contextlib
+import gzip
 import importlib
 import json
 import math
@@ -30,6 +32,7 @@ HANDLE = re.compile(r"[A-Za-z0-9_]{1,30}")
 BAD = re.compile(r"nigg|fag|hitler|retard|nazi|rape|porn|fuck|cunt|dick|cock|pussy|dojk", re.I)
 
 _cache, _lock = {}, threading.Lock()
+_inflight = {}   # path -> Event while one thread builds that public page (23.11.)
 
 L = {
     "en": dict(
@@ -277,8 +280,20 @@ def is_star(r, stars=None):
     return (r.get("followers") or 0) >= STAR_FOLLOWERS or r["handle"].lower() in stars
 
 
+INFL_TTL_S = 300   # 23.11. (hitno): one shared copy of the rows per process (ui/javniteret.shared)
+
+
 def influencers():
-    """Public rows: measured X influencers, no bots, best score first. Stars need one measured call, others three."""
+    """Public rows: measured X influencers, no bots, best score first. Stars need one measured call, others three.
+    23.11. (hitno): every /influencer/<h> and /macro-influencer/<h> page read the whole kols table with its stats
+    JSON (150-200 MB per page in a burst of a dozen); now one thread reads it and the copy is shared INFL_TTL_S.
+    The rows are shared: callers must not change them."""
+    from ui import javniteret
+    p = _kol_db()
+    return javniteret.shared(("influencers", p), INFL_TTL_S, _influencers, version=javniteret.file_version(p))
+
+
+def _influencers():
     con = _con()
     if con is None:
         return []
@@ -959,8 +974,11 @@ def _makroinf_sync():
         print(f"makroinf javno: osvježavanje: {type(e).__name__}: {e}"[:200], flush=True)
 
 
-def route(path):
-    """(code, body bytes, content type) for a public path, or None when the path is not public."""
+def route(path, gate=False):
+    """(code, body bytes, content type) for a public path, or None when the path is not public.
+    gate: a visitor's request (run_ui, not logged in): a page that is not cached is built only with a slot of
+    ui/javniteret (at most UI_PUBLIC_BUILDS at once, none above UI_MEM_SHED_MB), else (503, tiny body, text/plain)
+    and run_ui adds Retry-After. The same path asked by several visitors at once is built once (23.11., hitno)."""
     if path in ("/robots.txt", "/sitemap.xml"):
         fn, ctype = (robots, "text/plain") if path == "/robots.txt" else (sitemap, "application/xml")
     elif path in ("/solana-meme-coins", "/hr/solana-meme-coini"):
@@ -1012,24 +1030,93 @@ def route(path):
         fn, ctype = (lambda: profile(h, lang)), "text/html"
     _makroinf_sync()   # 15.11.: a public page is served: drop the macro copies first if a scoring came since
     now = time.time()
+    ttl = _ttl(path)
     with _lock:
         hit = _cache.get(path)
-    if hit and now - hit[0] < CACHE_S:
-        return hit[1], hit[2], ctype
+        fresh = bool(hit) and now - hit[0] < ttl
+        ev = None if fresh else _inflight.get(path)
+        mine = not fresh and ev is None
+        if mine:
+            ev = _inflight[path] = threading.Event()
+    if fresh:
+        return hit[1], _raw(hit[2]), ctype
+    if hit and path in KEEP_PATHS:   # 23.11. (SEO): the last sitemap / robots.txt at once, rebuilt in the background
+        if mine:
+            threading.Thread(target=_rebuild, args=(path, fn, ev), daemon=True, name="javno-osvjezi").start()
+        return hit[1], _raw(hit[2]), ctype
+    if not mine:   # 23.11.: someone builds this very page now: wait for that copy instead of building it again
+        ev.wait(60)
+        with _lock:
+            hit = _cache.get(path)
+        if hit:
+            return hit[1], _raw(hit[2]), ctype
+    try:
+        from ui import javniteret
+        try:
+            with (javniteret.slot() if gate and path not in KEEP_PATHS else contextlib.nullcontext()):
+                try:
+                    body = fn()
+                except Exception as e:  # noqa: BLE001
+                    print(f"javna stranica {path} nije uspjela: {e}", flush=True)
+                    body = None
+        except javniteret.Refused:
+            return 503, javniteret.BODY, "text/plain"
+        code = 200 if body else 404
+        if not body:
+            body = not_found_html(path)
+        raw = body.encode("utf-8")
+        _keep(path, now, code, raw)
+        return code, raw, ctype
+    finally:
+        if mine:
+            with _lock:
+                _inflight.pop(path, None)
+            ev.set()
+
+
+# 23.11. (hitno): the copies were raw HTML (~54 KB a channel or influencer page, 2,000 of them = ~110 MB in the UI
+# process during a crawl) and were all dropped at once past 2,000. Now gzipped (~15 KB), bounded by bytes, the oldest
+# copy goes first; the Telegram pages (a list refreshed once in 5-7 days) are kept longer.
+CACHE_MAX_MB = float(os.environ.get("PUBLIC_CACHE_MAX_MB") or 24)
+TG_CACHE_S = int(os.environ.get("PUBLIC_TG_CACHE_S") or 6 * 3600)
+KEEP_PATHS = ("/sitemap.xml", "/robots.txt")
+KEEP_S = 3600
+
+
+def _ttl(path):
+    if path in KEEP_PATHS:
+        return KEEP_S
+    return TG_CACHE_S if re.match(r"(/hr)?/telegram(/|-channels$|-kanali$)", path) else CACHE_S
+
+
+def _rebuild(path, fn, ev):
+    """A stale sitemap / robots.txt rebuilt in the background (no gate: never refused); the old copy stays on error."""
     try:
         body = fn()
+        if body:
+            _keep(path, time.time(), 200, body.encode("utf-8"))
     except Exception as e:  # noqa: BLE001
-        print(f"javna stranica {path} nije uspjela: {e}", flush=True)
-        body = None
-    code = 200 if body else 404
-    if not body:
-        body = not_found_html(path)
-    raw = body.encode("utf-8")
+        print(f"javna stranica {path} nije osvježena: {type(e).__name__}: {e}"[:200], flush=True)
+    finally:
+        with _lock:
+            _inflight.pop(path, None)
+        ev.set()
+
+
+def _raw(gz):
+    return gzip.decompress(gz)
+
+
+def _keep(path, now, code, raw):
+    gz = gzip.compress(raw, 5)
     with _lock:
-        if len(_cache) > 2000:
-            _cache.clear()
-        _cache[path] = (now, code, raw)
-    return code, raw, ctype
+        _cache.pop(path, None)
+        _cache[path] = (now, code, gz)
+        total = sum(len(v[2]) for v in _cache.values())
+        for k in [k for k in _cache if k not in KEEP_PATHS and k != path]:   # the oldest first, never the sitemap
+            if total <= CACHE_MAX_MB * 1e6:
+                break
+            total -= len(_cache.pop(k)[2])
 
 
 # ---------- the daily refresh (02:00, run_web.py daily) --------------------------------------------------------------
@@ -1043,12 +1130,18 @@ def drop_caches():
     with _lock:
         n = len(_cache)
         _cache.clear()
-    for what, drop in (("tržište", _drop_market), ("medijan računa", _drop_baseline), ("grupni pozivi", _drop_advisor)):
+    for what, drop in (("tržište", _drop_market), ("medijan računa", _drop_baseline), ("grupni pozivi", _drop_advisor),
+                       ("zajedničke kopije", _drop_shared)):
         try:
             drop()
         except Exception as e:  # noqa: BLE001 - that copy then simply lives out its own cache time
             print(f"javne stranice: kopija '{what}' nije odbačena: {type(e).__name__}: {e}", flush=True)
     return n
+
+
+def _drop_shared():
+    from ui import javniteret   # 23.11.: the influencer rows, the Telegram list, the macro view
+    javniteret.forget()
 
 
 def _drop_market():

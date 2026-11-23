@@ -11,6 +11,7 @@ any measurement (Pretpostavka: their caps in start.sh, 3000 + 3000 + 4000 + ~120
 import json
 import os
 import sqlite3
+import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -221,6 +222,72 @@ def mem_line(step, limit=MEM_LOG_MB):
     if r is None or r < limit:
         return None
     return f"{PREFIX}memorija {r} MB nakon koraka {step}"
+
+
+STEP_MEM_EVERY_S = 30   # 23.11.: a line while a long step runs (the 01:56 kill came 10 min after the last line)
+_STEPS = []             # the steps running now in this process, outermost first ("pametni novac", "hod po danima")
+_STEPS_LOCK = threading.Lock()
+_MEMS = []              # the step_mem blocks running now, innermost last
+
+
+class substep:
+    """with substep("hod po danima"): names the part of a step that runs now, for the step_mem line. Never raises."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        with _STEPS_LOCK:
+            _STEPS.append(self.name)
+        return self
+
+    def __exit__(self, *_a):
+        with _STEPS_LOCK:
+            if self.name in _STEPS:
+                del _STEPS[len(_STEPS) - 1 - _STEPS[::-1].index(self.name)]
+        return False
+
+
+class step_mem(substep):
+    """with step_mem("pametni novac", log): while the block runs, every STEP_MEM_EVERY_S one line
+    "insajderi2: memorija N MB u koraku <step > substep> (T s)" when the process holds MEM_LOG_MB or more, so a kill
+    by the watchdog (ops/health.py, 800 MB) names the step it came in; only the innermost running step_mem writes.
+    23.11. (production 01:46 -> 01:56: no line between "kopija insajderi (redovi)" and the kill). Never raises."""
+
+    def __init__(self, name, log, every_s=None, limit=MEM_LOG_MB):
+        super().__init__(name)
+        self.log, self.every = log, float(every_s or STEP_MEM_EVERY_S)
+        self.limit = limit
+        self.stop = threading.Event()
+
+    def __enter__(self):
+        super().__enter__()
+        self.t0 = time.monotonic()
+        with _STEPS_LOCK:
+            _MEMS.append(self)
+        threading.Thread(target=self._loop, daemon=True, name="insajderi-memorija").start()
+        return self
+
+    def _loop(self):
+        while not self.stop.wait(self.every):
+            try:
+                with _STEPS_LOCK:
+                    if not _MEMS or _MEMS[-1] is not self:
+                        continue   # a step inside this one writes its own line
+                    names = list(_STEPS)
+                r = rss_mb()
+                if r is None or r < self.limit:
+                    continue
+                self.log(f"{PREFIX}memorija {r} MB u koraku {' > '.join(names)} ({time.monotonic() - self.t0:.0f} s)")
+            except Exception:  # noqa: BLE001 - the guard never breaks the pass
+                pass
+
+    def __exit__(self, *a):
+        self.stop.set()
+        with _STEPS_LOCK:
+            if self in _MEMS:
+                _MEMS.remove(self)
+        return super().__exit__(*a)
 
 
 def db_path():

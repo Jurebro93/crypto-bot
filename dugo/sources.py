@@ -4,9 +4,12 @@ Universe: every token our KOL/Telegram tracking ever saw (kol.db calls, hype.db 
 scanner saw at least a week ago with real liquidity (hype.db hype_signals), the established Solana tokens in
 config.json "uzori"/"temelj", and GeckoTerminal's busiest Solana pools (catches older tokens nobody called).
 """
+import http.client as _httpc
 import json
 import os
+import socket
 import sqlite3
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -107,15 +110,30 @@ def gecko_top(pages, gap):
     return out
 
 
+NET_ERRORS = (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError, _httpc.HTTPException, OSError)
+
+
 def dex_best(mints):
     """{mint: DexScreener pair to believe} for many mints (30 per call, free). Not simply the biggest reported
     liquidity any more (audit 4.11. F04/PYTH): dexscreener.client.pick_pool takes the most liquid SOL/USDC/USDT
     pool that agrees with the median price; a conflict is put on the pair as p["sumnjivo"] (shown, not ranked)."""
     by = {}
-    for p in dex.tokens("solana", list(mints)):
-        m = (p.get("baseToken") or {}).get("address")
-        if m in mints:
-            by.setdefault(m, []).append(p)
+    mints = set(mints)
+    ms, failed, why = list(mints), 0, None
+    for i in range(0, len(ms), 30):   # 23.11.: one batch at a time, so a network error keeps what came before it
+        try:
+            got = dex.tokens("solana", ms[i:i + 30])
+        except NET_ERRORS as e:   # 22.11. 00:33: one URLError/timeout failed the whole `run_dugo.py once` pass
+            failed += 1
+            why = why or f"{type(e).__name__}: {str(e)[:80]}"
+            continue
+        for p in got:
+            m = (p.get("baseToken") or {}).get("address")
+            if m in mints:
+                by.setdefault(m, []).append(p)
+    if failed:
+        print(f"dugo: DexScreener nije odgovorio ({why}; {failed} od {(len(ms) + 29) // 30} upita), nastavljam s onim "
+              "što imam", file=sys.stderr, flush=True)
     best = {}
     for m, ps in by.items():
         p, why = dex.pick_pool(ps)

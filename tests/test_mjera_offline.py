@@ -223,8 +223,9 @@ class Parity(Base):
         p = mjera.check_switch(self.con, NOW + 5, lines.append)
         self.assertEqual((p["n"], p["word"]), (20, "slaže se"))
         self.assertLessEqual(p["median_pp"], 1.5)
-        self.assertTrue(lines and "PREBAČENO" in lines[0])
-        self.assertFalse(mjera.demo_entries_ok(self.con))
+        self.assertTrue(lines and "POTVRĐENO" in lines[0])
+        self.assertTrue(mjera.demo_entries_ok(self.con))      # 23.11. (vlasnik): parity no longer stops the demos
+        self.assertIsNotNone(mjera.switched(self.con))
         mjera.check_switch(self.con, NOW + 10, lines.append)
         self.assertEqual(len(lines), 1)                                      # once
         self.assertEqual(mjera.parity_line(p), "mjerenje vs demo: upareno 20, medijan razlike 0,50 pp: slaže se")
@@ -268,18 +269,32 @@ class Hooks(Base):
         self.assertEqual(len(r), 1)
         self.assertEqual((r[0]["source"], r[0]["gid"], r[0]["wallet"], r[0]["status"]), ("prije_pumpe", "g1", "w1", "open"))
         self.assertEqual(json.loads(r[0]["members"]), ["w1", "w2"])
-        # switched: the measurement goes on, the demo opens nothing new, its open rows still exit
+        # 23.11. (vlasnik: "Demo tradanje nikad ne treba prestati"): after parity held in "auto" the demo still enters
         mjera._kv(self.con, "prebaceno", {"ts": NOW})
         self.con.commit()
         with mock.patch.object(pp_live, "watched", return_value=[("prije_pumpe", "g1", ["w1"])]), \
                 mock.patch.object(ilive, "fresh_buys", return_value=[("TokNEW", NOW + 9, "w1")]), \
                 mock.patch.object(ilive, "mode", return_value="paper"), \
                 mock.patch.object(pp_live, "exits", exits), \
-                mock.patch.object(pp_live, "enter") as enter:
+                mock.patch.object(pp_live, "enter", return_value=(None, "test")) as enter:
             pp_live.run_once(self.con, market_fn=lambda toks: {t: GOOD for t in toks}, now=NOW + 10, sol=150.0,
                              force=True)
-        self.assertFalse(enter.called)
+        self.assertTrue(enter.called)
         self.assertEqual(len(self.rows()), 2)
+        # only the owner's own mode "mjera" holds the demo's new trades; the measurement goes on, open rows still exit
+        tcon = settings.connect(self.tdb)
+        settings.put(tcon, mjera.MODE_KEY, "mjera", "Jure")
+        tcon.close()
+        pp_live._TRIED.clear()
+        with mock.patch.object(pp_live, "watched", return_value=[("prije_pumpe", "g1", ["w1"])]), \
+                mock.patch.object(ilive, "fresh_buys", return_value=[("TokNEW2", NOW + 19, "w1")]), \
+                mock.patch.object(ilive, "mode", return_value="paper"), \
+                mock.patch.object(pp_live, "exits", exits), \
+                mock.patch.object(pp_live, "enter") as enter:
+            pp_live.run_once(self.con, market_fn=lambda toks: {t: GOOD for t in toks}, now=NOW + 20, sol=150.0,
+                             force=True)
+        self.assertFalse(enter.called)
+        self.assertEqual(len(self.rows()), 3)
 
     def test_every_source_is_hooked_before_its_caps(self):
         for path, src in (("insajderi/pp_live.py", "mjera.record(con, kind"), ("insajderi/live.py", 'mjera.record(con, "insajderi2"'),

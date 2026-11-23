@@ -96,6 +96,7 @@ def _index_html(con, m):
     out.append(table(["Stanje kod Googlea", ("Stranica", "n"), ("U indeksu", "n")],
                      [[esc(st), (f"{n:,}", n, "n"), ("da" if ok == n else ("ne" if not ok else f"{ok:,}"), ok, "n")]
                       for st, n, ok in counts], "gscidx", empty="Još nema pregleda (kreće nakon osvježavanja podataka)."))
+    out.append(_crawl_html(con, m))
     pc, pp = (m.get("pages_cur") or "|").split("|"), (m.get("pages_prev") or "|").split("|")
     lost = con.execute("SELECT p.page, p.imp_prev, p.clicks_prev, i.coverage_state, i.last_crawl FROM gsc_pages p "
                        "LEFT JOIN gsc_inspect i ON i.url = p.page WHERE p.imp_prev > 0 AND p.imp_cur <= 0 "
@@ -112,6 +113,40 @@ def _index_html(con, m):
     out.append(table(["Stranica", "Stanje kod Googlea", "Dohvat", "Zadnji crawl"],
                      [[_short_page(u), esc(st), esc(f or "–"), esc((lc or "–")[:10])] for u, st, f, lc in bad],
                      "gscnoidx", empty="Sve pregledane stranice su u indeksu."))
+    return "".join(out)
+
+
+def _crawl_html(con, m):
+    """Crawl recency, indexed / not indexed per section and the sitemaps Search Console has (gsc_meta 'smapi')."""
+    import json
+    n, b, newest = gsc.crawl_stats(con, dt.date.today())
+    out = []
+    if n:
+        try:
+            sm = set(json.loads(m.get("sm_urls") or "[]"))
+        except ValueError:
+            sm = set()
+        left = len(sm - {u for (u,) in con.execute("SELECT url FROM gsc_inspect")}) if sm else None
+        out.append("<p class=mut>Zadnji crawl: " + ", ".join(f"{esc(k)} <b>{v:,}</b>" for k, v in b.items())
+                   + f"; najnoviji {esc(str(newest or '–'))}."
+                   + (f" Iz sitemapa još nepregledano {left:,} od {len(sm):,}." if left is not None else "") + "</p>")
+        cell = lambda v: (f"{v:,}", v, "n")  # noqa: E731
+        out.append(table(["Sekcija", ("U indeksu", "n"), ("Crawled, nije u indeksu", "n"), ("Google ne zna", "n"),
+                          ("Pregledano", "n")],
+                         [[esc(k), cell(a), cell(c), cell(u), cell(t)] for k, (a, c, u, t) in gsc.section_stats(con).items()
+                          if t], "gscsec"))
+    if m.get("smapi_error"):
+        out.append(f"<p class=neg>Sitemapovi u Search Consoleu: {esc(m['smapi_error'])}</p>")
+    elif m.get("smapi") is not None:
+        try:
+            rows = json.loads(m["smapi"])
+        except ValueError:
+            rows = []
+        out.append("<h3>Sitemap u Search Consoleu</h3>" + table(
+            ["Sitemap", "Zadnje preuzimanje", "Obrada", ("Greške", "n"), ("Upozorenja", "n"), ("Poslano", "n")],
+            [[esc(r["path"]), esc(r["downloaded"]), "čeka" if r["pending"] else "ok", (str(r["errors"]), r["errors"], "n"),
+              (str(r["warnings"]), r["warnings"], "n"), (f"{r['submitted']:,}", r["submitted"], "n")] for r in rows],
+            "gscsm", empty="<span class=neg>Nijedan sitemap nije poslan u Search Console.</span>"))
     return "".join(out)
 
 

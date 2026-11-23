@@ -97,7 +97,18 @@ NO_BUY_S = 240     # a real twin the mirror never took (run_trade's max_signal_a
 BANDS = ((0.02, "+1 do +2 %"), (0.03, "+2 do +3 %"), (float("inf"), "iznad +3 %"))
 VERDICT_HR = {"mjeri": "još se mjeri", "kandidat": "KANDIDAT (donja granica iznad nule)", "nema_plusa": "nema plusa"}
 SCHEMA = ("CREATE TABLE IF NOT EXISTS veliki_ucenik (id INTEGER PRIMARY KEY, ts INTEGER, token TEXT, profil TEXT, "
-          "pred REAL, model_ts INTEGER, facts TEXT, real TEXT)")
+          "pred REAL, model_ts INTEGER, facts TEXT, real TEXT, raw REAL, izvan TEXT)")
+IZVAN_HR = "izvan raspona učenja"
+
+
+def ensure(con):
+    """veliki_ucenik with the 23.11. columns (raw: the model's unclipped sum; izvan: why the forecast was outside what
+    its exit profile can pay), idempotent."""
+    con.execute(SCHEMA)
+    have = {r[1] for r in con.execute("PRAGMA table_info(veliki_ucenik)")}
+    for col, typ in (("raw", "REAL"), ("izvan", "TEXT")):
+        if col not in have:
+            con.execute(f"ALTER TABLE veliki_ucenik ADD COLUMN {col} {typ}")
 _PEND = {}      # veliki_trades id -> (reason, the time of the quote that crossed the level): filled at the next quote
 _BOUGHT = set()  # veliki_trades ids of real twins whose real buy is confirmed in trade.db (asked again after a restart)
 
@@ -189,9 +200,12 @@ def try_enter(con, out, held, tok, q, now, sol, z, b15, icfg, btc, pr=None, lset
         if k is None:
             return None
         f = nauceno.facts({**k, "opened_ts": int(now)})
-        prof, pred = nauceno.predict_best(m, f)
-        if prof is None or pred <= THR:
+        # 23.11. (production: "prognoza +4071.1% neto" for a +20 % exit): the forecast clipped to what its exit can
+        # pay; a raw sum outside that is marked "izvan raspona učenja" (stored, in the line, out of the verdict)
+        pc = nauceno.predict_checked(m, f)
+        if pc is None or pc["pred"] <= THR:
             return None
+        prof, pred, izvan = pc["profil"], pc["pred"], pc["izvan"]
         if con.execute("SELECT 1 FROM veliki_trades WHERE user=? AND token=? AND status='open'", (USER, tok)).fetchone():
             return None
         if con.execute("SELECT COUNT(*) FROM veliki_trades WHERE user=? AND status='open'",
@@ -226,16 +240,19 @@ def try_enter(con, out, held, tok, q, now, sol, z, b15, icfg, btc, pr=None, lset
              mcap, KEY, json.dumps(zj), live._regime(now), src[:200], (btc or {}).get("state"), float(sjena.MAX_H),
              k["dip"], rule.be_price(px, rt, {"exit_slip": 0.0}), px, k["makro"], TAG + prof, live.real_gate()))
         vid = cur.lastrowid
-        con.execute(SCHEMA)
-        con.execute("INSERT OR REPLACE INTO veliki_ucenik (id, ts, token, profil, pred, model_ts, facts) VALUES "
-                    "(?,?,?,?,?,?,?)", (vid, int(now), tok, prof, pred, m.ts, json.dumps(f, ensure_ascii=False)))
+        ensure(con)
+        con.execute("INSERT OR REPLACE INTO veliki_ucenik (id, ts, token, profil, pred, model_ts, facts, raw, izvan) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)", (vid, int(now), tok, prof, pred, m.ts,
+                                                   json.dumps(f, ensure_ascii=False), pc["raw"], izvan))
         con.commit()
         held.add((USER, tok))
         gtag = live.real_gate()
-        out.append(f"veliki naučeno ulaz [{prof}]{' [' + gtag + ': pravi novac bi stajao]' if gtag else ''} {sym} "
+        out.append(f"veliki naučeno ulaz [{prof}]{' [' + gtag + ': pravi novac bi stajao]' if gtag else ''}"
+                   f"{' [' + IZVAN_HR + ': ' + izvan + '; izvan presude]' if izvan else ''} {sym} "
                    f"{size_sol:g} SOL na MC ${(mcap or 0) / 1e6:,.1f}M: prognoza "
                    f"{pred:+.1%} neto (prag {THR:+.0%}), cilj {tp_px:.6g} ({tp_px / px - 1:+.1%}), stop {stop_px:.6g} "
-                   f"({stop_px / px - 1:+.0%}), najdulje {sjena.MAX_H} h; pravi trošak runde {rt:.2%}")
+                   f"({stop_px / px - 1:+.0%}), najdulje {sjena.MAX_H} h; pravi trošak runde {rt:.2%}"
+                   + (f"; najveći doprinos: {pc['doprinos']}" if izvan and pc.get("doprinos") else ""))
     except Exception as e:  # noqa: BLE001
         try:
             con.rollback()
@@ -246,7 +263,7 @@ def try_enter(con, out, held, tok, q, now, sol, z, b15, icfg, btc, pr=None, lset
     if real_on():   # the owner's switch pravi_novac_nauceno: the same entry also with real money (never raises)
         _enter_real(con, out, held, tok, q, now, sol, z, icfg, btc, pr, lset, prioritet,
                     {"k": k, "prof": prof, "pred": pred, "tp_px": tp_px, "stop_px": stop_px, "demo_id": vid,
-                     "model_ts": m.ts, "facts": f})
+                     "model_ts": m.ts, "facts": f, "izvan": izvan})
     return vid
 
 
@@ -264,7 +281,8 @@ def _enter_real(con, out, held, tok, q, now, sol, z, icfg, btc, pr, lset, priori
         user = settings.LEAGUE_USER
         p = (pr or {}).get(tok) or {}
         rg = live.real_gate()   # 23.11.: a market gate holds real money (live.enter refuses it again)
-        why = f"{rg}: pravi novac bez novih ulaza" if rg else _real_ready()
+        why = (f"{rg}: pravi novac bez novih ulaza" if rg else
+               f"prognoza {IZVAN_HR} ({e['izvan']})" if e.get("izvan") else _real_ready())
         if not why:
             if (p.get("dip") or {}).get("kind") == "los":
                 why = "pad iz lošeg razloga"
@@ -517,6 +535,12 @@ def stats(con, now, user=None):
         preds = dict(con.execute("SELECT id, pred FROM veliki_ucenik").fetchall())
     except sqlite3.Error:
         preds = {}
+    try:   # 23.11.: entries made on a forecast outside what its exit can pay: apart, never in the verdict
+        izv = {r[0] for r in con.execute("SELECT id FROM veliki_ucenik WHERE COALESCE(izvan, '')<>''")}
+    except sqlite3.Error:
+        izv = set()
+    out_rows = [r for r in rows if r[0] in izv]
+    rows = [r for r in rows if r[0] not in izv]
     pairs, by_p, by_b = [], {}, {}
     for rid, tok, opened, ret, _usd, var in rows:
         pair = ((tok, opened // D), ret)
@@ -535,7 +559,9 @@ def stats(con, now, user=None):
         mts, ok = None, False
     gst = nauceno._stat([((tok, op // D), ret) for tok, op, ret, _u in gated])
     gst["usd"] = sum(r[3] or 0.0 for r in gated)
-    return {"u_filtru": gst,
+    ist = nauceno._stat([((r[1], r[2] // D), r[3]) for r in out_rows])
+    ist["usd"] = sum(r[4] or 0.0 for r in out_rows)
+    return {"u_filtru": gst, "izvan_ucenja": ist,
             "open": n_open, "first_ts": first, "days": days, "closed": st, "usd": sum(r[4] or 0.0 for r in rows),
             "verdict": verdict, "by_profile": {k: nauceno._stat(v) for k, v in by_p.items()},
             "by_band": {k: nauceno._stat(v) for k, v in by_b.items()}, "model_ts": mts, "model_ok": ok}
@@ -554,6 +580,10 @@ def line(con, now, s=None):
         txt += (f" ({st['clusters']} token-dana), prosjek po token-danu {st['ev']:+.1%}{ci}, pogodak {st['hit']:.0%}, "
                 f"zbroj {s['usd']:+.2f} $")
     txt += f"; presuda nakon {VERDICT_DAYS} dana ili {VERDICT_CLUSTERS} token-dana: {VERDICT_HR[s['verdict']]}"
+    iz = s.get("izvan_ucenja") or {}
+    if iz.get("n"):   # 23.11.: forecasts outside what the exit can pay
+        txt += (f"; prognoza {IZVAN_HR} (izvan presude): n={iz['n']}, prosjek po token-danu {iz['ev']:+.1%}, zbroj "
+                f"{iz['usd']:+.2f} $")
     g = s.get("u_filtru") or {}
     if g.get("n"):   # 23.11.: entries made while a market gate held real money: apart, not in the verdict
         txt += (f"; u filtru tržišta (pravi novac bi stajao, izvan presude): n={g['n']}, prosjek po token-danu "

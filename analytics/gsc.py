@@ -233,7 +233,8 @@ def collect(path=None, today=None, q=None):
 
 # --- diagnosis: why impressions fell (log lines + the "Indeksiranost" block on the Analitika page) -------------
 # Everything below runs after collect() in its own try blocks: a failure here never touches the numbers above.
-# Log lines to search for: "gsc dani:", "gsc stranice:", "gsc indeks:", "gsc indeks primjeri".
+# Log lines to search for: "gsc dani:", "gsc stranice:", "gsc indeks:", "gsc indeks primjeri", "gsc crawl:",
+# "gsc indeks po sekciji:", "gsc sitemap:".
 
 INSPECT_URL = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect"
 DAYS_SHOWN = 21
@@ -247,8 +248,7 @@ SECTIONS = [("/telegram/*", ("telegram", "telegram-channels", "telegram-kanali")
             ("/how-to-buy/*", ("how-to-buy", "kako-kupiti")),
             ("/rug-check/*", ("rug-check", "provjera")),
             ("naslovnica", ("",))]
-BAD_WORDS = ("noindex", "5xx", "401", "robots", "redirect")
-EXAMPLES = 15
+EXAMPLES = 20
 
 
 class InspectStop(GscError):
@@ -425,10 +425,93 @@ def inspect_order(con, today, sitemap=None, cap=None):
     return out
 
 
-def _bad(verdict, state, fetch):
-    if verdict == "PASS":
-        return False
-    return (fetch or "") != "SUCCESSFUL" or any(w in (state or "").lower() for w in BAD_WORDS)
+CRAWLED_NOT = "Crawled - currently not indexed"
+UNKNOWN = "URL is unknown to Google"
+CRAWL_BUCKETS = ("zadnjih 3 d", "4-7 d", "8-14 d", "starije", "nikad")
+
+
+def _crawl_day(s):
+    """lastCrawlTime ('2026-11-12T08:01:02Z') → date, None when never crawled or unreadable."""
+    try:
+        return dt.date.fromisoformat((s or "")[:10])
+    except ValueError:
+        return None
+
+
+def crawl_stats(con, today):
+    """(stored, {bucket: n}, newest crawl date or None) over everything in gsc_inspect."""
+    b = dict.fromkeys(CRAWL_BUCKETS, 0)
+    newest, n = None, 0
+    for (lc,) in con.execute("SELECT last_crawl FROM gsc_inspect"):
+        n += 1
+        d = _crawl_day(lc)
+        if d is None:
+            b["nikad"] += 1
+            continue
+        newest = max(newest or d, d)
+        age = (today - d).days
+        b["zadnjih 3 d" if age <= 3 else "4-7 d" if age <= 7 else "8-14 d" if age <= 14 else "starije"] += 1
+    return n, b, newest
+
+
+def section_stats(con):
+    """{section: [indexed, crawled-not-indexed, unknown, all]} over gsc_inspect, sections as in "gsc stranice"."""
+    out = {name: [0, 0, 0, 0] for name in [s_ for s_, _ in SECTIONS] + ["ostalo"]}
+    for url, verdict, state in con.execute("SELECT url, verdict, coverage_state FROM gsc_inspect"):
+        x = out[section(url)]
+        x[0] += verdict == "PASS"
+        x[1] += state == CRAWLED_NOT
+        x[2] += state == UNKNOWN
+        x[3] += 1
+    return out
+
+
+def stats_lines(con, today):
+    n, b, newest = crawl_stats(con, today)
+    sec = section_stats(con)
+    return [f"gsc crawl: od {n} pregledanih zadnji crawl " + ", ".join(f"{k} {v}" for k, v in b.items())
+            + f"; najnoviji crawl {newest or '–'}",
+            "gsc indeks po sekciji: " + ", ".join(f"{k} {a}/{c}/{u}" for k, (a, c, u, _) in sec.items())]
+
+
+def sitemaps(site_url=None):
+    """Sitemaps submitted to Search Console (webmasters/v3 sitemaps.list): the API's dicts."""
+    return _api(f"/sites/{urllib.parse.quote(site_url or site(), safe='')}/sitemaps").get("sitemap", [])
+
+
+def _int(v):
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def sitemap_lines(path=None, today=None, fetch=None, force=False):
+    """One line per sitemap submitted to Search Console, once a day; the list is kept in gsc_meta for the page."""
+    today = today or dt.date.today()
+    con = connect(path)
+    try:
+        if not force and meta(con).get("smapi_day") == str(today):
+            return []
+        try:
+            sms = (fetch or sitemaps)()
+        except GscError as e:
+            _set(con, smapi_day=today, smapi_error=str(e))
+            con.commit()
+            return [f"gsc sitemap: {e}"]
+        rows = [{"path": x.get("path") or "?", "downloaded": (x.get("lastDownloaded") or "")[:10] or "–",
+                 "pending": bool(x.get("isPending")), "errors": _int(x.get("errors")),
+                 "warnings": _int(x.get("warnings")),
+                 "submitted": sum(_int(c.get("submitted")) for c in x.get("contents") or [])} for x in sms]
+        _set(con, smapi_day=today, smapi_error=None, smapi=json.dumps(rows), smapi_ts=int(time.time()))
+        con.commit()
+    finally:
+        con.close()
+    if not rows:
+        return ["gsc sitemap: nijedan sitemap nije poslan u Search Console"]
+    return [f"gsc sitemap: {r['path']} zadnje preuzimanje {r['downloaded']}, obrada "
+            f"{'isPending' if r['pending'] else 'ok'}, greške {r['errors']}, upozorenja {r['warnings']}, "
+            f"poslano {r['submitted']}" for r in rows]
 
 
 def inspect_lines(path=None, today=None, call=None, sleep=time.sleep, sitemap=None, pause=1.0):
@@ -443,7 +526,8 @@ def inspect_lines(path=None, today=None, call=None, sleep=time.sleep, sitemap=No
         if used >= cap:
             return []
         try:
-            todo = inspect_order(con, today, sitemap, cap - used)
+            sm = sitemap if sitemap is not None else sitemap_urls(con, today)
+            todo = inspect_order(con, today, sm, cap - used)
         except Exception as e:  # noqa: BLE001
             return [f"gsc indeks: popis stranica nedostupan ({type(e).__name__}); pregled preskočen."]
         done, errors, stop = [], 0, None
@@ -476,6 +560,8 @@ def inspect_lines(path=None, today=None, call=None, sleep=time.sleep, sitemap=No
             kv["inspect_ok"] = int(time.time())
         _set(con, **kv)
         con.commit()
+        stored = {u for (u,) in con.execute("SELECT url FROM gsc_inspect")}
+        stats = stats_lines(con, today) if done else []
     finally:
         con.close()
     lines = []
@@ -485,24 +571,26 @@ def inspect_lines(path=None, today=None, call=None, sleep=time.sleep, sitemap=No
             counts[row[3]] = counts.get(row[3], 0) + 1
         txt = ", ".join(f"{k} {v}" for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
         lines.append(f"gsc indeks: pregledano {len(done)}; {txt or 'nema rezultata'}"
-                     + (f"; greške {errors}" if errors else ""))
+                     + (f"; greške {errors}" if errors else "")
+                     + f"; ukupno u bazi {len(stored)}, sitemap još nepregledano {len(set(sm) - stored)}")
         ex = {}
-        for url, _, verdict, state, _, _, fetch, *_ in done:
-            if _bad(verdict, state, fetch):
-                ex.setdefault(state, []).append(_path(url))
-        for state, us in sorted(ex.items(), key=lambda kv: -len(kv[1])):
+        for url, _, verdict, state, _, _, fetch, lc, *_ in done:   # every state, indexed ones too (13.11. drop)
+            ex.setdefault(state, []).append(f"{_path(url)} (crawl {_crawl_day(lc) or '–'})")
+        for state, us in sorted(ex.items(), key=lambda kv: (-len(kv[1]), kv[0])):
             lines.append(f"gsc indeks primjeri {state}: " + ", ".join(us[:EXAMPLES]))
+        lines += stats
     if stop:
         lines.append(stop)
     return lines
 
 
-def diagnose(path=None, today=None, q=None, call=None, sleep=time.sleep, sitemap=None):
-    """The three diagnosis steps, each on its own: returns the log lines, never raises."""
+def diagnose(path=None, today=None, q=None, call=None, sleep=time.sleep, sitemap=None, smfetch=None):
+    """The four diagnosis steps, each on its own: returns the log lines, never raises."""
     out = []
     for name, fn in (("dani", lambda: days_lines(path, today)),
                      ("stranice", lambda: pages_lines(path, today, q)),
-                     ("indeks", lambda: inspect_lines(path, today, call, sleep, sitemap))):
+                     ("indeks", lambda: inspect_lines(path, today, call, sleep, sitemap)),
+                     ("sitemap", lambda: sitemap_lines(path, today, smfetch))):
         try:
             out += fn()
         except Exception as e:  # noqa: BLE001  (type only: a message could carry request details)
