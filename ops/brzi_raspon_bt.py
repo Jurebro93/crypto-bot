@@ -21,7 +21,7 @@ import statistics
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from veliki import intra, rule  # noqa: E402
+from veliki import intra, povlacenje, rule  # noqa: E402
 
 H, M15, DAY = 3600, 900, 86400
 RT = 0.04
@@ -69,34 +69,11 @@ def zone_signal(b15, hh, hts, i, c, crash):
 
 
 def pull_signal(b15, i, v, crash):
-    """V5 / V6: povlačenje nakon skoka u zadnja 24 h."""
-    t = b15[i][0] + M15
-    if crash is not None and crash.regime(t)[0] == "slobodan_pad":
-        return None
-    w0 = max(0, i - 95)
-    if i - w0 < 20:
-        return None
-    hi_j = max(range(w0, i + 1), key=lambda j: b15[j][2])
-    if hi_j <= w0:
-        return None
-    leg_hi = b15[hi_j][2]
-    leg_lo = min(b15[j][3] for j in range(w0, hi_j))
-    if leg_lo <= 0 or leg_hi / leg_lo - 1 < v["leg"]:
-        return None
-    px = b15[i][4]
-    r = (leg_hi - px) / (leg_hi - leg_lo)
-    if not (v["ret"][0] <= r <= v["ret"][1]):
-        return None
-    ok, _ = intra.calm(b15[i - 2:i + 1], {"calm": 2})
-    if not ok:
-        return None
-    e = b15[i + 1][1]
-    if leg_hi / e - 1 < v["min_tp"]:
-        return None
-    stop = max(leg_lo * (1 - v["stop_under"]), e * (1 - v["cap"]))
-    if stop >= e:
-        return None
-    return {"tp_px": leg_hi, "stop_px": stop, "zone": (leg_lo, leg_hi)}
+    """V5 / V6: povlačenje nakon skoka u zadnja 24 h. Isti kod kao demo (veliki/povlacenje.plan_at): ulaz na otvaranju
+    svijeće i+1, BTC slobodan pad ovdje odbija (filtar tržišta pravog novca; live demo ga ne pita)."""
+    st = crash.regime(b15[i][0] + M15)[0] if crash is not None else None
+    v = {k: v[k] for k in povlacenje.V6 if k in v}
+    return povlacenje.plan_at(b15, i, b15[i + 1][1], v, st)
 
 
 def run_trade(b15, i, plan, c, crash):
