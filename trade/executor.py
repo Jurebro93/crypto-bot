@@ -470,6 +470,8 @@ def strategy_label(reason):
         return "naučeno"
     if low.startswith("veliki: dca"):
         return "veliki DCA lot"
+    if "risk-off iznimka" in low:   # 23.11.: the owner's risk-off exception of the daily range (veliki/riskoff), apart
+        return "veliki risk-off iznimka"
     if "dnevna zona" in low:
         return "veliki dnevni raspon"
     if "podrška" in low or "bez raspona" in low:

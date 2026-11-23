@@ -478,7 +478,34 @@ OWNER_SWITCH_NOTES[NAUCENO_SWITCH] = ("Tvoj prekidač: „uživo” = ulaz demo 
 # sale and exit of an open real position, the owner's own manual buy and his own DCA / limit orders, every demo
 # account. It ends only when the owner himself turns one of his real-money switches back to "uživo" (set_flag).
 PAUZA_KEY = "pravi_novac_pauza"
-REAL_SWITCHES = (VEL_SWITCH, NAUCENO_SWITCH, SWITCH_ALL, IZVORI, OSC_SWITCH)
+
+# 23.11. (vlasnik u chatu: "kreni da najviše dvije pozicije mogu biti otvorene, ali ako se zatvore, otvori dvije nove
+# ... želim puno tradeova sa uključenim 4% fijem kojeg plaćamo za tradeove. Tako da pazite kad se zatvara da bi profit
+# postojao"; veliki/riskoff.py): the owner switch of the RISK-OFF EXCEPTION of the midcap daily range. Default off.
+# "uživo" by his own tap on the Autopilot page with its confirmation (set_flag needs his name AND tap=True: no chat
+# order, applied suggestion or council decision can turn it on), or by his one-time order of 23.11.
+# (riskoff_order_2311 below; written, tested, NOT wired to any start until he allows it). On: while the macro regime
+# risk_off is the ONLY market gate holding real money, the real account may still enter the daily-range rule under
+# veliki/riskoff's conditions (BTC not falling, the Solana meme sector >= 0 % in 24 h, MC >= 15M, at most 2 open real
+# midcap positions, 0.1 SOL, a 4 % round-trip cost floor, the target >= +3 % net and voluntary profit exits only from
+# +1 % net). His tap to "uživo" also turns pravi_novac_veliki on when it is off and ends the pause of 19.11. (it is one
+# of REAL_SWITCHES). Turning it off never touches an open position.
+RISKOFF_SWITCH = "pravi_novac_risk_off"
+RISKOFF_LABEL = "midcap raspon u risk-offu (iznimka, najviše 2 pozicije)"
+RISKOFF_CONFIRM = "Uključuje i 'midcap raspon' pravim novcem i skida pauzu od 19.11."
+FLAGS[RISKOFF_SWITCH] = ("P27", "Pravi novac: " + RISKOFF_LABEL + ": dok je makro režim risk-off jedini filtar, dnevni "
+                                "raspon smije kupiti pravim novcem kad BTC ne pada (4 h ≥ −1 %), Solana meme sektor nije "
+                                "u minusu 24 h i MC ≥ 15M $; 0,1 SOL, najviše 2 otvorene; trošak kruga najmanje 4 %, cilj "
+                                "barem +3 % neto, dobrovoljni izlaz tek od +1 % neto")
+OWNER_SWITCHES = OWNER_SWITCHES | {RISKOFF_SWITCH}
+OWNER_SWITCH_NOTES[RISKOFF_SWITCH] = ("Tvoj prekidač (samo dodirom na stranici Autopilot, uz potvrdu): „uživo” = u "
+                                      "risk-offu pravi novac smije do 2 pozicije dnevnog raspona po 0,1 SOL, samo dok BTC "
+                                      "ne pada i meme sektor nije u minusu 24 h, MC ≥ 15M $; trošak kruga računa se "
+                                      "najmanje 4 %, ulaz samo kad je cilj barem +3 % neto, dobrovoljni izlaz tek od +1 % "
+                                      "neto (stopovi uvijek). " + RISKOFF_CONFIRM + " Isključivanje ne dira otvorene "
+                                      "pozicije.")
+REAL_SWITCHES = (VEL_SWITCH, NAUCENO_SWITCH, SWITCH_ALL, IZVORI, OSC_SWITCH, RISKOFF_SWITCH)
+PAUZA_1911_SWITCHES = REAL_SWITCHES[:5]
 PAUZA_TEXT = ("pravi novac je pauziran (vlasnik 19.11.: promjena strategije): automatske prave kupnje stoje dok vlasnik "
               "ne uključi svoj prekidač; otvorene pozicije zadržavaju izlaze")
 
@@ -511,7 +538,7 @@ def pauza_order_1911(con, now=None):
         if con.execute("SELECT 1 FROM settings WHERE k = ?", (PAUZA_ONCE,)).fetchone():
             return []
         done = []
-        for name in REAL_SWITCHES:
+        for name in PAUZA_1911_SWITCHES:   # the five of that day (the risk-off exception came on 23.11.)
             old = flag_state(con)[name]["mode"]
             if old == "off":
                 done.append(f"{name}: već off")
@@ -529,6 +556,55 @@ def pauza_order_line(done):
     return ("pravi trade: nalog vlasnika 19.11. izvršen: automatske kupnje pravim novcem su ISKLJUČENE ("
             + "; ".join(done) + "); otvorene prave pozicije ostaju otvorene i zadržavaju izlaze; ručna kupnja vlasnika i "
             "njegovi DCA / limit nalozi nisu dirani; demo računi rade dalje; uključuje samo vlasnik svojim prekidačem")
+
+
+# 23.11. 14:38-14:40 UTC (vlasnik): he set pravi_novac_veliki live himself (the pause of 19.11. ended by his tap) and
+# wrote "Kreni odmah s tradeovima, uključeni su svi prekidači, live trade je uključen. Pazi samo da se uspostavi novi
+# range, da pametno ulaziš", after "Ok, kreni da najviše dvije pozicije mogu biti otvorene ... sa uključenim 4%
+# fijem": his explicit order for the risk-off exception. ONE time order (the only code path besides his tap that may
+# set RISKOFF_SWITCH live): at a process start, until RISKOFF_ORDER_UNTIL, ONLY while pravi_novac_veliki is live by
+# his own setting, the pause is off and the kill switch is off; otherwise nothing (not marked done, so a later start
+# before the expiry may still apply it). It never touches pravi_novac_veliki, the pause, sizes or caps. Once it ran
+# (or the switch already had any stored setting of his) it never runs again: the switch is then his alone.
+RISKOFF_ONCE = "owner_once:risk_off_iznimka_2311"
+RISKOFF_WHY = "vlasnik u chatu 23.11.: najviše dvije pozicije, 4 % trošak, kreni odmah"
+RISKOFF_ORDER_UNTIL = 1795521600   # 2026-11-24 12:00 UTC
+RISKOFF_ORDER_LINE = ("pravi trade: nalog vlasnika 23.11. izvršen: risk-off iznimka UKLJUČENA (najviše 2 pozicije po "
+                      "0,1 SOL, trošak 4 %); gasi se prekidačem na stranici Autopilot")
+
+
+def riskoff_order_2311(con, now=None, stop_file=None):
+    """The owner's order of 23.11. for the risk-off exception (above), at most once. -> the log line when it switched
+    the exception on, else None. Never raises (an unreadable database does nothing)."""
+    now = int(now or time.time())
+    try:
+        if now >= RISKOFF_ORDER_UNTIL:
+            return None
+        if con.execute("SELECT 1 FROM settings WHERE k = ?", (RISKOFF_ONCE,)).fetchone():
+            return None
+        if raw(con).get(f"flag:{RISKOFF_SWITCH}") is not None:
+            # he already set it himself (on or off): his setting stands, the order is spent
+            put(con, RISKOFF_ONCE, {"ts": now, "primijenjeno": False, "zasto": "prekidač je već postavio vlasnik"},
+                owner())
+            return None
+        vel = flag_state(con)[VEL_SWITCH]
+        stored = raw(con).get(f"flag:{VEL_SWITCH}")
+        if vel["mode"] != "live" or not is_owner(vel["who"]) or (isinstance(stored, dict) and stored.get("uz")):
+            return None
+        if pauza(con):
+            return None
+        if stop_file is None:
+            from trade import executor
+            stop_file = executor.STOP_FILE
+        if os.path.exists(stop_file):
+            return None
+        put(con, f"flag:{RISKOFF_SWITCH}", {"mode": "live", "since": now, "who": owner(), "nalog": RISKOFF_WHY},
+            owner())
+        put(con, RISKOFF_ONCE, {"ts": now, "primijenjeno": True, "zasto": RISKOFF_WHY}, owner())
+        _FLAG_CACHE.clear()
+    except (sqlite3.Error, ValueError, TypeError):
+        return None
+    return RISKOFF_ORDER_LINE
 
 
 def pravi_novac_izvori(con=None, path=None):
@@ -823,10 +899,11 @@ def paper_refusal(con, name, now=None):
         return f"dokaz se ne može pročitati ({type(e).__name__})"
 
 
-def set_flag(con, name, mode, who="", paper=None, now=None):
+def set_flag(con, name, mode, who="", paper=None, now=None, tap=False):
     """Owner's change of one flag (the page checks is_owner). Raises ValueError with the reason when refused.
     Going down (to off or shadow) is always allowed, and to paper from live; up to paper only past paper_refusal;
-    "since" restarts on every change of mode."""
+    "since" restarts on every change of mode. tap (23.11.): True only from the owner's own confirmed tap on the page
+    (ui/pravitrade /pravi-trade/flag with the confirmation field); RISKOFF_SWITCH goes live only with it."""
     if name not in FLAGS:
         raise ValueError("nepoznata zastavica")
     if mode not in FLAG_MODES:
@@ -835,11 +912,14 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
     cur = flag_state(con)[name]
     if mode == cur["mode"]:
         return cur
-    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH, VEL_SWITCH, NAUCENO_SWITCH, MAKROINF_JAVNO) \
-            and not is_owner(who):
+    if mode == "live" and name in (SWITCH_ALL, IZVORI, OSC_SWITCH, VEL_SWITCH, NAUCENO_SWITCH, MAKROINF_JAVNO,
+                                   RISKOFF_SWITCH) and not is_owner(who):
         # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
         # chat order, an applied suggestion or any other code path
         raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")
+    if mode == "live" and name == RISKOFF_SWITCH and tap is not True:
+        # 23.11.: never in his name from code (a chat order, a seed, a start): only his confirmed tap on the page
+        raise ValueError(f"{name}: uključuje samo vlasnik dodirom na prekidač na stranici Autopilot, uz potvrdu")
     if mode == "live":
         why = live_refusal(con, name, paper, now)
         if why:
@@ -849,6 +929,10 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
         if why:
             raise ValueError(f"{name} ne može u paper: {why}")
     val = {"mode": mode, "since": now, "who": who}
+    if mode == "live" and name == RISKOFF_SWITCH and flag_state(con)[VEL_SWITCH]["mode"] != "live":
+        # 23.11.: the same confirmed tap turns the midcap range's real money on too (the exception runs inside it);
+        # set first, so a refusal leaves both as they were
+        put(con, f"flag:{VEL_SWITCH}", {"mode": "live", "since": now, "who": who, "uz": RISKOFF_SWITCH}, who)
     put(con, f"flag:{name}", val, who)
     _FLAG_CACHE.clear()
     if mode == "live" and name in REAL_SWITCHES and pauza(con):   # 19.11.: his own tap ends the pause of 19.11.

@@ -69,6 +69,8 @@ PLAIN = {
     settings.MAKROINF_JAVNO: ("Javne stranice influencera",
                               "Stranice s ocjenama makro influencera vidljive su svima na internetu.", "live"),
     settings.INSAJDERI2: ("Insajderi", "Demo kupuje kad provjerena grupa ranih kupaca kupi token.", "paper"),
+    settings.RISKOFF_SWITCH: ("Pravi novac u risk-offu",
+                              "Najviše 2 pozicije dnevnog raspona pravim novcem dok je tržište u risk-offu.", "live"),
     settings.MAKROINF: ("Makro influenceri",
                         "Demo ne ulazi u nove pozicije dok najtočniji makro influenceri očekuju pad.", "paper"),
 }
@@ -77,7 +79,7 @@ NAPREDNO = (settings.NAUCENO_SWITCH, settings.SWITCH_ALL, settings.VELIKI, setti
             "exit_plan_live", settings.KRITICAR, "rug_labels_v2_ok", settings.ZADNJIH5, settings.IZVORI,
             settings.OSC_SWITCH, settings.MAKROINF_JAVNO, settings.ARHIVA, "live_trades_retention", "tg_text_retention")
 REAL_MONEY = frozenset({settings.SWITCH_ALL, settings.VEL_SWITCH, settings.NAUCENO_SWITCH, settings.IZVORI,
-                        settings.OSC_SWITCH})
+                        settings.OSC_SWITCH, settings.RISKOFF_SWITCH})
 # what does nothing while the bot trades midcaps only (ops/fokus.py OFF / RETARGET: their runners do not run or are
 # pointed at the midcap list). Hidden from Postavke while fokus_midcap is on and the flag itself is off; never deleted.
 IDLE_FLAGS = {
@@ -224,6 +226,33 @@ def _novac_row(ns, owner):
     return (f'<div class="apx-jtop apx-jr apx-jnovac{" on" if ns["on"] else ""}" id=fl-{settings.VEL_SWITCH}>'
             f'<div class=apx-jh><div class=apx-jt><b>{esc(name)}</b><span class="apx-jst{" on" if ns["on"] else ""}">{state}</span>'
             f'</div>{ctl}</div><p class=apx-jd>{esc(what)}</p>{"".join(lines)}</div>')
+
+
+RISKOFF_WHAT = ("Do 2 pozicije po 0,1 SOL dok BTC ne pada, meme sektor nije u minusu i MC ≥ 15M $; trošak 4 %, cilj "
+                "+3 % neto, izlaz od +1 % neto.")
+
+
+def _riskoff_row(tcon, owner):
+    """23.11. (vlasnik: "najviše dvije pozicije ... 4% fee ... da bi profit postojao"): the owner switch of the risk-off
+    exception (trade/settings.RISKOFF_SWITCH) under "Pravi novac". Turning it on asks his confirmation and posts
+    potvrda=1 only after it (set_flag refuses "uživo" without it); a viewer reads the word."""
+    name = settings.RISKOFF_SWITCH
+    on = settings.flag(name, con=tcon) == "live"
+    word = "uključeno" if on else "isključeno"
+    if owner:
+        mode = "off" if on else "live"
+        ask = ("" if on else f' data-c="{esc("Uključiti iznimku za risk-off (najviše 2 pozicije po 0,1 SOL)? " + settings.RISKOFF_CONFIRM)}"'
+               ' onsubmit="if(!confirm(this.dataset.c))return false;this.potvrda.value=\'1\'"')
+        ctl = (f'<form method=post action=/pravi-trade/flag class=apx-jf{ask}><input type=hidden name=name value={name}>'
+               f'<input type=hidden name=mode value={mode}><input type=hidden name=potvrda value=0>'
+               f'<button class="ap-sw{" on" if on else ""}" role=switch aria-checked={"true" if on else "false"} '
+               f'aria-label="Risk-off iznimka: {"isključi" if on else "uključi"}" '
+               f'title="{"Isključi" if on else "Uključi"}"></button></form>')
+    else:
+        ctl = f'<span class="apx-jst{" on" if on else ""}">{word}</span>'
+    return (f'<div class="apx-jr apx-jro{" on" if on else ""}" id=fl-{name}><div class=apx-jh><div class=apx-jt>'
+            f'<b>U risk-offu</b><span class="apx-jst{" on" if on else ""}">{word}</span></div>{ctl}'
+            f'</div><p class=apx-jd>{esc(RISKOFF_WHAT)}</p></div>')
 
 
 def midcap_state(tcon, ns):
@@ -378,6 +407,7 @@ def prekidaci(d, tcon, cfg, owner, now=None):
                      value_tone="warn")
         parts.append(f'<details class=ap-it id=sw-mcp><summary>{r}</summary><div class=in>{mcp}</div></details>')
     parts.append(_novac_row(ns, owner))
+    parts.append(pt._safe("risk-off iznimka", _riskoff_row, tcon, owner))
     parts.append(_rules_block(midcap_state(tcon, ns)))
     parts.append(pt._safe("istraživanje", _research_row, tcon, owner))
     parts.append(_stop_row(cfg, owner))

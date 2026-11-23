@@ -354,6 +354,12 @@ def _gate_ctx(r, ctx):
     under: a demo position opened in risk_off is not cut or capped at +1 % by that same risk_off (a churn with a
     guaranteed cost), and its DCA follows the demo's normal rule; positions opened outside a gate (and every real
     position) keep today's exits, so the rule's own measurement stays comparable."""
+    from veliki import riskoff
+    if riskoff.is_row(r):   # 23.11.: a real position of the risk-off exception is not closed by that same risk_off
+        c = dict(ctx or {})
+        if c.get("macro") == "risk_off":
+            c["macro"] = None
+        return c
     g = (r or {}).get("gate") or ""
     if not g or (r or {}).get("user") == _league_user():
         return ctx
@@ -486,10 +492,18 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     cp = caps(user, st, kind)
     if plan and plan.get("size_sol"):
         cp = dict(cp, size_sol=min(cp["size_sol"], plan["size_sol"]))
+    from veliki import riskoff
     real = user == settings.LEAGUE_USER
     rg = real_gate()
+    ro = False   # 23.11.: the owner's risk-off exception (veliki/riskoff): only the daily range, never a plan's twin
     if real and rg:   # 23.11.: market gates stop REAL money only (and here, whoever calls enter for the real account)
-        return None, f"{rg}: pravi novac bez novih ulaza", None
+        if not (kind == "intra" and not plan and riskoff.active()):
+            return None, f"{rg}: pravi novac bez novih ulaza", None
+        ro = True
+        why = riskoff.open_refusal(con)
+        if why:
+            return None, why, None
+        cp = dict(cp, size_sol=min(cp["size_sol"], riskoff.SIZE_SOL))
     mgate = None if real else rg     # (not "gate": that name is the veliki/gate module here)
     if con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (user, tok)).fetchone():
         return None, "račun već drži token", None
@@ -504,6 +518,8 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     # Only entries read this: an open position's exits, stops and DCA (manage / dca) never do.
     lo_mc, hi_mc = ((max(universe.MIN_MCAP, universe.REAL_MIN_MCAP), universe.MAX_MCAP) if real
                     else (universe.DATA_MIN_MCAP, universe.DATA_MAX_MCAP))
+    if ro:
+        lo_mc = max(lo_mc, 15e6)   # 23.11.: the exception never under 15M $, whatever an env sets
     if not (lo_mc <= (mcap or 0) <= hi_mc):
         return None, f"MC ${(mcap or 0) / 1e6:,.1f}M izvan {lo_mc / 1e6:g}-{hi_mc / 1e6:g}M", None
     if real and (liq or 0) < universe.REAL_MIN_LIQ:
@@ -529,6 +545,12 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     tp = plan["tp_px"] if plan else rule.tp_price(price, cfg["tp"], c["rt"], zone, cfg)
     if tp <= price:
         return None, "cilj nije iznad ulaza", None
+    if ro:   # 23.11.: the cost at least 4 % for every number of this trade; the target >= +3 % net after it
+        rt_ro = riskoff.rt_of(c["rt"])
+        why = riskoff.target_refusal(price, tp, rt_ro)
+        if why:
+            return None, why, None
+        c = dict(c, rt=rt_ro)
     wide_px = tight_ts = None
     if plan:    # a fixed stop: no wide / tight phase to come back to
         stop = plan["stop_px"]
@@ -550,7 +572,8 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
     try:
         ctx = context(tok, now)
         rs, _tight = rule.reasoned_exit({"entry": price, "first": price, "stop_px": stop}, price, c["rt"],
-                                        _gate_ctx({"gate": mgate, "user": user}, ctx), {**cfg, "exit_slip": 0.0})
+                                        _gate_ctx({"gate": mgate, "user": user, "gate_info": riskoff.TAG if ro else None}, ctx),
+                                        {**cfg, "exit_slip": 0.0})
     except Exception:  # noqa: BLE001 - an unreadable context is no reason to buy blind with real money
         rs, ctx = ("nepoznato" if real else None), {}
     if rs:
@@ -577,6 +600,8 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
         zt = "naučeno pravilo"
     elif kind == "intra":
         zt = f"dnevna zona {zone['lo']:.6g}-{zone['hi']:.6g} ({zone['width']:.0%})"
+        if ro:   # 23.11.: the tag first (the league source is cut at 200 characters; executor.strategy_label reads it)
+            zt = f"[{riskoff.TAG}] " + zt
     else:
         zt = (f"podrška {zone['s_lo']:.6g}-{zone['s_hi']:.6g}" if zone and zone.get("ok") else "bez raspona")
     tail = (f" (cijeli profit; kad tržište raste pola, ostatak BE + trailing {cfg['trail']:.0%})" if half
@@ -602,12 +627,15 @@ def enter(con, user, tok, mq, now, sol, zone, cfg, regime=None, btc=None, link_i
         (user, tok, sym, int(now), tid, cp["size_sol"], size_usd, price, tp, stop, c["rt"], drt, liq, mcap,
          key, json.dumps(zj), regime, why[:200], st, proof, link_id, 0.0 if plan else cfg.get("trail") or 0.0,
          plan["time_h"] if plan else cfg["time_h"], (meta or (None, None))[0], (meta or (None, None))[1], kind, half,
-         rule.be_price(price, c["rt"], {"exit_slip": 0.0}), price, _ST.get("makro_tag"), wide_px, tight_ts,
-         (plan or {}).get("varijanta"), mgate, None if real else gate_info))
+         riskoff.lock_px(price, c["rt"]) if ro else rule.be_price(price, c["rt"], {"exit_slip": 0.0}), price,
+         _ST.get("makro_tag"), wide_px, tight_ts, (plan or {}).get("varijanta"), mgate,
+         riskoff.TAG if ro else (None if real else gate_info)))
     con.commit()
     if plan:
         return why, None, cur.lastrowid
     head = "veliki PRAVI NOVAC: kupnja" if real else "veliki demo ulaz"
+    if ro:
+        head += f" [{riskoff.TAG}: makro risk-off, najviše {riskoff.MAX_OPEN} otvorene, trošak kruga {c['rt']:.1%}]"
     if mgate or (gate_info and not real):
         head += f" [{'; '.join(x for x in (mgate, gate_info) if x)}: pravi novac bi stajao]" if mgate else \
             f" [{gate_info}]"
@@ -648,9 +676,12 @@ def row_cfg(r):
     """The exit config of a row: its trailing, its half (NULL on rows from before the fix: rule.RULE half), and live
     fills at the quote (no extra slippage: the cost is in rt)."""
     from veliki import rule
+    from veliki import riskoff
     h = r.get("half_frac")
+    # 23.11.: a risk-off exception position's break-even is its +1 % net lock (riskoff.lock_px): armed at +5 % net
+    be_at = riskoff.be_at() if riskoff.is_row(r) else rule.OWNER_EXIT["be_at"]
     return {"trail": r.get("trail") or 0.0, "half": rule.RULE["half"] if h is None else h, "exit_slip": 0.0,
-            "stop_slip": 0.0, "stop_fill": "level", "be_at": rule.OWNER_EXIT["be_at"]}
+            "stop_slip": 0.0, "stop_fill": "level", "be_at": be_at}
 
 
 def half_sale(con, r, pos, price, liq, now):
@@ -720,7 +751,7 @@ def _drop(key):
 def manage(con, r, q, age, now, cfg):
     """The exits of one open row at the quote q (age seconds old): the stop (even on a stale quote), then the half at
     the target, the trailing / break-even of the rest, the plain target, the time stop, a rug. [text]."""
-    from veliki import rule
+    from veliki import riskoff, rule
     price = q[0]
     out = []
     pos = pos_of(r)
@@ -748,6 +779,8 @@ def manage(con, r, q, age, now, cfg):
         else:
             _drop(("ba", r["id"]))
     hit = rule.on_price(pos, price, "t", price, rc)
+    if hit and not riskoff.exit_ok(r, pos, price, hit[0], now):
+        hit = None   # 23.11.: a voluntary profit exit under +1 % net after the 4 % cost: held to its target or stop
     if pos.get("half_px") and not had_half:
         out.append(half_sale(con, r, pos, price, q[1], now))
     elif pos.get("peak") != peak0:
@@ -775,6 +808,8 @@ def manage(con, r, q, age, now, cfg):
         return out
     ctx = _gate_ctx(r, context(r["token"], now))   # 23.11.: a gated demo position is not closed by its own gate
     rs, tight = rule.reasoned_exit(pos, price, r["rt"], ctx, {**rc, "exit_slip": 0.0})
+    if rs and not riskoff.exit_ok(r, pos, price, rs, now):
+        rs = None    # 23.11.: (BTC's profit protection under +1 % net: held; the cut and the stops always act)
     if rs:
         return out + [close(con, r, price, q[1], q[3] if len(q) > 3 else None, rs, now, why=ctx_text(ctx))]
     if tight and tight > r["stop_px"]:
@@ -1239,6 +1274,14 @@ def report_line(con, now):
                      f"{win:+.2f} $, gubitak {loss:+.2f} $, neto {win + loss:+.2f} $; ≥ +10 %: {ten}; dnevni raspon "
                      f"{kinds.get('intra', 0)}, raspon 7 d {kinds.get('range', 0)}), pola na cilju {half}, DCA {dca}"
                      + gpart + (chain_line(con, user, d0) if user == settings.LEAGUE_USER else ""))
+    try:   # 23.11.: the owner's risk-off exception apart (real rows with gate_info "risk-off iznimka"), ever and today
+        from veliki import riskoff
+        ra, rd = riskoff.stats(con, 0, _sol()), riskoff.stats(con, d0, _sol())
+        if ra["n"] or ra["open"]:
+            parts.append(f"pravi {riskoff.TAG}: ukupno {riskoff.stats_text(ra)}; danas zatvoreno {rd['n']} "
+                         f"({rd['sol']:+.3f} SOL)")
+    except Exception:  # noqa: BLE001 - the line stands without it
+        pass
     return "; ".join(parts)
 
 
@@ -1457,6 +1500,13 @@ def tick(con, market_fn, now=None, force=False, toks=None):
             gl = gate_line(con, now)
             if gl:
                 out.append(gl)
+            try:   # 23.11.: the owner's risk-off exception (mode, BTC, sector, open of 2, refusals of the hour)
+                from veliki import riskoff
+                rl = riskoff.line(con, now)
+                if rl:
+                    out.append(rl)
+            except Exception as e:  # noqa: BLE001
+                out.append(f"veliki risk-off iznimka: red nije složen ({type(e).__name__})")
         _ST["rep_h"] = hour
     if not users or not poll_all:
         return out
@@ -1496,7 +1546,30 @@ def tick(con, market_fn, now=None, force=False, toks=None):
     # gates hold the REAL account only; the demo accounts enter and each entry stores the gate (see GATE_*)
     gates = market_gates(mac, btc["state"])
     _ST["real_gate"] = "; ".join(gates) or None
-    if _ST["real_gate"] and settings.LEAGUE_USER in users:
+    # 23.11. (vlasnik: "najviše dvije pozicije ... uz 4 % fee ... da bi profit postojao"; veliki/riskoff): the owner's
+    # risk-off exception keeps the real account for the daily range while risk_off is the only gate and its
+    # conditions hold; its switch off = exactly the lines below as before
+    from veliki import riskoff
+    ro_why = None
+    if _ST["real_gate"] and riskoff.switch_on():
+        ro_why = (riskoff.mode_refusal(gates, btc, snap, now) if settings.LEAGUE_USER in users
+                  else "pravi novac midcap raspona sada ne kupuje (prekidač, dokaz ili BTC)")
+    if _ST["real_gate"] and riskoff.switch_on() and ro_why is None:
+        riskoff.set_mode(True, info={"btc": btc["state"], "sector": riskoff.sector_chg(snap, now)[0], "ts": now})
+        if _ST.get("ro_said") != "on":
+            _ST["ro_said"] = "on"
+            ln = riskoff.line(con, now)
+            if ln:
+                out.append(ln)
+    else:
+        riskoff.set_mode(False, ro_why)
+        if ro_why and _ST.get("ro_why") != ro_why:   # a reason the mode is not on, counted when it changes
+            riskoff.refused("ne radi: " + ro_why)
+        if _ST.get("ro_said") == "on":
+            _ST["ro_said"] = None
+            out.append("veliki risk-off iznimka: više ne kupuje" + (f" ({ro_why})" if ro_why else " (izvan risk-offa)"))
+    _ST["ro_why"] = ro_why
+    if _ST["real_gate"] and settings.LEAGUE_USER in users and not riskoff.active():
         users = [u for u in users if u != settings.LEAGUE_USER]
         _ST["gate_held"] = _ST.get("gate_held", 0) + 1
     sol = _sol()
@@ -1650,7 +1723,7 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
     enter); one position a token, cooldown intra.COOLDOWN_S after an exit, at most intra.MAX_ROUNDS rounds a token a
     Zagreb day. [text]."""
     from trade import settings
-    from veliki import intra, istrazivac, sjena, ucenik
+    from veliki import intra, istrazivac, riskoff, sjena, ucenik
     out = []
     m15 = int(now) - int(now) % M15
     icfg = intra.cfg_of()
@@ -1702,8 +1775,8 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
         for user in users:
             if (user, tok) in held:
                 continue
-            if user == settings.LEAGUE_USER and real_gate():   # 23.11.: never reached (tick drops the real account)
-                _refused("dnevni pravi: " + real_gate())
+            if user == settings.LEAGUE_USER and real_gate() and not riskoff.active():
+                _refused("dnevni pravi: " + real_gate())   # 23.11.: never reached (tick drops the real account)
                 continue
             if user == settings.LEAGUE_USER and btc["state"] == "slobodan_pad":
                 _refused("dnevni pravi: BTC slobodan pad: bez novih ulaza")
@@ -1724,6 +1797,8 @@ def intra_entries(con, univ, lset, mk, users, held, btc, now, pr, prioritet=None
                 held.add((user, tok))
             elif no:
                 _refused("dnevni ulaz: " + no)
+                if user == settings.LEAGUE_USER and riskoff.active():
+                    riskoff.refused(no)   # 23.11.: the exception's own refusals, counted per hour
                 if now - _ST["said"].get((user, tok, "i"), 0) > 3600:
                     _ST["said"][(user, tok, "i")] = now
                     out.append(f"veliki {_sym(tok, q)}: dnevni signal bez ulaza ({no})")
