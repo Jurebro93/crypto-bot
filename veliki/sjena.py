@@ -306,6 +306,17 @@ def counts(con, now):
     return {"opened": opened, "closed": closed, "open": n_open, "tokens": toks}
 
 
+GATED_SQL = "(COALESCE(makro, '') LIKE 'risk_off%' OR COALESCE(btc, '') = 'slobodan_pad')"
+
+
+def gated_today(con, now):
+    """23.11.: today's shadows opened while a market gate held real money (the macro tag risk_off or BTC's free fall
+    at the entry: the row's own facts). Real money would not have entered them; nauceno's proof leaves them out."""
+    con.executescript(SCHEMA)
+    return con.execute(f"SELECT COUNT(*) FROM veliki_sjena WHERE opened_ts>=? AND {GATED_SQL}",
+                       (_day(now),)).fetchone()[0]
+
+
 def _cell(c):
     return (f"{c['group']} × {c['profil']}: n={c['n']} ({c['clusters']} token-dana), prosjek {c['ev']:+.1%}, pogodak "
             f"{c['hit']:.0%}, raspon 90 % [{c['lo']:+.1%}; {c['hi']:+.1%}]")
@@ -317,8 +328,10 @@ def line(con, now, days=7):
     if not on():
         return "veliki sjena: isključena (VEL_SJENA=0)"
     n = counts(con, now)
-    head = (f"veliki sjena (zamišljeni tradeovi, 5 izlaza po ulazu): danas otvoreno {n['opened']} u {n['tokens']} tokena, "
-            f"zatvoreno {n['closed']}, sada otvorenih {n['open']}")
+    g = gated_today(con, now)
+    head = (f"veliki sjena (zamišljeni tradeovi, 5 izlaza po ulazu): danas otvoreno {n['opened']} u {n['tokens']} tokena"
+            + (f" (od toga {g} u filtru tržišta: risk-off / BTC slobodan pad, pravi novac bi stajao)" if g else "")
+            + f", zatvoreno {n['closed']}, sada otvorenih {n['open']}")
     cells = [c for c in table(con, now, days) if c["clusters"] >= MIN_CLUSTERS and c["lo"] is not None]
     if not cells:
         return head + f"; ocjena po mjestu u zoni i izlazu: premalo podataka (treba {MIN_CLUSTERS} token-dana po ćeliji)"

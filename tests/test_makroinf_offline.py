@@ -723,11 +723,12 @@ class Wiring(Base):
             self.assertEqual(makro.regime_now(NOW), "neutral")                 # the real account's regime unchanged
         from veliki import live
         out = []
-        self.assertTrue(live._makroinf_blocks(NOW, out))
-        self.assertIn("veliki demo: bez novih ulaza", out[0])
+        # 23.11. (vlasnik: demo never stops for the market): the index tags the demo entry instead of skipping it
+        self.assertEqual(live._makroinf_blocks(NOW, out), live.GATE_MAKROINF)
+        self.assertIn("veliki demo: ulazi s oznakom indeksa", out[0])
         with open(os.path.join(ROOT, "veliki", "live.py"), encoding="utf-8") as f:
             src = f.read()
-        i = src.index("_makroinf_blocks(now, out):   # 15.11.")
+        i = src.index("mi = _makroinf_blocks(now, out)")
         self.assertIn("if user != settings.PAPER_USER:", src[i - 600:i])     # asked only after the real account left
 
 
