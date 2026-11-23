@@ -5,6 +5,7 @@ Unlike the November-1 posts, these use MemeSonar's own measurements, taken from 
 (/influencers, /telegram-channels), which carry the current numbers; the posts never name an account as
 profitable, because on 8 November no account passed the honesty tests described in them.
 """
+from ui import blogsources as S
 from ui.blogposts import post
 from ui.blogviz import bars, stats
 
@@ -14,7 +15,7 @@ D = "2026-11-09"
 post(
     "best-crypto-telegram-channels", "Telegram",
     "Best crypto Telegram channels in 2026: ranked by what their calls did, not by members",
-    "Best crypto Telegram channels 2026, ranked by measured hit rate | MemeSonar",
+    "Best crypto Telegram channels 2026 by measured hit rate",
     "We measure every token call posted in 1,900 crypto Telegram channels: price 1 hour and 24 hours later, rugs. "
     "Here is how the ranking works and why most 'best channels' lists are wrong.",
     ["best crypto telegram channels", "crypto telegram channels", "crypto signal telegram channel",
@@ -38,7 +39,7 @@ run on every <a href=/glossary/kol>KOL</a> on X.</p>
     ("Posts with a contract address", 40772, "from 1,916 channels"),
     ("Posts by alert bots (templates)", 36600, "same text for every new token, excluded from any score"),
     ("Calls with a measured outcome", 2194, "measurement was starved by other jobs until 8 Nov"),
-], sub="count", fmt="num", hl=(2,), source="MemeSonar kol.db, copy of 8 Nov 2026")}
+], sub="count", fmt="num", hl=(2,), source="MemeSonar call measurements as of 8 Nov 2026")}
 <p>Two things stand out. First, almost half of everything posted with a contract address comes from
 <a href=/glossary/bot-account>alert bots</a>: scanner templates that fire on every new token. They are not calls and
 we drop them before any channel is scored. Second, only 5 % of real Telegram calls had a measured outcome on 8
@@ -100,7 +101,7 @@ What is left is what a follower could really have traded.</p>
     ("$50k – $200k", 30, "−18 %"),
     ("$200k – $1M", 38, "−6 %"),
     ("Over $1M", 26, "−4 %"),
-], sub="share of clean calls, %", fmt="pct", hl=(2,), source="MemeSonar kol.db, 3,929 clean calls with a 1 h price")}
+], sub="share of clean calls, %", fmt="pct", hl=(2,), source="MemeSonar call measurements, 3,929 clean calls with a 1 h price")}
 <p>The least bad place to follow a call is a token already worth $200k to $1M: enough <a href=/glossary/liquidity>
 liquidity</a> that the caller's own followers do not move it, not so big that nothing happens. Below $50k a call is
 mostly a sniper's exit.</p>
@@ -135,7 +136,7 @@ no verdict and the page says so.</li>
 post(
     "memecoin-telegram-groups-explained", "Telegram",
     "Memecoin Telegram groups: signal, whale and sniper channels explained, with numbers",
-    "Memecoin Telegram groups explained: signal, whale and sniper channels | MemeSonar",
+    "Memecoin Telegram groups: signal, whale, sniper channels",
     "The three kinds of memecoin Telegram groups, how to tell them apart in five minutes, and what our measurement of "
     "40,772 call posts says about each.",
     ["memecoin telegram groups", "memecoin whale pumps telegram", "solana meme coin telegram groups",
@@ -163,7 +164,7 @@ They are a feed, and their "calls" have the hit rate of a random token.</p>
     ("Alert-bot templates", 36600, "scanner bots, same text for every token"),
     ("Real calls", 40772, "posts a person wrote"),
     ("Reposts / forwards", 3286, "forwarded from another channel"),
-], sub="count of posts", fmt="num", hl=(0,), source="MemeSonar kol.db, 1,916 channels")}
+], sub="count of posts", fmt="num", hl=(0,), source="MemeSonar call measurements, 1,916 channels")}
 <p>Forty-seven percent of everything with an address is a template. We detect them by shape: the same wording with
 a different address, "AI signal", "migration spotted", "Liq / Holders / Top10" blocks, dozens of distinct tokens a
 day. Those posts are excluded from every score on our pages.</p>
@@ -223,6 +224,11 @@ post describes, buying in the first minute and selling in the first ten, wins 22
 a copy score of 2 and 12 out of 100. A wallet that trades a few hundred times a day and holds for three minutes cannot
 be copied by a person two minutes behind it; by the time your buy lands, it is selling to you. More on this in our
 <a href=/blog/what-is-wallet-tracking>wallet tracking guide</a>.</p>
+<p>Update, 23 November 2026: a larger test points the same way. Copying wallets that buy before pumps, chosen from the
+past only and copied 2 seconds after them with 1 % slippage, averaged −7.6 % per copy (1,202 copies); at 60 seconds
+the average was positive but not proven. Independent research on 200,443 pump.fun launches found that following the
+earliest group signal {S.a("arxiv_earlybuyers", "lost money out of sample in all 32 configurations")}. Details:
+<a href=/blog/does-copying-smart-wallets-pay>does copying smart wallets pay?</a></p>
 
 <h2>What the data does support</h2>
 {bars("Where buying a token after a call went least badly (clean calls, 1 h later)", [
@@ -230,7 +236,7 @@ be copied by a person two minutes behind it; by the time your buy lands, it is s
     ("$50k – $200k", 30, ""),
     ("$200k – $1M", 38, "best band in our data"),
     ("Over $1M", 26, ""),
-], sub="share of calls with a higher price 1 h later, %", fmt="pct", hl=(2,), source="MemeSonar kol.db, 3,929 calls, 8 Nov 2026")}
+], sub="share of calls with a higher price 1 h later, %", fmt="pct", hl=(2,), source="MemeSonar call measurements, 3,929 calls, 8 Nov 2026")}
 <ol>
 <li>Skip the bonding curve. Tokens under $30k are not analysed by our tool at all; the first minutes belong to
 <a href=/glossary/sniper-bot>sniper bots</a> and bundles.</li>
@@ -243,13 +249,13 @@ and the rug check on every coin page do exactly this.</li>
 </ol>
 <p>Members get the live feed of graduations with the safety checks applied; this guide is the public version. Not
 financial advice.</p>
-""", related=("what-is-pump-fun", "bundles-and-snipers", "how-to-spot-a-rug-pull"), date=D)
+""", related=("what-is-pump-fun", "does-copying-smart-wallets-pay", "bundles-and-snipers"), date=D, updated="2026-11-23")
 
 # 5 ────────────────────────────────────────────────────────────────────────
 post(
     "how-to-check-a-kol-track-record", "Influencers",
     "KOL in crypto: how to check a KOL's track record before you follow a call",
-    "How to check a crypto KOL's track record before following a call | MemeSonar",
+    "How to check a crypto KOL's track record",
     "Of 6,995 crypto accounts we track, 5,192 have no measured call. A five-step check for any KOL and the traps "
     "that make bad callers look good: wick hit rates, late calls, winner-selected samples.",
     ["kol crypto", "what is a kol in crypto", "kol meaning crypto", "crypto kol track record"], 7,
@@ -269,7 +275,7 @@ calls</a> make other people buy. The word says nothing about whether those buyer
     ("Zero measured calls", 5192, "nothing to judge"),
     ("1 to 9 measured", 1655, "page exists, no verdict"),
     ("10 or more clean calls", 148, "verdict possible"),
-], sub="accounts", fmt="num", hl=(2,), source="MemeSonar kol.db, 6,995 accounts")}
+], sub="accounts", fmt="num", hl=(2,), source="MemeSonar call measurements, 6,995 accounts")}
 <p>Most accounts people call KOLs have never had a call measured by anyone. A screenshot is not a measurement. We
 need 10 clean measured calls before a page says anything, and the page shows the count.</p>
 

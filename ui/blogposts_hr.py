@@ -1,5 +1,6 @@
 """Hrvatske verzije deset blog postova (/hr/blog/<slug>). Iste brojke kao engleske (ui/blogposts.py), isti izvori.
 Ključ rječnika = engleski slug, tako da se dvije verzije povezuju (hreflang)."""
+from ui import blogsources as S
 from ui import calcs as CALC
 from ui.blogviz import bars, grid, stats
 
@@ -22,7 +23,7 @@ def B(*a, **k):
 post(
     "what-is-wallet-tracking", "sto-je-pracenje-novcanika", "Praćenje novčanika",
     "Što je praćenje novčanika (wallet tracking) i zašto većina 'smart moneyja' nije pametna",
-    "Što je wallet tracking? Kako pratiti Solana novčanike uz podatke | MemeSonar",
+    "Što je wallet tracking? Kako pratiti Solana novčanike",
     "Wallet tracking znači pratiti što određeni Solana novčanici kupuju i prodaju. Pratili smo 469 novčanika: samo 11 "
     "od 50 aktivnih bilo je u plusu. Kako pronaći one koje vrijedi pratiti.", 7,
     "Praćenje novčanika znači gledati kupnje i prodaje određenih adresa na blockchainu, da bi učio od tradera koji su "
@@ -83,6 +84,12 @@ dodaje tri stvari: obavijesti u stvarnom vremenu, ocjenu iz zatvorenih tradeova 
 i insajdere. MemeSonar dodaje i četvrtu: svaki token koji praćeni novčanik kupi prvo prolazi naš
 <a href=/hr/blog/kako-prepoznati-rug-pull>filtar za rug</a>, a javlja ti i kad <b>više</b> dobrih novčanika kupi isti
 token, što je puno važnije od jednog novčanika.</p>
+<h2>Novo, 23. studenoga 2026.: novčanici koji kupuju prije pumpe</h2>
+<p>Brojke iznad stanje su od 30. listopada. Od tada se alat usredotočio na jedno pitanje: koji novčanici kupuju prije
+nego Solana token skoči? Pročitao je 345 pumpi kroz 180 dana do kraja i našao 47.752 rana kupca, od kojih je 8.273
+prodalo u pumpu. Samo 257 grupa novčanika bilo je rano u tri ili više pumpi, a 90 ih je potvrđeno na kasnijim danima.
+Kopiranje tih novčanika na povijesti nakon stvarnih troškova i dalje nije dokazano isplativo. Cijeli popis je u tekstu
+<a href=/hr/blog/novcanici-koji-kupuju-prije-skoka-solana-tokena>novčanici koji kupuju prije skoka Solana tokena</a>.</p>
 <p>Dalje: <a href=/hr/blog/sto-je-copy-trading>što je copy trading i kad se isplati</a>.</p>
 """)
 
@@ -140,13 +147,22 @@ sporiji.</li>
 pomiču tržište (tokeni koje je pozvao izmjereni influencer došli su do 2x u 52% slučajeva, naspram 14% bez poziva),
 ali influenceri mogu biti i plaćeni za objavu. Najbolji signal je oboje: <a href=/hr/blog/grupiranje-influencera>više
 nezavisnih influencera</a> i dobri novčanici na istom tokenu u nekoliko minuta.</p>
+
+<h2>Novo, 23. studenoga 2026.: testirali smo kopiranje na povijesti</h2>
+<p>Dva kandidata iznad došla su iz stanja od 30. listopada. Od tada smo napravili stroži test: novčanici odabrani samo
+iz prošlosti, kopirani s kašnjenjem, nakon stvarnih troškova, uz brojanje promašenih kupnji. Kopiranje novčanika prije
+pumpe 60 sekundi nakon njih u prosjeku je donijelo +29,7 % po kopiji, ali interval od 95 % išao je od −12,9 % do
++114,3 % (1.219 kopija, 34,8 % kupnji promašeno), pa to nije dokazano. Brza kopija za 2 sekunde uz 1 % slippagea u
+prosjeku je −7,6 %. Jupiterova stranica o rizicima kaže isto općenito: kad kopiraš novčanik
+{S.a("jup_risks", "trguješ kasnije i po svojoj cijeni")}. Prije nego što ikoga kopiraš, pročitaj
+<a href=/hr/blog/isplati-li-se-kopirati-pametne-novcanike>isplati li se kopirati pametne novčanike</a>.</p>
 """)
 
 # 3 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 post(
     "what-is-a-kol-in-crypto", "sto-je-kol-u-kriptu", "Influenceri",
     "Što je KOL u kriptu? Kako pozivi influencera pomiču Solana tokene",
-    "Što je KOL u kriptu? Rade li pozivi kripto influencera? (podaci) | MemeSonar",
+    "Što je KOL u kriptu? Rade li pozivi influencera?",
     "KOL je kripto influencer čije objave pomiču cijene. Izmjerili smo svaki poziv Solana tokena: pozvani tokeni došli "
     "su do 2x u 52% slučajeva, bez poziva u 14%. Kako čitati KOL-a.", 6,
     "KOL (key opinion leader) je kripto influencer, najčešće na X-u ili Telegramu, čija objava o tokenu može pomaknuti "
@@ -198,7 +214,7 @@ najaktivniji "KOL-ovi", a nisu imali nikakav signal. Žive ocjene vidiš na javn
 post(
     "influencer-clustering", "grupiranje-influencera", "Influenceri",
     "Grupiranje influencera: zašto su važna 3 KOL-a koja zovu isti token u 15 minuta",
-    "Grupiranje kripto influencera: kad više KOL-ova zove isti token (podaci) | MemeSonar",
+    "Grupiranje influencera: više KOL-ova zove isti token",
     "Kad 3+ kripto influencera zove isti Solana token u 15 minuta, 59% tih tokena se udvostruči, inače 33%. Kako "
     "nastaju grupe i kako prepoznati plaćenu kampanju.", 6,
     "Grupa (klaster) nastaje kad više nezavisnih influencera zove isti token u kratkom razmaku. Kod nas su tokeni koje su "
@@ -316,7 +332,7 @@ sakriveni, a ne samo označeni, i sustav svaki sat uči profil rugova koje je uh
 post(
     "what-is-pump-fun", "sto-je-pump-fun", "Osnove",
     "Što je pump.fun? Kako radi i što naši podaci kažu o tvojim šansama",
-    "Što je pump.fun i kako radi? Bonding curve, graduacija i stvarne šanse | MemeSonar",
+    "Što je pump.fun? Bonding curve, graduacija i šanse",
     "Na pump.funu svatko u minuti lansira Solana meme coin. Kako rade bonding curve i graduacija, i zašto se samo 0,8% "
     "nasumičnih novih tokena ikad udvostruči nakon prvih 15 minuta.", 6,
     "Pump.fun je Solana platforma na kojoj svatko za nekoliko centi napravi meme coin. Cijena prati bonding curve dok "
@@ -351,6 +367,14 @@ tipično vrijeme do graduacije bilo je oko 15 minuta.</p>
 objašnjavamo u <a href=/hr/blog/kako-trgovati-meme-coinima>kako trgovati meme coinima</a>. Rijetki koji su uspjeli
 nalaze se na našoj listi <a href=/hr/solana-meme-coini>top 100 Solana meme coina</a>.</p>
 
+<h2>Gdje je pump.fun 23. studenoga 2026.</h2>
+<p>pump.fun je i dalje najprometnije mjesto gdje se rađaju Solana meme coini. Dana 23. studenoga 2026. alat je izmjerio
+83,4 milijuna $ 24-satnog volumena na pump.fun bonding krivulji (6 % ispod 7-dnevnog prosjeka) i 109,8 milijuna $ na
+PumpSwapu, gdje se coini trguju nakon što {S.a("pump_fees", "diplomiraju")} (39 % ispod). Istraživanje iz kraja 2024.
+pokazalo je isti oblik u većem mjerilu: pump.fun je činio {S.a("arxiv_memecoin", "do 71,1 % tokena stvorenih na Solani, a manje od 2 % ih je došlo do velikih DEX-ova")}.
+Brojke uživo: <a href=/hr/solana-launchpadi>Solana launchpadi</a>; usporedba s Bitcoinom:
+<a href=/hr/blog/prate-li-solana-meme-coini-bitcoin>prate li Solana meme coini Bitcoin?</a></p>
+
 <h2>Je li pump.fun siguran?</h2>
 <p>Sama platforma uklanja neke klasične trikove: mint i freeze authority su isključeni, a krivulja drži likvidnost do
 graduacije. Ono što ne može zaustaviti su ljudi. Serijski kreatori, bundlana lansiranja i snajperi česti su na
@@ -362,7 +386,7 @@ pump.funu. Prije kupnje provjeri povijest kreatora i prve kupce, kao u
 post(
     "bundles-and-snipers", "bundleri-i-snajperi", "Rug pull",
     "Bundleri i snajperi: tko zapravo posjeduje novi Solana token",
-    "Bundleri i snajperski botovi na Solani, objašnjeno (s podacima) | MemeSonar",
+    "Bundleri i snajperski botovi na Solani, objašnjeno",
     "Bundleri kupuju u bloku lansiranja, snajperi u prvim sekundama. Tokeni s puno bundla češće pumpaju, a onda padaju "
     "dvostruko jače. Što to znači za tebe, s brojkama iz 7.201 tokena.", 6,
     "Bundle je grupa novčanika koja kupi token u istom bloku u kojem je napravljen; snajper kupuje u prvim sekundama. Oboje "
@@ -466,7 +490,7 @@ koristi sustav. To je najjeftiniji način da saznaš radi li tvoj plan.</p>
 post(
     "what-is-dca-in-crypto", "sto-je-dca", "Osnove",
     "Što je DCA u kriptu? Postupno ulaganje u meme coine, s primjerom",
-    "Što je DCA u kriptu? Postupno ulaganje objašnjeno na primjeru | MemeSonar",
+    "Što je DCA u kriptu? Postupno ulaganje na primjeru",
     "DCA znači kupovati fiksan iznos u pravilnim razmacima umjesto odjednom. Primjer: $500 odjednom naspram 10 x $50, "
     "na tokenu koji pada i na tokenu koji se ruga.", 5,
     "DCA (dollar-cost averaging, postupno ulaganje) znači kupovati isti iznos u fiksnim razmacima, na primjer $50 svakih "
@@ -574,7 +598,7 @@ HANFA_URL = ("https://www.hanfa.hr/registri/trziste-kriptoimovine/"
 post(
     "best-crypto-exchanges-croatia", "najbolje-kripto-mjenjacnice-hrvatska", "Mjenjačnice",
     "Najbolje kripto mjenjačnice u Hrvatskoj i EU (2026.): s MiCA licencom, usporedba",
-    "Najbolje kripto mjenjačnice u Hrvatskoj 2026.: MiCA licenca i naknade | MemeSonar",
+    "Kripto mjenjačnice u Hrvatskoj 2026.: MiCA i naknade",
     "Koje kripto mjenjačnice smiju raditi u Hrvatskoj 2026.? 5 hrvatskih tvrtki s HANFA licencom i 9 MiCA mjenjačnica "
     "uspoređenih po regulatoru, naknadama, podršci na hrvatskom i gotovini.", 9,
     "Od 1. srpnja 2026. svaka kripto mjenjačnica koja radi s hrvatskim klijentima mora imati MiCA licencu. U HANFA-inom "
@@ -732,7 +756,7 @@ odluku donose emocije. Vidi <a href=/hr/blog/kako-trgovati-meme-coinima>kako trg
 post(
     "how-to-use-jupiter-swap", "kako-koristiti-jupiter-swap", "Vodiči",
     "Kako koristiti Jupiter swap na Solani: postavke koje štede novac",
-    "Kako koristiti Jupiter swap: slippage, priority fee, limit nalozi | MemeSonar",
+    "Kako koristiti Jupiter swap: slippage i limit nalozi",
     "Praktični vodič za Jupiter swap: spajanje novčanika, provjera tokena, postavke slippagea i priority feeja, limit "
     "nalozi i DCA te greške koje najviše koštaju.", 6,
     "Jupiter (jup.ag) je agregator swapova na Solani: dijeli tvoj nalog po bazenima da dobiješ najbolju cijenu. Spoji "
@@ -792,7 +816,7 @@ EU</a>.</p>
 post(
     "what-is-a-pump-and-dump", "sto-je-pump-and-dump", "Rugovi",
     "Što je pump and dump u kriptu? Kako radi i kako ga prepoznati",
-    "Što je pump and dump u kriptu? Znakovi i primjeri iz podataka | MemeSonar",
+    "Što je pump and dump u kriptu? Znakovi i primjeri",
     "Pump and dump je dogovoreno guranje cijene nakon kojeg insajderi prodaju kupcima. Kako radi kod Solana meme coina, "
     "znakovi upozorenja i što o tome pokazuju naši podaci.", 6,
     "Pump and dump je kad grupa rano kupi token, napuhne cijenu hypeom (plaćeni pozivi, grupe na chatu, lažni volumen) "
@@ -845,7 +869,7 @@ TAX_SRC = ("mišljenje Porezne uprave 410-01/17-08/29 (19. 3. 2018.), obavijest 
 post(
     "crypto-cards-croatia", "kripto-kartice-hrvatska", "Kartice",
     "Kripto kartice u Hrvatskoj (2026.): koje rade, koliko koštaju i porezna zamka",
-    "Najbolje kripto kartice u Hrvatskoj 2026.: Revolut, Crypto.com, Bybit | MemeSonar",
+    "Kripto kartice u Hrvatskoj 2026.: Revolut, Bybit i ostali",
     "Koje kripto debitne kartice možeš koristiti u Hrvatskoj 2026.? Revolut, Crypto.com, Bybit EU, Bitpanda, Kraken i "
     "OKX uspoređeni po licenci, naknadama i cashbacku, i zašto je svako plaćanje prodaja kripta.", 7,
     "Hrvatska je u europodručju i EGP-u, pa ovdje rade EU kripto kartice: Revolutova kripto kartica, Crypto.com Visa, "
@@ -904,7 +928,7 @@ neoporezivu dobit u oporezivu.</li>
 post(
     "crypto-tax-croatia", "porez-na-kriptovalute", "Porez",
     "Porez na kriptovalute u Hrvatskoj (2026.): 12%, pravilo dvije godine i prijava JOPPD-om",
-    "Porez na kriptovalute 2026.: stopa 12%, pravilo dvije godine, JOPPD | MemeSonar",
+    "Porez na kriptovalute 2026.: 12%, dvije godine, JOPPD",
     "Kako se oporezuju kriptovalute u Hrvatskoj: 12% na dobit, neoporezivo nakon dvije godine, zamjena kripta za kripto "
     "se ne oporezuje, gubici unutar godine i prijava JOPPD-om do kraja veljače. S primjerima.", 8,
     "U Hrvatskoj se dobit od prodaje kripta oporezuje po stopi od 12% (bez prireza od 2024.), samo kad ga zamijeniš za "
@@ -916,7 +940,7 @@ post(
 <div class=tw><table><thead><tr><th>Pitanje</th><th>Odgovor za fizičke osobe</th></tr></thead><tbody>
 <tr><td>Vrsta poreza</td><td>Dohodak od kapitala (kapitalni dobici)</td></tr>
 <tr><td>Stopa</td><td><b>12%</b> na dobit od 2024.; bez prireza. Prije 2024.: 10% plus prirez</td></tr>
-<tr><td>Držano dulje od dvije godine</td><td>Neoporezivo, bez obzira na iznos</td></tr>
+<tr><td>Držano dulje od dvije godine</td><td>Neoporezivo, bez obzira na iznos, ali se prodaja i dalje prijavljuje JOPPD-om</td></tr>
 <tr><td>Kripto zamijenjen za kripto</td><td>Ne oporezuje se pri zamjeni; dobit se računa kad zamijeniš za novac</td></tr>
 <tr><td>Kripto prodan za eure ili potrošen kripto karticom</td><td>Oporezivo ako postoji dobit</td></tr>
 <tr><td>Samo kupnja ili držanje</td><td>Ne oporezuje se</td></tr>
@@ -949,7 +973,8 @@ SOL nije oporezivo dok ne isplatiš u eure, ali evidencija ti svejedno treba da 
 <li>Izvezi svaku kupnju, prodaju i zamjenu sa svake mjenjačnice i novčanika za tu godinu.</li>
 <li>Za svaku prodaju za novac uzmi trošak najstarijih coina prvo (<b>FIFO</b>).</li>
 <li>Dobit = iznos prodaje minus trošak minus naknade. Zbroji sve dobiti, oduzmi sve gubitke iste godine.</li>
-<li>Preskoči coine držane dulje od dvije godine; oslobođeni su.</li>
+<li>Coini držani dulje od dvije godine oslobođeni su poreza, ali njihova prodaja i dalje ide na obrazac JOPPD:
+Porezna uprava {S.a("porezna_joppd", "to je potvrdila 6. veljače 2026.")}.</li>
 <li>Porez = 12% neto dobiti.</li>
 </ol>
 
@@ -978,7 +1003,7 @@ CO_SRC = ("Zakon o porezu na dobit (10%/18%), porez na dividendu 12% od 2024., H
 post(
     "company-crypto-investment-croatia", "ulaganje-firme-u-kriptovalute", "Poslovanje",
     "Može li firma ulagati u kriptovalute u Hrvatskoj? d.o.o., obrt, porez i knjiženje",
-    "Može li d.o.o. ulagati u kriptovalute? Porez, knjiženje, banke | MemeSonar",
+    "Može li d.o.o. ulagati u kriptovalute? Porez i banke",
     "Da, hrvatski d.o.o. smije kupiti kripto vlastitim novcem. Kako se knjiži (HSFI 5 ili 10), oporezuje (10% ili 18% "
     "porez na dobit, bez pravila dvije godine), PDV, banke i kad je privatno držanje jeftinije.", 8,
     "Hrvatski d.o.o. smije ulagati vlastiti novac u kripto; MiCA licenca ne treba osim ako drugima pruža kripto usluge. "
@@ -1053,7 +1078,7 @@ savjetnikom. Pravila za fizičke osobe: <a href=/hr/blog/porez-na-kriptovalute>p
 post(
     "why-big-influencer-calls-are-hard-to-trade", "zasto-je-tesko-trgovati-pozive-velikih-influencera", "Influenceri",
     "Zašto je tako teško trgovati pozive najvećih kripto influencera (i gdje je prilika)",
-    "Zašto kopiranje velikih influencera ne uspijeva: snajperi i naknade | MemeSonar",
+    "Zašto kopiranje velikih influencera ne uspijeva",
     "Pozive velikih influencera gledaju tisuće ljudi i sniper botovi koji plaćaju veću naknadu da kupe prvi. Kako rade "
     "prioritetne naknade i Jito napojnice i zašto rastuće zvijezde daju više prostora.", 7,
     "Kad slavni influencer objavi token, tisuće pratitelja i deseci botova pokušavaju kupiti u istoj sekundi. Botovi "
@@ -1131,3 +1156,4 @@ Jupitera</a>).</li>
 # Croatian versions of the 1 November 2026 posts.
 from ui import blogposts_hr_nov  # noqa: E402,F401
 from ui import blogposts_hr_seo  # noqa: E402,F401
+from ui import blogposts_hr_nov23  # noqa: E402,F401

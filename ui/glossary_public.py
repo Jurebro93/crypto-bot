@@ -296,3 +296,73 @@ def related(e, lang):
         if x is not e and x not in out and G.TERMS[x["hr"]]["cat"] == cat:
             out.append(x)
     return out[:6]
+
+
+# 23.11.2026: what MemeSonar measured about a term (own measurements of 23.11.2026, statistics, no addresses), the
+# outside sources that back the general explanation (ui/blogsources.py) and the blog posts that go deeper.
+MORE = {
+    "smart-money": (
+        "What we measured (23 November 2026): across 345 pumps over 180 days we found 47,752 early buyers; 8,273 of them "
+        "sold into the pump. Being early once is common, being early repeatedly is rare: 257 groups of wallets were early "
+        "in 3 or more pumps and 90 of those were confirmed on later days. Copying such wallets on history was still not "
+        "proven profitable after real costs.",
+        "Što smo izmjerili (23. 11. 2026.): u 345 pumpi kroz 180 dana našli smo 47.752 rana kupca; 8.273 ih je prodalo u "
+        "pumpu. Biti rano jednom je često, biti rano više puta je rijetko: 257 grupa novčanika bilo je rano u 3 ili više "
+        "pumpi, a 90 ih je potvrđeno na kasnijim danima. Kopiranje takvih novčanika na povijesti i dalje nije dokazano "
+        "isplativo nakon stvarnih troškova."),
+    "copy-trading": (
+        "What we measured (23 November 2026): copying pre-pump wallets 60 seconds after their buy averaged +29.7% per "
+        "copy on history, but the 95% interval ran from -12.9% to +114.3% (1,219 copies, 34.8% of buys missed), so it is "
+        "not proven. A fast 2-second copy with 1% slippage averaged -7.6%. MemeSonar does not copy with real money "
+        "until such a test is positive with an interval above zero.",
+        "Što smo izmjerili (23. 11. 2026.): kopiranje novčanika prije pumpe 60 sekundi nakon njihove kupnje na povijesti je "
+        "u prosjeku donijelo +29,7 % po kopiji, ali interval od 95 % ide od -12,9 % do +114,3 % (1.219 kopija, 34,8 % kupnji "
+        "promašeno), pa to nije dokaz. Brza kopija za 2 sekunde uz 1 % slippagea u prosjeku je -7,6 %. MemeSonar ne kopira "
+        "pravim novcem dok takav test ne bude u plusu s intervalom iznad nule."),
+    "insider-wallet": (
+        "What we measured (23 November 2026): since 19 November our demo account has followed the older insider list "
+        "with no real money: 73 trades, mean -7.7% after real costs. A wallet being early is not the same as a wallet "
+        "you can profit from following.",
+        "Što smo izmjerili (23. 11. 2026.): od 19. 11. demo račun bez pravog novca prati stariji popis insajdera: 73 "
+        "tradea, prosjek -7,7 % nakon stvarnih troškova. Novčanik koji je rano nije isto što i novčanik čije praćenje "
+        "donosi dobit."),
+    "wallet-cluster": (
+        "What we measured (23 November 2026): 257 groups of wallets appeared early in 3 or more of 345 pumps, 90 of them "
+        "confirmed on later days and 297 more were close (early in 2 pumps). A group counts once, so ten wallets of one "
+        "team do not look like ten independent buyers.",
+        "Što smo izmjerili (23. 11. 2026.): 257 grupa novčanika bilo je rano u 3 ili više od 345 pumpi, 90 ih je potvrđeno "
+        "na kasnijim danima, a još 297 bilo je blizu (rano u 2 pumpe). Grupa se broji jednom, pa deset novčanika jednog "
+        "tima ne izgleda kao deset neovisnih kupaca."),
+    "bundler": (
+        "On Solana a bundle can also mean a Jito bundle: up to five transactions that execute in "
+        "order or not at all, competing on a tip to the validator. Wallets that buy in the launch block often use this "
+        "to take supply before anyone else can react.",
+        "Na Solani bundle može značiti i Jito bundle: do pet transakcija koje se izvrše redom ili nijedna, "
+        "a natječu se napojnicom validatoru. Novčanici koji kupuju u bloku lansiranja često tako uzmu zalihu prije nego "
+        "itko drugi stigne reagirati."),
+    "slippage": (
+        "What it cost in our tests: in the copy test a 2-second copy with an assumed 1% slippage turned into an average "
+        "-7.6% per copy, which is why MemeSonar never assumes a total trading cost below 3% on meme coins.",
+        "Koliko je koštalo u našim testovima: u testu kopiranja brza kopija za 2 sekunde uz pretpostavljenih 1 % slippagea "
+        "u prosjeku je završila na -7,6 % po kopiji, zato MemeSonar na meme coinima nikad ne računa ukupni trošak ispod 3 %."),
+}
+
+_BLOG_H = {"en": ("Read more on the blog", "/blog/"), "hr": ("Više na blogu", "/hr/blog/")}
+
+
+def extra(e, lang="en"):
+    """Under a public glossary term: our measurement (if any), blog posts that use the term, checked sources."""
+    from ui import blog, blogsources as BS
+    from ui.html import esc
+    out = []
+    m = MORE.get(e["en"])
+    if m:
+        out.append(f"<p>{esc(m[0 if lang == 'en' else 1])}</p>")
+    posts = [blog.get_en(s, lang) for s, ts in blog.TERMS.items() if e["en"] in ts]
+    posts = [v for v in posts if v][:4]
+    if posts:
+        h, base = _BLOG_H[lang]
+        out.append(f"<h2 class=s>{h}</h2><ul>" + "".join(
+            f"<li><a href={base}{v['slug']}>{esc(v['h1'])}</a></li>" for v in posts) + "</ul>")
+    out.append(BS.block(BS.GLOSS.get(e["en"], ()), lang))
+    return "".join(out)

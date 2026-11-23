@@ -684,6 +684,9 @@ def overview(lang):
          "author": {"@type": "Organization", "name": "MemeSonar"}, "publisher": {"@type": "Organization", "name": "MemeSonar"}},
         {"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "position": n, "name": b["name"],
                                                    "url": b["links"][0][1]} for n, b in enumerate(BOTS, 1)]},
+        {"@type": "BreadcrumbList", "itemListElement": [   # 23.11.
+            {"@type": "ListItem", "position": 1, "name": t["crumb"].lstrip("← "), "item": _site() + _base(lang)},
+            {"@type": "ListItem", "position": 2, "name": t["h1"], "item": url}]},
         faq_ld]})
     return _shell(lang, t["title"], t["desc"], opath("en"), opath("hr"), body, jsonld=jsonld, og_type="article")
 
@@ -729,6 +732,10 @@ def guide(key, lang):
         {"@type": "Article", "headline": g["h1"][lang], "description": g["desc"][lang], "datePublished": CHECKED,
          "dateModified": CHECKED, "mainEntityOfPage": url, "inLanguage": lang,
          "author": {"@type": "Organization", "name": "MemeSonar"}, "publisher": {"@type": "Organization", "name": "MemeSonar"}},
+        {"@type": "BreadcrumbList", "itemListElement": [   # 23.11.
+            {"@type": "ListItem", "position": 1, "name": t["crumb"].lstrip("← "), "item": _site() + _base(lang)},
+            {"@type": "ListItem", "position": 2, "name": t["g_crumb"].lstrip("← "), "item": _site() + opath(lang)},
+            {"@type": "ListItem", "position": 3, "name": g["h1"][lang], "item": url}]},
         howto]})
     return _shell(lang, g["title"][lang], g["desc"][lang], gpath(key, "en"), gpath(key, "hr"), body, jsonld=jsonld,
                   og_type="article")
