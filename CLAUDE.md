@@ -57,6 +57,11 @@
   ulaz s oznakom režima. Demo traži profitabilnu strategiju, ona se zatim koristi na pravom novcu, a demo i dalje radi u
   pozadini. Dokaz za pravi novac broji samo ulaze koje bi i pravi novac uzeo. Ostaju čuvari kvalitete tokena (rug, lažni
   pool, krivulja, likvidnost) i prag 30k $.
+- SEO (23.11., vlasnik: „Ne želimo izlistavati podatke koji nisu dobro profiltrirani, kao Telegram kanali ... niti toliko
+  odjedanput stranice dodavati"): javno se objavljuju samo filtrirani, relevantni podaci; u sitemapu je samo jezgra
+  relevantnih stranica; nove javne stranice dodaju se postupno, nikad stotine odjednom; sadržaj se osvježava stvarnim
+  novim podacima i linka na autoritativne izvore. Svaku promjenu indeksiranja (noindex, sitemap, robots, nova skupina
+  javnih stranica) prije deploya opisati vlasniku: što se mijenja, koliko stranica, koji je rizik.
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.
