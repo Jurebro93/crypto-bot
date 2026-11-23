@@ -579,8 +579,6 @@ FORBIDDEN = ("twitterapi", "openai", "gpt-", "api key", "_KEY", "TWITTERAPI", "m
 
 class Public(Base):
     def setUp(self):
-        from ui import seoindex as _si
-        _si.reset()   # 23.11.: the policy's per-process state must not leak between test modules
         super().setUp()
         from ui import public
         self.public = public

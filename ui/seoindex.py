@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS seo_tg (name TEXT PRIMARY KEY COLLATE NOCASE, calls I
 """
 
 _lock = threading.RLock()
-_mem = {"t": 0.0, "state": None, "db": None}   # the state read from the database (or computed, without one)
+_mem = {"t": 0.0, "state": None, "db": None, "computed": 0.0}   # the state read from the database (or computed, without one)
 
 
 # ---------- small helpers ---------------------------------------------------------------------------------------------
@@ -118,19 +118,37 @@ def db_path():
     return p if p and os.path.exists(p) and os.path.getsize(p) else None
 
 
-def _sig():
-    """Where the state comes from: the core database and the sources (a test or a restart with other files gets a
-    fresh state instead of the copy of other files)."""
-    out = [db_path()]
+def _source_paths():
+    """(public.db coins, kol.db, tg.db, tokenstranice.db, makroinf.db, analytics.db): the files the core is computed
+    from (the core's own database is db_path())."""
+    out = []
     for fn in (lambda: __import__("ui.coins", fromlist=["x"]).DB, lambda: __import__("ui.public", fromlist=["x"])._kol_db(),
                lambda: __import__("ui.telegrampub", fromlist=["x"])._path(),
-               lambda: __import__("tokenstranice.store", fromlist=["x"]).db_path()):
+               lambda: __import__("tokenstranice.store", fromlist=["x"]).db_path(),
+               lambda: __import__("makroinf.store", fromlist=["x"]).db_path(), _analytics_path):
         try:
             out.append(fn())
         except Exception:  # noqa: BLE001
             out.append(None)
-    out.append(os.environ.get("MAKROINF_DB"))
     return tuple(out)
+
+
+def _version(path):
+    """(size, mtime_ns) of a file, None when it is not there: a cheap "did it change" (one stat)."""
+    try:
+        st = os.stat(path)
+        return st.st_size, st.st_mtime_ns
+    except (OSError, TypeError):
+        return None
+
+
+def _sig():
+    """(core database, source paths, their versions). The paths decide WHICH data the state belongs to (another
+    path = another site: never reuse that state); the versions say the data moved (the in-memory copy is read again,
+    at most every RELOAD_S; the stored core is still recomputed only by ensure(), every ENSURE_EVERY_S)."""
+    paths = _source_paths()
+    db = db_path()
+    return db, paths, tuple(_version(p) for p in (db,) + paths)
 
 
 def connect(path):
@@ -188,6 +206,33 @@ def _hubs(now):
         out += [u[:4] for u in mpub.urls() if u[0] == "/macro-influencers"]
     except Exception as e:  # noqa: BLE001
         print(f"seo: makro nedostupan: {type(e).__name__}: {e}"[:200], flush=True)
+    return out
+
+
+def _unreadable_hubs():
+    """Hubs whose source cannot be read right now (a file missing at start, a locked database): they keep their
+    place in the core instead of dropping out until the next ensure() (6 h) - a hub leaves only when its source
+    says it has no data."""
+    out = set()
+    try:
+        from ui import public
+        con = public._con()
+        if con is None:
+            out.add("/influencers")
+        else:
+            con.close()
+    except Exception:  # noqa: BLE001
+        out.add("/influencers")
+    try:
+        from ui import coins
+        con = coins._ro(coins.DB)
+        if con is None:
+            out.update(("/solana-meme-coins", "/solana-meme-coins/gainers", "/solana-meme-coins/trending",
+                        "/solana-meme-coins/new", "/how-to-buy", "/rug-check"))
+        else:
+            con.close()
+    except Exception:  # noqa: BLE001
+        pass
     return out
 
 
@@ -433,7 +478,16 @@ def ensure(now=None, db=None, log=True):
     with _lock:
         con = connect(path) if path else None
         try:
-            st = _load(con) if con is not None else (_mem["state"] or _empty())
+            src = _source_paths()
+            if con is not None:
+                st = _load(con)
+                old = st["kv"].get("sources")
+                if old and old != json.dumps(src):   # computed from other files: a different site, start clean
+                    st = {**_empty(), "kv": {k: v for k, v in st["kv"].items() if k == "log_day"}}
+            else:
+                mine = _mem["state"] if _mem["db"] and _mem["db"][1] == src else None
+                st = mine or _empty()
+            st["kv"]["sources"] = json.dumps(src)
             before = frozenset(p for r in st["rows"].values() for p in (r["en"], r["hr"]) if p)
             rows = st["rows"]
             added_today = []
@@ -452,7 +506,8 @@ def ensure(now=None, db=None, log=True):
                 keep = {}
                 for en, hr, pr, mod in urls:
                     keep.setdefault(norm(en), (norm(hr) if hr else None, pr, mod))
-                for en in [k for k, r in rows.items() if r["section"] == sec and k not in keep]:
+                unread = _unreadable_hubs() if sec == "hub" else set()
+                for en in [k for k, r in rows.items() if r["section"] == sec and k not in keep and k not in unread]:
                     del rows[en]
                 for i, (en, (hr, pr, mod)) in enumerate(keep.items()):
                     old = rows.get(en)
@@ -491,7 +546,7 @@ def ensure(now=None, db=None, log=True):
                 print(daily_line(counts), flush=True)
                 st["kv"]["log_day"] = today
             changed = _finish(st)["set"] != before
-            _mem.update(t=time.monotonic(), state=st, db=_sig())
+            _mem.update(t=time.monotonic(), state=st, db=_sig(), computed=time.monotonic())
         finally:
             if con is not None:
                 con.close()
@@ -779,32 +834,45 @@ def _drop_public_copies():
         pass
 
 
+RELOAD_S = 5   # a source file changed: the in-memory copy is read again at most this often
+MEMORY_RECOMPUTE_S = 300   # without a database (public.db not there yet): recomputed at most this often (kol.db
+                           # changes every second in production, the computation reads all clean calls)
+
+
 def state():
-    """The core as this process knows it: from the database (read again every STATE_TTL_S), computed once when the
-    database has no core yet (first start) or does not exist."""
+    """The core as this process knows it.
+    With the database: the stored core, read again when STATE_TTL_S passed or a source file changed (at most every
+    RELOAD_S); computed now only when nothing is stored yet or it was computed from other files (other paths).
+    Without one: computed in memory, again when the source files change (at most every MEMORY_RECOMPUTE_S) or their
+    paths change (at once)."""
     with _lock:
-        st, sig = _mem["state"], _sig()
-        path = sig[0]
-        if st is not None and time.monotonic() - _mem["t"] < STATE_TTL_S and _mem["db"] == sig:
-            return st
-        if path:
+        st, sig, now = _mem["state"], _sig(), time.monotonic()
+        db, paths, _v = sig
+        old = _mem["db"]
+        same_paths = old is not None and old[:2] == (db, paths)
+        if st is not None and same_paths:
+            age = now - _mem["t"]
+            if (old == sig and age < STATE_TTL_S) or age < RELOAD_S:
+                return st
+        if db:
             try:
-                con = connect(path)
+                con = connect(db)
                 try:
                     got = _load(con)
                 finally:
                     con.close()
-                if got["rows"]:
-                    _mem.update(t=time.monotonic(), state=_finish(got), db=sig)
+                stored = got["kv"].get("sources")
+                if got["rows"] and (not stored or stored == json.dumps(paths)):
+                    _mem.update(t=now, state=_finish(got), db=sig)
                     return _mem["state"]
             except sqlite3.Error as e:
                 print(f"seo: stanje nije pročitano: {e}"[:200], flush=True)
-                if st is not None:
+                if st is not None and same_paths:
                     return st
-        if st is not None and _mem["db"] == sig and not path:   # in memory: recomputed every ENSURE_EVERY_S
-            if time.monotonic() - _mem["t"] < ENSURE_EVERY_S:
-                return st
-        if _mem["db"] != sig:
+        elif st is not None and same_paths and now - _mem.get("computed", 0) < MEMORY_RECOMPUTE_S:
+            _mem["t"] = now
+            return st
+        if not same_paths:
             _mem["state"] = None
         ensure(log=False)
         return _mem["state"]
@@ -819,7 +887,7 @@ def poke():
     stability, caps and the weekly growth are not changed by a poke."""
     if not db_path():
         with _lock:
-            _mem["t"] = -1e12
+            _mem["t"] = _mem["computed"] = -1e12
         return
     if _poking.is_set():
         return
@@ -836,9 +904,17 @@ def poke():
 
 
 def reset():
-    """Forget the state of this process (tests; after the owner changes a cap the next ensure() applies it)."""
+    """Forget the state of this process and every copy made under it: the rendered public pages and the shared
+    copies of ui/javniteret (the influencer rows, the Telegram list built from the filtered set, the macro view).
+    Tests; after the owner changes a cap the next ensure() applies it."""
     with _lock:
-        _mem.update(t=0.0, state=None, db=None)
+        _mem.update(t=0.0, state=None, db=None, computed=0.0)
+    _drop_public_copies()
+    try:
+        from ui import javniteret
+        javniteret.forget()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ---------- the answers ------------------------------------------------------------------------------------------------

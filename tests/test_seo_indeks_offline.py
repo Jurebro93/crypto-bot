@@ -252,6 +252,46 @@ class Core(unittest.TestCase):
         seoindex.reset()
         self.assertEqual({k: dict(v) for k, v in seoindex.state()["rows"].items()}, before)
 
+    def test_other_files_never_reuse_the_state(self):
+        """A core computed from other databases (another path) is never served: recomputed at once, and back."""
+        try:
+            empty = os.path.join(ENV["dir"], "prazan-kol.db")
+            kstore.connect(empty).close()
+            with mock.patch.dict(os.environ, {"KOL_DB": empty}), mock.patch("builtins.print"):
+                self.assertFalse(seoindex.indexable("/influencer/kol44"))
+                self.assertFalse(seoindex.indexable("/influencers"))          # readable and empty: no data hub
+                self.assertEqual(seoindex.tg_channels(), ({}, False))
+            with mock.patch("builtins.print"):
+                self.assertTrue(seoindex.indexable("/influencer/kol44"))
+                self.assertEqual(len(seoindex.tg_channels()[0]), 3)
+        finally:
+            fresh()
+
+    def test_a_hub_stays_while_its_source_cannot_be_read(self):
+        """kol.db missing for a moment (a start, a lock): the ranking and the profiles keep their place."""
+        try:
+            with mock.patch.object(public, "_con", lambda: None), mock.patch("builtins.print"):
+                seoindex.ensure()
+                self.assertTrue(seoindex.indexable("/influencers"))
+                self.assertTrue(seoindex.indexable("/influencer/kol44"))
+                self.assertEqual(len(seoindex.tg_channels()[0]), 3)            # the stored filtered list stays
+        finally:
+            fresh()
+
+    def test_a_changed_store_is_read_again(self):
+        """The in-memory copy follows the stored core when its file changes (read again after RELOAD_S)."""
+        try:
+            self.assertTrue(seoindex.indexable("/coin/c1"))
+            con = sqlite3.connect(os.environ["SEO_DB"])
+            con.execute("DELETE FROM seo_core WHERE en = '/coin/c1'")
+            con.commit()
+            con.close()
+            t = time.monotonic()
+            with mock.patch.object(seoindex.time, "monotonic", lambda: t + seoindex.RELOAD_S + 1):
+                self.assertFalse(seoindex.indexable("/coin/c1"))
+        finally:
+            fresh()
+
     def test_daily_line(self):
         c = seoindex._counts(seoindex.state(), NOW)
         line = seoindex.daily_line(c)

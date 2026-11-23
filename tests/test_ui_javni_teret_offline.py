@@ -226,8 +226,6 @@ class Telegram(unittest.TestCase):
         cls.d.cleanup()
 
     def setUp(self):
-        from ui import seoindex as _si
-        _si.reset()   # 23.11.: the policy's per-process state must not leak between test modules
         public._cache.clear()
         javniteret.forget()
 
@@ -361,8 +359,6 @@ class Seo(unittest.TestCase):
         cls.d.cleanup()
 
     def setUp(self):
-        from ui import seoindex as _si
-        _si.reset()   # 23.11.: the policy's per-process state must not leak between test modules
         public._cache.clear()
         javniteret.forget()
 

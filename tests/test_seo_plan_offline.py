@@ -57,10 +57,6 @@ def make_db(d):
 
 
 class Honest(unittest.TestCase):
-    def setUp(self):
-        from ui import seoindex as _si
-        _si.reset()   # 23.11.: the policy's per-process state must not leak between test modules
-
     @classmethod
     def setUpClass(cls):
         cls.d = tempfile.mkdtemp()
