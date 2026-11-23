@@ -32,9 +32,11 @@ delay (seen_ts - their_buy_ts); the capacity view ("at most N open at once", N =
 
 STEP 2, retiring the demo money for wallet following: parity() compares the measurement with the three demos on the
 SAME closed trades (source + token + entry within PARITY_WINDOW_S); mode() is the trade.db settings key MODE_KEY
-(auto / demo / mjera, default auto). In "auto" the demos stop opening NEW trades once parity holds (flipped ONCE,
-remembered in mjera_kv "prebaceno"); their open trades exit by their own rules; nothing is deleted. demo_entries_ok()
-is what the three sources ask before an entry.
+(auto / demo / mjera, default auto). In "auto" the moment parity holds is remembered ONCE (mjera_kv "prebaceno").
+23.11. (vlasnik: "Demo tradanje nikad ne treba prestati ... demo u pozadini non stop radi tradeove"): that moment no
+longer stops the demos; they go on next to the measurement in "auto" and "demo", and only the owner's own choice
+"mjera" holds their NEW trades (open trades exit by their own rules; nothing is deleted). demo_entries_ok() is what
+the three sources ask before an entry.
 
 proof(): the rule a FUTURE real-money wallet-copy switch must ask (>= 100 measured token-days, mean net at 0.1 SOL
 > 0 and the interval's low > 0). Nothing reads it for real money today (real money is paused and no wallet-copy real
@@ -558,14 +560,10 @@ def switched(con):
 
 
 def demo_entries_ok(con, tcon=None):
-    """False when the three wallet-following demos must not open NEW trades: mode "mjera", or "auto" after the flip.
-    Their open trades exit by their own rules either way; nothing is deleted."""
-    m = mode(tcon)
-    if m == "demo":
-        return True
-    if m == "mjera":
-        return False
-    return not switched(con)
+    """False when the three wallet-following demos must not open NEW trades: only the owner's own mode "mjera".
+    23.11. (vlasnik: demo never stops): "auto" after parity held (switched()) no longer holds them; production had
+    stood still since 21.11. 16:07 UTC because of it. Their open trades exit by their own rules either way."""
+    return mode(tcon) != "mjera"
 
 
 def check_switch(con, now=None, log=print):
@@ -574,9 +572,8 @@ def check_switch(con, now=None, log=print):
     if mode() == "auto" and p["word"] == "slaže se" and not switched(con):
         _kv(con, "prebaceno", {"ts": int(now or time.time()), "n": p["n"], "median_pp": p["median_pp"]})
         con.commit()
-        log(f"{PREFIX}PREBAČENO na mjerenje (nalog vlasnika 19.11., način auto): {parity_line(p)}; tri demo izvora "
-            "praćenja novčanika više ne otvaraju nove demo tradeove, otvoreni izlaze po svojim pravilima, ništa nije "
-            "obrisano")
+        log(f"{PREFIX}mjerenje POTVRĐENO na istim tradeovima (način auto): {parity_line(p)}; demo tradeovi praćenja "
+            "novčanika idu dalje usporedno (nalog vlasnika 23.11.: demo nikad ne staje)")
     return p
 
 

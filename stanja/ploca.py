@@ -217,7 +217,7 @@ def now(now_ts=None, trade_db=None, env=None):
             finally:
                 lc.close()
         state = "<switched>" if m == "auto" and sw else m
-        det = (f"prebačeno: {sw.get('n')} parova, medijan razlike {sw.get('median_pp')} pp" if sw else
+        det = (f"potvrđeno: {sw.get('n')} parova, medijan razlike {sw.get('median_pp')} pp" if sw else
                "mjerenje teče u svakom načinu")
         return _row("wallet_measure_mode", state, (sw or {}).get("ts"), None, det)
 

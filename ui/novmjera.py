@@ -22,7 +22,7 @@ EXIT_HR = {"prodali su": "prodali su", "stop": "stop −25 %", "vrijeme": "24 h"
            "nije kopirljivo": "nije kopirljivo"}
 SRC_HR = {"prije_pumpe": "skupine koje kupuju prije skoka", "prije_pumpe_kandidat": "skupine s dva tokena",
           "bundle": "skupine koje kupuju zajedno", "kopija": "dokazani novčanici", "insajderi2": "stariji popis skupina"}
-MODE_HR = {"auto": "auto: demo do potvrde da se mjerenje slaže, zatim samo mjerenje",
+MODE_HR = {"auto": "auto: demo i mjerenje usporedno (demo nikad ne staje)",
            "demo": "demo: demo tradeovi teku usporedno", "mjera": "mjera: samo mjerenje, bez novih demo tradeova"}
 
 
@@ -269,8 +269,9 @@ def admin_html(now=None):
     miss = ", ".join(f"{k} {rd.num(v)}" for k, v in sorted(s["misses"].items(), key=lambda kv: -kv[1])) or rd.DASH
     par_txt = (mjera.parity_line(par).replace("mjerenje vs demo: ", "").replace("upareno", "uparenih kupnji")
                .replace("medijan razlike", "srednja razlika").replace(" pp:", " postotnih bodova:"))
-    state = (f"prebačeno na mjerenje {time.strftime('%d.%m.%Y.', time.localtime(sw['ts']))}" if sw else
-             "demo i mjerenje teku usporedno")
+    state = ("samo mjerenje (tvoj izbor), demo ne otvara nove tradeove" if mode == "mjera" else
+             f"mjerenje potvrđeno {time.strftime('%d.%m.%Y.', time.localtime(sw['ts']))}, demo i mjerenje teku usporedno"
+             if sw else "demo i mjerenje teku usporedno")
     top = sorted(groups.items(), key=lambda kv: (-kv[1]["measured"], -kv[1]["n"]))[:40]
     grows = "".join(f'<tr><td>{rd.h(SRC_HR.get(src, src))}</td><td class=na-l><code translate=no title="{rd.h(gid)}">'
                     f'{rd.h(gid[2:] if str(gid)[:2] in ("o:", "p:") else gid)[:6]}…</code></td><td>{rd.num(d["n"])}</td>'
