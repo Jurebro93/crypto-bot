@@ -68,7 +68,7 @@ MACHINES = [
       caveats=("Nema roka: pozicija koja se ne da prodati drži ga zauvijek (pokušaj svakih 30 s).",
                "Ponovno paljenje Autopilota ga ne briše, pa se i nova pozicija odmah prodaje."), board=True),
     M("real_money_switch", "Prekidači pravog novca po strategiji", "novac",
-      "trade.db settings 'flag:pravi_novac_sve|izvori|oscilator|veliki|nauceno'",
+      "trade.db settings 'flag:pravi_novac_sve|izvori|oscilator|veliki|nauceno|risk_off'",
       {"live": "uključeno: strategija smije kupovati pravim novcem", "off": "isključeno"},
       [("off", "live", "vlasnik na stranici (bez dokaza: vlasnikov prekidač)"), ("live", "off", "vlasnik; nalog 15.11. jednom"),
        ("*", "*", "nalog vlasnika 18.11. jednom i uvjetno: pravi_novac_nauceno uključen i pravi_novac_veliki isključen "
@@ -77,7 +77,12 @@ MACHINES = [
       caveats=("Prekidač prima i 'shadow' i 'paper', a oba znače isključeno.",
                "Oscilator nema svoju granu u izvršitelju: njegov prekidač gleda samo run_trade.",
                "pravi_novac_nauceno i pravi_novac_veliki dijele iste stropove (otvorene pozicije, kupnje dnevno, dnevni "
-               "gubitak) i isti pravi račun: jedan token drži samo jedno od ta dva pravila."), board=True),
+               "gubitak) i isti pravi račun: jedan token drži samo jedno od ta dva pravila.",
+               "pravi_novac_risk_off (23.11.) pali vlasnik dodirom na stranici Autopilot uz potvrdu; jednokratni nalog "
+               "vlasnika 23.11. (settings.riskoff_order_2311, do 24.11. 12:00 UTC) postoji, ali još nije spojen na "
+               "pokretanje; isti dodir uključuje i pravi_novac_veliki i skida pauzu od 19.11.; radi samo dok je makro "
+               "risk-off jedini filtar (najviše 2 pozicije, 0,1 SOL, trošak kruga najmanje 4 %); gašenje ne dira "
+               "otvorene pozicije."), board=True),
     M("flag", "Zastavice (off / sjena / demo / uživo)", "novac", "trade.db settings 'flag:<ime>' {mode, since, who}",
       {"off": "isključeno", "shadow": "sjena (samo mjeri)", "paper": "demo račun", "live": "uživo"},
       [("*", "off", "uvijek dopušteno"), ("off", "paper", "uz paper_refusal"),

@@ -160,7 +160,8 @@ class Removed1911(Base):
 
     def test_the_real_money_switches_and_the_pause_are_unchanged(self):
         self.assertEqual(settings.REAL_SWITCHES, ("pravi_novac_veliki", "pravi_novac_nauceno", "pravi_novac_sve",
-                                                  "pravi_novac_izvori", "pravi_novac_oscilator"))
+                                                  "pravi_novac_izvori", "pravi_novac_oscilator",
+                                                  "pravi_novac_risk_off"))   # 23.11.: the risk-off exception
         self.assertEqual(settings.PAUZA_KEY, "pravi_novac_pauza")
         for name in settings.REAL_SWITCHES:
             self.assertIn(name, settings.FLAGS)

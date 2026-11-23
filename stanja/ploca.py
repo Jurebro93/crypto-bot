@@ -20,7 +20,8 @@ CLIENT_S = 3600        # an MCP client that called within the hour is "active" (
 HEART_S = 180          # the same threshold ui/pravitrade._warnings uses for "ne radi"
 REAL_SWITCHES = (("pravi_novac_veliki", "midcap raspon"), ("pravi_novac_nauceno", "naučeno pravilo (model učenja)"),
                  ("pravi_novac_sve", "sve strategije"),
-                 ("pravi_novac_izvori", "konsenzus izvora"), ("pravi_novac_oscilator", "oscilator"))
+                 ("pravi_novac_izvori", "konsenzus izvora"), ("pravi_novac_oscilator", "oscilator"),
+                 ("pravi_novac_risk_off", "midcap raspon u risk-offu (iznimka, najviše 2 pozicije)"))
 
 
 def _ro(path):

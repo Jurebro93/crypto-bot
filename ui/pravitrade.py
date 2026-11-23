@@ -5426,7 +5426,8 @@ def post(path, form, user):
                 paper = lflags.paper_result(lcon, st["since"]) if st["mode"] == "paper" else None
             finally:
                 lcon.close()
-            settings.set_flag(tcon, name, mode, user, paper=paper)
+            # 23.11.: tap = his confirmed tap (the risk-off exception's form sets potvrda=1 only after its confirm box)
+            settings.set_flag(tcon, name, mode, user, paper=paper, tap=str(form.get("potvrda") or "") == "1")
             print(f"pravi trade: {user} je zastavicu {name} postavio na {mode}", flush=True)
             from ui import apjed   # 16.11.: the owner's switches answer in the page's plain words, not by flag name
             said = apjed.flag_toast(name, mode) or f'Zastavica {name}: {FLAG_WORDS.get(mode, mode)}.'
