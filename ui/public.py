@@ -1040,6 +1040,10 @@ def route(path, gate=False):
             ev = _inflight[path] = threading.Event()
     if fresh:
         return hit[1], _raw(hit[2]), ctype
+    if hit and path in KEEP_PATHS:   # 23.11. (SEO): the last sitemap / robots.txt at once, rebuilt in the background
+        if mine:
+            threading.Thread(target=_rebuild, args=(path, fn, ev), daemon=True, name="javno-osvjezi").start()
+        return hit[1], _raw(hit[2]), ctype
     if not mine:   # 23.11.: someone builds this very page now: wait for that copy instead of building it again
         ev.wait(60)
         with _lock:
@@ -1049,7 +1053,7 @@ def route(path, gate=False):
     try:
         from ui import javniteret
         try:
-            with (javniteret.slot() if gate else contextlib.nullcontext()):
+            with (javniteret.slot() if gate and path not in KEEP_PATHS else contextlib.nullcontext()):
                 try:
                     body = fn()
                 except Exception as e:  # noqa: BLE001
@@ -1075,8 +1079,28 @@ def route(path, gate=False):
 # copy goes first; the Telegram pages (a list refreshed once in 5-7 days) are kept longer.
 CACHE_MAX_MB = float(os.environ.get("PUBLIC_CACHE_MAX_MB") or 24)
 TG_CACHE_S = int(os.environ.get("PUBLIC_TG_CACHE_S") or 6 * 3600)
+KEEP_PATHS = ("/sitemap.xml", "/robots.txt")
+KEEP_S = 3600
+
+
 def _ttl(path):
+    if path in KEEP_PATHS:
+        return KEEP_S
     return TG_CACHE_S if re.match(r"(/hr)?/telegram(/|-channels$|-kanali$)", path) else CACHE_S
+
+
+def _rebuild(path, fn, ev):
+    """A stale sitemap / robots.txt rebuilt in the background (no gate: never refused); the old copy stays on error."""
+    try:
+        body = fn()
+        if body:
+            _keep(path, time.time(), 200, body.encode("utf-8"))
+    except Exception as e:  # noqa: BLE001
+        print(f"javna stranica {path} nije osvježena: {type(e).__name__}: {e}"[:200], flush=True)
+    finally:
+        with _lock:
+            _inflight.pop(path, None)
+        ev.set()
 
 
 def _raw(gz):
@@ -1089,8 +1113,10 @@ def _keep(path, now, code, raw):
         _cache.pop(path, None)
         _cache[path] = (now, code, gz)
         total = sum(len(v[2]) for v in _cache.values())
-        while total > CACHE_MAX_MB * 1e6 and len(_cache) > 1:
-            total -= len(_cache.pop(next(iter(_cache)))[2])
+        for k in [k for k in _cache if k not in KEEP_PATHS and k != path]:   # the oldest first, never the sitemap
+            if total <= CACHE_MAX_MB * 1e6:
+                break
+            total -= len(_cache.pop(k)[2])
 
 
 # ---------- the daily refresh (02:00, run_web.py daily) --------------------------------------------------------------

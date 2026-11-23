@@ -30,6 +30,7 @@ T = {
                  "the channel's public page. Since {since} we no longer measure what the calls in these channels did, "
                  "so this page does not rank or recommend any channel.",
         cols=("#", "Channel", "Followers", "7 days", "30 days", "Counted"),
+        hub_top="The {k} channels with the most followers, of {n} counted in total.",
         none="The list is empty right now.", back="← All Telegram channels",
         p_title="{c} Telegram channel: followers | MemeSonar",
         p_desc="Telegram channel {c}: {n} followers, counted once a week. Call performance is no longer measured.",
@@ -48,6 +49,7 @@ T = {
                  "stranice kanala. Od {since} više ne mjerimo što su napravili pozivi iz ovih kanala, pa ova stranica "
                  "ne rangira i ne preporučuje nijedan kanal.",
         cols=("#", "Kanal", "Pratitelja", "7 dana", "30 dana", "Brojano"),
+        hub_top="{k} kanala s najviše pratitelja, od ukupno {n} brojanih.",
         none="Popis je trenutno prazan.", back="← Svi Telegram kanali",
         p_title="{c} Telegram kanal: pratitelji | MemeSonar",
         p_desc="Telegram kanal {c}: {n} pratitelja, brojano jednom tjedno. Uspješnost poziva više ne mjerimo.",
@@ -147,10 +149,71 @@ def _d(x, lang):
     return s.replace(",", ".") if lang == "hr" else s
 
 
+HUB_MAX = int(os.environ.get("TG_HUB_MAX") or 1000)
+
+
+def _top(limit):
+    """([{kanal, naslov, pratitelji, d7, d30, ts}] of the `limit` channels with the most followers, the number of
+    channels on the list) with the numbers and order of tg/pratitelji.pregled, read with bounded queries (23.11.,
+    SEO: the hub listed all 137,809 channels, 29.8 MB of HTML, 10 s, every row a link to a noindex page)."""
+    from tg import pratitelji, store
+    from ui import public
+    con = store.ro(_path())
+    if con is None:
+        return [], 0
+    try:
+        try:
+            total = con.execute(f"SELECT COUNT(*) FROM channels WHERE {pratitelji.LIST_SQL}").fetchone()[0]
+        except Exception:  # noqa: BLE001 - an old or empty file
+            return [], 0
+        has_rows = bool(con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tg_pratitelji'").fetchone())
+        newest = ("LEFT JOIN (SELECT kanal, pratitelji AS n, MAX(ts) AS t FROM tg_pratitelji GROUP BY kanal) p "
+                  "ON p.kanal = c.name") if has_rows else "LEFT JOIN (SELECT NULL AS kanal, NULL AS n, NULL AS t) p ON 0"
+        out, off = [], 0
+        while len(out) < limit:
+            got = con.execute(f"""SELECT c.name, c.title, CASE WHEN p.t IS NULL THEN c.subs ELSE p.n END,
+                CASE WHEN p.t IS NULL THEN c.checked_ts ELSE p.t END FROM channels c {newest}
+                WHERE c.{pratitelji.LIST_SQL}
+                ORDER BY -COALESCE(CASE WHEN p.t IS NULL THEN c.subs ELSE p.n END, 0), c.name LIMIT ? OFFSET ?""",
+                              (limit, off)).fetchall()
+            if not got:
+                break
+            off += len(got)
+            out += [{"kanal": n, "naslov": t, "pratitelji": k, "ts": ts} for n, t, k, ts in got
+                    if CH.fullmatch(n or "") and not public.BAD.search(n)]
+        out = out[:limit]
+        series = {}
+        if has_rows:
+            names = [r["kanal"] for r in out]
+            for i in range(0, len(names), 500):
+                part = names[i:i + 500]
+                for k, ts, n in con.execute(f"SELECT kanal, ts, pratitelji FROM tg_pratitelji WHERE kanal IN "
+                                            f"({','.join('?' * len(part))}) ORDER BY kanal, ts", part):
+                    series.setdefault(k, []).append((int(ts), int(n)))
+    finally:
+        con.close()
+    for r in out:
+        sr = series.get(r["kanal"]) or []
+        if sr:
+            ts, n = sr[-1]
+            p7, p30 = pratitelji._at(sr, ts - 7 * 86400 + 3600), pratitelji._at(sr, ts - 30 * 86400 + 3600)
+            r.update(pratitelji=n, ts=ts, d7=n - p7 if p7 is not None else None, d30=n - p30 if p30 is not None else None)
+        else:
+            r.update(d7=None, d30=None)
+    return out, total
+
+
+def top(limit=None):
+    """_top(HUB_MAX) as one shared copy per process (until tg.db changes, at most ROWS_TTL_S). Shared: do not change."""
+    from ui import javniteret
+    p, lim = _path(), int(limit or HUB_MAX)
+    return javniteret.shared(("tg_top", p, lim), ROWS_TTL_S, lambda: _top(lim), version=javniteret.file_version(p))
+
+
 def hub(lang):
     from ui import public
     t = T[lang]
-    rs = rows()
+    rs, total = top()
     trs = []
     for i, r in enumerate(rs, 1):
         name = esc(r["kanal"]) + (f" <span class=mut>{esc(r['naslov'])}</span>"
@@ -165,10 +228,11 @@ def hub(lang):
         "@context": "https://schema.org", "@type": "ItemList", "name": t["hub_h1"],
         "itemListElement": [{"@type": "ListItem", "position": i, "name": r["kanal"],
                              "url": f"https://t.me/{r['kanal']}"} for i, r in enumerate(rs[:50], 1)]}) + "</script>")
+    count = t["hub_top"].format(k=_n(len(rs), lang), n=_n(total, lang))
     body = (f"<section class=ph1><h1>{t['hub_h1']}</h1><p class=lead>{t['hub_lead'].format(since=SINCE[lang])}</p>"
-            f"</section>{table}<p class=mut style='margin-top:22px;font-size:13px'>{t['foot']}</p>")
-    return public._shell(lang, t["hub_title"], t["hub_desc"].format(n=len(rs)), "/telegram-channels",
-                         "/hr/telegram-kanali", body, jsonld=jsonld)
+            f"<p class=mut>{count}</p></section>{table}<p class=mut style='margin-top:22px;font-size:13px'>{t['foot']}</p>")
+    return public._shell(lang, t["hub_title"], t["hub_desc"].format(n=_n(total, lang)),
+                         "/telegram-channels", "/hr/telegram-kanali", body, jsonld=jsonld)
 
 
 def profile(channel, lang):

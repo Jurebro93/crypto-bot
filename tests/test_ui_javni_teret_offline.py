@@ -179,8 +179,12 @@ class Server:
 
     def get(self, path, method="GET", data=None):
         req = urllib.request.Request(self.base + path, method=method, data=data)
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **k):
+                return None
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.build_opener(NoRedirect).open(req, timeout=120) as r:
                 return r.status, dict(r.headers), r.read()
         except urllib.error.HTTPError as e:
             return e.code, dict(e.headers), e.read()
@@ -237,19 +241,20 @@ class Telegram(unittest.TestCase):
         self.assertIn("Zadnje brojanje:", hr)
         self.assertIn("href=/hr/telegram-kanali>Cijeli popis kanala", hr)
 
-    def test_the_hub_is_unchanged_and_shared(self):
+    def test_the_hub_is_built_once_without_the_whole_list(self):
         from tg import pratitelji
         n = [0]
-        real = pratitelji.pregled
+        real = telegrampub._top
 
-        def counted(*a, **k):
+        def counted(lim):
             n[0] += 1
-            return real(*a, **k)
-        with mock.patch.object(pratitelji, "pregled", counted):
+            return real(lim)
+        with mock.patch.object(telegrampub, "_top", counted), \
+                mock.patch.object(pratitelji, "pregled", lambda *a, **k: self.fail("the whole list was read")):
             a = telegrampub.hub("en")
             b = telegrampub.hub("hr")
         self.assertEqual(n[0], 1)
-        self.assertEqual(len(telegrampub.rows()), 1800)   # active, quiet, slow of 3000
+        self.assertEqual(len(telegrampub.rows()), 1800)   # active, quiet, slow of 3000 (the full list still works)
         self.assertNotIn("noindex", a)
         self.assertIn("chan_", b)
 
@@ -291,6 +296,10 @@ class Telegram(unittest.TestCase):
             with mock.patch.object(javniteret, "_rss", lambda: 950):
                 code, headers, body = srv.get("/telegram/chan_00010")
                 self.assertEqual((code, headers.get("Retry-After"), body), (503, "120", javniteret.BODY))
+                self.assertNotIn("X-Robots-Tag", headers)                 # "come back later", not "never index"
+                self.assertNotIn(b"prijava", body.lower())
+                for path in ("/robots.txt", "/sitemap.xml", "/favicon.ico"):   # never refused
+                    self.assertEqual(srv.get(path)[0], 200, path)
                 self.assertEqual(srv.get("/healthz")[0], 200)
                 self.assertEqual(srv.get("/hook/chain", "POST", b"[]")[0], 401)   # the webhook is answered, never 503
             self.assertEqual(srv.get("/telegram/chan_00010")[0], 200)
@@ -314,6 +323,98 @@ class Telegram(unittest.TestCase):
                 mock.patch.object(run_ui, "moved_to_site", lambda *a: None):
             h._do_get()
         self.assertEqual(seen, [False, True])
+
+
+class Seo(unittest.TestCase):
+    """23.11. (SEO check of production as Googlebot: impressions fell to zero)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.d = tempfile.TemporaryDirectory()
+        cls.db = os.path.join(cls.d.name, "tg.db")
+        make_tg(cls.db, n_posts=100)
+        cls.env = mock.patch.dict(os.environ, {"TG_DB": cls.db})
+        cls.env.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.env.stop()
+        cls.d.cleanup()
+
+    def setUp(self):
+        public._cache.clear()
+        javniteret.forget()
+
+    def test_the_hub_lists_the_top_channels_only(self):
+        from tg import pratitelji
+        with mock.patch.object(telegrampub, "HUB_MAX", 100):
+            en, hr = telegrampub.hub("en"), telegrampub.hub("hr")
+            rows, total = telegrampub.top()
+        want = [r for r in pratitelji.pregled(self.db) if telegrampub.CH.fullmatch(r["kanal"])][:100]
+        self.assertEqual((rows, total), (want, 1800))                     # the same rows and order as the full list
+        self.assertEqual(en.count('href="/telegram/'), 100)
+        self.assertEqual(hr.count('href="/hr/telegram/'), 100)
+        self.assertIn("The 100 channels with the most followers, of 1,800 counted in total.", en)
+        self.assertIn("100 kanala s najviše pratitelja, od ukupno 1.800 brojanih.", hr)
+        self.assertLess(len(en.encode()), 1_000_000)
+        self.assertNotIn("noindex", en)                                    # the hub stays indexable
+        last = want[-1]["kanal"]
+        outside = next(r["kanal"] for r in pratitelji.pregled(self.db)[150:])
+        self.assertIn(last, en)
+        self.assertNotIn(f"/telegram/{outside}\"", en)                    # not linked from the hub ...
+        page = telegrampub.profile(outside, "en")                          # ... but its light page lives on
+        self.assertIn('content="noindex,follow"', page)
+        self.assertEqual(telegrampub.HUB_MAX, int(os.environ.get("TG_HUB_MAX") or 1000))
+
+    def test_trailing_slash_is_a_301_to_the_path_without_it(self):
+        import run_ui
+        for path, want in (("/influencers/", "/influencers"), ("/hr/", "/hr"), ("/coin/abc/", "/coin/abc"),
+                           ("/hr/influenceri/", "/hr/influenceri"), ("/telegram-channels/", "/telegram-channels"),
+                           ("/telegram/chan_00001/", "/telegram/chan_00001"), ("/blog/", "/blog"), ("/en/", "/en"),
+                           ("/autopilot/", "/autopilot"), ("/", None), ("/pregled/", None), ("/novcanici-admin/", None),
+                           ("/influencers", None)):
+            self.assertEqual(run_ui.slash_redirect(path), want, path)
+        srv = Server()
+        try:
+            code, headers, _ = srv.get("/influencers/?sort=a")
+            self.assertEqual((code, headers.get("Location")), (301, "/influencers?sort=a"))
+            code, headers, _ = srv.get("/telegram/chan_00000/")
+            self.assertEqual((code, headers.get("Location")), (301, "/telegram/chan_00000"))
+        finally:
+            srv.close()
+
+    def test_robots_and_sitemap_are_cacheable_and_kept(self):
+        n = [0]
+        real = public.sitemap
+
+        def counted():
+            n[0] += 1
+            return real()
+        srv = Server()
+        try:
+            with mock.patch.object(public, "sitemap", counted):
+                for path in ("/robots.txt", "/sitemap.xml"):
+                    code, headers, _ = srv.get(path)
+                    self.assertEqual((code, headers.get("Cache-Control")), (200, "public, max-age=3600"), path)
+                srv.get("/sitemap.xml")
+                self.assertEqual(n[0], 1)                                  # built once, then the copy
+                with public._lock:                                         # an hour later: the old copy at once ...
+                    t, c, gz = public._cache["/sitemap.xml"]
+                    public._cache["/sitemap.xml"] = (t - public.KEEP_S - 1, c, gz)
+                code, _, body = srv.get("/sitemap.xml")
+                self.assertEqual(code, 200)
+                self.assertIn(b"<urlset", body)
+                for _ in range(40):                                        # ... and one rebuild in the background
+                    if n[0] == 2:
+                        break
+                    time.sleep(0.05)
+                self.assertEqual(n[0], 2)
+            with mock.patch.object(public, "CACHE_MAX_MB", 0.0001):        # the byte cap never drops the sitemap
+                public._keep("/x", time.time(), 200, b"y" * 5000)
+            self.assertIn("/sitemap.xml", public._cache)
+            self.assertEqual(srv.get("/influencers")[1].get("Cache-Control"), "no-store")   # other pages as before
+        finally:
+            srv.close()
 
 
 class Baseline(unittest.TestCase):
