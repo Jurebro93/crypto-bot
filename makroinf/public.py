@@ -370,8 +370,11 @@ def _view():
     """23.11. (hitno): web.view reads every score (JSON per account) and counts the tweets; a burst of account pages
     did it once per page. One shared copy per process now, rebuilt when the scores move (web.stamp) or after
     VIEW_TTL_S. Shared: do not change it."""
+    from makroinf import store
     from ui import javniteret
-    return javniteret.shared(("makro_view",), VIEW_TTL_S, lambda: web.view(fresh=False), version=web.stamp())
+    p = store.db_path()
+    return javniteret.shared(("makro_view", p), VIEW_TTL_S, lambda: web.view(fresh=False),
+                             version=(web.stamp(), javniteret.file_version(p)))
 
 
 def _jsonld(obj):
