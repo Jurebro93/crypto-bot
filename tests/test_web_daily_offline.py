@@ -416,8 +416,12 @@ class SitemapDates(Base):
         self.assertEqual(lm["/blog/crypto-tax-croatia"], "2026-11-01")           # its own date, not "today" every day
         self.assertEqual(lm["/hr/blog/porez-na-kriptovalute"], "2026-11-01")
         self.assertEqual(lm["/blog/best-crypto-telegram-channels"], "2026-11-09")
-        self.assertEqual(lm["/influencers"], today)                              # rebuilt from the databases all day
-        self.assertEqual(lm["/blog"], today)
+        # 23.11. (SEO, ui/seoindex): a data hub carries the day its data last changed (no influencer data here: the
+        # ranking is not even in the sitemap), the blog hub the day of its newest post, never simply "today"
+        self.assertNotIn("/influencers", lm)
+        from ui import blog
+        self.assertEqual(lm["/blog"], max(u[3] for u in blog.urls(with_lastmod=True) if u[3]))
+        self.assertLessEqual(lm["/blog"], today)
         now = time.time()
         bloglive.refresh(now, measured={"telegram": {"tg_channels": 9, "tg_measured": 90}})
         lm = self.lastmods()

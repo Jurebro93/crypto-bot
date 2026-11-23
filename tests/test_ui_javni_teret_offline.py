@@ -59,6 +59,21 @@ def make_tg(path, n_channels=3000, n_posts=130_000, text_len=300, seed=1):
     con.close()
 
 
+def make_tg_calls(path, n_channels=3000, n_calls=10):
+    """kol.db with n_calls clean measured calls of every channel 'tg:chan_<i>': since 23.11. (SEO, ui/seoindex) only
+    the channels tracked as crypto call channels are on the public list."""
+    from kol import store
+    con = store.connect(path)
+    now = int(time.time())
+    con.executemany("INSERT INTO calls (tweet_id, token, handle, ts, kind, r1h, r24h, max24, mcap0) VALUES "
+                    "(?,?,?,?, 'call', 0.1, 0.2, 0.5, 100000)",
+                    [(f"tg:chan_{i:05d}/{j}", "T", f"tg:chan_{i:05d}", now - (3 + j) * D)
+                     for i in range(n_channels) for j in range(n_calls)])
+    con.commit()
+    con.close()
+    return path
+
+
 class Gate(unittest.TestCase):
     def setUp(self):
         javniteret._refused.update(t=0.0, busy=0, mem=0, mb=None)
@@ -201,7 +216,8 @@ class Telegram(unittest.TestCase):
         cls.db = os.path.join(cls.d.name, "tg.db")
         full = os.environ.get("TG_FIXTURE_FULL") == "1"
         make_tg(cls.db, n_posts=130_000, text_len=3500 if full else 300)
-        cls.env = mock.patch.dict(os.environ, {"TG_DB": cls.db})
+        kol = make_tg_calls(os.path.join(cls.d.name, "kol.db"))
+        cls.env = mock.patch.dict(os.environ, {"TG_DB": cls.db, "KOL_DB": kol})
         cls.env.start()
 
     @classmethod
@@ -235,20 +251,20 @@ class Telegram(unittest.TestCase):
         self.assertIn("Followers: 1,000.", en)                     # the newest weekly row (1000 + i + 0)
         day = time.strftime("%Y-%m-%d", time.gmtime())
         self.assertIn(f"Last count: {day}.", en)
-        self.assertIn("href=/telegram-channels>The full list of channels", en)
+        self.assertIn("href=/telegram-channels>The list of crypto call channels", en)
         self.assertIn('content="noindex,follow"', en)               # unchanged: channel pages are noindex
         self.assertIn("chan_00005", hr)
         self.assertIn("Zadnje brojanje:", hr)
-        self.assertIn("href=/hr/telegram-kanali>Cijeli popis kanala", hr)
+        self.assertIn("href=/hr/telegram-kanali>Popis kripto call kanala", hr)
 
     def test_the_hub_is_built_once_without_the_whole_list(self):
         from tg import pratitelji
         n = [0]
         real = telegrampub._top
 
-        def counted(lim):
+        def counted(lim, names):
             n[0] += 1
-            return real(lim)
+            return real(lim, names)
         with mock.patch.object(telegrampub, "_top", counted), \
                 mock.patch.object(pratitelji, "pregled", lambda *a, **k: self.fail("the whole list was read")):
             a = telegrampub.hub("en")
@@ -333,7 +349,8 @@ class Seo(unittest.TestCase):
         cls.d = tempfile.TemporaryDirectory()
         cls.db = os.path.join(cls.d.name, "tg.db")
         make_tg(cls.db, n_posts=100)
-        cls.env = mock.patch.dict(os.environ, {"TG_DB": cls.db})
+        kol = make_tg_calls(os.path.join(cls.d.name, "kol.db"))
+        cls.env = mock.patch.dict(os.environ, {"TG_DB": cls.db, "KOL_DB": kol})
         cls.env.start()
 
     @classmethod
@@ -354,8 +371,8 @@ class Seo(unittest.TestCase):
         self.assertEqual((rows, total), (want, 1800))                     # the same rows and order as the full list
         self.assertEqual(en.count('href="/telegram/'), 100)
         self.assertEqual(hr.count('href="/hr/telegram/'), 100)
-        self.assertIn("The 100 channels with the most followers, of 1,800 counted in total.", en)
-        self.assertIn("100 kanala s najviše pratitelja, od ukupno 1.800 brojanih.", hr)
+        self.assertIn("The 100 channels with the most followers, of 1,800 on the list.", en)
+        self.assertIn("100 kanala s najviše pratitelja, od 1.800 na popisu.", hr)
         self.assertLess(len(en.encode()), 1_000_000)
         self.assertNotIn("noindex", en)                                    # the hub stays indexable
         last = want[-1]["kanal"]
@@ -364,7 +381,7 @@ class Seo(unittest.TestCase):
         self.assertNotIn(f"/telegram/{outside}\"", en)                    # not linked from the hub ...
         page = telegrampub.profile(outside, "en")                          # ... but its light page lives on
         self.assertIn('content="noindex,follow"', page)
-        self.assertEqual(telegrampub.HUB_MAX, int(os.environ.get("TG_HUB_MAX") or 1000))
+        self.assertEqual(telegrampub.HUB_MAX, int(os.environ.get("TG_HUB_MAX") or 200))
 
     def test_trailing_slash_is_a_301_to_the_path_without_it(self):
         import run_ui

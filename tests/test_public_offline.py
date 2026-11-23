@@ -74,8 +74,9 @@ class Public(unittest.TestCase):
         # so it exists (links work) but is noindex and out of the sitemap
         self.assertNotIn("https://example.com/influencer/ddddddd8a", sm)
         self.assertIn('<meta name=robots content="noindex,follow">', public.route("/influencer/ddddddd8a")[1].decode())
-        self.assertIn("https://example.com/telegram-channels", sm)
-        self.assertIn("https://example.com/hr", sm)
+        # 23.11. (SEO, ui/seoindex): no filtered Telegram list here (no tg.db): the hub is not in the sitemap
+        self.assertNotIn("https://example.com/telegram-channels", sm)
+        self.assertIn("https://example.com/hr<", sm)
 
     def test_landing_english_main(self):
         en = landing.page_html({}, lang="en")

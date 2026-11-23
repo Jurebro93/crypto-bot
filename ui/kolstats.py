@@ -154,24 +154,30 @@ _BASE_LOCK = threading.Lock()
 
 def clean_counts(con, now=None, prefix=None):
     """{handle: clean measured calls} for every non-bot handle (prefix 'tg:' = Telegram channels only, '' = X only)."""
+    return {h: n for h, (n, _ts) in clean_last(con, now, prefix).items()}
+
+
+def clean_last(con, now=None, prefix=None):
+    """{handle: (clean measured calls, ts of the newest one)}: clean_counts plus the newest call (23.11., SEO: the
+    sitemap's lastmod of a profile is the day its newest clean call went public, not today)."""
     now = now or time.time()
     bots = _bots(con)
     q = ",".join("?" * len(BIASED_SOURCES))
     try:
-        rows = con.execute(f"""SELECT handle, COUNT(*) FROM calls WHERE kind = 'call' AND max24 IS NOT NULL
+        rows = con.execute(f"""SELECT handle, COUNT(*), MAX(ts) FROM calls WHERE kind = 'call' AND max24 IS NOT NULL
             AND bad IS NULL AND ts < ? AND COALESCE(pre2h, 0) < 1.0 AND COALESCE(source, '') NOT IN ({q})
             AND handle NOT LIKE 'w:%' GROUP BY handle""", (int(now - PUBLIC_DELAY_S), *BIASED_SOURCES)).fetchall()
     except sqlite3.OperationalError:
         return {}
     out = {}
-    for h, n in rows:
+    for h, n, ts in rows:
         if h in bots:
             continue
         if prefix == "tg:" and not h.startswith("tg:"):
             continue
         if prefix == "" and h.startswith("tg:"):
             continue
-        out[h] = n
+        out[h] = (n, ts)
     return out
 
 

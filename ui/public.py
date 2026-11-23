@@ -608,7 +608,8 @@ def leaderboard(lang):
     body = (f"<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['lb_h1']}</h1><p class=lead>{t['lb_lead']}</p>"
             f"</section>{drustveni.public_notice(lang)}{tabs}<h2 class=s>{x['why_h']}</h2><ul class=how>{why}</ul>{cmp}"
             f"<h2 class=s>{t['how_h']}</h2><ul class=how>{how}</ul>"
-            f"<div class=lock><p>{t['lb_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div>{js}")
+            f"<div class=lock><p>{t['lb_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div>"
+            + core_links("influencer", lang, skip={t["prof"] + r["handle"] for r in star_rows + rising}) + js)
     return _shell(lang, t["lb_title"], t["lb_desc"].format(n=len(allrows)), "/influencers", "/hr/influenceri", body)
 
 
@@ -783,6 +784,30 @@ SECTIONS = {
 }
 
 
+CORE_LINKS_H = {"coin": {"en": "More tokens we track with enough of our own data",
+                         "hr": "Još tokena koje pratimo s dovoljno naših podataka"},
+                "macro": {"en": "Macro influencers with the most scored calls",
+                          "hr": "Makro influenceri s najviše ocijenjenih poziva"},
+                "influencer": {"en": "Influencers with the most measured calls",
+                               "hr": "Influenceri s najviše izmjerenih poziva"}}
+
+
+def core_links(section, lang, skip=()):
+    """23.11. (SEO): crawlable links to the core pages of a section (ui/seoindex) that this hub does not link yet,
+    so every page in the sitemap is one click from a hub; "" when there are none."""
+    try:
+        from ui import seoindex
+        paths = [p for p in seoindex.section_paths(section, lang) if p not in skip]
+    except Exception as e:  # noqa: BLE001
+        print(f"seo: poveznice jezgre: {type(e).__name__}: {e}"[:200], flush=True)
+        return ""
+    if not paths:
+        return ""
+    chips = "".join(f"<a href=\"{esc(p)}\">{esc(('@' if section != 'coin' else '') + p.rsplit('/', 1)[1])}</a>"
+                    for p in paths)
+    return f"<h2 class=s>{CORE_LINKS_H[section][lang]}</h2><div class=chips>{chips}</div>"
+
+
 def nav_links(lang):
     from ui import sitenav
     return sitenav.nav(lang)
@@ -842,16 +867,31 @@ def _seo_robots():
     return out
 
 
+# 23.11. (SEO): every Allow line with one real address it opens (tests/test_seo_indeks_offline renders each one).
+# Noindex sections stay crawlable on purpose: Google has to fetch a page to read its noindex (or its 410).
+ROBOTS_ALLOW = (
+    ("/$", "/"), ("/hr$", "/hr"), ("/sitemap.xml", "/sitemap.xml"),
+    ("/favicon", "/favicon.ico"), ("/apple-touch-icon.png", "/apple-touch-icon.png"), ("/icon-", "/icon-192.png"),
+    ("/site.webmanifest", "/site.webmanifest"), ("/static/landing/", None), ("/img/t/", None),
+    ("/influencers", "/influencers"), ("/influencer/", None), ("/hr/influenceri", "/hr/influenceri"),
+    ("/hr/influencer/", None), ("/solana-meme-coins", "/solana-meme-coins"),
+    ("/hr/solana-meme-coini", "/hr/solana-meme-coini"), ("/coin/", None), ("/hr/coin/", None),
+    ("/glossary", "/glossary"), ("/hr/rjecnik", "/hr/rjecnik"), ("/blog", "/blog"), ("/hr/blog", "/hr/blog"),
+    ("/best-crypto-tools", "/best-crypto-tools"), ("/hr/najbolji-kripto-alati", "/hr/najbolji-kripto-alati"),
+    ("/telegram-channels", "/telegram-channels"), ("/telegram/", None), ("/hr/telegram-kanali", "/hr/telegram-kanali"),
+    ("/hr/telegram/", None), ("/autopilot$", "/autopilot"), ("/hr/autopilot$", "/hr/autopilot"),
+)
+
+
 def robots():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    return ("User-agent: *\nAllow: /$\nAllow: /sitemap.xml\nAllow: /favicon\nAllow: /apple-touch-icon.png\nAllow: /icon-\nAllow: /site.webmanifest\nAllow: /hr$\nAllow: /influencers\nAllow: /influencer/\nAllow: /hr/influenceri\n"
-            "Allow: /hr/influencer/\nAllow: /solana-meme-coins\nAllow: /hr/solana-meme-coini\nAllow: /coin/\n"
-            "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /best-crypto-tools\nAllow: /hr/najbolji-kripto-alati\n"
-            "Allow: /telegram-channels\nAllow: /telegram/\nAllow: /hr/telegram-kanali\nAllow: /hr/telegram/\n"
-            "Allow: /autopilot$\nAllow: /hr/autopilot$\n"   # 10.11. (Jure): the public Autopilot page in search
+    return ("User-agent: *\n" + "".join(f"Allow: {p}\n" for p, _ex in ROBOTS_ALLOW)
             + "".join(f"Allow: {p}\n" for p in _seo_robots()) + _makroinf_robots()
-            + "Allow: /static/landing/\nDisallow: /\n\n"
+            + "Disallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
+
+
+APP_ROBOTS = "User-agent: *\nDisallow: /\n"   # the app host (APP_URL): nothing of it belongs in search
 
 
 def _makroinf_robots():
@@ -875,76 +915,20 @@ def _makroinf_page(path):
 
 
 def sitemap():
+    """23.11. (SEO, vlasnik: "smanjiš sitemapu, staviš samo relevantne stranice"): only the core of ui/seoindex.py
+    (hubs, editorial pages, the capped data pages), never anything else. lastmod is the day the page's content or data
+    last changed (no lastmod where we cannot say), never a future day."""
+    from ui import seoindex
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    day = time.strftime("%Y-%m-%d", time.gmtime())
-    urls = [("/", "/hr", "1.0"), ("/influencers", "/hr/influenceri", "0.9")]
-    urls.append(("/autopilot", "/hr/autopilot", "0.8"))   # 10.11. (Jure): in search; 19.11.: "/x" English, "/hr/x" Croatian
-    urls.append(("/solana-meme-coins", "/hr/solana-meme-coini", "0.9"))
-    try:
-        from ui import coins as K
-        urls += [(f"/coin/{c['slug']}", f"/hr/coin/{c['slug']}", "0.8") for c in K.top()]
-    except Exception:  # noqa: BLE001
-        pass
-    urls += _tp(lambda T: T.urls(), [])   # 15.11.: token pages of the midcap universe with enough data
-    from ui import glossary_public as GP
-    urls.append(("/glossary", "/hr/rjecnik", "0.8"))
-    urls += [(f"/glossary/{e['en']}", f"/hr/rjecnik/{e['hr']}", "0.6") for e in GP.ENTRIES]
-    try:
-        from ui import coinseo
-        urls += coinseo.urls()
-    except Exception as e:  # noqa: BLE001
-        print(f"sitemap: coinseo nedostupan: {e}", flush=True)
-    try:
-        from ui import marketpub
-        urls += marketpub.urls()
-    except Exception as e:  # noqa: BLE001
-        print(f"sitemap: tržište nedostupno: {e}", flush=True)
-    try:
-        from ui import tools
-        urls += tools.urls()
-    except Exception as e:  # noqa: BLE001
-        print(f"sitemap: alati nedostupni: {e}", flush=True)
-    try:   # 9.11.: offered to search engines only with 10+ clean measured calls (ui/kolstats.py), thin pages are noindex
-        from ui import kolstats as KS
-        con = _con()
-        clean = {}
-        if con is not None:
-            try:
-                clean = KS.clean_counts(con, prefix="")
-            finally:
-                con.close()
-        urls += [(f"/influencer/{r['handle']}", f"/hr/influencer/{r['handle']}", "0.7") for r in influencers()
-                 if clean.get(r["handle"], 0) >= KS.MIN_CLEAN]
-    except Exception as e:  # noqa: BLE001  (one broken source must not empty the whole sitemap)
-        print(f"sitemap: influenceri nedostupni: {e}", flush=True)
-    try:
-        from ui import telegrampub
-        urls += telegrampub.urls()
-    except Exception as e:  # noqa: BLE001
-        print(f"sitemap: telegram nedostupan: {e}", flush=True)
-    try:   # 15.11. (makroinf/): only while the owner switch makroinf_javno is on; lastmod = the newest score's day
-        from makroinf import public as mpub
-        urls += mpub.urls()
-    except Exception as e:  # noqa: BLE001
-        print(f"sitemap: makro influenceri nedostupni: {e}", flush=True)
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">']
-    for u in urls:   # (en, hr, priority[, lastmod]): an entry without its own lastmod is rebuilt from the data today
-        en, hr, pr = u[:3]
-        mod = min(u[3], day) if len(u) > 3 and u[3] else day
-        for loc in (en, hr):
-            out.append(f"<url><loc>{base}{loc}</loc><lastmod>{mod}</lastmod><priority>{pr}</priority>"
-                       f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
-                       f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/></url>')
-    from ui import blog
-    # 10.11.: a post's lastmod is the day it really changed (its own date, or the night its daily numbers changed,
-    # ui/bloglive.py); the data pages above are rebuilt from the databases all day, so today is true for them
-    for en, hr, pr, mod in blog.urls(with_lastmod=True):   # posts without a Croatian version get no alternates
+    for en, hr, pr, mod in seoindex.core_urls():   # a page without a Croatian twin gets no alternates
+        alt = (f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
+               f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/>'
+               f'<xhtml:link rel="alternate" hreflang="x-default" href="{base}{en}"/>') if hr else ""
+        last = f"<lastmod>{mod}</lastmod>" if mod else ""
         for loc in (en, hr) if hr else (en,):
-            alt = (f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
-                   f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/>') if hr else ""
-            out.append(f"<url><loc>{base}{loc}</loc><lastmod>{min(mod or day, day)}</lastmod><priority>{pr}</priority>"
-                       f"{alt}</url>")
+            out.append(f"<url><loc>{base}{loc}</loc>{last}<priority>{pr}</priority>{alt}</url>")
     out.append("</urlset>")
     return "\n".join(out)
 
@@ -963,13 +947,31 @@ def _seo_page(path):
     return None
 
 
+GONE = b"410 Gone\n"   # 23.11. (SEO): Telegram channel pages that are not on the filtered list
+
+
+_ROBOTS_META = re.compile(r"<meta name=[\"']?robots[\"']?", re.I)
+
+
+def policy(path, html):
+    """The page as ui/seoindex decides: a page outside the core gets <meta name=robots content="noindex,follow">
+    (once; a page that already says noindex by itself keeps it). Every public page built here passes through this."""
+    from ui import seoindex
+    if seoindex.indexable(path) or _ROBOTS_META.search(html.split("</head>", 1)[0]):
+        return html
+    return html.replace("<meta charset=utf-8>", '<meta charset=utf-8>\n<meta name=robots content="noindex,follow">', 1) \
+        if "<meta charset=utf-8>" in html else html.replace("<head>", '<head><meta name=robots content="noindex,follow">', 1)
+
+
 def _makroinf_sync():
     """15.11. (vlasnik: "... osvježavati i stranice koje vide korisnici i Google"): after a macro influencer scoring (or
     a flip of the switch makroinf_javno) the cached macro pages, the sitemap and robots.txt are dropped here
     (makroinf/web.sync; one look at makroinf.db per 20 s at most)."""
     try:
         from makroinf import web
-        web.sync()
+        if web.sync():   # 23.11.: the macro section of the indexed core follows the new scores / the switch
+            from ui import seoindex
+            seoindex.poke()
     except Exception as e:  # noqa: BLE001 - the copies then simply live out CACHE_S
         print(f"makroinf javno: osvježavanje: {type(e).__name__}: {e}"[:200], flush=True)
 
@@ -999,8 +1001,10 @@ def route(path, gate=False):
         lang = "en" if path == "/telegram-channels" else "hr"
         fn, ctype = (lambda: telegrampub.hub(lang)), "text/html"
     elif re.fullmatch(r"(/hr)?/telegram/[^/]+", path):
-        from ui import telegrampub
+        from ui import seoindex, telegrampub
         lang, ch = ("hr" if path.startswith("/hr") else "en"), path.rsplit("/", 1)[1]
+        if not seoindex.tg_listed(ch):   # 23.11. (SEO): not a filtered crypto call channel: gone for good, no read
+            return 410, GONE, "text/plain"
         fn, ctype = (lambda: telegrampub.profile(ch, lang)), "text/html"
     elif path in ("/glossary", "/hr/rjecnik"):
         lang = "en" if path == "/glossary" else "hr"
@@ -1064,6 +1068,8 @@ def route(path, gate=False):
         code = 200 if body else 404
         if not body:
             body = not_found_html(path)
+        elif ctype == "text/html":
+            body = policy(path, body)
         raw = body.encode("utf-8")
         _keep(path, now, code, raw)
         return code, raw, ctype
@@ -1311,7 +1317,8 @@ def coin_list(lang):
     body = (f"<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['lb_h1']}</h1>"
             f"<p class=lead>{t['lb_lead'].format(n=len(rows) or 100)}</p></section>{table}"
             f"<div class=lock><p>{base_t['lb_lock']}</p><a class='btn sm' href={base_t['home']}#pristup>{base_t['cta']}</a></div>"
-            + _seo_extra(lambda S: S.list_links(lang)))
+            + _seo_extra(lambda S: S.list_links(lang))
+            + core_links("coin", lang, skip={f"{t['prof']}{r['slug']}" for r in rows}))
     jsonld = ('<script type="application/ld+json">' + json.dumps({
         "@context": "https://schema.org", "@type": "ItemList", "name": t["lb_h1"],
         "itemListElement": [{"@type": "ListItem", "position": r["rank"], "name": f"{r['name']} ({r['symbol']})",

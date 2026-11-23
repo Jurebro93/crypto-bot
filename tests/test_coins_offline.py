@@ -86,8 +86,11 @@ class Coins(unittest.TestCase):
         self.assertEqual(public.route("/coin/nope")[0], 404)
         self.assertIn((public.route("/coin/../etc") or [404])[0], (404,))      # never a page
         sm = public.route("/sitemap.xml")[1].decode()
-        self.assertIn("https://example.com/coin/pengu", sm)
-        self.assertIn("https://example.com/solana-meme-coins", sm)
+        # 23.11. (SEO, ui/seoindex): a coin page is in the sitemap only with enough of our own data (none here);
+        # without it the page lives on as noindex,follow
+        self.assertNotIn("https://example.com/coin/pengu", sm)
+        self.assertIn("noindex,follow", html.split("</head>")[0])
+        self.assertIn("https://example.com/solana-meme-coins<", sm)
         self.assertIn("Allow: /coin/", public.route("/robots.txt")[1].decode())
 
     def test_day_series_and_price_format(self):
