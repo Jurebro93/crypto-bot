@@ -1,0 +1,453 @@
+"""Copyability (the key question): when a CONFIRMED insider group buys a NEW token, (a) does a call follow within
+1 / 3 / 7 days, and (b) what would OUR trade return, entering after their buy with a realistic delay and costs, at OUR
+constraints (bonded; MC >= 5M separately from smaller), exiting when they sell / at the stop / after hold_h.
+
+Walk-forward, no look-ahead: for every UTC day D after warmup_days, the confirmed set is classified (score.classify)
+from the events whose window ended BEFORE D only; their buys of tokens they had not bought before, made during D,
+are the trades (one per token: the first confirmed buy; we can only enter once).
+
+Our trade: entry at buy + delay_s (60 s) at the first price we know from then on (within price_gap_s), else their own
+buy price x (1 + slip_entry) (Pretpostavka: 5 % worse after a minute); exit at the first of: a price at or below
+entry x (1 - stop) (filled at the stop less slip_exit), their first sell (any member of the group) + delay_s at the
+price then (else their sell price x (1 - slip_exit)), entry + hold_h; cost: trade/cost.round_trip at size_usd. The
+price series is the token's trades (SOL per token, from every source: ours, early.db, wallets.db, PumpPortal) or,
+for the midcaps, midcap.db candles (USD); a return is a ratio inside one series. MC at entry: USD candles x the
+collector's MC, else price x supply (1e9 for pump.fun) x SOL/USD (DefiLlama day close, else sol_usd). Bonded: MC at
+entry >= bond_mcap, a migration before the entry, or a midcap.db token (Pretpostavka for the first).
+"""
+import bisect
+import sqlite3
+import time
+from array import array
+from collections import defaultdict
+
+from insajderi import score, store
+
+# 19.11. (vlasnik: midcapovi od 15M naviše): "5M+" split into "5M-15M" and "15M+"; rows stored before keep "5M+" and
+# are still read (MC5: summarize counts them in nasa_pravila and in the "5M+" total)
+BUCKETS = (("<1M", 0, 1e6), ("1M-5M", 1e6, 5e6), ("5M-15M", 5e6, 15e6), ("15M+", 15e6, float("inf")))
+MC5 = ("5M-15M", "15M+", "5M+")
+
+
+def bucket_of(mcap):
+    if mcap is None:
+        return "?"
+    for name, lo, hi in BUCKETS:
+        if lo <= mcap < hi:
+            return name
+    return "?"
+
+
+def _in(xs):
+    return ",".join("?" * len(xs))
+
+
+def _chunks(xs, n=400):
+    xs = list(xs)
+    for i in range(0, len(xs), n):
+        yield xs[i:i + n]
+
+
+# ---------- data ------------------------------------------------------------------------------------------------------
+
+def wallet_trades(con, p, wallets):
+    """[(wallet, mint, ts, side, sol, tokens)] of `wallets` from every source we keep."""
+    ws = sorted(set(wallets))
+    # 20.11. (2) (smart.run reads ~150k wallets' trades, ~600k rows): every row is deduplicated as it is read (the
+    # first one of a (wallet, mint, ts, side) wins, in the same source order as before) and holds one string object
+    # per wallet / mint / side, not a copy per row; the result is the same list
+    seen, res, same = set(), [], {}
+
+    def add(rows):
+        for r in rows:
+            if not r[0] or not r[1] or r[2] is None or r[3] not in ("buy", "sell"):
+                continue
+            w, m, side = same.setdefault(r[0], r[0]), same.setdefault(r[1], r[1]), same.setdefault(r[3], r[3])
+            k = (w, m, int(r[2]), side)
+            if k not in seen:
+                seen.add(k)
+                res.append((w, m, int(r[2]), side, r[4], r[5]))
+    for ch in _chunks(ws):
+        add(store.q(con, f"SELECT wallet, mint, ts, side, sol, tokens FROM i2_trades WHERE wallet IN ({_in(ch)})", ch))
+    ec = store.ro(p.get("early_db"))
+    wc = store.ro(p.get("wallet_db"))
+    hc = store.ro(p.get("hype_db"))
+    for ch in _chunks(ws):   # tables with a wallet index: by chunks
+        add(store.q(ec, f"SELECT wallet, mint, ts, side, sol, tokens FROM group_buys WHERE wallet IN ({_in(ch)})", ch))
+        add((w, m, ts, k, abs(s) if s is not None else None, abs(tk) if tk is not None else None)
+            for w, m, ts, k, s, tk in store.q(wc, f"SELECT wallet, mint, ts, kind, sol, tokens FROM wallet_trades "
+                                                  f"WHERE kind IN ('buy', 'sell') AND wallet IN ({_in(ch)})", ch))
+    want = set(ws)   # without one: ONE streaming scan each, filtered here (not one full scan per chunk)
+    for c_, sql in ((ec, "SELECT wallet, mint, ts, side, sol, tokens FROM precall_trades"),
+                    (hc, "SELECT wallet, mint, ts, side, sol, tokens FROM live_trades"),
+                    (hc, "SELECT wallet, mint, ts, side, sol, NULL FROM chain_trades")):
+        if c_ is None:
+            continue
+        try:
+            add(r for r in c_.execute(sql) if r[0] in want)
+        except sqlite3.Error:
+            pass
+    for x in (ec, wc, hc):
+        if x is not None:
+            x.close()
+    seen.clear()
+    same.clear()
+    res.sort(key=lambda r: r[2])
+    return res
+
+
+SOL_CACHE_PTS = 2_000_000   # prices of the cached SOL series together (16 bytes each in a Series: ~32 MB)
+
+
+class Series:
+    """A sorted price series [(ts, px)] held as two arrays (20.11.: 16 bytes a price instead of ~120 for a list of
+    tuples; a deep-read pump token has up to ~150k). Reads like the list: len, s[i] -> (ts, px), s[i:] -> an iterator
+    of (ts, px), bisect with (ts, px) keys."""
+    __slots__ = ("ts", "px")
+
+    def __init__(self, pts):
+        self.ts = array("q", [t for t, _x in pts])
+        self.px = array("d", [x for _t, x in pts])
+
+    def __len__(self):
+        return len(self.ts)
+
+    def __getitem__(self, i):
+        if isinstance(i, slice):
+            return zip(self.ts[i], self.px[i])
+        return self.ts[i], self.px[i]
+
+    def __iter__(self):
+        return zip(self.ts, self.px)
+
+    def __bool__(self):
+        return len(self.ts) > 0
+
+
+class Prices:
+    """Price series per token, read LAZILY (only the tokens a trade is simulated on, the 512 MB server):
+    ("usd", [(ts, px)]) from midcap.db candles around the trade, else ("sol", [(ts, px)]) from the token's trades."""
+
+    def __init__(self, con, p, c, tokens=None):
+        self.con, self.p, self.c = con, p, c
+        self.mc_now, self.supply, self.mig, self._sol, self._sol_usd = {}, {}, {}, {}, None
+        self._meta = set()
+        self._n_pts = 0
+
+    def _load_meta(self, tok):
+        if tok in self._meta:
+            return
+        self._meta.add(tok)
+        mc = store.ro(self.p.get("midcap_db"))
+        r = store.q(mc, "SELECT mcap FROM tokens WHERE mint = ?", (tok,))
+        if mc is not None:
+            mc.close()
+        if r and r[0][0]:
+            self.mc_now[tok] = r[0][0]
+        hc, kc = store.ro(self.p.get("hype_db")), store.ro(self.p.get("kol_db"))
+        r = store.q(hc, "SELECT MIN(ts) FROM live_launches WHERE pool = 'migration' AND mint = ?", (tok,))
+        if r and r[0][0]:
+            self.mig[tok] = int(r[0][0])
+        r = store.q(kc, "SELECT supply FROM tokens WHERE supply > 0 AND token = ?", (tok,))
+        if r:
+            self.supply[tok] = float(r[0][0])
+        for x in (hc, kc):
+            if x is not None:
+                x.close()
+
+    def _usd(self, tok, ts):
+        mc = store.ro(self.p.get("midcap_db"))
+        lo, hi = int(ts) - 3600, int(ts) + int(float(self.c["hold_h"]) * 3600) + 2 * 3600
+        rows = store.q(mc, "SELECT ts, c FROM c15 WHERE token = ? AND ts BETWEEN ? AND ? ORDER BY ts", (tok, lo, hi)) or \
+            store.q(mc, "SELECT ts, c FROM c1h WHERE token = ? AND ts BETWEEN ? AND ? ORDER BY ts", (tok, lo, hi))
+        last = store.q(mc, "SELECT c FROM c1h WHERE token = ? ORDER BY ts DESC LIMIT 1", (tok,)) if rows else []
+        if mc is not None:
+            mc.close()
+        return [(int(t), float(px)) for t, px in rows if px], (float(last[0][0]) if last and last[0][0] else None)
+
+    def _sol_series(self, tok):
+        if tok in self._sol:
+            return self._sol[tok]
+        pts = [(int(ts), sol / tk) for ts, sol, tk in store.q(self.con, "SELECT ts, sol, tokens FROM i2_trades WHERE mint = ? "
+                                                                       "AND sol > 0 AND tokens > 0", (tok,))]
+        ec, hc = store.ro(self.p.get("early_db")), store.ro(self.p.get("hype_db"))
+        for t in ("precall_trades", "group_buys"):
+            pts += [(int(ts), sol / tk) for ts, sol, tk in store.q(ec, f"SELECT ts, sol, tokens FROM {t} WHERE mint = ? AND "
+                                                                      f"sol > 0 AND tokens > 0", (tok,))]
+        pts += [(int(ts), px) for ts, px in store.q(hc, "SELECT ts, price_sol FROM live_trades WHERE mint = ? AND "
+                                                        "price_sol > 0", (tok,))]
+        pts += [(int(h) + 3599, px) for h, px in store.q(hc, "SELECT hour, close_px FROM live_trades_hourly WHERE mint = ? "
+                                                             "AND close_px > 0", (tok,))]
+        for x in (ec, hc):
+            if x is not None:
+                x.close()
+        pts.sort()
+        ser = self._sol[tok] = Series(pts)
+        del pts
+        self._n_pts += len(ser)
+        # bounded: the oldest token's series goes first; 20.11. (production, the deep pump reads: a pump token's series
+        # is up to ~150k prices, ~18 MB) also by the number of prices held, never the one just read
+        while len(self._sol) > 1 and (len(self._sol) > 2000 or self._n_pts > SOL_CACHE_PTS):
+            self._n_pts -= len(self._sol.pop(next(iter(self._sol))))
+        return ser
+
+    def series(self, tok, ts):
+        self._load_meta(tok)
+        if tok in self.mc_now:
+            u, last = self._usd(tok, ts)
+            if u and u[0][0] <= ts <= u[-1][0] + 3600 and last:
+                self._last_usd = getattr(self, "_last_usd", {})
+                self._last_usd[tok] = last
+                return "usd", u
+        return "sol", self._sol_series(tok)
+
+    @staticmethod
+    def at(series, ts, gap):
+        """The first price at or after ts within gap seconds, else None."""
+        i = bisect.bisect_left(series, (ts, -1.0))
+        if i < len(series) and series[i][0] - ts <= gap:
+            return series[i][1]
+        return None
+
+    @staticmethod
+    def before(series, ts, gap):
+        i = bisect.bisect_right(series, (ts, float("inf"))) - 1
+        if i >= 0 and ts - series[i][0] <= gap:
+            return series[i][1]
+        return None
+
+    def sol_usd(self, ts):
+        if self._sol_usd is None and not self.c.get("sol_usd_hist", True):
+            self._sol_usd = lambda _ts: None
+        if self._sol_usd is None:
+            try:
+                from wallets import rpc
+                self._sol_usd = rpc.sol_usd_history()
+            except Exception:  # noqa: BLE001
+                self._sol_usd = lambda _ts: None
+        try:
+            return self._sol_usd(ts) or float(self.c["sol_usd"])
+        except Exception:  # noqa: BLE001
+            return float(self.c["sol_usd"])
+
+    def mcap(self, tok, kind, series, px, ts):
+        if kind == "usd":
+            last = getattr(self, "_last_usd", {}).get(tok)
+            return self.mc_now.get(tok) * px / last if last and self.mc_now.get(tok) else None
+        return px * self.supply.get(tok, float(self.c["supply"])) * self.sol_usd(ts)
+
+    def liq_at(self, tok, ts):
+        """19.11.: the pool's liquidity (USD) at ts from the midcap collector's snapshots (the last one in the hour
+        before ts), None when the collector did not hold the token then (unknown, never a miss)."""
+        mc = store.ro(self.p.get("midcap_db"))
+        r = store.q(mc, "SELECT s.liq FROM snap s JOIN tokens t ON t.id = s.id WHERE t.mint = ? AND s.ts BETWEEN ? "
+                        "AND ? AND s.liq > 0 ORDER BY s.ts DESC LIMIT 1", (tok, int(ts) - 3600, int(ts)))
+        if mc is not None:
+            mc.close()
+        return float(r[0][0]) if r else None
+
+    def bonded(self, tok, mcap, ts):
+        self._load_meta(tok)
+        if tok in self.mc_now:
+            return True
+        if tok in self.mig and self.mig[tok] <= ts:
+            return True
+        return mcap is not None and mcap >= self.c["bond_mcap"]
+
+
+def cost_rt(c):
+    try:
+        from trade import cost
+        return cost.round_trip(float(c["size_usd"]))
+    except Exception:  # noqa: BLE001
+        return 0.04
+
+
+# ---------- one trade -----------------------------------------------------------------------------------------------
+
+def simulate(buy, sells, pr, c, rt, fast=False):
+    """buy (wallet, mint, ts, side, sol, tokens), sells [same shape] of the group after it -> {"entry_ts", "mcap",
+    "bonded", "ret", "exit", "assumed"} or None when no exit can be priced.
+    fast (19.11., the "brzo" variant): entry fast_delay_s (2 s) after their buy at the token's own trade print within
+    fast_gap_s (5 s), else THEIR buy price x (1 + slip_fast) (assumed = True: Pretpostavka klizanja 1 %); their sell the
+    same way less slip_fast; always the SOL series of the token's trades (candles are 15 min: no use within seconds)."""
+    _w, tok, bts, _s, bsol, btk = buy
+    gap, delay = int(c["price_gap_s"]), int(c["delay_s"])
+    slip_in, slip_out = float(c["slip_entry"]), float(c["slip_exit"])
+    gap_in = gap
+    if fast:
+        delay, gap_in = int(c["fast_delay_s"]), int(c["fast_gap_s"])
+        slip_in = slip_out = float(c["slip_fast"])
+    et = bts + delay
+    kind, ser = ("sol", pr._sol_series(tok)) if fast else pr.series(tok, et)
+    if fast:
+        pr._load_meta(tok)
+    px = pr.at(ser, et, gap_in)
+    assumed = False
+    if px is None and kind == "sol" and bsol and btk:
+        px = bsol / btk * (1 + slip_in)
+        assumed = True
+    if not px:
+        return None
+    mcap = pr.mcap(tok, kind, ser, px, et)
+    stop_px = px * (1 - float(c["stop"]))
+    end = et + int(float(c["hold_h"]) * 3600)
+    sell = next((s for s in sells if s[2] > bts), None)
+    exits = []
+    if sell is not None:
+        st = sell[2] + delay
+        spx = pr.at(ser, st, gap_in)
+        if spx is None and kind == "sol" and sell[4] and sell[5]:
+            spx = sell[4] / sell[5] * (1 - slip_out)
+        if spx and st <= end:
+            exits.append((st, spx, "prodali su"))
+    hp = pr.at(ser, end, gap) or pr.before(ser, end, gap)
+    if hp:
+        exits.append((end, hp, "vrijeme"))
+    if not exits:
+        return None
+    ex_ts, ex_px, why = min(exits, key=lambda x: x[0])
+    i = bisect.bisect_right(ser, (et, float("inf")))
+    for ts, p_ in ser[i:]:
+        if ts > ex_ts:
+            break
+        if p_ <= stop_px:
+            ex_ts, ex_px, why = ts, stop_px * (1 - slip_out), "stop"
+            break
+    return {"entry_ts": et, "mcap": mcap, "bonded": pr.bonded(tok, mcap, et), "ret": ex_px / px - 1 - rt, "exit": why,
+            "exit_ts": ex_ts, "assumed": assumed}
+
+
+# ---------- the walk-forward ----------------------------------------------------------------------------------------
+
+def calls_after(p, toks):
+    """{token: [call ts]} of tracked callers (bots and wallets out), sorted."""
+    kc = store.ro(p.get("kol_db"))
+    out = defaultdict(list)
+    for ch in _chunks(sorted(toks)):
+        for t, ts in store.q(kc, f"SELECT token, ts FROM calls WHERE kind = 'call' AND handle NOT LIKE 'w:%' AND token IN "
+                                 f"({_in(ch)})", ch):
+            if ts:
+                out[t].append(int(ts))
+    if kc is not None:
+        kc.close()
+    for t in out:
+        out[t].sort()
+    return out
+
+
+def selection(c, events, parts, now, bad=frozenset(), first_trade=None, stop=None):
+    """(days, {day: confirmed insiders}, members) of the walk-forward: each day classified from the events whose window
+    ended before it only. None when stop() came true first (19.11.: the pass's time budget)."""
+    if not events:
+        return [], {}, set()
+    start = min(e["t0"] for e in events) + int(c["warmup_days"]) * 86400
+    d0 = start - start % 86400 + 86400
+    days = list(range(d0, int(now) - int(now) % 86400 + 86400, 86400))
+    conf_by_day = {}
+    members = set()
+    for d in days:
+        if stop is not None and stop():
+            return None
+        st = score.classify(parts, events, d, c, bad, first_trade)
+        conf_by_day[d] = score.confirmed(st)
+        for ms in conf_by_day[d].values():
+            members |= set(ms)
+    return days, conf_by_day, members
+
+
+def walk(con, p, c, events, parts, now, bad=frozenset(), first_trade=None, trades=None, prices=None, sel=None,
+         stop=None):
+    """The walk-forward rows [dict] (one per token: the first confirmed buy of a day) and the confirmed sets per day.
+    sel: selection()'s result when the caller already has it (19.11.: the pass reads the wallets' trades ONCE for this
+    and prijepumpe.walk); stop() true: (None, {}) - a cut walk is no result (the early days alone would be biased)."""
+    if not events:
+        return [], {}
+    sel = sel if sel is not None else selection(c, events, parts, now, bad, first_trade, stop)
+    if sel is None:
+        return None, {}
+    days, conf_by_day, members = sel
+    if not members:
+        return [], conf_by_day
+    trades = trades if trades is not None else wallet_trades(con, p, members)
+    by_w = defaultdict(list)
+    for r in trades:
+        by_w[r[0]].append(r)
+    toks = {r[1] for r in trades}
+    pr = prices or Prices(con, p, c, toks)
+    ca = calls_after(p, toks)
+    rt = cost_rt(c)
+    rows, taken = [], set()
+    for d in days:
+        if stop is not None and stop():
+            return None, conf_by_day
+        for owner, ms in conf_by_day[d].items():
+            own = sorted((r for m in ms for r in by_w.get(m, [])), key=lambda r: r[2])
+            before = {r[1] for r in own if r[2] < d}
+            for r in own:
+                if not d <= r[2] < d + 86400 or r[3] != "buy" or r[1] in before or r[1] in taken:
+                    continue
+                if r[2] > now:
+                    continue
+                taken.add(r[1])
+                sells = [s for s in own if s[1] == r[1] and s[3] == "sell" and s[2] > r[2]]
+                sim = simulate(r, sells, pr, c, rt)
+                nxt = [t for t in ca.get(r[1], []) if t > r[2]]
+                row = {"owner": owner, "token": r[1], "buy_ts": r[2], "day": store.day(d),
+                       "call_after_s": (nxt[0] - r[2]) if nxt else None}
+                if sim:
+                    row.update(entry_ts=sim["entry_ts"], mcap=sim["mcap"], bucket=bucket_of(sim["mcap"]),
+                               bonded=int(sim["bonded"]), ret=round(sim["ret"], 4), exit=sim["exit"])
+                else:
+                    row.update(entry_ts=None, mcap=None, bucket="?", bonded=None, ret=None, exit="bez cijene")
+                rows.append(row)
+    return rows, conf_by_day
+
+
+def summarize(rows):
+    """{"svi", "bondani", "nasa_pravila" (bonded, MC 5M+), "<1M", "1M-5M", "5M+": stats; "poziv_nakon": {...}}."""
+    from trade import edge
+
+    def stats(xs):
+        rets = [x["ret"] for x in xs if x.get("ret") is not None]
+        s = edge.ev_stats(rets)
+        pct = (lambda v: None if v is None else round(v * 100, 2))
+        return {"n": s["n"], "hit_pct": round(100 * sum(1 for r in rets if r > 0) / len(rets), 1) if rets else None,
+                "ev_pct": pct(s["ev"]), "ci90_lo_pct": pct(s["lo90"]), "ci90_hi_pct": pct(s["hi90"])}
+    out = {"svi": stats(rows), "bondani": stats([r for r in rows if r.get("bonded")]),
+           "nasa_pravila": stats([r for r in rows if r.get("bonded") and r.get("bucket") in MC5])}
+    for name, _lo, _hi in BUCKETS:
+        out[name] = stats([r for r in rows if r.get("bucket") == name and r.get("bonded")])
+    out["5M+"] = stats([r for r in rows if r.get("bucket") in MC5 and r.get("bonded")])   # the old total, still shown
+    n = len(rows)
+    out["poziv_nakon"] = {"n": n, **{f"{d}d_pct": (round(100 * sum(1 for r in rows if r.get("call_after_s") is not None
+                                                                     and r["call_after_s"] <= d * 86400) / n, 1)
+                                                   if n else None) for d in (1, 3, 7)}}
+    out["bez_cijene"] = sum(1 for r in rows if r.get("ret") is None)
+    out["izlazi"] = {k: sum(1 for r in rows if r.get("exit") == k) for k in ("prodali su", "stop", "vrijeme")}
+    return out
+
+
+def verdict(summary, n_min=20):
+    """(copyable at our constraints, why in Croatian)."""
+    s = summary.get("nasa_pravila") or {}
+    if (s.get("n") or 0) < n_min:
+        return False, (f"na našim pravilima (bondani, MC ≥ 5M) samo n={s.get('n') or 0} kopija (treba {n_min}+): insajderi "
+                       "kupuju ispod naših pravila")
+    if (s.get("ev_pct") or 0) <= 0:
+        return False, f"EV {s['ev_pct']:+.1f} % po kopiji nakon troška (n={s['n']}): ne isplati se"
+    if (s.get("ci90_lo_pct") or 0) <= 0:
+        return False, f"EV {s['ev_pct']:+.1f} %, ali donja granica 90 % intervala {s['ci90_lo_pct']:+.1f} % nije iznad nule"
+    return True, f"EV {s['ev_pct']:+.1f} % (CI90 od {s['ci90_lo_pct']:+.1f} %), n={s['n']}: kopirati u demu"
+
+
+def save(con, rows):
+    con.execute("DELETE FROM i2_copy")
+    con.executemany("INSERT OR REPLACE INTO i2_copy VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    [(r["owner"], r["token"], r["buy_ts"], r.get("entry_ts"), r.get("mcap"), r.get("bucket"),
+                      r.get("bonded"), r.get("ret"), r.get("exit"), r.get("call_after_s"), r["day"]) for r in rows])
+    con.commit()
+
+
+def _now():
+    return int(time.time())

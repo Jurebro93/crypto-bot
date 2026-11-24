@@ -17,60 +17,45 @@ def _p(href, icon, name, desc, kw=""):
 
 
 SECTIONS = [
-    # the three things the app is about: the only items at the top of the menu and in the phone bar
+    # 19.11. (vlasnik: fokus na novčanike koji kupuju prije pumpe, zatim midcapovi): Pregled, Novčanici, Tokeni lead the
+    # menu, the phone bar and the map; Influenceri moved to "Više" (refreshed once in 5 days, ops/drustveni)
     ("Glavno", [
-        _p("/pregled", "🏠", "Pregled", "Najprofitabilnija strategija, koliko podataka imamo, rast u tjedan dana i brzi linkovi.",
-           "overview home početna pregled start nadzorna ploča dashboard sažetak rast strategija"),
-        _p("/tokens", "🪙", "Tokeni", "Prijedlozi tokena: novi, jaki i dugoročni, poredani po Šansi za skok.",
-           "radar hype novi zadnji sken kandidati lista coin prijedlozi"),
-        _p("/kol", "📣", "Influenceri", "Koji KOL-ovi stvarno pogađaju i što su upravo zvali.",
-           "influenceri pozivi twitter x ljestvica kol"),
-        _p("/wallets", "👛", "Novčanici", "Tko je upravo kupio ili prodao i koga se isplati kopirati.",
-           "walleti wallet smart money copy praćenje"),
+        _p("/pregled", "🏠", "Pregled", "Što alat sada radi: novčanici koji kupuju prije pumpe, Autopilot i midcapovi koji su skočili.",
+           "overview home početna pregled start nadzorna ploča dashboard sažetak"),
+        _p("/wallets", "👛", "Novčanici", "Novčanici koji kupuju prije pumpe i koga se isplati pratiti.",
+           "walleti wallet smart money copy praćenje insajderi prije pumpe"),
+        _p("/tokens", "🪙", "Tokeni", "Midcap tokeni koje pratimo (od 2 M $) i oni koji su nedavno skočili.",
+           "midcap tokeni lista coin skok pumpa popis"),
+        _p("/kol", "📣", "Influenceri", "Makro influenceri i KOL-ovi; osvježava se jednom u 5 dana.",
+           "influenceri pozivi twitter x ljestvica kol makro"),
     ]),
-    ("Tokeni", [
+    ("Novčanici i tokeni", [
         _p("/dugorocno", "🌱", "Dugoročni", "Sigurniji stariji tokeni koji se oporavljaju i rastu.",
            "dugorocno long term preživjeli veliki holderi burze"),
-        _p("/radar", "📡", "Zadnji sken", "Što je skener našao u zadnjem prolazu.", "radar hype novi zadnji sken"),
-        _p("/events", "📅", "Eventi", "Kalendar događaja, njihovi tokeni i kreću li prije događaja.",
-           "kalendar događaji prije eventa watch praćenje"),
+        _p("/strategije", "🏁", "Usporedba strategija", "Midcap strategije u demu, jedna uz drugu.",
+           "strategije usporedba demo midcap"),
+        # 20.11. (vlasnik: BTC i Fear & Greed uz skokove i padove tokena; market/trziste.py)
+        _p("/trziste", "🌦", "Tržište i tokeni", "BTC, strah i pohlepa i volumen meme platformi uz skokove i padove "
+           "tokena.", "btc bitcoin fear greed strah pohlepa režim tržište korelacija skokovi padovi manipulacija"),
     ]),
-    ("Influenceri i novčanici", [
-        _p("/izvori", "💬", "Telegram i KOL novčanici", "Telegram kanali i novčanici KOL-ova.",
-           "telegram kanali konvergencija kol novčanici"),
-        _p("/korelacije", "🕸", "Korelacije", "Novčanici i KOL-ovi koji rade zajedno.", "grupe klasteri veze"),
-        _p("/kol-test", "🧪", "KOL test", "Isplati li se ući odmah na KOL poziv.", "test"),
-    ]),
-    ("Bot (demo)", [
-        _p("/paper", "🤖", "Demo trading", "Bi li bot zaradio, bez pravog novca.", "paper trejd"),
-        _p("/strategije", "🏁", "Usporedba strategija", "5 demo računa po $1000.",
-           "strategije usporedba budžet račun novčanici kol mix kontrola nasumično"),
-        _p("/izlazi", "🚪", "Izlazi", "Kada bot prodaje i koliko to vrijedi.", "exit prodaja stop"),
+    ("Alati", [
         _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak, gotov prije 8 h.", "email mail report sažetak"),
-    ]),
-    ("Pomoć", [
-        _p("/pojmovnik", "📖", "Pojmovnik", "Što znači svaki pojam i broj.",
-           "objašnjenje pojmovi rječnik značenje help pomoć info"),
-        _p("/mapa", "🧭", "Sve stranice", "Sve stranice na jednom mjestu.", "izbornik mapa pomoć help gdje je što"),
-        _p("/novo", "✨", "Što je novo", "Sve što je dodano u aplikaciju, po datumima.",
-           "novosti novo promjene dnevnik log povijest update changelog dodano"),
-    ]),
-    ("Bonus", [
-        _p("/natjecanje", "🏆", "Natjecanje", "Demo račun: kupi tokene iz prijedloga i natječi se s ostalima.",
-           "liga ljestvica igra igrači demo račun kupi dca automatska kupnja prosjek"),
-        _p("/copy-trading", "🔁", "Copy trading", "Alat ulazi i izlazi umjesto tebe, prema influenceru ili novčaniku.",
-           "kopiraj prati influencer kol wallet novčanik copy trade"),
         _p("/nas-token", "🪙", "Naš token", "Naš vlastiti Solana meme token.",
            "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja strategija promocija"),
-        _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za WhatsApp grupu.", "whatsapp grupa podijeli pošalji share novosti"),
-        _p("/prijedlozi", "💡", "Ideje za alat", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
+        _p("/pojmovnik", "📖", "Pojmovnik", "Što znači svaki pojam i broj.",
+           "objašnjenje pojmovi rječnik značenje help pomoć info"),
+        _p("/novo", "✨", "Što je novo", "Sve što je dodano u aplikaciju, po datumima.",
+           "novosti novo promjene dnevnik log povijest update changelog dodano"),
+        _p("/mapa", "🧭", "Sve stranice", "Sve stranice na jednom mjestu.", "izbornik mapa pomoć help gdje je što"),
     ]),
     ("Autopilot", [
         _p("/pravi-trade", "💰", "Autopilot", "Bot trguje pravim novcem iz tvog walleta, po onima koje odabereš.",
            "pravi trade pravi novac live trading wallet phantom jupiter prekidač limit kupnja prodaja autopilot usdc"),
     ]),
     ("Sustav", [
-        _p("/learn", "🧠", "Učenje", "Što bot uči iz ishoda i kako mijenja ocjene.", "learn težine"),
+        # 19.11. (vlasnik: "the admin must have a dashboard with more data about the wallets"): the owner only
+        _p("/novcanici-admin", "👛", "Novčanici: administracija", "Grupe koje kupuju prije pumpe, bundle, isključeni, "
+           "test kopiranja, povijest i veliki holderi.", "insajderi kupuje prije pumpe bundle novčanici admin pnl holderi"),
         _p("/criteria", "📏", "Pravila", "Svi pragovi i težine po kojima bot ocjenjuje.", "kriteriji criteria"),
         _p("/market", "🌡", "Tržište", "Je li tržište vruće ili hladno.", "market volumen"),
         _p("/analitika", "📈", "Analitika", "Posjete s Googlea.", "google search console gsc seo klikovi prikazi upiti posjete"),
@@ -84,21 +69,23 @@ SECTIONS = [
 ]
 # the three things the app is about (Nicholas 2.11.): they lead the menu, Pregled, the phone bar and the map
 CORE = ("Glavno",)
-BONUS = "Bonus"
+BONUS = None   # 19.11.: Natjecanje is gone (vlasnik: "Makni natjecanje")
 # menu groups only an admin sees (UI_ADMINS); everyone else still reaches the pages by link or search
-ADMIN = ("Sustav",)
+# 9.11. (Jure): Autopilot is for the administrators only: shown to them at the top of the menu, highlighted (see
+# autopilot_link); everybody else gets a copy without it (ui/admstrip strips adm-only elements server-side)
+ADMIN = ("Autopilot", "Sustav")
 # only the trade owner and the players they invite (cookie cb_pt, see run_ui._trade_cookie)
 PRIVATE = ("Autopilot",)
 # detail pages light up the menu item they belong to
-NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
-              "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
-              "/prijava": "/", "/nas-token/": "/nas-token", "/registracija": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
-# phone bottom bar: the three core features + Više (opens the menu). Line icons, one colour.
+NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/kol/": "/kol",
+              "/prijava": "/", "/nas-token/": "/nas-token", "/registracija": "/pregled", "/izvjestaj/": "/izvjestaj"}
+# phone bottom bar (19.11., vlasnik: "Autopilot stavi u drugi plan dok rekonstruiramo app"): Pregled, Novčanici, Tokeni,
+# Influenceri, Više for every role; the Autopilot is under "Više". Line icons, one colour.
 _SVG = '<svg viewBox="0 0 24 24" aria-hidden="true">{}</svg>'
 BOTTOM = [("/pregled", _SVG.format('<path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/>'), "Pregled"),
+          ("/wallets", _SVG.format('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h2"/>'), "Novčanici"),
           ("/tokens", _SVG.format('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>'), "Tokeni"),
-          ("/kol", _SVG.format('<path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/>'), "Influenceri"),
-          ("/wallets", _SVG.format('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h2"/>'), "Novčanici")]
+          ("/kol", _SVG.format('<path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/>'), "Influenceri")]
 MORE_ICON = _SVG.format('<circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/>')
 
 # Logo: candidates, LOGO picks the one shown. Plain SVG, no files to serve.
@@ -158,12 +145,12 @@ def nav_group(path):
 # one box at the top of every page: what the page is for, which data is on it, and where it sits in the pipeline
 # (kalendar -> skener -> slojevi T0-T3 -> Šansa -> demo trading -> učenje). Keyed by route or route prefix.
 INTRO = {
-    "/pregled": ("Početna: najvažnije na jednom mjestu", "Koja strategija najviše zarađuje i koliko, koliko podataka alat "
-                 "ima i kako je narastao u odnosu na prošli tjedan, zanimljivosti sada i brzi linkovi.",
-                 "Prvo što vidiš nakon prijave; odavde ideš na Tokene, Influencere i Novčanike."),
+    "/pregled": ("Početna: što alat sada radi", "Novčanici koji kupuju prije pumpe (koliko smo ih našli i potvrdili), "
+                 "novčanici koje vrijedi pratiti, stanje Autopilota i midcapovi koji su nedavno skočili; niže, s datumom, "
+                 "influenceri i promet novčanika.", "Prvo što vidiš nakon prijave; odavde ideš na Novčanike i Tokene."),
     "/postavke": ("Tvoj račun, tvoja pravila", "Lozinka, profilna slika, jezik aplikacije (hrvatski ili engleski), "
                   "društvene mreže i e-mail, odjava sa svih uređaja i brisanje računa.",
-                  "Slika i društvene mreže se vide u Natjecanju; jezik vrijedi za cijelu aplikaciju."),
+                  "Jezik vrijedi za cijelu aplikaciju."),
     "/novo": ("Dnevnik promjena", "Svaka nova mogućnost i popravak, s datumom.",
               "Kad se nešto doda, na vrhu aplikacije se pojavi kratka obavijest s linkom ovamo."),
     "/pojmovnik": ("Što znači svaki pojam u alatu", "Svaki pojam, ocjena, stupac i stranica objašnjeni običnim riječima, "
@@ -177,14 +164,9 @@ INTRO = {
           "njihovi zadnji pozivi, te što praćeni novčanici kupuju. Ispod su veliki pogoci, demo rezultat, kako se baza puni i "
           "tablica tokena koji su prošli više analiza.",
           "Završna točka cjevovoda: ovdje se vidi što je iz svih slojeva izašlo kao kandidat."),
-    "/tokens": ("Sve što alat zna o svakom tokenu", "Svaki token viđen u zadnjih 7 dana kroz sve analize (hype, X, smart money, "
-                "KOL, holderi, rug, event, demo), poredan po Šansi; odvojeno event tokeni, stariji i odbačeni.",
-                "Povijest i puna slika; za trenutak zadnjeg prolaza služi Zadnji sken, za odluku Pregled."),
-    "/radar": ("Što je hype skener vidio u zadnjem prolazu", "Kandidati iz zadnjeg skena (svake 2 min) s razlozima i rizicima, "
-               "odbačeni, narativi (X trendovi, kopije), smart money, radi li ocjena, Apify trošak.",
-               "Prvi sloj cjevovoda: sirovi signali s DexScreenera, pump.funa i X-a prije skupljih provjera."),
-    "/events": ("Događaji oko kojih bi mogli nastati tokeni", "Kalendar s točkicama po važnosti, lista događaja s hype ocjenom i "
-                "najizglednijim tokenom, te praćenje tokena od 14 dana prije eventa (volumen, kupci, smart money).", "Ulaz za klasu Event: pravi token događaja ide u slojevitu analizu kao event kandidat."),
+    "/tokens": ("Tokeni koje alat prati", "Midcap tokeni od 2 M $ naviše (od 15 M $ prvi), njihova vrijednost, promjena "
+                "u 24 h i likvidnost, te tokeni koji su nedavno skočili i koliko je skupina novčanika kupilo prije skoka.",
+                "Popis puni sakupljač midcapova; skokove i rane kupce traži analiza novčanika (insajderi)."),
     "/wallets": ("Tko kupuje rano i zarađuje", "Registar walleta iz svih analiza (rani kupci, smart, top traderi, botovi, devovi), "
                  "ocjena profitabilnosti, copy lista.", "Smart walleti među prvim kupcima su signal u hype ocjeni i T1 provjeri; "
                  "rotacijski devovi su upozorenje."),
@@ -198,14 +180,10 @@ INTRO = {
     "/korisnici": ("Tko što smije", "Svi korisnici i njihove uloge: Admin, Prijatelj ili Osnovni.",
                    "Novi korisnici su Osnovni: gledaju, ali ne vide potrošnju i ne pokreću ništa što košta."),
     "/zahtjevi": ("Novi ljudi koji žele ući", "Zahtjevi s javne naslovne stranice: ime, kontakt, iskustvo i što ih "
-                  "zanima. Gumb Pozovi napravi jednokratni link za registraciju.", "Ulaz u Natjecanje: od zahtjeva do "
-                  "pozivnice i demo računa od $1.000."),
-    "/natjecanje": ("Ljudi protiv bota", "Demo računi korisnika, njihovi ulazi i ljestvica.",
-                    "Usporedba ljudskog izbora s botovim na istim tokenima."),
+                  "zanima. Gumb Pozovi napravi jednokratni link za registraciju.", "Ulaz u aplikaciju: od zahtjeva do "
+                  "pozivnice; ovdje su i linkovi za registraciju (Pozivnice)."),
     "/pravi-trade": ("Autopilot: bot trguje pravim novcem", "Wallet i upute za postavljanje na vrhu, pa koga bot prati, "
                      "preporuke alata (influenceri, walleti, tokeni po zadnjih 7/14/30 dana), pozicije i limiti.", "Pravi novac ide samo kad je prekidač uključen i ključ postavljen u Renderu."),
-    "/copy-trading": ("Kopiraj influencera ili wallet", "Statistika influencera i walleta, gumb za praćenje, svaki ulaz i "
-                      "izlaz iz praćenja s razlogom.", "Ulazi idu na tvoj demo račun u Natjecanju."),
     "/nas-token/strategija": ("Kako naš token privući ljude", "Koncepti priče i use casea, igrice, plan po fazama od "
                               "ideje do prvog mjeseca, besplatne i plaćene metode, uloge za tim od 4, gotovi "
                               "Claude Code promptovi, brojke za praćenje i izvori istraživanja.", "Marketinški dio "
@@ -214,12 +192,15 @@ INTRO = {
                    "koliko uplatio), generator s troškom lansiranja, paket za pump.fun, marketinški plan i "
                    "influenceri za suradnju, a nakon lansiranja brojke tokena i prijedlozi.", "Koristi sve što alat "
                    "već mjeri (KOL-ove, vrijeme objava, val poziva) za naš token; ključeve nikad ne drži."),
-    "/prijedlozi": ("Što bi alat trebao raditi drugačije", "Prijedlozi korisnika i njihov status.", "Ulaz za sljedeće faze razvoja."),
     "/learn": ("Što alat uči iz ishoda", "Skok po klasi, koliko koji signal pomaže, udio skokova po rasponu vrijednosti, parovi signala, "
                "povijest automatskih promjena težina, propušteni tokeni.", "Zatvara krug: ishodi iz Pregleda i Demo tradinga "
                "mijenjaju težine kojima skener ocjenjuje sutra."),
     "/criteria": ("Pravila i težine, uživo iz koda", "Svaki prag i težina po modulu: eventi, DexScreener, klase i razine, hype, "
                   "rug filter, walleti, confidence, demo.", "Referenca: kad te zanima zašto je broj takav kakav jest."),
+    "/trziste": ("Prate li tokeni tržište", "BTC po danima u tri boje (raste, konsolidira, pada), indeks straha i "
+                 "pohlepe, volumen meme platformi, skokovi i padovi midcap liste i postojeći ulazi po stanju tržišta.",
+                 "Samo analiza: provjerava vrijedi li mirovati u strahu i kupovati kad BTC krene gore; ništa ne "
+                 "mijenja trgovanje."),
     "/market": ("Je li tržište vruće ili hladno", "Volumen po launchpadima i Solana DEX-u (DefiLlama), režim 0-100.",
                 "Vrućina tržišta je jedan od signala u hype ocjeni; koliko vrijedi, bot uči sam."),
     "/analitika": ("Kako nas ljudi nalaze na Googleu", "Klikovi, prikazi, CTR i prosječna pozicija iz Google Search "
@@ -229,9 +210,8 @@ INTRO = {
                "Čuvar budžeta za slojevitu analizu: skupe razine T2/T3 žive unutar ovih limita."),
     "/outputs": ("Pisani izvještaji modula", "Markdown datoteke koje moduli pišu u output/ (kalendar, dex, rug, demo).",
                  "Sirovi izlaz za provjeru; sve bitno iz njih je i u bazama i na stranicama."),
-    "/izvori": ("Telegram kanali, KOL novčanici i konvergencija", "Javni Telegram call kanali, KOL novčanici na lancu i "
-                "trenutci kad više izvora zove isti token.", "Izvor značajki telegram i konvergencija u hype ocjeni i "
-                "konvergencijskih demo ulaza."),
+    "/telegram-kanali": ("Telegram kanali (informativno)", "Popis kanala i broj pratitelja, osvježava se jednom tjedno.",
+                         "Samo informativno: pozive s Telegrama od 19.11. ne mjerimo i ne ulaze ni u jedan izračun."),
     "/dugorocno": ("Sigurniji sloj: preživjeli i oživljeni tokeni", "Stariji tokeni koji se oporavljaju od padova i rastu s "
                    "tržištem (uzor Fartcoin i Useless) i stari tokeni koji se bude, s ocjenom, razlozima i demo portfeljem "
                    "usporedno sa SOL-om.", "Odvojeno od lova na nove tokene: drugi izvori, drugi horizont (tjedni i mjeseci), "
@@ -258,6 +238,126 @@ def bottom_item(path):
         if path.startswith(pre) and href in hrefs:
             return href
     return None
+
+
+# 10.11. (Jure, prijedlog 3.5): the Autopilot gets the fourth place of the phone bar for the administrators (the
+# people the menu shows it to today, adm-only); everybody else keeps Novčanici there (they do not see the Autopilot).
+AP_ICON = _SVG.format('<path d="M3.5 16a8.5 8.5 0 0 1 17 0"/><path d="M12 16l4.2-4.6"/><circle cx="12" cy="16" r="1.2"/>')
+
+
+def bottom_bar(path, cur=None):
+    """Phone bar (19.11.): Pregled, Novčanici, Tokeni, Influenceri, Više (/vise, a page now, not the drawer) for every
+    role; the Autopilot pages light Više (they live under it while the app is rebuilt).
+    The dot on Više (class nd) shows while "Što je novo" has an entry the user has not opened (ADMIN_JS, html.novo)."""
+    bcur = "/vise" if path.startswith("/pravi-trade") else bottom_item(path)
+    if bcur is None and _more_cur(path, cur if cur is not None else nav_item(path)):
+        bcur = "/vise"
+    out = []
+    for h, i, t in BOTTOM:
+        on = "on" if h == bcur else ""
+        out.append(f'<a href="{h}" class="{on}"><span class=bi>{i}</span>{t}</a>')
+    out.append(f'<a href="/vise" class="vise{" on" if bcur == "/vise" else ""}"><span class="bi nd">{MORE_ICON}</span>Više</a>')
+    return "<nav class=bbar aria-label='Brzi izbornik'>" + "".join(out) + "</nav>"
+
+
+BAR_CSS = """
+/* 10.11. (Jure, prijedlog 3.5): no ☰ (the bottom bar and /vise do its job); Autopilot or Novčanici in the bar */
+.menu-btn{display:none!important}
+.bbar .on{color:var(--acc)}
+.side .sec-c+a.set{border-top:0;margin-top:8px}
+html.adm .nadm{display:none!important}
+html.adm .bbar a.adm-only{display:flex!important}
+.bbar .bi.nd{position:relative}
+html.novo .bbar .bi.nd::after{content:"";position:absolute;top:1px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--acc)}
+.side .sec-c .vd{position:relative}
+html.novo .side .sec-c .vd::after{content:"";position:absolute;top:2px;right:-11px;width:8px;height:8px;border-radius:50%;background:var(--acc)}
+/* the "Više" page: groups of rows on a soft page, like iOS settings (makete/izbornik.html) */
+body:has(.ms-vise){background:var(--soft)}
+.ms-vise .ms-gt{font-size:15px;font-weight:600;color:var(--mut);margin:26px 4px 8px}
+.ms-vise .ms-gn{font-weight:400}
+.ms-grp a.ms-quiet{font-size:15px;color:var(--mut)}
+.ms-grp .ms-gl{margin:0;padding:12px 16px;font-size:14px;color:var(--mut);line-height:1.4;border-bottom:1px solid var(--line)}
+.ms-grp{background:#fff;border-radius:14px;overflow:hidden}
+.ms-grp a{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:50px;padding:0 16px;font-size:17px;color:var(--fg);text-decoration:none}
+html.adm .ms-grp a.adm-only{display:flex!important}
+.ms-grp a+a{border-top:1px solid var(--line)}
+.ms-grp a:hover{background:#fafbfd}
+.ms-grp .r{display:flex;align-items:center;gap:10px;color:var(--mut);font-size:15px}
+.ms-grp .new{color:var(--acc);font-weight:500;display:none}html.novo .ms-grp .new{display:inline}
+.ms-grp .out{color:var(--bad)}
+.ms-vise .ms-cols{display:block}
+.ms-vise .ms-note{font-size:13px;color:var(--mut);margin:22px 4px 0;line-height:1.45}.ms-vise .ms-note a{color:var(--acc)}
+@media(min-width:1001px){.ms-vise .ms-cols{display:grid;grid-template-columns:1fr 1fr;column-gap:24px;align-items:start}
+ .ms-grp a.m-only,html.adm .ms-grp a.m-only{display:none!important}.ms-grp a.m-only:first-child+a{border-top:0}}
+"""
+
+
+def _vrow(href, label, right="", cls=""):
+    """One row of the "Više" page: name left, optional note and a chevron right."""
+    c = (cls + _role_cls(href)).strip()
+    ca = f' class="{c}"' if c else ""
+    return f'<a href="{href}"{ca}>{esc(label)}<span class=r>{right}<span class=ms-chev></span></span></a>'
+
+
+# The "Više" page (10.11., Jure, prijedlog 3.5; 19.11. regrouped around the new focus: novčanici prije pumpe, midcapovi).
+# Pages of the microcap strategies that stopped on 15.11. left the list (ui/umirovljeno.py: their routes answer with
+# one line); "Sve stranice" (/mapa) lists every page that is still in use.
+VISE = [
+    ("Novčanici i tokeni", [("/dugorocno", "Dugoročni tokeni", "")]),
+    # 19.11. (vlasnik: "Telegram KOLs makni iz izračuna ... samo informativna lista skrivena negdje sa strane"): one
+    # quiet link to the informational channel list (/telegram-kanali, ui/tgkanali.py: built in another branch)
+    ("Influenceri", [("/kol", "Influenceri", ""), ("/telegram-kanali", "Telegram kanali (informativno)", "ms-quiet")]),
+    # 19.11. (vlasnik: "Autopilot stavi u drugi plan dok rekonstruiramo app"): the Autopilot family near the end;
+    # the heading and its line follow the real-money pause (ui/pauza), see vise_page
+    ("Autopilot", [("/pravi-trade", "Autopilot", "adm-only"), ("/strategije", "Usporedba strategija (demo)", ""),
+                   ("/autopilot", "Autopilot: rezultati i chat", "")]),
+    ("Alati", [("/izvjestaj", "Jutarnji izvještaj", ""), ("/nas-token", "Naš token", ""), ("/pojmovnik", "Pojmovnik", ""),
+               ("/novo", "Što je novo", "")]),
+]
+VISE_NOTE = {"Influenceri": "osvježava se jednom u 5 dana"}
+AP_PAUSED_LINE = "Pauzirano: kupnje pravim novcem stoje, alat se preslaguje oko novčanika."
+
+
+def _ap_paused():
+    try:
+        from ui import pauza
+        return pauza.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def vise_page(qs=None, sub=None):
+    """/vise (and /vise/sustav): the "Više" page. Rows the role cannot open carry r-pri / r-adm like the old menu;
+    Sustav is adm-only (stripped from the copy a non-admin gets). Same for everyone, so it is cached like /mapa."""
+    sustav = next(items for s, items in SECTIONS if s == "Sustav")
+    if sub == "sustav":
+        rows = "".join(_vrow(p["href"], p["name"]) for p in sustav)
+        body = ('<div class=ms-vise><div class=ms-top><h1 class=ms-h1>Sustav</h1></div>'
+                '<p class=ms-sub><a href="/vise">Više</a></p>'
+                f'<nav class="ms-grp adm-only" style="margin-top:22px">{rows}</nav>'
+                '<p class="ms-note nadm">Ove stranice vide samo administratori.</p></div>')
+        return "Sustav", body
+    groups = []
+    paused = _ap_paused()
+    for title, items in VISE:
+        rows = "".join(_vrow(h, t, '<span class=new data-novo>novo</span>' if h == "/novo" else "", c) for h, t, c in items)
+        note = VISE_NOTE.get(title)
+        if title == "Autopilot" and paused:
+            title = "Autopilot (pauzirano)"
+            rows = f'<p class=ms-gl>{esc(AP_PAUSED_LINE)}</p>' + rows
+        groups.append(f'<div class=ms-gt>{esc(title)}' + (f' <span class=ms-gn>· {esc(note)}</span>' if note else "")
+                      + f'</div><nav class=ms-grp>{rows}</nav>')
+    last = ('<div class="ms-gt adm-only">Sustav</div><nav class=ms-grp>'
+            + _vrow("/vise/sustav", "Sustav", str(len(sustav)), "adm-only")
+            + _vrow("/postavke", "Postavke", "", "m-only")
+            + '<a href="/odjava"><span class=out>Odjava</span></a></nav>')
+    half = 2   # left: novčanici i tokeni, influenceri; right: autopilot, alati, sustav
+    body = ('<div class=ms-vise><div class=ms-top><h1 class=ms-h1>Više</h1></div><div class=ms-cols>'
+            f'<div>{"".join(groups[:half])}</div><div>{"".join(groups[half:])}{last}</div></div>'
+            '<p class=ms-note>Stranice strategija za nove tokene (mikrokapove) koje više ne vodimo od 15.11. maknute su s '
+            f'popisa; sve ostale su na <a href="/mapa">Sve stranice</a>; javna stranica: '
+            f'<a href="{_home_link()}" target=_blank rel=noopener>Naslovna</a>.</p></div>')
+    return "Više", body
 
 
 CSS = """
@@ -490,18 +590,21 @@ const f=s=>(s||'').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'
 const e=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const sh=a=>a&&a.length>10?a.slice(0,4)+'…'+a.slice(-4):(a||'');
 let t=null,sel=-1,last='';
+/* 13.11.: the words as plain strings, so ui/i18n.js puts the English ones in on the English app */
+const W={pg:'Stranice',tk:'Tokeni',kc:'KOL-ovi i kanali',wl:'Novčanici',ad:'Adresa',ot:'Otvori kao token',
+ ow:'Otvori kao novčanik',no:'Ništa nije pronađeno',wt:'Tražim tokene, KOL-ove i novčanike…',all:'Svi rezultati za'};
 const it=(href,ic,main,sub)=>`<a href="${href}"><span class=ic>${ic}</span><span><b>${main}</b>${sub?'<br><span class=mut>'+sub+'</span>':''}</span></a>`;
 function render(q,j){const w=f(q).split(/\\s+/).filter(Boolean);let h='';
  const pg=P.filter(p=>w.every(x=>f(p.name+' '+p.desc+' '+p.kw+' '+p.sec).includes(x))).slice(0,5);
- if(pg.length)h+='<div class=sh>Stranice</div>'+pg.map(p=>it(p.href,p.icon,e(p.name),e(p.desc))).join('');
- if(j){if(j.tokens.length)h+='<div class=sh>Tokeni</div>'+j.tokens.slice(0,6).map(x=>it('/token/'+encodeURIComponent(x.mint),'🪙',
+ if(pg.length)h+='<div class=sh>'+W.pg+'</div>'+pg.map(p=>it(p.href,p.icon,e(p.name),e(p.desc))).join('');
+ if(j){if(j.tokens.length)h+='<div class=sh>'+W.tk+'</div>'+j.tokens.slice(0,6).map(x=>it('/token/'+encodeURIComponent(x.mint),'🪙',
    e(x.sym||sh(x.mint))+(x.name&&x.name!==x.sym?' <span class=mut>'+e(x.name)+'</span>':''),sh(x.mint)+' · '+e(x.src.join(', ')))).join('');
-  if(j.kols.length)h+='<div class=sh>KOL-ovi i kanali</div>'+j.kols.slice(0,5).map(x=>it('/kol/'+encodeURIComponent(x.handle),'📣',e(x.label),e(x.name||''))).join('');
-  if(j.wallets.length)h+='<div class=sh>Novčanici</div>'+j.wallets.slice(0,5).map(x=>it('/wallet/'+encodeURIComponent(x.wallet),'👛',e(x.label||sh(x.wallet)),x.label?sh(x.wallet):'')).join('');
-  if(j.addr&&!j.tokens.length)h+='<div class=sh>Adresa</div>'+it('/token/'+encodeURIComponent(q),'🪙','Otvori kao token','')+it('/wallet/'+encodeURIComponent(q),'👛','Otvori kao novčanik','');
-  if(!h)h='<div class=sh>Ništa nije pronađeno</div>';}
- else if(q.length>=2)h+='<div class=sh>Tražim tokene, KOL-ove i novčanike…</div>';
- h+=`<a class=all href="/trazi?q=${encodeURIComponent(q)}">Svi rezultati za „${e(q)}” →</a>`;dd.innerHTML=h;dd.hidden=false;sel=-1}
+  if(j.kols.length)h+='<div class=sh>'+W.kc+'</div>'+j.kols.slice(0,5).map(x=>it('/kol/'+encodeURIComponent(x.handle),'📣',e(x.label),e(x.name||''))).join('');
+  if(j.wallets.length)h+='<div class=sh>'+W.wl+'</div>'+j.wallets.slice(0,5).map(x=>it('/wallet/'+encodeURIComponent(x.wallet),'👛',e(x.label||sh(x.wallet)),x.label?sh(x.wallet):'')).join('');
+  if(j.addr&&!j.tokens.length)h+='<div class=sh>'+W.ad+'</div>'+it('/token/'+encodeURIComponent(q),'🪙',W.ot,'')+it('/wallet/'+encodeURIComponent(q),'👛',W.ow,'');
+  if(!h)h='<div class=sh>'+W.no+'</div>';}
+ else if(q.length>=2)h+='<div class=sh>'+W.wt+'</div>';
+ h+=`<a class=all href="/trazi?q=${encodeURIComponent(q)}">${W.all} „${e(q)}” →</a>`;dd.innerHTML=h;dd.hidden=false;sel=-1}
 inp.addEventListener('input',()=>{const q=inp.value.trim();last=q;clearTimeout(t);if(!q){dd.hidden=true;return}render(q,null);if(q.length<2)return;
  t=setTimeout(async()=>{try{const r=await fetch('/api/trazi?q='+encodeURIComponent(q));const j=await r.json();if(last===q)render(q,j)}catch(err){}},250)});
 inp.addEventListener('keydown',ev=>{const a=[...dd.querySelectorAll('a')];
@@ -531,20 +634,37 @@ def _role_cls(href):
     return " r-pri" if need == "prijatelj" else " r-adm" if need == "admin" else ""
 
 
-def side_menu(cur):
-    """Left menu (laptop) / drawer (phone): the three core features on top, everything else in small groups below.
-    The Sustav group carries class adm-only and shows only for admins (see ADMIN_JS)."""
+def autopilot_link(cur):
+    """9.11. (Jure: "istakni Autopilot da ga administratori lakše nađu, ostalima sakriven"): right under the core
+    items, class adm-only (admins see it, non-admins get the page without it). 10.11. (Jure, prijedlog 3.5): a plain
+    row like the core items, without the orange block and the emoji ("bez narančastog bloka")."""
+    return (f'<div class="sec-ap adm-only"><a href="/pravi-trade" class="ap{" on" if cur == "/pravi-trade" else ""}">'
+            'Autopilot</a></div>')
+
+
+def _more_cur(path, cur):
+    """True when the page lives under "Više" (not one of the core items, not the Autopilot, not the start page)."""
+    if path in ("/", ""):
+        return False
+    if cur == "/pravi-trade" or path.startswith("/pravi-trade"):   # 19.11.: the Autopilot lives under "Više" now
+        return True
+    return cur not in [p["href"] for p in SECTIONS[0][1]]
+
+
+def side_menu(cur, path=None):
+    """Left menu (laptop). 10.11. (Jure, prijedlog 3.5): the same items as the phone bar plus Novčanici: Pregled,
+    Tokeni, Influenceri, Novčanici, Autopilot (admins, adm-only), Više; every other page is on the "Više" page (/vise)
+    and in the search. Postavke, Naslovna, Odjava and HR/EN stay at the bottom as before. On the phone the bottom bar
+    and /vise replace it (the ☰ drawer is gone)."""
     svg, name = logo(26)
     b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/pregled">{svg}<span>{esc(name)}</span></a>'
          '<button data-nav aria-label="Zatvori izbornik">✕</button></div>']
-    for sec, items in SECTIONS:
-        links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}{_role_cls(p["href"])}">'
-                        f'{esc(p["name"])}</a>' for p in items)
-        if sec in CORE:
-            b.append(f'<div class=sec-c>{links}</div>')
-        else:
-            extra = " adm-only" if sec in ADMIN else " pt-only" if sec in PRIVATE else ""
-            b.append(f'<div class="sec{extra}"><h4>{esc(sec)}</h4>{links}</div>')
+    core = SECTIONS[0][1]
+    links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}{_role_cls(p["href"])}">'
+                    f'{esc(p["name"])}</a>' for p in core)
+    more_on = path is not None and _more_cur(path, cur) or cur == "/vise"
+    b.append(f'<div class=sec-c>{links}'
+             f'<a href="/vise" class="vise{" on" if more_on else ""}"><span class=vd>Više</span></a></div>')
     from ui.i18n import lang
     en = lang() == "en"
     b.append(f'<a href="/postavke" class="set{" on" if cur == "/postavke" else ""}">Postavke</a>'
@@ -561,6 +681,9 @@ def side_menu(cur):
 # the pages themselves stay reachable by link.
 ADMIN_CSS = (".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
              ".pt-only{display:none!important}html.pt .pt-only{display:revert!important}"
+             # 9.11.: the Autopilot in the menu (admins only), right under the core items; 10.11. (Jure, prijedlog
+             # 3.5): a plain row like them, without the orange gradient
+             ".side .sec-ap{margin:0}.side .sec-ap a.ap{display:flex;align-items:center;gap:8px}"
              "html.r-osnovni .r-pri,html.r-osnovni .r-adm,html.r-prijatelj .r-adm{display:none!important}"
              ".novo-bar{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;font-size:13.5px;padding:7px 12px;"
              "margin:0 0 12px;border-radius:10px;background:var(--soft);color:var(--fg);text-decoration:none}"
@@ -577,14 +700,14 @@ ADMIN_JS = (# 4.11. audit: every POST form carries the login-bound token from co
             "if(/(^|; )cb_pt=1/.test(document.cookie))document.documentElement.classList.add('pt');"
             "var _r=/(^|; )cb_r=(\\w+)/.exec(document.cookie);"
             "document.documentElement.classList.add('r-'+(_r?_r[2]:'osnovni'));"
-            # 4.11.: one quiet line about the newest change until the user opens /novo
-            "document.addEventListener('DOMContentLoaded',function(){var h=document.documentElement,"
-            "q=document.querySelector('meta[name=novo]'),k=q&&q.content;"
+            # 4.11.: news the user has not opened yet. 10.11. (Jure, prijedlog 3.5): no strip on top of every page
+            # any more, only a dot on "Više" (bar and side menu) and "N novo" next to "Što je novo" (class novo on
+            # <html>); the key is the number of entries, so N = entries added since the user last opened /novo
+            "(function(){var h=document.documentElement,q=document.querySelector('meta[name=novo]'),k=q&&q.content;"
             "if(!k||location.pathname==='/novo')return;var c=/(^|; )cb_novo=([^;]*)/.exec(document.cookie);"
-            "if(c&&c[2]===k)return;var m=document.querySelector('main');if(!m)return;var en=h.lang==='en',"
-            "a=document.createElement('a');a.className='novo-bar';a.href='/novo';a.innerHTML='✨ <span>'+"
-            "(en?'New':'Novo')+': <b></b></span><u>'+(en?'See what is new':'Pogledaj što je novo')+' →</u>';"
-            "a.querySelector('b').textContent=q.dataset.t||'';m.insertBefore(a,m.firstChild)});"
+            "if(c&&c[2]===k)return;h.classList.add('novo');var n=c?parseInt(k,10)-parseInt(c[2],10):0;"
+            "document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('[data-novo]')"
+            ".forEach(function(e){e.textContent=(n>0&&n<100?n+' ':'')+(h.lang==='en'?'new':'novo')})})})();"
             # players without an e-mail (3.11.): a box on top of every page until they add one in Postavke
             "if(/(^|; )cb_nm=1/.test(document.cookie)&&location.pathname!=='/postavke')"
             "document.addEventListener('DOMContentLoaded',function(){var m=document.querySelector('main');if(!m)return;"
@@ -617,6 +740,58 @@ h1{font-size:26px;letter-spacing:-.02em;margin:10px 0 12px}
 """
 
 
+# 10.11. (Jure: "Ostalo mi se sviđa"): the calm visual language of the proposal (audit/2026-11-10/ui-prijedlozi.md,
+# section 2), values copied from the mock-ups (audit/2026-11-10/makete/sastavi.py CSS). Every class has the prefix ms-
+# so nothing of the old pages changes until a page uses ui/redak.py. Five type sizes: 34 title, 22 section, 17 text and
+# names, 15 secondary, 13 axis and column heads (48 only for the wallet value); weights 700 / 600 / 400.
+MS_CSS = """
+.ms-f34{font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.03em}.ms-f22{font-size:22px;font-weight:700;letter-spacing:-.025em}
+.ms-f17{font-size:17px;line-height:1.4}.ms-f15{font-size:15px;line-height:1.4}.ms-f13{font-size:13px}
+.ms-num,.ms-big,.ms-v,.ms-panel,.ms-list,.ms-hero{font-variant-numeric:tabular-nums}
+.ms-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0 0}
+.ms-h1{font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.03em;margin:0}
+.ms-sub{font-size:15px;color:var(--mut);margin:6px 0 0}
+.ms-ico{flex:none;width:38px;height:38px;border-radius:50%;background:var(--soft);display:grid;place-items:center}
+.ms-ico svg{width:19px;height:19px;fill:none;stroke:var(--fg);stroke-width:2;stroke-linecap:round}
+.ms-hero{margin:24px 0 0}.ms-hero .ms-lbl{font-size:15px;color:var(--mut);margin:0 0 2px}
+.ms-big{font-size:48px;line-height:1.05;font-weight:700;letter-spacing:-.035em}
+.ms-big small{font-size:22px;font-weight:600;color:var(--mut);letter-spacing:-.01em;margin-left:6px}
+.ms-hero .ms-line{font-size:15px;color:var(--mut);margin:8px 0 0}
+.ms-panel{display:block;background:var(--soft);border-radius:18px;padding:18px 18px 16px;margin:20px 0 0;color:var(--fg);text-decoration:none}
+.ms-panel .ms-lbl{font-size:15px;color:var(--mut)}
+.ms-panel .ms-name{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15;display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 0}
+.ms-panel .ms-name>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ms-panel .ms-facts{font-size:15px;color:var(--mut);margin:4px 0 10px}
+.ms-panel p{margin:0;font-size:17px;line-height:1.4}
+.ms-panel .ms-go{display:flex;align-items:center;justify-content:space-between;margin:14px 0 0;padding:12px 0 0;border-top:1px solid var(--line2);font-size:15px;color:var(--mut)}
+.ms-h2{font-size:22px;font-weight:700;letter-spacing:-.025em;margin:40px 0 2px;padding:0;display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.ms-h2 a{font-size:15px;font-weight:500;color:var(--acc);letter-spacing:0;text-decoration:none}
+.ms-hint{font-size:15px;color:var(--mut);margin:12px 0 0;line-height:1.4}
+.ms-list{margin:0;padding:0;list-style:none}
+.ms-row{display:flex;align-items:center;gap:12px;min-height:64px;padding:11px 0;border-bottom:1px solid var(--line);color:var(--fg);text-decoration:none}
+.ms-list>li:last-child>.ms-row{border-bottom:0}
+.ms-tap{cursor:pointer}a.ms-row:hover .ms-t,.ms-tap:hover .ms-t{color:var(--acc)}
+.ms-row .ms-m{flex:1;min-width:0}
+.ms-row .ms-t{font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ms-row .ms-s{font-size:15px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.ms-row .ms-e{flex:none;text-align:right;max-width:52%}
+.ms-row .ms-v{font-size:17px;font-weight:600;white-space:nowrap}
+.ms-row .ms-s.pos{color:var(--good)}.ms-row .ms-s.neg{color:var(--bad)}.ms-row .ms-s.pos,.ms-row .ms-s.neg{font-weight:500}
+.ms-row.ms-mut .ms-v{color:var(--mut);font-weight:400}
+.ms-chev{flex:none;width:8px;height:8px;border-right:2px solid var(--line2);border-top:2px solid var(--line2);transform:rotate(45deg);margin:0 2px 0 0}
+.ms-rk{flex:none;width:24px;font-size:15px;color:var(--mut)}
+.ms-colhead{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);padding:14px 0 6px;border-bottom:1px solid var(--line)}
+.ms-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line2);margin:0 6px 1px 0;vertical-align:middle}
+.ms-dot.good{background:var(--good)}.ms-dot.warn{background:var(--warn)}.ms-dot.bad{background:var(--bad)}.ms-dot.acc{background:var(--acc)}
+.ms-row .warn,.ms-panel .warn,.ms-warn{color:var(--warn)}.ms-row .mut{color:var(--mut)}.ms-row .acc,.ms-acc{color:var(--acc)}
+.ms-seg{display:flex;background:var(--soft);border-radius:11px;padding:3px;margin:22px 0 0}
+.ms-seg a{flex:1;text-align:center;font-size:15px;padding:7px 0;border-radius:9px;white-space:nowrap;color:var(--fg);text-decoration:none}
+.ms-seg a.on{background:#fff;font-weight:600;box-shadow:0 1px 3px rgba(11,18,32,.12)}
+.ms-page{max-width:760px}.ms-page.ms-wide{max-width:980px}
+@media(min-width:1001px){.ms-top .ms-ico{display:none}}
+"""
+
+
 def seg(items, cur):
     """Segmented control: [(href, label)], the one whose href == cur is lit. Plain links, so it works cached."""
     return "<nav class=seg>" + "".join(f'<a href="{h}" class="{"on" if h == cur else ""}">{esc(t)}</a>' for h, t in items) + "</nav>"
@@ -626,26 +801,29 @@ def page(title, body, path="/"):
     from ui.charts import CSS as CH_CSS, JS as CH_JS
     cur = nav_item(path)
     svg, name = logo(30)
-    header = (f'<header class=top><button class=menu-btn data-nav aria-label="Otvori izbornik">☰</button>'
+    # 10.11. (Jure, prijedlog 3.5): no ☰ any more; it opened the same 37-link drawer as "Više", which is now a page
+    header = (f'<header class=top>'
               f'<a class=brand href="/pregled" title="Pregled">{svg}<span>{esc(name)}</span></a>'
               '<form class=srch action="/trazi" role=search autocomplete=off><span class=si>🔍</span>'
               '<input id=q name=q placeholder="Traži token, adresu ili KOL" aria-label="Traži" enterkeyhint=search>'
               '<kbd>/</kbd><div class=sdrop id=sdrop hidden></div></form></header>')
-    bcur = bottom_item(path)
-    bbar = ("<nav class=bbar aria-label='Brzi izbornik'>" + "".join(
-        f'<a href="{h}" class="{"on" if h == bcur else ""}"><span class=bi>{i}</span>{t}</a>'
-        for h, i, t in BOTTOM) + f"<button data-nav><span class=bi>{MORE_ICON}</span>Više</button></nav>")
+    bbar = bottom_bar(path, cur)
     from ui import deploypage, i18n, secnav
     try:
         from ui import novo
         nk, nt = novo.notice_data()
     except Exception:  # noqa: BLE001
         nk, nt = "", ""
+    try:   # 10.11. (Jure): "Autopilot je live" right under the top bar of every page while real money trades (state kept 30 s)
+        from ui import apjavno
+        ban = apjavno.banner_html(path=path)
+    except Exception:  # noqa: BLE001 - the banner must never take a page down
+        ban = ""
     return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
             f"initial-scale=1'><meta name=color-scheme content=light><title>{esc(title)} · {esc(name)}</title>{_fav.HEAD}"
             f"<meta name=novo content=\"{esc(nk)}\" data-t=\"{esc(nt)}\" translate=no><script>{ADMIN_JS}</script>"
-            f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}{LIGHT_CSS}{SIMPLE_CSS}{ADMIN_CSS}</style></head><body>"
-            f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(body)}</main></div>"
+            f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}{LIGHT_CSS}{SIMPLE_CSS}{ADMIN_CSS}{BAR_CSS}{MS_CSS}</style></head><body>"
+            f"{header}{ban}<div class=shell>{side_menu(cur, path)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(body)}</main></div>"
             f"{bbar}<script>{(JS + GL_JS + CH_JS + COLS_JS + NAV_JS).replace('__PAGES__', _pages_json())}{secnav.JS}</script>{deploypage.register_tag()}</body></html>")
 
 

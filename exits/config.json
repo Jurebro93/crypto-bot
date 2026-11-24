@@ -1,7 +1,7 @@
 {
  "_comment": "Učenje izlaza. Pravila se biraju replayem povijesnih putanja cijena kroz paper/sim.py. lambda_loss: koliko jače gubitak boli od dobitka iste veličine (1 = gubitak se broji dvostruko).",
  "enabled": true,
- "run_at_utc": "05:30",
+ "run_at_utc": "03:30",
  "min_paths": 200,
  "min_live_check": 40,
  "max_paths": 1500,
@@ -20,6 +20,12 @@
  "rollback_every_h": 3,
  "rollback_hold_days": 3,
  "grid": {
+  "panic_liq": [
+   null,
+   0.2,
+   0.3,
+   0.5
+  ],
   "sl": [
    -0.1,
    -0.15,

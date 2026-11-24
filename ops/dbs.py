@@ -99,20 +99,80 @@ def slim_signals(path=None, now=None, batch=SLIM_BATCH):
     return nw, nf
 
 
-def ensure_indexes(path=None):
+SIGNALS_KEEP_D = float(os.environ.get("SIGNALS_KEEP_D", "7"))
+SIGNALS_BATCH = 5_000
+
+
+def prune_signals(path=None, now=None, days=None, batch=SIGNALS_BATCH, stop=None):
+    """13.11. (owner: "Očisti hype_signals starije od 7 dana"): delete hype_signals rows older than `days` EXCEPT, per
+    token, the first row (the entry features: learn/masovno, confmodel, shadow, rugprofile, outcomes, hype/evaluate,
+    the rug archive's entry_profile, learn/correlations), the newest row (run_paper and the newest-per-token reads),
+    the row with the highest mcap and the one with the highest liquidity (dugo/sources: MAX(liquidity) per token; the
+    peak). Every other reader looks at the last 24 h (rugfilter/collapse WINDOW_H) up to 7 days (rugfilter/relabel,
+    strat/signals, hype/tokenstatus). Batched by rowid, a WAL checkpoint after each batch. stop(): ends early (the
+    night window). Returns rows deleted."""
     path = path or os.path.join(disk.DATA_DIR, "hype.db")
     if not os.path.exists(path) or os.path.getsize(path) == 0:
-        return
+        return 0
+    cut = int((now or time.time()) - (SIGNALS_KEEP_D if days is None else days) * 86400)
     con = _con(path)
+    gone = 0
     try:
-        con.execute("CREATE INDEX IF NOT EXISTS hype_signals_cover ON hype_signals "
-                    "(ts, token, score, mcap, liquidity, symbol)")
-        con.commit()
+        con.execute("CREATE TEMP TABLE IF NOT EXISTS sig_keep (rid INTEGER PRIMARY KEY)")
+        con.execute("DELETE FROM sig_keep")
+        for agg in ("MIN(ts)", "MAX(ts)"):
+            con.execute(f"INSERT OR IGNORE INTO sig_keep SELECT s.rowid FROM hype_signals s JOIN (SELECT token, {agg} v "
+                        f"FROM hype_signals GROUP BY token) k ON s.token = k.token AND s.ts = k.v")
+        for col in ("mcap", "liquidity"):
+            con.execute(f"INSERT OR IGNORE INTO sig_keep SELECT (SELECT s.rowid FROM hype_signals s WHERE s.token = t.token "
+                        f"ORDER BY s.{col} DESC LIMIT 1) FROM (SELECT DISTINCT token FROM hype_signals WHERE ts < ?) t",
+                        (cut,))
+        top = con.execute("SELECT MAX(rowid) FROM hype_signals WHERE ts < ?", (cut,)).fetchone()[0] or 0
+        for lo in range(0, top + 1, batch):
+            if stop and stop():
+                break
+            gone += con.execute("DELETE FROM hype_signals WHERE rowid >= ? AND rowid < ? AND ts < ? AND rowid NOT IN "
+                                "(SELECT rid FROM sig_keep)", (lo, lo + batch, cut)).rowcount
+            con.commit()
+            con.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     except sqlite3.OperationalError as e:
         if "no such table" not in str(e):
-            print(f"indeks hype signala nije napravljen: {e}", flush=True)
+            print(f"hype_signals čišćenje nije uspjelo: {e}", flush=True)
     finally:
         con.close()
+    return gone
+
+
+# 9.11. 23:10 (Jure: pop-up on the Autopilot page stays at "Učitavam…"): kol/converge.events reads the last hour of
+# these tables BY TIME every second (the "Zovu sada" box, every open pop-up), and neither had an index on ts, so each
+# read scanned the whole table (tg.db posts 85 MB). One index each turns the scan into a range read.
+TIME_INDEXES = (("hype.db", "hype_signals_cover", "hype_signals (ts, token, score, mcap, liquidity, symbol)"),
+                ("hype.db", "kol_mentions_ts", "kol_mentions (ts)"),
+                ("tg.db", "posts_ts", "posts (ts)"),
+                # 11.11. (ops/retencija.py): the retention counts and deletes live_trades by time, and the 1-h readers
+                # (scan/market, kol/groupdisc, live/pulse.status) scanned the whole table for "ts >= ?"
+                ("hype.db", "live_trades_ts", "live_trades (ts)"))
+
+
+def ensure_indexes(path=None, tg_path=None):
+    """Create the read indexes the dashboard depends on (start-up, before the loops). path: hype.db, tg_path: tg.db;
+    a missing file or table is skipped (the owner module creates the index with the table)."""
+    paths = {"hype.db": path or os.path.join(disk.DATA_DIR, "hype.db"),
+             "tg.db": tg_path or os.environ.get("TG_DB") or os.path.join(disk.DATA_DIR, "tg.db")}
+    for db, name, spec in TIME_INDEXES:
+        f = paths[db]
+        if not os.path.exists(f) or os.path.getsize(f) == 0:
+            continue
+        con = _con(f)
+        try:
+            con.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {spec}")
+            con.commit()
+        except sqlite3.OperationalError as e:
+            if "no such table" not in str(e):
+                print(f"indeks {name} nije napravljen: {e}", flush=True)
+        finally:
+            con.close()
 
 
 def waste(path):
@@ -128,9 +188,11 @@ def waste(path):
         return None
 
 
-def compact(path, min_waste=COMPACT_WASTE, offline=False):
+def compact(path, min_waste=COMPACT_WASTE, offline=False, margin_mb=50, why=None):
     """VACUUM when at least min_waste of the file is dead space and the disk can hold the rewritten copy (in WAL
-    mode the new content goes through the WAL first). Returns 'a->b MB (s)' or None.
+    mode the new content goes through the WAL first). Returns 'a->b MB (s)' or None. margin_mb (12.11.): free space
+    kept above the packed size while it is written (the other writers keep writing during a VACUUM). why: a list that
+    gets the reason when nothing is done (the night compaction logs it).
 
     offline=True (start-up only, nothing else has the file open): when the data disk is too full for that, the
     packed copy is built on the container's own temporary disk (VACUUM INTO), copied next to the file and swapped
@@ -138,10 +200,14 @@ def compact(path, min_waste=COMPACT_WASTE, offline=False):
     w = waste(path)
     mb = os.path.getsize(path) / 1e6
     new_mb = mb * (1 - (w or 0))
-    need = new_mb + 50
+    need = new_mb + margin_mb
     if w is None or w < min_waste or mb * w < 10:   # < 10 MB to win: not worth it
+        if why is not None:
+            why.append("mrtvog prostora " + ("?" if w is None else f"{w:.0%} ({mb * w:.0f} MB)") + f", prag {min_waste:.0%}")
         return None
     if (disk.free_mb() or 0) < need:
+        if why is not None:
+            why.append(f"premalo mjesta: treba {need:.0f} MB slobodno, ima {disk.free_mb() or 0:.0f}")
         return _compact_via_tmp(path, mb, new_mb) if offline else None
     t = time.time()
     con = _con(path, timeout=120)

@@ -4,6 +4,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -11,6 +12,19 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from league import members, store  # noqa: E402
+
+from league import copy as _copy  # noqa: E402
+
+# 9.11. (audit review): live/store.py (via league.members) wakes the copy loop (league/copy.wake); the tests must not touch the repo's .copy_wake
+_WAKE = mock.patch.object(_copy, "WAKE", os.path.join(tempfile.mkdtemp(), ".copy_wake"))
+
+
+def setUpModule():
+    _WAKE.start()
+
+
+def tearDownModule():
+    _WAKE.stop()
 
 
 class Register(unittest.TestCase):
@@ -101,7 +115,7 @@ class Register(unittest.TestCase):
         self.assertEqual(code, 303)
         from league import profiles
         self.assertEqual(profiles.get("Marko")["email"], "marko@mail.hr")   # saved to the profile
-        self.assertTrue(hdr["Location"].startswith("/natjecanje?ok="))
+        self.assertEqual(hdr["Location"], "/pregled")                    # 19.11.: a new user lands on Pregled
         cookie = hdr["Set-Cookie"].split(";")[0]
         self.assertEqual(run_ui.cookie_user(cookie.split("=", 1)[1]), (True, "Marko"))
         self.assertEqual(run_ui.check_password("marko", "tajna12tajna"), (True, "Marko"))

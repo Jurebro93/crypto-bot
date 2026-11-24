@@ -164,14 +164,29 @@ def main(argv):
         from event_calendar import http   # HTTP cache first: it shares the disk the databases need to work
         free = disk.free_mb() or 0
         n, mb = http.prune(max_mb=100 if free < 250 else None)   # tight disk: the cache gives way to the databases
-        print(f"cache: obrisano {n} datoteka, {mb:.0f} MB", flush=True)
+        try:   # 12.11.: what fills it (TTL class s/m/l/w, rpc, paid Helius and other files from before)
+            b = http.breakdown()
+            left = f"; ostalo {sum(b.values()):.0f} MB (" + ", ".join(f"{k} {v:.0f}" for k, v in b.items()) + ")"
+        except Exception:  # noqa: BLE001 - the line without it
+            left = ""
+        print(f"cache: obrisano {n} datoteka, {mb:.0f} MB{left}", flush=True)
     if "--startup" in argv:
         dbs.startup()
     elif "--hourly" in argv:
         dbs.hourly()
+        try:   # 12.11. (Jure: "Rotacija logova: najviše 7 dana ili 200 MB, gzip starijih")
+            from ops import logrot
+            logrot.rotate()
+        except Exception as e:  # noqa: BLE001 - the upkeep goes on
+            print(f"logovi: rotacija nije uspjela: {type(e).__name__}: {e}", flush=True)
         line(tables=True)
     else:
         watchdog()
+        try:   # 12.11.: warning at 75 % / under 3 days, cache + logs cleaned by itself above 85 % (ops/diskguard)
+            from ops import diskguard
+            diskguard.check()
+        except Exception as e:  # noqa: BLE001 - the memory watchdog matters more
+            print(f"disk: provjera nije uspjela: {type(e).__name__}: {e}", flush=True)
         if "--quiet" not in argv:   # start.sh: the watchdog runs every minute, the log line every 10 minutes
             line(tables="--tables" in argv)
 

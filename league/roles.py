@@ -4,10 +4,10 @@ calls deny_get / deny_post before anything else runs), so a hidden button is nev
 Three roles:
   admin      everything: spending (/usage), Google visits, access requests, module logs, roles of other users,
              manual runs that cost credits ("Osvježi walletove"), invite links, the bot's demo sells.
-  prijatelj  trusted friend: every page except the admin ones above; may use Naš token and Za WhatsApp.
-  osnovni    look only at the core of the app (tokens, influencers, wallets, events, demo bot) and play with their own
-             demo account in Natjecanje. No spending, settings of the bot, AI costs, reports, admin pages, nothing
-             that costs money or load.
+  prijatelj  trusted friend: every page except the admin ones above; may use Naš token.
+  osnovni    look only at the core of the app (wallets, tokens, influencers). No spending, settings of the bot, AI
+             costs, reports, admin pages, nothing that costs money or load. (19.11.: Natjecanje, Eventi, Za WhatsApp
+             and Ideje are gone; their old accounts and rows stay in league.db.)
 
 Defaults (nothing stored): UI_ADMINS names (or TRADE_OWNER / "Jure" when UI_ADMINS is empty) are admins and cannot be
 changed from the app, so nobody can lock the owner out; everyone else (UI_USERS players, invite-link friends, the
@@ -28,26 +28,26 @@ WHAT = {
     "admin": "Sve: potrošnja, zahtjevi za pristup, uloge korisnika, ručna osvježavanja koja troše kredite, pozivnice.",
     "prijatelj": "Sve stranice osim administratorskih (potrošnja, zahtjevi, uloge, zapisi modula). Ne pokreće ništa "
                  "što troši kredite.",
-    "osnovni": "Gleda tokene, influencere, novčanike i demo bota, igra svojim demo računom u Natjecanju. Ne vidi "
-               "potrošnju, pravila bota ni izvještaje i ne pokreće ništa što troši novac ili opterećuje server.",
+    "osnovni": "Gleda novčanike, tokene i influencere. Ne vidi potrošnju, pravila bota ni izvještaje i ne pokreće "
+               "ništa što troši novac ili opterećuje server.",
 }
 
 # pages (exact path or path + "/...") and the lowest role that may open them
 PAGES = {
     "/usage": "admin", "/analitika": "admin", "/zahtjevi": "admin", "/outputs": "admin", "/korisnici": "admin",
+    "/stanje": "admin",          # 17.11.: and of the admins only the OWNER (run_ui.py): the real account's switches
+    "/kol-insajderi": "admin",   # 16.11.: and of the admins only the OWNER (run_ui.py): inferences about named people
+    "/novcanici-admin": "admin",   # 19.11.: and of the admins only the OWNER (run_ui.py): the wallet dashboard
     "/learn": "prijatelj", "/criteria": "prijatelj", "/izvjestaj": "prijatelj", "/nas-token": "prijatelj",
-    "/whatsapp": "prijatelj",
-}
+}   # 19.11.: /whatsapp removed (the page is gone; ui/maknuto redirects it)
 # forms (path prefix) and the lowest role that may send them; anything not listed needs only a login
 POSTS = (
     ("/run/", "admin"),                    # manual runs, e.g. "Osvježi walletove" = ~12,000 Helius credits
     ("/korisnici/", "admin"),
     ("/zahtjevi/", "admin"),
     ("/natjecanje/pozivnica/", "admin"),   # invite links: who gets into the app is the admin's call
-    ("/prijedlozi/status", "admin"),
     ("/paper/izlaz", "admin"),             # sells the bot's own demo position
     ("/nas-token/", "prijatelj"),          # includes /nas-token/rpc, which goes through our paid Helius key
-    ("/whatsapp/", "prijatelj"),
 )
 
 SCHEMA = "CREATE TABLE IF NOT EXISTS roles (name TEXT PRIMARY KEY COLLATE NOCASE, role TEXT, by TEXT, ts INTEGER);"

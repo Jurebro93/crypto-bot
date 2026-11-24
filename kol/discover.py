@@ -362,15 +362,21 @@ def graph_candidates(con, cfg):
     bio or name and enough followers; most-followed-by first."""
     g = gcfg(cfg)
     try:
+        # 9.11. 22:00 (Jure: "nešto guši aplikaciju"): this used to be one query with
+        # "NOT EXISTS (SELECT 1 FROM calls c WHERE LOWER(c.handle) = LOWER(f.dst))" - LOWER() cannot use the calls
+        # index, so SQLite scanned the whole calls table (130 MB) once PER follows row (thousands of rows): every
+        # search round sat 30-47 min at 100 % of the one CPU in this function (faulthandler dumps at 20:06-21:36
+        # all showed this line) and the dashboard starved (502/499). The handles that ever posted are read once
+        # through the (handle, ts) index and compared in Python; the result is the same.
+        seen = {h.lower() for (h,) in con.execute("SELECT DISTINCT handle FROM calls") if h}
         rows = con.execute("""SELECT f.dst, COUNT(DISTINCT f.src) AS n, MAX(f.followers), MAX(f.bio) FROM follows f
-            WHERE NOT EXISTS (SELECT 1 FROM calls c WHERE LOWER(c.handle) = LOWER(f.dst))
             GROUP BY LOWER(f.dst) HAVING n >= ? ORDER BY n DESC, MAX(f.followers) DESC""",
                            (g["min_followed_by"],)).fetchall()
     except Exception:  # noqa: BLE001 - no follows table yet
         return []
     from kol import bots
-    return [h for h, n, fol, bio in rows if (fol or 0) >= g["min_followers"] and CRYPTO.search(f"{h} {bio or ''}")
-            and not bots.HANDLE.search(h)]
+    return [h for h, n, fol, bio in rows if h and h.lower() not in seen and (fol or 0) >= g["min_followers"]
+            and CRYPTO.search(f"{h} {bio or ''}") and not bots.HANDLE.search(h)]
 
 
 STARS_LIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stars_list.json")

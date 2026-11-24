@@ -39,24 +39,31 @@ def _api(method, path, body=None):
     return json.loads(txt) if txt else {}
 
 
-def handles(con, cfg):
-    """Accounts worth seconds-level delivery: watch list, stars, big accounts by reach; bots never."""
+def followed():
+    """The X accounts the real-money account follows (single or as a crew): they must arrive within seconds."""
+    try:
+        from league import copy as _copy
+        from trade import settings as _settings
+        return sorted(h for h in _copy.followed_handles(_settings.LEAGUE_USER) if not h.startswith("tg:"))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def handles(con, cfg, only_followed=False):
+    """Accounts worth seconds-level delivery: watch list, stars, big accounts by reach; bots never.
+    only_followed (19.11., outside the social refresh window of ops/drustveni): the real-money follows only."""
     c = config(cfg)
     from kol import bots, discover, reach
     bad = bots.handles(con)
     out = []
+    if only_followed:
+        return [h for h in followed() if h not in bad][:c["max_handles"]]
     try:   # 9.11.: the hot list (kol/minute.hot, minute.db) goes first: measured +10 % before the stop on recent calls
         from kol import minute as _minute
         hot = list(_minute.hot_list().get("x") or [])
     except Exception:  # noqa: BLE001
         hot = []
-    try:   # the X accounts the real-money account follows (single or as a crew) must arrive within seconds
-        from league import copy as _copy
-        from trade import settings as _settings
-        followed = sorted(h for h in _copy.followed_handles(_settings.LEAGUE_USER) if not h.startswith("tg:"))
-    except Exception:  # noqa: BLE001
-        followed = []
-    for h in followed + hot:
+    for h in followed() + hot:
         if h not in bad and h not in out:
             out.append(h)
     for (h,) in con.execute("SELECT handle FROM watch ORDER BY score DESC"):
@@ -93,16 +100,18 @@ def rules_for(hs, cfg=None):
     return out
 
 
-def sync(con, cfg, api=None, now=None, log=print, force=False):
-    """Make twitterapi.io's rules match our handle list. False when nothing changed, None when it cannot run."""
+def sync(con, cfg, api=None, now=None, log=print, force=False, only_followed=False):
+    """Make twitterapi.io's rules match our handle list. False when nothing changed, None when it cannot run.
+    only_followed: outside the social refresh window (ops/drustveni) only the real-money follows keep a rule; every
+    other rule of ours is switched off (once: the stored list then matches until the window opens again)."""
     from kol import twapi
     api = api or _api
     now = now or int(time.time())
     if (not twapi.key() and api is _api) or not hook_url():
         return None
     c = config(cfg)
-    hs = handles(con, cfg)
-    want = rules_for(hs, cfg)
+    hs = handles(con, cfg, only_followed=only_followed)
+    want = rules_for(hs, cfg) if hs else []
     state = json.loads((con.execute("SELECT value FROM kv WHERE key='xhook'").fetchone() or ("{}",))[0])
     if not force and state.get("values") == [v for _, v in want] and now - state.get("ts", 0) < c["resync_h"] * 3600:
         return False
@@ -128,7 +137,8 @@ def sync(con, cfg, api=None, now=None, log=print, force=False):
     con.execute("INSERT OR REPLACE INTO kv VALUES ('xhook', ?)",
                 (json.dumps({"ts": now, "values": [v for _, v in want], "ids": ids, "handles": len(hs)}),))
     con.commit()
-    log(f"xhook: twitterapi pravila: {len(want)} pravila za {len(hs)} računa, provjera svakih {c['interval_s']} s")
+    log(f"xhook: twitterapi pravila: {len(want)} pravila za {len(hs)} računa, provjera svakih {c['interval_s']} s"
+        + (" (društveni prozor zatvoren: samo računi koje prati pravi novac)" if only_followed else ""))
     return True
 
 
@@ -249,6 +259,11 @@ def ingest(payload, kol_db=None, now=None, log=print, _spool=True):
                 from league import copy as _copy
                 _copy.wake()
             except Exception:  # noqa: BLE001
+                pass
+            try:   # 11.11. (Jure, flag fast_path G24): a followed influencer's call -> a fast_check (fast/enqueue)
+                from fast import enqueue as _fast
+                _fast.from_calls(calls)
+            except Exception:  # noqa: BLE001 - never fails the webhook
                 pass
         return n
     finally:

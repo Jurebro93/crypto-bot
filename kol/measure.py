@@ -28,6 +28,10 @@ class _Throttle:
 
 
 _GT = _Throttle(float(os.environ.get("KOL_GECKO_GAP", "3.0")))  # free API: ~30 requests per minute, shared per IP
+if http.cg_configured() and not os.environ.get("KOL_GECKO_GAP"):   # 10.11.: CoinGecko's paid key (event_calendar/http)
+    # 11.11.: on whether the key is set, not on the hour's budget (a long-running process outlives the hour);
+    # a call that goes to the free API is paced by the shared gate (event_calendar/http._shared) at the free pace
+    _GT = _Throttle(float(os.environ.get("CG_GAP", "0.25")))
 
 
 GECKO_POOL_LOOKUPS = int(os.environ.get("KOL_GECKO_POOL_LOOKUPS", "10"))  # per resolve round, free API
@@ -175,17 +179,40 @@ LAG = 600  # GeckoTerminal candles show up a few minutes late: a checkpoint is m
 RETRY = 1200  # after a failed or empty fetch (API busy, no pair yet) the token waits 20 min
 
 
+def _fokus_mints():
+    """15.11. (ops/fokus.py): the midcap list's mints while the owner switch fokus_midcap is on, else None."""
+    try:
+        from ops import fokus
+        return fokus.midcap_mints() if fokus.on() else None
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour
+        return None
+
+
 def due(con, now, limit):
     """Tokens with calls that need a measure now: never measured, or a checkpoint (1 h, 6 h, 24 h after the post)
     passed since the last measure. Real KOL calls first, then newest. Re-measuring every token every hour (before
     1.11.) asked GeckoTerminal for ~24 fetches per token a day; the free API (shared with other jobs) could not keep
     up, the newest calls took every slot and older ones never got their 1 h / 6 h / 24 h numbers."""
     marks = " OR ".join(f"(measured_ts < ts + {h * H} AND ts + {h * H + LAG} <= :now)" for h in (1, 6, 24))
+    mids = _fokus_mints()   # 15.11. (owner switch fokus_midcap): only the calls of tokens on the midcap list
+    if mids is not None:
+        if not mids:
+            return []
+        con.execute("CREATE TEMP TABLE IF NOT EXISTS fokus_mid (token TEXT PRIMARY KEY)")
+        con.execute("DELETE FROM fokus_mid")
+        con.executemany("INSERT OR IGNORE INTO fokus_mid VALUES (?)", [(m,) for m in mids])
+        return [r[0] for r in con.execute(f"""
+            SELECT token FROM calls WHERE complete = 0 AND COALESCE(mtry, 0) <= :now
+              AND token IN (SELECT token FROM fokus_mid)
+              AND handle NOT LIKE 'w:%' AND handle NOT LIKE 'tg:%' AND kind NOT IN ('bot', 'buy', 'sell')
+              AND (measured_ts IS NULL OR {marks} OR measured_ts < :now - 6 * {H})
+            GROUP BY token ORDER BY MAX(kind = 'call') DESC, MAX(ts) DESC LIMIT :lim""", {"now": now, "lim": limit})]
+    # 19.11. (vlasnik, kol/tgout.py): a Telegram channel's call is not measured any more ('tg:' handles)
     # 8.11.: wallet swaps ('w:' pseudo-calls, kind buy/sell) and alert-bot posts (kind 'bot') are never scored, yet
     # 487,235 of them waited in this queue while 39,743 of 40,772 Telegram calls had never been measured
     return [r[0] for r in con.execute(f"""
         SELECT token FROM calls WHERE complete = 0 AND COALESCE(mtry, 0) <= :now
-          AND handle NOT LIKE 'w:%' AND kind NOT IN ('bot', 'buy', 'sell')
+          AND handle NOT LIKE 'w:%' AND handle NOT LIKE 'tg:%' AND kind NOT IN ('bot', 'buy', 'sell')
           AND (measured_ts IS NULL OR {marks} OR measured_ts < :now - 6 * {H})
         GROUP BY token ORDER BY MAX(kind = 'call') DESC, MAX(ts) DESC LIMIT :lim""", {"now": now, "lim": limit})]
 

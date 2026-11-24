@@ -58,7 +58,7 @@ def page(qs, user, kind, lang):
     """(title, body). kind: 'env' (UI_USERS player), 'member' (invite link), 'viewer' (look only)."""
     b = [CSS, "<div class=set><h1>⚙️ Postavke</h1>",
          f"<p class=lead>{'Prijavljen si kao <b translate=no>' + esc(user) + '</b>. ' if user else ''}Ovdje mijenjaš lozinku, "
-         "profilnu sliku, jezik i podatke koje vide ostali igrači.</p>", _msg(qs)]
+         "profilnu sliku, jezik i podatke svog profila.</p>", _msg(qs)]
 
     # language: for everybody
     b.append("<div class=card id=jezik><h2>🌐 Jezik</h2><div class=langs>"
@@ -68,8 +68,8 @@ def page(qs, user, kind, lang):
              + (" i u tvom računu, pa vrijedi i na drugim uređajima." if user else ".") + "</p></div>")
     if not user:
         b.append("<div class=card><b>Ovo je račun samo za gledanje.</b> Lozinka, slika i profil postoje samo za "
-                 "igrače. Igrači se prijavljuju svojim imenom; novi igrač dobiva link za registraciju u "
-                 "<a href=/natjecanje#pozovi>Natjecanju</a>.</div></div>")
+                 "korisnike s vlastitim imenom; novi korisnik dobiva link za registraciju od administratora "
+                 "(<a href=/zahtjevi#pozivnice>Pozivnice</a>).</div></div>")
         return "Postavke", "".join(b)
 
     p = profiles.get(user)
@@ -81,8 +81,8 @@ def page(qs, user, kind, lang):
              "<div><form id=avf method=post action=/postavke/slika><input type=hidden name=data id=avd>"
              "<input type=file id=avi accept='image/*' style='max-width:260px'><p class=hint id=avm "
              "data-ready='Slika je spremna, klikni Spremi sliku.' data-bad='Ovu sliku ne mogu otvoriti, probaj JPG ili PNG.' "
-             "data-big='Slika je veća od 15 MB, odaberi manju.'>Slika se prikazuje na ljestvici i na podiju u "
-             "Natjecanju. Izreže se na kvadrat i smanji na 256×256 prije slanja.</p>"
+             "data-big='Slika je veća od 15 MB, odaberi manju.'>Slika se prikazuje uz tvoje ime u aplikaciji. "
+             "Izreže se na kvadrat i smanji na 256×256 prije slanja.</p>"
              "<p><button id=avb disabled>Spremi sliku</button></p></form>"
              + ("<form method=post action=/postavke/slika-makni><button class=sec>Makni sliku</button></form>"
                 if p.get("avatar") else "") + "</div></div></div>" + AV_JS)
@@ -105,10 +105,10 @@ def page(qs, user, kind, lang):
         rows.append(f"<div><label>{icon} {esc(label)}<input type=text name=s_{k} value=\"{esc(soc.get(k, ''))}\" "
                     f"placeholder=\"{ph}\" autocapitalize=none></label></div>")
     b.append("<div class=card id=profil><h2>👤 Profil i društvene mreže</h2><form method=post action=/postavke/profil>"
-             "<label>O meni <span class=mut>(do 160 znakova, vide ga ostali igrači)</span>"
+             "<label>O meni <span class=mut>(do 160 znakova)</span>"
              f"<textarea name=bio maxlength=160>{esc(p.get('bio') or '')}</textarea></label>"
-             "<p class=hint>Društvene mreže se prikazuju na tvojoj kartici u Natjecanju, da te prijatelji mogu "
-             "pratiti. Upiši samo ime računa ili zalijepi link profila.</p>"
+             "<p class=hint>Društvene mreže se spremaju uz tvoj profil. Upiši samo ime računa ili zalijepi link "
+             "profila.</p>"
              f"<div class=soc>{''.join(rows)}</div>"
              "<label>E-mail <span class=mut>(ne prikazuje se drugima)</span><input type=email name=email "
              f"value=\"{esc(p.get('email') or '')}\" autocomplete=email placeholder='ime@primjer.com'></label>"
@@ -133,7 +133,7 @@ def page(qs, user, kind, lang):
                  "<p><button class=bad>Obriši moj račun zauvijek</button></p></form></div>")
     else:
         b.append("<div class=card><h2>🗑 Brisanje računa</h2><p class=mut>Tvoj račun je postavljen na serveru. "
-                 "Za brisanje javi se organizatoru natjecanja.</p></div>")
+                 "Za brisanje javi se administratoru.</p></div>")
     b.append("</div>")
     return "Postavke", "".join(b)
 
@@ -144,7 +144,7 @@ def post(path, form, user, kind, check_pw):
     action = path[len("/postavke/"):]
     back = "/postavke"
     if not user:
-        return f"{back}?err={quote('samo igrači imaju ove postavke.')}", None
+        return f"{back}?err={quote('samo prijavljeni korisnici imaju ove postavke.')}", None
     try:
         if action == "slika":
             profiles.save_avatar(user, form.get("data"))

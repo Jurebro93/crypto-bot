@@ -295,11 +295,15 @@ class ShortProcessRoundsTest(unittest.TestCase):
 class UiChildRenderTest(unittest.TestCase):
     def test_warm_pages_are_built_in_a_child(self):
         src = open(os.path.join(os.path.dirname(__file__), "..", "run_ui.py")).read()
-        self.assertIn('pagecache.warm(list(WARM), build_in_child', src)
+        self.assertIn('pagecache.warm(list(WARM), warm_build', src)   # 9.11.: warm_build skips a fresh page, else build_in_child
         import run_ui
-        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki", "/pregled"))
+        # 9.11. 19:32: /ekipe (180 s) and /kol (30 s) joined, built in this process they took it to 818 MB (watchdog)
+        # 10.11. (prijedlog 3.3): /kol/analize (pairs, correlations, together; was folded under /kol) joined them
+        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol", "/kol/analize"))
         self.assertTrue(set(run_ui.WARM) <= set(run_ui.HEAVY))
-        self.assertIn("build_in_child(path)) if path in HEAVY", src)
+        self.assertTrue(set(run_ui.SNAPSHOT_ONLY) <= set(run_ui.HEAVY))
+        self.assertIn("build_in_child(path)) if heavy_page", src)
+        self.assertIn("pagecache.get_bg(k, b, lambda: _building_html(path))) if heavy_page", src)
 
     def test_child_failure_never_builds_here(self):
         """9.11. (audit P33): a failed child serves the last saved copy or a 503; build() never runs in this process."""
@@ -355,17 +359,12 @@ class HeavyLockTest(unittest.TestCase):
     def test_wired_in(self):
         root = os.path.join(os.path.dirname(__file__), "..")
         sh = open(os.path.join(root, "start.sh")).read()
-        for cmd in ("run_wallets.py score", "run_calendar.py", "run_dex.py scan", "rugfilter.archive"):
-            self.assertIn("python3 -m ops.heavy " + ("-m " if "." in cmd.split()[0] and not cmd.endswith(".py") and "run_" not in cmd else "") + cmd, sh)
+        import re
+        for cmd in ("run_wallets.py score", "run_calendar.py", "run_dex.py scan", "run_dugo.py once", "rugfilter.archive"):
+            # 9.11. 21:40: the heavy ones carry --night (wait for the night window) between ops.heavy and the script
+            mod = "-m " if "." in cmd.split()[0] and not cmd.endswith(".py") and "run_" not in cmd else ""
+            self.assertRegex(sh, r"python3 -m ops\.heavy (--night )?" + re.escape(mod + cmd))
         self.assertIn("heavy.run(", open(os.path.join(root, "run_sched.py")).read())
-        # 9.11. 20:20 (Jure): the long jobs once a day from midnight Zagreb, from the scheduler, not start.sh loops
-        self.assertNotIn("run_dugo.py once", sh)
-        self.assertNotIn("run_hype.py learn --auto", sh)
-        self.assertIn('KOL_BACKFILL_AT="${KOL_BACKFILL_AT:-23:00}"', sh)
-        import run_sched
-        jobs = {j[0]: j for j in run_sched.JOBS}
-        self.assertEqual((jobs["dugo"][1], jobs["dugo"][2][:2]), (run_sched.daily, (["run_dugo.py", "once"], "23:05")))
-        self.assertEqual(jobs["learn_auto"][2][:2], (["run_hype.py", "learn", "--auto", "5"], "23:40"))
         self.assertIn("heavy.run(", open(os.path.join(root, "run_kol.py")).read())
         self.assertIn("heavy.run(cmd, wait=0", open(os.path.join(root, "run_paper.py")).read())
         self.assertIn("heavy.slot(wait=0, label=\"gradnja stranice\")", open(os.path.join(root, "run_ui.py")).read())   # 9.11. 19:05: no 60 s wait
@@ -411,7 +410,7 @@ class SchedLightTest(unittest.TestCase):
         jobs = {j[0]: j for j in run_sched.JOBS}
         self.assertTrue(jobs["masovno"][2][-1])
         self.assertTrue(jobs["tokenstatus"][2][-1])
-        self.assertEqual(len(jobs["shadow"][2]), 2)
+        self.assertFalse(jobs["shadow"][2][2])   # shadow stays under the lock (and since 9.11. 21:40 runs at night only)
         with mock.patch("subprocess.run") as sr, mock.patch("ops.heavy.run") as hr:
             sr.return_value.returncode = 0
             hr.return_value.returncode = 0
@@ -436,32 +435,3 @@ class SchedLightDelayTest(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt):
                 run_sched.every("y", ["b.py"], 5)
             self.assertFalse(sl.called)
-
-
-class SchedDailyLiteralTimeTest(unittest.TestCase):
-    """9.11. 20:20: daily() takes a literal HH:MM (UTC) as well as a config file with run_at_utc."""
-
-    def test_literal_time_runs_once_after_it(self):
-        import datetime as dt
-        import run_sched
-        calls = []
-        clock = [dt.datetime(2026, 11, 9, 22, 0, tzinfo=dt.timezone.utc)]
-
-        class FakeDT(dt.datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return clock[0]
-
-        def tick(s):
-            clock[0] += dt.timedelta(minutes=70)
-            if len(calls) > 1 or clock[0].hour == 2 and clock[0].day == 10:
-                raise KeyboardInterrupt
-
-        with tempfile.TemporaryDirectory() as d, \
-                mock.patch.object(run_sched, "STATE", os.path.join(d, "s.json")), \
-                mock.patch.object(run_sched.dt, "datetime", FakeDT), \
-                mock.patch.object(run_sched, "run", side_effect=lambda n, a, light=False: calls.append(a)), \
-                mock.patch.object(run_sched.time, "sleep", side_effect=tick):
-            with self.assertRaises(KeyboardInterrupt):
-                run_sched.daily("dugo", ["run_dugo.py", "once"], "23:05")
-        self.assertEqual(calls, [["run_dugo.py", "once"]])   # 22:00 no, 23:10 yes, 00:20 and 01:30 (same UTC day? no: new day but before 23:05) no

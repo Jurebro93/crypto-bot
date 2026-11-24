@@ -12,7 +12,7 @@ D = "2026-11-01"
 post(
     "address-poisoning", "Scams",
     "Address poisoning: how to check a wallet address before you send (step by step)",
-    "Address poisoning: how to check a crypto address before sending | MemeSonar",
+    "Address poisoning: check a crypto address before sending",
     "Address poisoning puts a lookalike address in your history right after you send a test transfer. Here is the "
     "exact routine that stops it in Phantom, MetaMask and on exchanges.",
     ["address poisoning", "address poisoning attack", "crypto address scam", "wrong wallet address"], 6,
@@ -70,14 +70,14 @@ file a police report, which exchanges often ask for. Large thefts have been part
 rarely are, which is why the routine above matters more than the recovery.</p>
 <p>Related: <a href=/blog/zero-trust-support-calls>the fake support call script</a> and
 <a href=/blog/how-to-spot-a-rug-pull>how to spot a rug pull</a>.</p>
-""", related=("zero-trust-support-calls", "how-to-spot-a-rug-pull", "how-to-buy-solana-meme-coins"), date=D)
+""", related=("zero-trust-support-calls", "what-to-do-with-an-airdrop", "how-to-buy-solana-meme-coins"), date=D)
 
 
 # 2 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 post(
     "zero-trust-support-calls", "Scams",
     "\"Ledger support is calling\": a 5-question check that stops fake support scams",
-    "Fake Ledger and exchange support scams: how to check a call in 5 questions | MemeSonar",
+    "Fake Ledger and exchange support calls: 5 questions",
     "The largest crypto thefts lately were not hacks but people pretending to be support. Five questions to ask "
     "before you do anything a 'support agent' asks.",
     ["ledger support scam", "fake crypto support", "crypto social engineering", "seed phrase scam"], 6,
@@ -140,7 +140,7 @@ still there right away, starting with the largest balance. Do not reuse the old 
 post(
     "polymarket-rules-checklist", "Prediction markets",
     "How to read Polymarket rules before you bet: a 6-point checklist",
-    "How Polymarket markets resolve: rules, UMA disputes and a checklist | MemeSonar",
+    "How Polymarket markets resolve: rules and UMA disputes",
     "On Polymarket you can predict the event correctly and still lose, because markets resolve on the written "
     "rules. A 6-point checklist and how UMA disputes work.",
     ["polymarket rules", "how polymarket resolves", "uma dispute polymarket", "prediction market resolution"], 7,
@@ -200,7 +200,7 @@ traders have lost money while being right about the world.</p>
 post(
     "polymarket-insider-moves", "Prediction markets",
     "How to spot an information leak on Polymarket: when the odds move before the news",
-    "Polymarket insider trading: how to spot odds moving before the news | MemeSonar",
+    "Polymarket insider trading: odds that move before news",
     "Odds on Polymarket have jumped hours before official news several times, from the Nobel Peace Prize to "
     "Venezuela. What those moves looked like and how to watch for them yourself.",
     ["polymarket insider trading", "polymarket odds", "prediction market leak", "polymarket whale tracking"], 6,
@@ -253,7 +253,7 @@ before the crowd does.</p>
 post(
     "perps-settings-after-october-10", "Trading",
     "5 perps settings that would have saved you on October 10",
-    "Crypto perps risk settings: isolated margin, ADL and the October 10 crash | MemeSonar",
+    "Crypto perps risk settings: isolated margin and ADL",
     "On 10 October 2025 about $19 billion of crypto positions were liquidated in a day. Five settings that decide "
     "whether a crash like that takes your trade or your whole account.",
     ["auto deleveraging", "isolated margin vs cross margin", "crypto liquidation", "hyperliquid adl"], 7,
@@ -314,7 +314,7 @@ rule down before you need it.</p>
 post(
     "tokens-sent-to-kol-wallets", "Copy trading",
     "Why a random token showed up in a famous trader's wallet (and why copy traders buy it)",
-    "Unsolicited tokens in KOL wallets: the trick that fools copy traders | MemeSonar",
+    "Unsolicited tokens in KOL wallets fool copy traders",
     "Token teams send their coins to famous traders' wallets so it looks like a buy. Copy trading bots and "
     "followers then buy for real. How to tell a gift from a purchase in 30 seconds.",
     ["copy trading scam", "kol wallet", "unsolicited token solana", "fake buy copy trading"], 5,
@@ -364,7 +364,7 @@ its settings for "copy transfers" or "copy on balance change" and turn it off.</
 post(
     "what-to-do-with-an-airdrop", "Airdrops",
     "What to do with an airdrop in the first 24 hours: sell, hold or hedge",
-    "Sell or hold an airdrop? What the data says about the first 24 hours | MemeSonar",
+    "Sell or hold an airdrop? The first 24 hours in data",
     "Most airdropped tokens trade below their launch price within months, and most recipients sell on day one. A "
     "simple rule for the first 24 hours, plus how to spot a fake claim page.",
     ["sell airdrop or hold", "airdrop claim", "airdrop strategy", "token generation event"], 6,
@@ -467,7 +467,7 @@ slippage</a> and <a href=/blog/what-is-a-pump-and-dump>pump and dumps</a>.</p>
 post(
     "after-kaito-yaps", "For crypto projects",
     "Kaito Yaps is gone: what crypto projects should do for X visibility now",
-    "After Kaito Yaps: how crypto projects get visibility on X in 2026 | MemeSonar",
+    "After Kaito Yaps: crypto project visibility on X in 2026",
     "X cut off apps that pay people to post in January 2026 and Kaito shut Yaps down. What went wrong with paid "
     "mindshare and a checklist for any paid X campaign now.",
     ["kaito yaps", "infofi", "crypto marketing x", "crypto kol campaign"], 6,

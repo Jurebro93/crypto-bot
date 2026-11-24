@@ -1,12 +1,11 @@
-"""/izvori: social call sources besides X - Telegram channels, KOL wallets on chain, the live convergence of
-several sources on one token, and which paid sources are switched on."""
+"""/izvori until 19.11.2026: Telegram channels, KOL wallets and the convergence of sources. 19.11. (vlasnik: "Makni
+Telegram KOL-ove iz izračuna ... samo informativni popis"): the page redirects to /telegram-kanali (ui/tgkanali.py,
+run_ui.py); what stays here is the free / paid sources table that /usage shows (admins only)."""
 import json
 import os
 import sqlite3
-import time
 
-from ui.html import tip, ago, badge, esc, num, table, tdesc, tlink
-from ui.kol import klink
+from ui.html import badge, table, tdesc
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,23 +26,6 @@ def _q(con, sql, args=()):
         return []
 
 
-def _stat(v, label):
-    return f"<div class=stat><div class=v>{esc(v)}</div><div class=l>{esc(label)}</div></div>"
-
-
-VIA = {"x": "X objave i profili", "kolscan": "KOLscan", "solanatracker": "Solana Tracker", "tgstat": "TGStat",
-       "channels.txt": "ručni popis", "telethon": "Telegram račun", "fomo": "FOMO"}
-
-
-def via_label(v):
-    v = v or ""
-    return f"kanal @{v[6:]}" if v.startswith("kanal:") else VIA.get(v, v)
-
-
-STATUS = {"active": ("aktivan", "good"), "quiet": ("tih", ""), "slow": ("slab, rjeđe", "warn"),
-          "candidate": ("kandidat", ""), "dead": ("nije javan", "bad")}
-
-
 def paid_section():
     """Free and paid sources with which keys are set: shown on /usage (admins only)."""
     kcon = _ro("kol.db")
@@ -61,12 +43,8 @@ def paid_sources(kcon):
     on = lambda k: bool(os.environ.get(k))
     hook = json.loads((_q(kcon, "SELECT value FROM kv WHERE key='chain_hook'") or [("{}",)])[0][0])
     rows = [
-        ["Telegram web prikaz (t.me/s)", badge("besplatno", "good"), badge("uključeno", "good"),
-         "Javni kanali, 30 s - 5 min kašnjenja, otkrivanje iz X-a, KOL lista i prosljeđivanja"],
-        ["TGStat Search API", badge("plaćeno"), badge("uključeno", "good") if on("TGSTAT_TOKEN") else badge("čeka TGSTAT_TOKEN", "warn"),
-         "Pretraga svih indeksiranih kanala po CA: tko je zvao prvi, novi kanali koje ne znamo"],
-        ["Telegram račun (Telethon)", badge("broj mobitela"), badge("uključeno", "good") if on("TG_SESSION") else badge("čeka TG_SESSION", "warn"),
-         "Poruke ispod 1 s i privatne grupe u kojima je račun"],
+        ["Telegram web prikaz (t.me/s)", badge("besplatno", "good"), badge("jednom tjedno", "good"),
+         "Od 19.11. samo broj pratitelja kanala s popisa (zaglavlje stranice), jednom tjedno; poruke se ne čitaju"],
         ["KOLscan lista", badge("besplatno", "good"), badge("uključeno", "good"), "KOL novčanici s X i Telegram imenom"],
         ["Solana Tracker KOL API", badge("plaćeno"), badge("uključeno", "good") if on("SOLANATRACKER_API_KEY") else badge("čeka SOLANATRACKER_API_KEY", "warn"),
          "Svi praćeni KOL novčanici s PnL-om, ne samo dnevni top"],
@@ -81,19 +59,6 @@ def paid_sources(kcon):
          "Tokeni koji se upravo streamaju i koje trguju poznati KOL novčanici"],
     ]
     return table(["Izvor", "Cijena", "Stanje", "Što daje"], rows)
-
-
-MIN_MEASURED = 10  # below this a hit rate is luck (1 of 1 = 100%)
-
-
-def _tg_history():
-    """kol/tg_history.json rows by channel (Nicholas's Call Analyser + SpyDefi exports), {} if missing."""
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "tg_history.json")
-    try:
-        with open(path) as f:
-            return {r["chan"].lower(): r for r in json.load(f).get("rows") or []}
-    except (OSError, ValueError):
-        return {}
 
 
 def _live_badge():
@@ -116,102 +81,14 @@ def _live_badge():
     return badge(f"živ, {st['trades_24h']:,} tradeova u 24 h, {st['tokens']} tokena", "good")
 
 
-def page(qs):
-    tcon, kcon = _ro("tg.db"), _ro("kol.db")
-    now = time.time()
-    b = ["<h1>Društveni izvori kolova</h1>" + tdesc(
-        "Osim X-a bot prati javne Telegram call kanale i KOL novčanike na lancu. Kad više dobrih izvora zove isti token "
-        "u kratkom vremenu, to je konvergencija: tada bot ulazi malim demo ulogom prije gomile. Sve se otkriva i mjeri "
-        "samo; Telegram kanal dobiva ocjenu istim pravilima kao KOL na X-u.")]
+def _tg_history():
+    """kol/tg_history.json rows by channel (Nicholas's Call Analyser + SpyDefi exports), {} if missing. Kept only for
+    ui/kol.py (/kol/tg:<chan>, the navigation agent's file) until that page drops its Telegram history; listed in the
+    cleanup inventory (19.11.)."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "tg_history.json")
     try:
-        st = dict(_q(tcon, "SELECT status, COUNT(*) FROM channels GROUP BY status"))
-        n24 = (_q(tcon, "SELECT COUNT(*) FROM posts WHERE cas != '' AND seen_ts >= ?", (now - 86400,)) or [(0,)])[0][0]
-        lag = [l for l, in _q(tcon, "SELECT lag_s FROM channels WHERE lag_s IS NOT NULL AND status='active'")]
-        lag_med = sorted(lag)[len(lag) // 2] if lag else None
-        n_ids = (_q(kcon, "SELECT COUNT(*) FROM kol_ids") or [(0,)])[0][0]
-        buys = (_q(kcon, "SELECT COUNT(*) FROM calls WHERE kind='buy' AND ts >= ?", (now - 86400,)) or [(0,)])[0][0]
-        conv = _q(kcon, """SELECT token, ts, first_ts, score, n_x, n_tg, n_chain, n_other, platforms, handles, kol_selling
-                           FROM converge WHERE ts >= ? ORDER BY score DESC""", (now - 6 * 3600,))
-        b.append("<div class=grid>" + "".join([
-            _stat(st.get("active", 0), "aktivnih Telegram kanala"), _stat(st.get("candidate", 0), "kandidata"),
-            _stat(n24, "Telegram objava s CA (24 h)"),
-            _stat(f"{lag_med:.0f} s" if lag_med is not None else "–", "kašnjenje čitanja (medijan)" + tip(
-                "Koliko kasno MI pročitamo objavu kanala (t.me/s se čita svakih 30 s do 5 min, praćeni kanali svake 2 s). "
-                "Uspješnost poziva mjeri se od trenutka objave, ne od našeg čitanja, pa ovo kašnjenje ne ulazi u ocjenu kanala.")),
-            _stat(n_ids, "KOL novčanika s imenom"), _stat(buys, "kupnji KOL novčanika (24 h)"),
-            _stat(len(conv), "konvergencija (6 h)")]) + "</div>")
+        with open(path) as f:
+            return {r["chan"].lower(): r for r in json.load(f).get("rows") or []}
+    except (OSError, ValueError):
+        return {}
 
-        b.append("<h2 id=konv>Konvergencija izvora</h2>" + tdesc(
-            "Tokeni koje je u 30 min zvalo više izvora. Skor 0-100: dobri KOL-ovi na X-u i Telegramu, KOL novčanici koji "
-            "kupuju, bonus za više platformi; manji ako KOL novčanik već prodaje ili izgleda kao plaćena promocija. "
-            "Iznad praga demo tradinga bot ulazi (stranica Demo trading)."))
-        syms = dict(_q(kcon, "SELECT token, symbol FROM tokens"))
-        rows = []
-        for tok, ts, first, sc, nx, ntg, nch, no, plats, hs, sell in conv:
-            hl = json.loads(hs or "[]")
-            rows.append([tlink(tok, syms.get(tok)), num(sc), esc(" + ".join(json.loads(plats or "[]"))),
-                         num(nx), num(ntg), num(nch), num(no), ago(first),
-                         ", ".join(klink(h) for h in hl[:6]) + (" " + badge("KOL prodaje", "bad") if sell else "")])
-        b.append(table(["Token", ("Skor", "n"), "Platforme", ("X", "n"), ("TG", "n"), ("Novčanici", "n"),
-                        ("Ostali", "n"), "Prvi poziv", "Tko"], rows, empty="Još nema konvergencija u zadnjih 6 h."))
-
-        b.append("<h2 id=kanali>Telegram kanali</h2>" + tdesc(
-            "Kanali koje je bot pronašao (linkovi u X objavama i profilima, KOL liste, prosljeđivanja iz drugih kanala, "
-            "TGStat). Aktivan = javno objavljuje adrese tokena; čita se svakih 30 s kad je vruć, inače svakih 5 min. "
-            "Kanal s 12+ izmjerenih poziva i ocjenom ispod 25 čita se rjeđe. Pogodak = udio zadnjih 50 izmjerenih poziva koji "
-            f"su narasli 50%+ u 24 h; ocjenu i pogodak pokazujemo tek od {MIN_MEASURED} izmjerenih poziva, jer 1 od 1 = 100% "
-            "nije dokaz. Povijest 2× = koliko zadnjih poziva je otišlo barem 2× prema tvojim Call Analyser i SpyDefi "
-            "izvozima. Kanali s dovoljno podataka su na vrhu."))
-        scores = {h[3:]: (sc, json.loads(stt or "{}")) for h, sc, stt in
-                  _q(kcon, "SELECT handle, score, stats FROM kols WHERE handle LIKE 'tg:%'")}
-        hist = _tg_history()
-        rows = []
-        for name, title, subs, status, via, n_posts, n_ca, last_ca, lag_s in _q(tcon, """SELECT name, title, subs,
-                status, found_via, n_posts, n_ca, last_ca_ts, lag_s FROM channels WHERE status != 'dead'"""):
-            sc, s = scores.get(name, (None, {}))
-            lab, cls = STATUS.get(status, (status, ""))
-            n = s.get("n_last", s.get("measured")) or 0
-            hit = s.get("hit_last", s.get("hit_rate"))
-            ok = n >= MIN_MEASURED and hit is not None
-            few = ("premalo", -1, "n mut")
-            h = hist.get(name.lower()) or {}
-            hn, h2 = h.get("n50") or 0, h.get("hit2_50")
-            rows.append(((status != "active", not ok, -(sc or 0) if ok else 0, -(last_ca or 0)), [
-                klink("tg:" + name) + (f" <span class=mut>{esc(title or '')}</span>" if title else ""),
-                badge(lab, cls), num(subs), num(sc, "{:.0f}") if ok else few, num(n),
-                (f"{hit:.0%}", hit, "n") if ok else few,
-                (f"{h2:.0%} od {hn}", h2, "n") if hn >= MIN_MEASURED and h2 is not None else ("–", -1, "n"),
-                num(n_ca), ago(last_ca), num(lag_s, "{:.0f} s"), esc(via_label(via))]))
-        rows = [r for _, r in sorted(rows, key=lambda x: x[0])]
-        b.append(table(["Kanal", "Stanje", ("Pretplatnika", "n"), ("Ocjena", "n"), ("Izmjereno (zadnjih 50)", "n"),
-                        ("Pogodak", "n"), ("Povijest 2×", "n"), ("Objava s CA", "n"), "Zadnji CA", ("Kašnjenje", "n"), "Pronađen preko"],
-                       rows, empty="Još nema kanala: prvo otkrivanje kreće par minuta nakon pokretanja."))
-
-        rows = []
-        for ch, post, ts, cas, text, views, fwd in _q(tcon, """SELECT channel, post, ts, cas, text, views, fwd_from
-                FROM posts WHERE cas != '' ORDER BY ts DESC LIMIT 40"""):
-            rows.append([ago(ts), klink("tg:" + ch), ", ".join(tlink(c, syms.get(c)) for c in cas.split(",")[:3]),
-                         num(views), esc((text or "")[:140]) + (" " + badge("proslijeđeno") if fwd else ""),
-                         f'<a href="https://t.me/{esc(ch)}/{post}" target=_blank rel=noopener>↗</a>'])
-        b.append("<h3>Zadnje Telegram objave s adresom</h3>" + table(
-            ["Kada", "Kanal", "Token", ("Pregleda", "n"), "Tekst", ""], rows, empty="Još nema objava."))
-
-        b.append("<h2 id=novcanici>KOL novčanici</h2>" + tdesc(
-            "Novčanici KOL-ova s javnim imenom (KOLscan, Solana Tracker) i najbolji FOMO traderi. Helius webhook javlja "
-            "svaku njihovu kupnju i prodaju; KOL obično kupi prije objave, pa je to najraniji signal."))
-        rows = []
-        for w, name, tw, tg, src, pnl, wins, losses, rank in _q(kcon, """SELECT wallet, name, twitter, telegram, source,
-                pnl, wins, losses, rank FROM kol_ids ORDER BY source = 'fomo', COALESCE(rank, 999) LIMIT 300"""):
-            rows.append([esc(name or "–"), klink(tw) if tw else "–",
-                         f'<a href="{esc(tg)}" target=_blank rel=noopener>✈</a>' if tg else "–", esc(src),
-                         num(pnl, "{:,.0f}"), f"{wins or 0}/{(wins or 0) + (losses or 0)}" if wins is not None else "–",
-                         f'<a href="https://solscan.io/account/{esc(w)}" target=_blank rel=noopener><code>{esc(w[:6])}…</code></a>'])
-        b.append(table(["Ime", "X", "TG", "Izvor", ("PnL (izvor)", "n"), "Pobjede", "Novčanik"], rows,
-                       empty="Još nema: lista se čita jednom dnevno."))
-
-        # the free/paid sources table (which keys are set on Render) moved to /usage, admins only (3.11.)
-    finally:
-        for c in (tcon, kcon):
-            if c is not None:
-                c.close()
-    return "Društveni izvori", "".join(b)

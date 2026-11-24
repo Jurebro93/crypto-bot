@@ -91,8 +91,9 @@ class LiveGate(unittest.TestCase):
         self.assertEqual(p["history"]["sugg_hit"], 1)
         th = p["thesis"]
         self.assertIn("Teza:", th)
-        self.assertIn("40 transakcija i $5,000 volumena", th)
-        self.assertIn("0.1× likvidnosti", th)
+        # 10.11. (prijedlog, pravilo 8): Croatian number format in the thesis ("5,0k $", "0,1×"), on purpose
+        self.assertIn("40 transakcija i 5,0k $ volumena", th)
+        self.assertIn("0,1× likvidnosti", th)
         self.assertIn("već predložen 1×: 1× +15 % prije stopa", th)
         self.assertIn("Protiv: rug filter: OPREZ; mali TG", th)
         ok_row = {**row(T), "rug": {"verdict": "PROLAZI"}}

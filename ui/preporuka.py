@@ -4,7 +4,7 @@ that wallet actually earned, and the one action. Everything here is derived from
 (wallets.db stats, strat.db copies), so the box and the table can never disagree."""
 from ui.html import esc, wlink
 
-MIN_CLOSED, MIN_COPY = 10, 50
+MIN_CLOSED, MIN_COPY = 10, 40   # 11.11.: Ocjena of the copy ranking (wallets/rang.py), via explain.shortlist
 CAP_HOLD_MIN = 6 * 60     # a wallet that holds for days is not copyable with the bot's exits
 
 
@@ -24,16 +24,17 @@ def _hold(m):
 
 
 def rank_wallets(ws, copies=None):
-    """[(wallet row, reasons dict)] best first: only wallets that pass the copy list, ordered by confidence tier,
-    then copy score, then closed PnL. copies: {wallet prefix (6 chars): (n, mean return, pnl $)} from the demo
-    strategy that copied them (strat/run.wallet_rank)."""
+    """[(wallet row, reasons dict)] best first: only wallets that pass the copy list (proven, copyable, in profit on
+    the 30-day window), ordered by confidence tier, then the copy ranking's Ocjena (11.11.: was copy score, then
+    closed PnL; absolute SOL PnL no longer orders anything). copies: {wallet prefix (6 chars): (n, mean return,
+    pnl $)} from the demo strategy that copied them (strat/run.wallet_rank)."""
     from ui import explain
     copies = copies or {}
     out = []
     for w in ws:
         s = w.get("stats") or {}
         ok, _why = explain.shortlist(w, MIN_COPY, MIN_CLOSED)
-        if not ok or (s.get("closed_pnl_sol") or 0) <= 0:
+        if not ok or ((w.get("rang") or {}).get("roi") or 0) <= 0:
             continue
         if (s.get("median_hold_min") or 0) > CAP_HOLD_MIN:
             continue
@@ -41,7 +42,7 @@ def rank_wallets(ws, copies=None):
         c = copies.get(w["wallet"][:6])
         out.append((w, {"tier": tier, "tier_why": twhy, "copy": c, "ladder": None}))
     order = {"visoka": 0, "srednja": 1, "niska": 2}
-    out.sort(key=lambda r: (order[r[1]["tier"]], -(r[0].get("copy_score") or 0), -(r[0]["stats"].get("closed_pnl_sol") or 0)))
+    out.sort(key=lambda r: (order[r[1]["tier"]], -(r[0].get("ocjena") or 0)))
     return out
 
 
@@ -101,7 +102,8 @@ def wallets_box(ws, copies=None):
     head = f"<p><b>Što bih ja napravio:</b> {_verdict(ranked)}</p>"
     if not ranked:
         return ("<div class=card>" + head + "<p class=mut>Uvjeti za preporuku: barem "
-                f"{MIN_CLOSED} zatvorenih tradeova, copy ocjena {MIN_COPY}+, u plusu, drži kraće od {CAP_HOLD_MIN // 60} h, "
+                f"{MIN_CLOSED} zatvorenih tradeova u 30 dana, ocjena za kopiranje {MIN_COPY}+, kopirljiv (likvidnost na ulazu "
+                f"15k $+), u plusu, drži kraće od {CAP_HOLD_MIN // 60} h, "
                 "bez loših oznaka. Tablica ispod je za one koji žele kopati sami.</p></div>")
     top = ranked[:3]
     for w, r in top:   # price-checked ladder only for the three shown (each reads the wallet's buys and price paths)
@@ -126,7 +128,7 @@ def wallets_box(ws, copies=None):
             if r["tier"] == "niska":
                 why.append("premalo podataka ili neaktivan")
             skip = (f"<p class=mut>Najveći PnL ima {wlink(w['wallet'])} ({w['stats'].get('closed_pnl_sol', 0):+.1f} SOL), "
-                    f"ali ga ne bih uzeo prvog: {esc(', '.join(why) or 'niža copy ocjena')}.</p>")
+                    f"ali ga ne bih uzeo prvog: {esc(', '.join(why) or 'niža ocjena za kopiranje')}.</p>")
     how = ("<p class=mut>Pouzdanost raste s podacima: niska → srednja na 15 zatvorenih, visoka na 30 bez jednog dominantnog "
            "dobitka. Strategija „Top novčanici” u demu kopira ove novčanike sama i izbacuje one koji se ne dokažu.</p>")
     return (f"<div class=card>{head}<p><b>Tri najbolja po podacima</b> ({len(ranked)} prolazi uvjete):</p><ol>{items}</ol>"

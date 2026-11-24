@@ -12,7 +12,7 @@ def B(*a, **k):
 post(
     "address-poisoning", "address-poisoning-provjera-adrese", "Prevare",
     "Metoda: kako provjeriti adresu prije slanja da te ne opelješi address poisoning",
-    "Address poisoning: kako provjeriti kripto adresu prije slanja | MemeSonar",
+    "Address poisoning: provjeri kripto adresu prije slanja",
     "Address poisoning ti ubaci lažnu adresu u povijest odmah nakon testne uplate. Točna rutina koja to sprječava u "
     "Phantomu, MetaMasku i na mjenjačnicama.", 6,
     "Address poisoning je prevara u kojoj ti napadač pošalje sitnu ili nultu uplatu s adrese koja počinje i završava "
@@ -74,7 +74,7 @@ zato je rutina iznad važnija od povrata.</p>
 post(
     "zero-trust-support-calls", "lazna-podrska-ledger-prevara", "Prevare",
     "Metoda: \"zove te podrška Ledgera\", provjera u 5 pitanja koja zaustavlja lažnu podršku",
-    "Lažna podrška Ledgera i mjenjačnica: kako provjeriti poziv u 5 pitanja | MemeSonar",
+    "Lažna podrška Ledgera i mjenjačnica: 5 pitanja",
     "Najveće kripto krađe zadnjih godina nisu bile hakovi nego ljudi koji glume podršku. Pet pitanja prije nego "
     "napraviš bilo što što ti 'agent podrške' kaže.", 6,
     "Prava podrška novčanika i mjenjačnica nikad te ne zove prva, nikad ne traži seed frazu i nikad ne traži da "
@@ -136,7 +136,7 @@ sve što je još tamo, počevši od najvećeg iznosa. Staru seed frazu više ne 
 post(
     "polymarket-rules-checklist", "polymarket-pravila-provjera", "Prediction marketi",
     "Metoda: kako pročitati pravila Polymarket tržišta prije nego uložiš (6 točaka)",
-    "Kako se rješavaju Polymarket tržišta: pravila, UMA sporovi i checklista | MemeSonar",
+    "Kako se rješavaju Polymarket tržišta: pravila i UMA sporovi | MemeSonar",
     "Na Polymarketu možeš točno predvidjeti događaj i svejedno izgubiti, jer tržište rješavaju napisana pravila. "
     "Checklista od 6 točaka i kako rade UMA sporovi.", 7,
     "Polymarket tržište isplaćuje prema napisanim pravilima i izvoru rješavanja, a ne prema onome što većina misli da "
@@ -195,7 +195,7 @@ gubili novac iako su bili u pravu o svijetu.</p>
 post(
     "polymarket-insider-moves", "polymarket-curenje-informacija", "Prediction marketi",
     "Kako uočiti curenje informacija na Polymarketu: kvote se pomaknu prije vijesti",
-    "Insider trading na Polymarketu: kako uočiti kvote koje se mijenjaju prije vijesti | MemeSonar",
+    "Insider trading na Polymarketu: kvote prije vijesti",
     "Kvote na Polymarketu više su puta skočile satima prije službene vijesti, od Nobelove nagrade za mir do "
     "Venezuele. Kako su ti pomaci izgledali i kako ih pratiti sam.", 6,
     "Curenje na prediction marketu izgleda kao nagli skok kvote za malo vjerojatan ishod bez javne vijesti, iza kojeg "
@@ -306,7 +306,7 @@ nego što ti zatreba.</p>
 post(
     "tokens-sent-to-kol-wallets", "tokeni-poslani-na-kol-novcanike", "Copy trading",
     "Zašto je nepoznati token sletio u novčanik poznatog tradera (i zašto ga copytraderi kupuju)",
-    "Neželjeni tokeni u KOL novčanicima: trik koji vara copy tradere | MemeSonar",
+    "Neželjeni tokeni u KOL novčanicima varaju copy tradere",
     "Timovi tokena šalju svoje coine na novčanike poznatih tradera da izgleda kao kupnja. Copy trading botovi i "
     "pratitelji onda kupe stvarno. Kako u 30 sekundi razlikovati poklon od kupnje.", 5,
     "Mnoge tokene u novčanicima poznatih tradera nitko nije kupio: tim tokena ih je poslao besplatno da izgleda kao da "
@@ -405,7 +405,7 @@ Claimaj samo preko linka sa službene stranice ili verificiranog X računa proje
 post(
     "fake-volume-check", "lazni-volumen-provjera", "Rug pull",
     "Kako provjeriti je li volumen trgovanja lažan (na DEX-u ili burzi)",
-    "Lažni kripto volumen: kako prepoznati wash trading u 3 provjere | MemeSonar",
+    "Lažni kripto volumen: wash trading u 3 provjere",
     "Visok volumen čini token živim, a velik dio je lažan. Tri provjere koje svatko može napraviti: volumen prema "
     "likvidnosti, volumen koji kopira drugu burzu i zidovi koji trepere.", 6,
     "Wash trading napuhuje volumen da token izgleda popularno. Usporedi 24-satni volumen s likvidnošću (desetke puta "
@@ -456,7 +456,7 @@ slippage</a> i <a href=/hr/blog/sto-je-pump-and-dump>pump and dump</a>.</p>
 post(
     "after-kaito-yaps", "nakon-kaito-yapsa", "Za kripto projekte",
     "Metoda: Kaito Yaps je ugašen, kako kripto projekt sada dobiva vidljivost na X-u",
-    "Nakon Kaito Yapsa: kako kripto projekti dobivaju vidljivost na X-u u 2026. | MemeSonar",
+    "Nakon Kaito Yapsa: vidljivost kripto projekata na X-u",
     "X je u siječnju 2026. odrezao aplikacije koje plaćaju objavljivanje, a Kaito je ugasio Yaps. Što nije valjalo s "
     "plaćenim mindshareom i checklista za svaku plaćenu kampanju na X-u.", 6,
     "U siječnju 2026. X je ukinuo API pristup aplikacijama koje nagrađuju objavljivanje, a Kaito je ugasio Yaps i "
@@ -512,7 +512,7 @@ ili kod u objavu svakog kreatora.</li>
 post(
     "fair-token-launch-cca", "fer-lansiranje-tokena-cca", "Za kripto projekte",
     "Metoda: kako lansirati token bez snajpera, Uniswap CCA aukcija korak po korak",
-    "Fer lansiranje tokena bez snajpera: vodič za Uniswap CCA aukciju | MemeSonar",
+    "Fer lansiranje tokena bez snajpera: Uniswap CCA",
     "Continuous Clearing Auction prodaje tokene blok po blok po jednoj cijeni, pa snajperi i bundleri gube prednost. "
     "Kako je postaviti i kako licitirati kao kupac.", 7,
     "Uniswapova Continuous Clearing Auction (CCA) raspoređuje prodaju tokena na mnogo blokova. Svaka ponuda dijeli se "

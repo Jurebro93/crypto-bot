@@ -34,6 +34,7 @@ PAGES = {
     "besttime": ("/best-time-to-trade-crypto", "/hr/najbolje-vrijeme-za-trgovanje-kriptom"),
     "season": ("/meme-coin-season-index", "/hr/indeks-sezone-meme-coina"),
     "dex": ("/solana-dex-volume", "/hr/solana-dex-volumen"),
+    "calls": ("/crypto-influencer-calls", "/hr/pozivi-kripto-influencera"),      # ui/marketcalls.py
 }
 EMBEDS = ("meme-season", "launchpads")
 
@@ -54,6 +55,13 @@ T = {
     "en": dict(
         nav="Market", nav_d="Solana meme coin market data, updated daily",
         asof="Data as of {d} (last full UTC day). Source: DefiLlama, checked every hour. Updated automatically.",
+        asof_own="Data as of {d} (last full UTC day). Source: MemeSonar's own tracking of influencers on X. "
+                 "Updated automatically every 30 minutes.",
+        asof_mix="Data as of {d} (last full UTC day). Source: DefiLlama for volume, MemeSonar's own tracking for "
+                 "influencer calls. Updated automatically.",
+        nf_calls="Not financial advice. A call that rose is not a recommendation to follow the caller; most called "
+                 "coins lose value within days.",
+        live_t="Last 24 hours", live_vs="vs the 24 hours before", live_at="read at {t} UTC",
         hot="hot", neutral="neutral", cold="cold", idx="Meme coin season index",
         lp="Launchpads", dexn="Solana DEX", term="Trading terminals", sol="SOL price",
         lp7="Launchpad volume, 7 days", dex7="Solana DEX volume, 7 days", term7="Trading terminals & bots, 7 days",
@@ -71,6 +79,13 @@ T = {
     "hr": dict(
         nav="Tržište", nav_d="Podaci o Solana meme coin tržištu, svaki dan",
         asof="Podaci za {d} (zadnji puni UTC dan). Izvor: DefiLlama, provjera svaki sat. Osvježava se samo.",
+        asof_own="Podaci za {d} (zadnji puni UTC dan). Izvor: MemeSonarovo vlastito praćenje influencera na X-u. "
+                 "Osvježava se samo svakih 30 minuta.",
+        asof_mix="Podaci za {d} (zadnji puni UTC dan). Izvor: DefiLlama za volumen, MemeSonarovo praćenje za pozive "
+                 "influencera. Osvježava se samo.",
+        nf_calls="Nije financijski savjet. Poziv koji je narastao nije preporuka da pratiš callera; većina pozvanih "
+                 "coina izgubi vrijednost za nekoliko dana.",
+        live_t="Zadnja 24 sata", live_vs="prema 24 sata prije", live_at="očitano u {t} UTC",
         hot="vruće", neutral="neutralno", cold="hladno", idx="Indeks sezone meme coina",
         lp="Launchpadi", dexn="Solana DEX", term="Trading terminali", sol="Cijena SOL",
         lp7="Volumen launchpada, 7 dana", dex7="Volumen Solana DEX-a, 7 dana", term7="Trading terminali i botovi, 7 dana",
@@ -93,12 +108,14 @@ NAV = {
            "season": ("Meme coin season index", "Is it meme season? 0-100, daily"),
            "launchpads": ("Solana launchpads", "pump.fun vs bonk.fun vs Meteora"),
            "dex": ("Solana DEX volume", "Top DEXs and trading terminals"),
-           "besttime": ("Best time to trade", "Volume and call results by hour")},
+           "besttime": ("Best time to trade", "Volume and call results by hour"),
+           "calls": ("Influencer calls today", "How many calls, how many work")},
     "hr": {"market": ("Tržište danas", "Volumeni launchpada, DEX-a i terminala, trend 90 dana"),
            "season": ("Indeks sezone meme coina", "Je li sezona meme coina? 0-100, dnevno"),
            "launchpads": ("Solana launchpadi", "pump.fun protiv bonk.fun i Meteore"),
            "dex": ("Solana DEX volumen", "Najveći DEX-ovi i trading terminali"),
-           "besttime": ("Najbolje vrijeme za trgovanje", "Volumen i uspjeh poziva po satu")},
+           "besttime": ("Najbolje vrijeme za trgovanje", "Volumen i uspjeh poziva po satu"),
+           "calls": ("Pozivi influencera danas", "Koliko poziva, koliko ih prolazi")},
 }
 
 SESSION_NAMES = {"en": {"asia": "Asia", "eu": "Europe", "us": "United States"},
@@ -192,7 +209,8 @@ def _hours(now):
         except sqlite3.OperationalError:
             vol = None
         q = ("SELECT (c.ts / 3600) % 24, COUNT(*), SUM(CASE WHEN c.max24 >= ? THEN 1 ELSE 0 END), MIN(c.ts), MAX(c.ts) "
-             "FROM calls c {join} WHERE c.kind='call' AND c.first_by_kol=1 AND c.max24 IS NOT NULL AND c.ts < ? {bot} "
+             "FROM calls c {join} WHERE c.kind='call' AND c.first_by_kol=1 AND c.max24 IS NOT NULL AND c.ts < ? "
+             "AND c.handle NOT LIKE 'tg:%' {bot} "
              "GROUP BY 1")
         try:
             rows = con.execute(q.format(join="LEFT JOIN kols k ON k.handle=c.handle", bot="AND COALESCE(k.bot,0)=0"),
@@ -236,6 +254,13 @@ def build(now=None):
         if collect.partial_day(dexs, counts=counts or None) == day:     # newest day not finished at DefiLlama yet (collect drops it later)
             day -= D
         ser = {k: dict(store.series(con, f"all:{k}", day - 400 * D)) for k in ("launchpad", "dex", "terminal")}
+        # 15.11. audit: "the whole Solana DEX market" is DefiLlama's own Solana total (every category), not only the
+        # category "Dexs" (7-8 % less, and launchpads were not in it, so their "share" was not a share). The season
+        # index keeps the category series it was fitted on (market/regime.py reads the database itself).
+        whole = dict(store.series(con, collect.WHOLE, day - 400 * D))
+        if len(whole) >= 90 and all(whole.get(day - i * D) for i in range(14)):
+            ser["dex"] = whole
+        live = _live(con, now)
         price = dict(con.execute("SELECT day, usd FROM price WHERE day>?", (day - 400 * D,)))
         reg = [(d, s, lb, json.loads(f or "{}")) for d, s, lb, f in
                con.execute("SELECT day, score, label, features FROM regime WHERE day<=? ORDER BY day", (day,))]
@@ -253,8 +278,58 @@ def build(now=None):
     except Exception as e:  # noqa: BLE001
         print(f"marketpub: sati nedostupni: {e}", flush=True)
         hours = None
-    return {"day": day, "built": now, "ser": ser, "price": price, "regime": reg, "hyp": hyp, "plats": plats,
-            "top_lp": top, "shares": shares, "hours": hours}
+    d = {"day": day, "built": now, "ser": ser, "price": price, "regime": reg, "hyp": hyp, "plats": plats,
+         "top_lp": top, "shares": shares, "hours": hours, "live": live, "calls": None, "critic": None}
+    try:   # 15.11.: influencer call totals (ui/marketcalls.py) and the Kritičar's reads (ui/marketnotes.py)
+        from ui import marketcalls, marketnotes
+        band = {x[0]: ("hot" if x[1] >= 66 else "cold" if x[1] <= 33 else "neutral") for x in reg}
+        d["calls"] = marketcalls.stats(now, band.get)
+        d["critic"] = marketnotes.critic(now)
+    except Exception as e:  # noqa: BLE001
+        print(f"marketpub: pozivi nedostupni: {type(e).__name__}: {e}", flush=True)
+    return d
+
+
+LIVE_MAX_AGE_S = 3 * H
+
+
+def _live(con, now):
+    """The rolling 24 h from the hourly snapshot (market.db snap): launchpads, the whole Solana DEX market and
+    terminals right now against the same reading 24 h earlier. None when the newest snapshot is older than 3 h."""
+    from market import collect
+    try:
+        ts = con.execute("SELECT MAX(ts) FROM snap WHERE slug='all:launchpad'").fetchone()[0]
+        if not ts or now - ts > LIVE_MAX_AGE_S:
+            return None
+        cur = dict(con.execute("SELECT slug, vol24h FROM snap WHERE ts=? AND slug LIKE 'all:%'", (ts,)))
+        prev = dict(con.execute("SELECT slug, vol24h FROM snap WHERE ts=? AND slug LIKE 'all:%'", (ts - D,)))
+    except sqlite3.Error:
+        return None
+    out = {"ts": ts}
+    for k, slug in (("launchpad", "all:launchpad"), ("dex", collect.WHOLE if collect.WHOLE in cur else "all:dex"),
+                    ("terminal", "all:terminal")):
+        v, p = cur.get(slug), prev.get(slug)
+        out[k] = (v, (v / p - 1) if v and p else None)
+    return out
+
+
+def livebar(d, lang):
+    """One line above the numbers of the full days: what the last 24 hours look like at the newest hourly reading."""
+    lv = d.get("live")
+    if not lv:
+        return ""
+    t = T[lang]
+    parts = []
+    for k, lab in (("launchpad", t["lp"]), ("dex", t["dexn"]), ("terminal", t["term"])):
+        v, c = lv.get(k) or (None, None)
+        if v:
+            parts.append(f"<span>{lab} <b>{usd(v, lang)}</b>"
+                         + (f" <em{_cls(c)} style='font-style:normal'>{pct(c, lang)}</em>" if c is not None else "") + "</span>")
+    if not parts:
+        return ""
+    when = dt.datetime.fromtimestamp(lv["ts"], dt.timezone.utc).strftime("%H:%M")
+    return (f"<div class=livebar><span class=lt><span class=lvdot></span>{t['live_t']}</span>{''.join(parts)}"
+            f"<span class=mut>{t['live_vs']} · {t['live_at'].format(t=when)}</span></div>")
 
 
 # ---------- formatting ----------------------------------------------------------------------------------------------
@@ -576,19 +651,23 @@ def _embed(name, lang):
             f"<button type=button class='btn sm' data-ok='{esc(t['copied'])}'>{t['copy']}</button></div>")
 
 
+ASOF = {"calls": "asof_own", "besttime": "asof_mix"}   # which sources a page's numbers come from
+
+
 def _head(key, lang, h1, lead, d):
     t = T[lang]
     hub = PAGES["market"][lang != "en"]
     crumb = (f"<a href={'/' if lang == 'en' else '/hr'}>MemeSonar</a> / "
              + (f"<a href={hub}>{t['crumb']}</a> / " if key != "market" else "") + esc(NAV[lang][key][0]))
     return (f"<section class=ph1><div class=crumb>{crumb}</div><h1>{h1}</h1><p class=lead>{lead}</p>"
-            f"<p class=asof>{t['asof'].format(d=_date(d['day'], lang))}</p></section>")
+            f"<p class=asof>{t[ASOF.get(key, 'asof')].format(d=_date(d['day'], lang))}</p></section>")
 
 
 def _page(key, lang, title, desc, body, qa, d):
     from ui import public as P
     en, hr = PAGES[key]
-    return P._shell(lang, title, desc, en, hr, f"<div class=mk>{body}</div><style>{CSS}</style>{JS}",
+    from ui import marketnotes as N
+    return P._shell(lang, title, desc, en, hr, f"<div class=mk>{body}</div><style>{CSS}{N.CSS}</style>{JS}",
                     jsonld=_jsonld(key, lang, title, desc, qa, d))
 
 
@@ -650,13 +729,15 @@ def market(lang):
     cards_html = "".join(f"<div class=card><b>{v}</b>" + (f"<span class=sub><em{_cls(c)} style='font-style:normal'>"
                                                           f"{pct(c, lang)}</em></span>" if c is not None else "")
                          + f"<span>{lab_}</span></div>" for v, c, lab_ in cards)
-    body = [_head("market", lang, h1, lead, d), subnav("market", lang)]
+    from ui import marketnotes as N
+    body = [_head("market", lang, h1, lead, d), subnav("market", lang), livebar(d, lang)]
     gtitle = _gl("meme-coin-season-index", lang, t["idx"])
     body.append(f"<div class=mkg>{gauge(score, lang, title=None) if score is not None else ''}"
                 f"<div class=cards>{cards_html}</div></div>")
     body.append(f"<p class=mut style='margin:-14px 0 24px'>{gtitle}: " + (
         "0-33 cold, 34-65 neutral, 66-100 hot. " if en else "0-33 hladno, 34-65 neutralno, 66-100 vruće. ")
         + f"<a href={PAGES['season'][lang != 'en']}>{'How it works and 1-year history →' if en else 'Kako radi i povijest za godinu dana →'}</a></p>")
+    body.append(N.boxes("market", d, lang))
     # 90-day indexed trend (one axis: first day = 100)
     days = [day - i * D for i in range(89, -1, -1)]
     s_lp = {x: _sum7(lp, x) for x in days}
@@ -720,7 +801,7 @@ def market(lang):
                  "<h2 class=s>Po danu (30 dana)</h2><p class=mut>Puni UTC dani. Udio = dio ukupnog Solana DEX volumena "
                  "koji je prošao kroz launchpade.</p>")
                 + _table([t["day"], t["lp"], t["chg1"], t["dexn"], t["chg1"], t["term"], t["sh"], "SOL"], rows))
-    body.append(_lockbox(lang))
+    body.append(N.locked("market", lang))
     body.append(_embed("meme-season", lang))
     body.append(_more("market", lang))
     top = d["plats"]["launchpad"][0] if d["plats"]["launchpad"] else None
@@ -735,7 +816,7 @@ def market(lang):
                "From DefiLlama's public Solana DEX and launchpad volumes, checked every hour. DefiLlama finalises a day once, so "
                "every number here is for full UTC days. The season index and the charts are our own calculations."),
               ("How often is the page updated?", "Automatically: the source is checked every hour and the page refreshes within 30 minutes.")]
-        title = f"Solana Meme Coin Market Volume as of {_date(day, lang)} (last full day): Launchpads, DEX, Trend | MemeSonar"
+        title = f"Solana Meme Coin Market Volume ({_date(day, lang)}): Launchpads, DEX, Trend | MemeSonar"
         desc = (f"Live Solana meme coin market: launchpad volume {usd(lp7)} in 7 days ({pct(g(lp7, lpp))}), Solana DEX "
                 f"{usd(dx7)}, trading terminals {usd(tm7)}. Charts and daily data, updated automatically.")
     else:
@@ -749,7 +830,7 @@ def market(lang):
                "Iz javnih podataka DefiLlame o volumenu Solana DEX-ova i launchpada, provjera svaki sat. DefiLlama dan zaključa "
                "jednom, pa su svi brojevi za pune UTC dane. Indeks sezone i grafovi su naš izračun."),
               ("Koliko se često stranica osvježava?", "Automatski: izvor se provjerava svaki sat, a stranica se osvježi unutar 30 minuta.")]
-        title = f"Volumen Solana meme coin tržišta na dan {_date(day, lang)} (zadnji puni dan): launchpadi, DEX, trend | MemeSonar"
+        title = f"Solana meme coin tržište ({_date(day, lang)}): launchpadi, DEX, trend | MemeSonar"
         desc = (f"Solana meme coin tržište uživo: volumen launchpada {usd(lp7, lang)} u 7 dana ({pct(g(lp7, lpp), lang)}), "
                 f"Solana DEX {usd(dx7, lang)}, trading terminali {usd(tm7, lang)}. Grafovi i dnevni podaci, osvježava se samo.")
     body.append(_faq(qa, lang))
@@ -794,6 +875,8 @@ def launchpads(lang):
              (pct(top["v7"] / tot7, lang, signed=False), (f"{names[top['slug']]} market share" if en else f"tržišni udio: {names[top['slug']]}"))]
     body.append("<div class=cards style='grid-template-columns:repeat(4,1fr)'>" + "".join(
         f"<div class=card><b>{v}</b><span>{lb}</span></div>" for v, lb in cards) + "</div>")
+    from ui import marketnotes as _N
+    body.append(_N.boxes("launchpads", d, lang))
     body.append(f"<div class=mc><h3>{'Market share, last 7 days' if en else 'Tržišni udio, zadnjih 7 dana'}</h3>"
                 f"<div class=shb role=img aria-label='{'Market share' if en else 'Tržišni udio'}'>{''.join(seg)}</div>"
                 f"<div class=mcl>{''.join(leg)}</div></div>")
@@ -867,7 +950,7 @@ def launchpads(lang):
               ("Is a launchpad safe?", "The launchpad itself is just the place where tokens are made. Most new tokens fail and "
                "many are scams, so check every token before buying. See our <a href=/rug-check>rug checks</a>."),
               ("Where does the data come from?", "DefiLlama's public launchpad volumes on Solana, full UTC days, updated daily.")]
-        title = f"Solana Launchpads by Volume: pump.fun vs bonk.fun vs Meteora ({_month(day, lang)}) | MemeSonar"
+        title = f"Solana Launchpads by Volume ({_month(day, lang)}): pump.fun vs bonk.fun | MemeSonar"
         desc = (f"Which Solana launchpad trades the most? {names[top['slug']]} has {pct(top['v7'] / tot7, signed=False)} of "
                 f"launchpad volume ({usd(top['v7'])} in 7 days). Market share chart and daily data for every launchpad.")
     else:
@@ -882,7 +965,7 @@ def launchpads(lang):
               ("Je li launchpad siguran?", "Launchpad je samo mjesto gdje tokeni nastaju. Većina novih tokena propadne, a mnogi su "
                "prevare, pa provjeri svaki token prije kupnje. Pogledaj naše <a href=/hr/provjera>provjere ruga</a>."),
               ("Odakle su podaci?", "Javni podaci DefiLlame o volumenu launchpada na Solani, puni UTC dani, osvježava se svaki dan.")]
-        title = f"Solana launchpadi po volumenu: pump.fun, bonk.fun, Meteora ({_month(day, lang)}) | MemeSonar"
+        title = f"Solana launchpadi po volumenu ({_month(day, lang)}): pump.fun, bonk.fun | MemeSonar"
         desc = (f"Koji Solana launchpad ima najviše trgovanja? {names[top['slug']]} ima {pct(top['v7'] / tot7, lang, signed=False)} "
                 f"volumena ({usd(top['v7'], lang)} u 7 dana). Graf tržišnog udjela i dnevni podaci za svaki launchpad.")
     body.append(_faq(qa, lang))
@@ -978,6 +1061,8 @@ def besttime(lang):
         h1 = "Najbolje vrijeme za trgovanje kriptom i meme coinima"
     body.append(_head("besttime", lang, h1, lead, d))
     body.append(subnav("besttime", lang))
+    from ui import marketnotes as _N
+    body.append(_N.boxes("besttime", d, lang))
     opts = "".join(f"<option value='{z or ''}'>{esc(n or t['local'])}</option>" for n, z in TZS)
     body.append(f"<div class=tzr><label for=tz>{t['tz']}</label><select id=tz>{opts}</select>"
                 f"<span class=mut>{'(UTC by default without JavaScript)' if en else '(bez JavaScripta UTC)'}</span></div>")
@@ -1151,6 +1236,8 @@ def season(lang):
              (pct(f.get("launchpad_growth7d"), lang), "launchpad volume, week on week" if en else "volumen launchpada, tjedan na tjedan")]
     body.append(f"<div class=mkg>{gauge(score, lang, title=t['idx'])}<div class=cards>" + "".join(
         f"<div class=card><b>{v}</b><span>{lb}</span></div>" for v, lb in cards) + "</div></div>")
+    from ui import marketnotes as _N
+    body.append(_N.boxes("season", d, lang))
     xs = [_date(r[0], lang, year=True) for r in yr]
     body.append(line_chart("Meme coin season index, last 12 months" if en else "Indeks sezone meme coina, zadnjih 12 mjeseci",
                            "Above the upper line = meme season (hot), below the lower line = cold." if en else
@@ -1267,7 +1354,7 @@ def dex(lang):
         lead = (f"Solana DEX-ovi su {_date(day, lang)} trgovali <b>{usd(dx.get(day), lang)}</b>, a u zadnjih 7 dana <b>{usd(d7, lang)}</b> "
                 f"({pct(ch, lang)} {t['vs']}). Najveći po volumenu bio je <b>{plabel(top, lang)[0]}</b>. Ispod: svi Solana "
                 "DEX-ovi i trading terminali kojima se služe trejderi meme coina.")
-    body = [_head("dex", lang, h1, lead, d), subnav("dex", lang)]
+    body = [_head("dex", lang, h1, lead, d), subnav("dex", lang), livebar(d, lang)]
     tm7 = _sum7(tm, day)
     cards = [(usd(dx.get(day), lang), t["yday"]), (usd(d7, lang), _gl("dex", lang, t["dex7"])),
              (pct(ch, lang), t["vs"]), (str(big), "DEXs with $1M+ a day on average" if en else "DEX-ova s $1M+ dnevno u prosjeku"),
@@ -1275,6 +1362,8 @@ def dex(lang):
              (pct(_sum7(d["ser"]["launchpad"], day) / d7 if d7 else None, lang, signed=False, dec=1),
               _gl("launchpad-share", lang, t["share"]))]
     body.append("<div class=cards>" + "".join(f"<div class=card><b>{v}</b><span>{lb}</span></div>" for v, lb in cards) + "</div>")
+    from ui import marketnotes as _N
+    body.append(_N.boxes("dex", d, lang))
     days = [day - i * D for i in range(89, -1, -1)]
     avg7 = [(_sum7(dx, x) / 7) if _sum7(dx, x) else None for x in days]
     body.append(line_chart("Daily Solana DEX volume (90 days)" if en else "Dnevni Solana DEX volumen (90 dana)",
@@ -1386,7 +1475,12 @@ def embed(name, lang):
 
 # ---------- routing, nav, sitemap -----------------------------------------------------------------------------------
 
-FNS = {"market": market, "launchpads": launchpads, "besttime": besttime, "season": season, "dex": dex}
+def calls(lang):
+    from ui import marketcalls
+    return marketcalls.page(lang)
+
+
+FNS = {"market": market, "launchpads": launchpads, "besttime": besttime, "season": season, "dex": dex, "calls": calls}
 _BY_PATH = {p: (k, "en" if i == 0 else "hr") for k, ps in PAGES.items() for i, p in enumerate(ps)}
 
 

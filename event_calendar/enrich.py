@@ -64,6 +64,7 @@ KIND_PRIOR = {
     "death_anniversary": 0.45, "birthday": 0.2, "crypto": 0.5, "holiday": 0.3,
     "launch_deadline": 0.4, "prediction_market": 0.15, "manual": 0.4, "election": 0.3,
     "rocket_launch": 0.05,
+    "regime": 0.0,   # 11.11.: a market regime label (macro release, conference), never an event token
 }
 # Viral topics the memecoin crowd ignores: sport, awards, foreign politics.
 VIRAL_IGNORED = re.compile(r"\b(footballer|football|soccer|cricket\w*|basketball|baseball|athlete|tennis|golfer|"
@@ -81,6 +82,8 @@ def token_likelihood(event):
     """0-1 guess that people will mint tokens for this event. Tune with backtests."""
     s = event.get("signals", {})
     text = f"{event['title']} {event['subject']} {s.get('description', '')}"
+    if event.get("kind") == "regime":
+        return 0.0   # 11.11. (owner's events rule): a regime label, never an event token
     if ROUTINE.search(text):
         return 0.05
     if event["kind"] == "rocket_launch" and re.search(r"\bstarship\b", text, re.I):

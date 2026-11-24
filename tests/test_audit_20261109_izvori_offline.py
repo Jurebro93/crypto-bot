@@ -17,7 +17,6 @@ from event_calendar import http  # noqa: E402
 from hype import sources  # noqa: E402
 from kol import chainwatch, collect, converge, minute, store as kstore, xhook  # noqa: E402
 from league import copy  # noqa: E402
-from tg import poll, store as tstore  # noqa: E402
 from topcheck import holders, safety  # noqa: E402
 from wallets import dokazani, store as wstore  # noqa: E402
 import run_kol  # noqa: E402
@@ -88,7 +87,6 @@ class XHookSpool(unittest.TestCase):
             return 0
         with mock.patch.object(kstore, "DB", self.db), mock.patch.object(run_kol.collect, "from_webhook", webhook), \
                 mock.patch.object(run_kol.collect, "from_hype_cache", lambda c, hype_db=None: 0), \
-                mock.patch.object(run_kol.collect, "from_telegram", lambda c, tg_db=None: 0), \
                 mock.patch.object(run_kol.collect, "from_chain", lambda c, hype_db=None: 0), \
                 mock.patch.object(chainwatch, "drain", lambda *a, **k: 0), mock.patch.object(copy, "wake"), \
                 mock.patch.object(sqlite3, "connect", lambda p, timeout=60, **k: orig(p, timeout=1, **k)), \
@@ -167,6 +165,20 @@ class ChainSpool(unittest.TestCase):
         with mock.patch.object(chainwatch, "ingest", spy), mock.patch.object(copy, "wake"):
             chainwatch.drain(db, log=lambda *a, **k: None, timeout=10)
         self.assertEqual(seen, [(False, 10)])
+
+
+class ChainTables(unittest.TestCase):
+    def test_a_payload_without_swaps_still_creates_the_tables_once(self):   # review izvori
+        d = tempfile.mkdtemp()
+        db = os.path.join(d, "hype.db")
+        self.assertEqual(chainwatch.ingest([{"type": "UNKNOWN"}], db), 0)
+        con = sqlite3.connect(db)
+        names = {n for (n,) in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        con.close()
+        self.assertTrue({"chain_trades", "chain_transfers"} <= names)
+        self.assertIn(db, chainwatch._ENSURED)
+        with mock.patch.object(sqlite3, "connect", _locked):   # the second empty payload does not open the file again
+            self.assertEqual(chainwatch.ingest([{"type": "UNKNOWN"}], db), 0)
 
 
 class KolMentionsTime(unittest.TestCase):
@@ -323,55 +335,6 @@ class TopcheckGates(unittest.TestCase):
         self.assertIsNone(got["C"]["bundlerOwnedPercent"])              # unknown stays None, never a healthy 0
         self.assertEqual(holders.pumpfun_shape([], tc=tc, rug=rug), {})
         self.assertEqual(holders._rug_rows(["A"], os.path.join(tempfile.mkdtemp(), "nema.db")), {})
-
-
-class TelegramFollowed(unittest.TestCase):
-    def test_followed_channel_is_read_whatever_its_status(self):   # P35
-        d = tempfile.mkdtemp()
-        con = tstore.connect(os.path.join(d, "tg.db"))
-        cfg = {"hot_hours": 1, "hot_score": 70, "poll_hot_s": 30, "poll_active_s": 300, "poll_quiet_s": 1800,
-               "recheck_dead_d": 14, "validate_per_tick": 0, "validate_every_s": 10, "poll_followed_s": 2}
-        tstore.add_candidates(con, ["cand", "deadch", "act"], "x", NOW - 7200)
-        con.execute("UPDATE channels SET status='dead', checked_ts=? WHERE name='deadch'", (NOW - 60,))
-        con.execute("UPDATE channels SET status='active', last_poll=? WHERE name='act'", (NOW,))
-        con.commit()
-        with mock.patch.object(poll, "followed_channels", lambda: {"cand", "deadch", "typed"}):
-            poll._PACE["validate_ts"] = NOW
-            _, due = poll.due(con, cfg, {}, NOW)
-        self.assertEqual(set(due), {"cand", "deadch", "typed"})           # not 'act' (polled just now)
-        st = dict(con.execute("SELECT name, status FROM channels"))
-        self.assertEqual(st["typed"], "candidate")                       # typed as tg:typed, unknown to tg.db before
-        self.assertEqual(con.execute("SELECT found_via FROM channels WHERE name='typed'").fetchone()[0], "follow")
-        with mock.patch.object(poll, "followed_channels", lambda: set()):
-            poll._PACE["validate_ts"] = NOW
-            _, due = poll.due(con, cfg, {}, NOW)
-        self.assertEqual(due, [])                                        # unchanged schedule without follows
-        # review izvori: a followed name t.me refused max_fails times (typo, private) is read every poll_active_s,
-        # not every 2 s for ever; one real read (visit) makes it active again and back in the 2-second set
-        con.execute("UPDATE channels SET fails=3, last_poll=? WHERE name='deadch'", (NOW - 10,))
-        con.execute("UPDATE channels SET fails=1, status='dead', last_poll=? WHERE name='cand'", (NOW - 10,))
-        con.commit()
-        with mock.patch.object(poll, "followed_channels", lambda: {"cand", "deadch"}):
-            poll._PACE["validate_ts"] = NOW
-            _, due = poll.due(con, dict(cfg, max_fails=3), {}, NOW)
-            self.assertEqual(due, ["cand"])
-            _, due = poll.due(con, dict(cfg, max_fails=3), {}, NOW + 300)
-            self.assertLessEqual({"cand", "deadch"}, set(due))          # ('act' is due by then too: 300 s active)
-        con.close()
-
-    def test_followed_channel_post_with_ca_wakes_copy(self):   # P25
-        d = tempfile.mkdtemp()
-        con = tstore.connect(os.path.join(d, "tg.db"))
-        tstore.add_candidates(con, ["gems", "other"], "x", NOW)
-        post = [{"post": 1, "ts": NOW, "text": f"ape {CA}", "cas": [CA], "tickers": [], "views": 1, "fwd_from": None}]
-        hype = os.path.join(d, "hype.db")
-        with mock.patch.object(poll, "followed_channels", lambda: {"gems"}), mock.patch.object(copy, "wake") as w:
-            tstore.save_posts(con, "gems", post, now=NOW, hype_db=hype)
-            w.assert_called_once()
-        with mock.patch.object(poll, "followed_channels", lambda: {"gems"}), mock.patch.object(copy, "wake") as w:
-            tstore.save_posts(con, "other", post, now=NOW, hype_db=hype)
-            w.assert_not_called()
-        con.close()
 
 
 class ProvenWallets(unittest.TestCase):

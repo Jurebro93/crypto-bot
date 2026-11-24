@@ -4,6 +4,7 @@
     python3 run_market.py collect          # one reading: hourly 24 h snapshot, daily history, SOL price, regime
     python3 run_market.py loop --every 60  # collect every N minutes (start.sh runs this on the server)
     python3 run_market.py report           # platforms, trend, regime and the hypothesis check
+    python3 run_market.py trziste          # 20.11.: BTC colour, Fear & Greed, meme volume vs the tokens (analysis only)
 
 Sources are free and keyless (DefiLlama), so nothing is counted in usage.db. Data goes to market.db.
 """
@@ -32,7 +33,11 @@ def cmd_collect(a):
             print(f"makro: {makro.line()}")
     except Exception as e:  # noqa: BLE001
         print(f"makro: {type(e).__name__}: {e}", file=sys.stderr)
-    hist = a.history or newest < collect.today() - D or time.gmtime().tm_hour % 6 == 0
+    # 15.11. (vlasnik: "češće osvježavati"): the history is read on every pass (DefiLlama is free and keyless, ~1 MB
+    # an hour), so a day DefiLlama finishes or corrects late is on the pages within the hour; MARKET_HISTORY_EVERY_H
+    # (default 1) brings back a longer step
+    step = max(1, int(float(os.environ.get("MARKET_HISTORY_EVERY_H", "1"))))
+    hist = a.history or newest < collect.today() - D or time.gmtime().tm_hour % step == 0
     days = 0
     if hist:
         days = collect.daily(con, sources.overview(history=True))
@@ -88,6 +93,18 @@ def cmd_report(a):
     con.close()
 
 
+def cmd_trziste(a):
+    """20.11. (market/trziste.py): the market timeline against the tokens, jumps and drops and the existing trades;
+    analysis only. Local databases plus one free DefiLlama call (the first run: up to 6 free calls, the backfill).
+    Low CPU priority: the scheduler runs it light (no heavy lock), so it yields to the pages and the money path."""
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+    from market import trziste
+    trziste.run(network=not a.offline, council=not a.no_council, log=lambda s: print(s, flush=True))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -97,8 +114,11 @@ def main(argv=None):
     lp.add_argument("--every", type=float, default=60, help="minutes between readings")
     lp.add_argument("--history", action="store_true")
     sub.add_parser("report")
+    t = sub.add_parser("trziste")
+    t.add_argument("--offline", action="store_true", help="no network: only the stored data")
+    t.add_argument("--no-council", action="store_true", help="never submit the council proposal")
     a = p.parse_args(argv)
-    {"collect": cmd_collect, "loop": cmd_loop, "report": cmd_report}[a.cmd](a)
+    {"collect": cmd_collect, "loop": cmd_loop, "report": cmd_report, "trziste": cmd_trziste}[a.cmd](a)
 
 
 if __name__ == "__main__":

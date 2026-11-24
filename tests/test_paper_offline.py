@@ -49,7 +49,9 @@ class PaperSim(unittest.TestCase):
         self.assertLess(r["ret"], -0.7)
 
     def test_breakeven_after_tp(self):
-        r = sim.replay(1.0, 50_000, T0, _path([1.05, 0.2, -0.05]), {**CFG, "trail_after": 5})
+        # panic off: this tests the breakeven mechanics (with it on, the -41% tick after the take profit is an
+        # emergency exit at +20%, see test_panic_exit_offline)
+        r = sim.replay(1.0, 50_000, T0, _path([1.05, 0.2, -0.05]), {**CFG, "trail_after": 5, "panic": None})
         self.assertEqual(r["exit_reason"], "breakeven")
         self.assertGreater(r["ret"], 0.3)  # half sold at 2x pays for the rest
 

@@ -605,8 +605,11 @@ def trigger_entries(con, cfg, rst, now):
                 c["decision"], c["reason"] = "skip_rug", "; ".join(c["rug_flags"][:3]) or c["rug_verdict"]
         if not c.get("decision"):
             size = rules.high_risk_size(c.get("rug_verdict"), size, r["size_usd"])
+            size, mk_note, mk_snap = rules.makro_size(size, cfg, now)   # 15.11.: BTC falling = a smaller stake, never 0
+            note = "; ".join(x for x in (note, mk_note) if x) or None
             cfg_t = exits_profiles.for_trade(cfg, klase.get(tok) or "default", state=ex_state, now=now)
             cfg_t["entry_mode"], cfg_t["arm"] = mode, f"{mode}|{sess}"
+            cfg_t["makro"] = mk_snap   # 15.11.: the macro state at the entry (measured apart)
             if mode == "kol3":
                 cfg_t["grupa10"] = tok in tight
             liga.flag(con, cfg_t, cfg, now)  # counts in the league round only if this kind of trade proved itself
@@ -801,6 +804,10 @@ def intake(cfg, now=None, quiet=False):
                     cfg_t.update(tp=kc["tp"], stale_min=kc["stale_min"], stale_ret=kc["stale_ret"],
                                  max_hold_h=kc["max_hold_h"])
                 size = rules.high_risk_size(c.get("rug_verdict"), size, ex_size)
+                size, mk_note, mk_snap = rules.makro_size(size, cfg, now)   # 15.11.: BTC falling = smaller, never 0
+                cfg_t["makro"] = mk_snap   # 15.11.: the macro state at the entry (measured apart)
+                if mk_note:
+                    size_note = ((size_note + "; ") if size_note else "") + mk_note
                 c["size_usd"] = size
                 pos = sim.open_position(price, liq, now, size, cfg_t)
                 c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg_t, mcap)
@@ -1099,8 +1106,19 @@ def _strat_loop(every=60):
 
 def _aktivni_loop(every=600):
     """Refreshes the "aktivni" list (paper/aktivni.py: older tokens with the most buys and sells) every refresh_h
-    hours in its own thread: about 15 GeckoTerminal calls spaced a few seconds apart must not hold the main loop."""
+    hours in its own thread: about 15 GeckoTerminal calls spaced a few seconds apart must not hold the main loop.
+    20.11.: sleeps while the owner switch fokus_midcap is on (ops/fokus.py): the list is read only by the demo's new
+    entries (trigger_entries, inside intake), which the switch stops; one line the first time it is skipped."""
+    said = False
     while True:
+        if _fokus():
+            if not said:
+                print("aktivni: fokus midcap uključen, popis aktivnih starijih tokena se ne osvježava (bez "
+                      "GeckoTerminal poziva) dok je uključen", file=sys.stderr, flush=True)
+                said = True
+            time.sleep(every)
+            continue
+        said = False
         try:
             cfg = sim.load_config()
             c = aktivni.config(cfg)
@@ -1111,6 +1129,15 @@ def _aktivni_loop(every=600):
         except Exception as e:  # noqa: BLE001 - the list must never stop the main demo
             print(f"aktivni: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         time.sleep(every)
+
+
+def _fokus():
+    """15.11. (owner switch fokus_midcap, ops/fokus.py): True while the microcaps get no resources; never raises."""
+    try:
+        from ops import fokus
+        return fokus.on()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def cmd_run(a):
@@ -1126,7 +1153,8 @@ def cmd_run(a):
         cfg = sim.load_config(a.config)  # re-read each loop, so `apply` takes effect without a restart
         now = time.time()
         try:
-            if a.scan and now - last_scan >= a.scan_every:
+            fk = _fokus()   # 15.11. (owner switch fokus_midcap): no hype scan of new tokens, no new demo entries
+            if a.scan and now - last_scan >= a.scan_every and not fk:
                 # in its own short process (1.11.: the scan in this loop kept ~65 MB on the 512 MB server)
                 # skipped (tried again next loop) while another heavy job runs, so exits/ticks never wait (2.11.)
                 # (after 10 min without a scan it runs anyway, so new tokens are never held back for long)
@@ -1139,14 +1167,19 @@ def cmd_run(a):
                     done = subprocess.run(cmd, timeout=1800)
                 if done is not None:
                     last_scan = now
-            opened = intake(cfg)
-            if not opened and LAST_INTAKE:
+            opened = 0 if fk else intake(cfg)
+            if not opened and LAST_INTAKE and not fk:
                 print(f"  ulazi 0: {LAST_INTAKE}", flush=True)
+            t_tick = time.time()
             closed = tick(cfg)
+            t_tick = time.time() - t_tick
             con = store.connect(DB)
             e = equity(con, cfg)
+            took = time.time() - now
+            # 6.11.: up to 100 open positions (#184); a pass over 60 s means prices are stale before the next one
             print(f"{dt.datetime.now():%H:%M:%S}  demo {_usd(e['equity'])}  otvorenih {e['open']}  "
-                  f"zatvoreno sad {len(closed)}")
+                  f"zatvoreno sad {len(closed)}  prolaz {took:.0f} s (cijene/izlazi {t_tick:.0f} s)"
+                  + ("  SPORO: cijene kasne" if took > 60 else ""), flush=True)
             hh, mm = map(int, a.review_at.split(":"))
             due = dt.datetime.now().replace(hour=hh, minute=mm, second=0).timestamp()
             done = con.execute("SELECT 1 FROM reviews WHERE day=?", (_today(),)).fetchone()
@@ -1165,6 +1198,11 @@ def cmd_run(a):
 
 
 def main(argv=None):
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("paper")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     p = argparse.ArgumentParser()
     p.add_argument("--config", help="strategy JSON, default paper/config.json")
     sub = p.add_subparsers(dest="cmd", required=True)

@@ -57,17 +57,6 @@ class WhatsApp(unittest.TestCase):
         for u in ("Ivan", "Panda", "Jure", "Filip", "Mario"):
             self.assertIn(f" {u} · $", txt)                      # not only the top 3 (Mario was missing)
 
-    def test_page(self):
-        from ui import whatsapp
-        title, body = whatsapp.page({})
-        self.assertEqual(title, "Za WhatsApp")
-        self.assertIn("Pošalji u WhatsApp", body)
-        self.assertIn("<b>Copy trading</b>", body)
-        self.assertIn('id=wadata>{"date"', body)
-        self.assertIn("Whapi.cloud", body)                      # paid option explained while sending is off
-        whatsapp.post_shared()
-        self.assertTrue(digest.load_state().get("copied_ts"))
-
     def test_gateways(self):
         self.assertIn("WHATSAPP_PROVIDER", gateway.missing())
         with self.assertRaises(RuntimeError):

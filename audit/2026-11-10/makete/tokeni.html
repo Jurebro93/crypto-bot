@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tokeni · maketa</title>
+<!-- Maketa prijedloga dizajna (10.11.2026.), stranica /tokens (prijedlozi tokena). Statična, bez vanjskih datoteka.
+     Brojke su iz lokalne kopije aplikacije (seed_app.py, local/market.json), kao na snimkama sada-tokeni-*. -->
+<style>
+/*OSNOVA*/
+/* Boje: iste varijable kao ui/html.py (:root). Novo su samo veličine, razmaci i ritam. */
+:root{--bg:#fff;--soft:#f6f7fb;--card:#fff;--fg:#0b1220;--mut:#5b6474;--line:#e8ebf2;--line2:#cfd5e1;--acc:#4f46e5;
+ --good:#16a34a;--warn:#d97706;--bad:#dc2626;--goodbg:#ecfdf5;--warnbg:#fffbeb;--badbg:#fef2f2;
+ --pad:20px;--font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,Inter,Roboto,sans-serif}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:17px/1.4 var(--font);-webkit-font-smoothing:antialiased;
+ font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+a{color:inherit;text-decoration:none}.acc{color:var(--acc)}.mut{color:var(--mut)}.pos{color:var(--good)}.neg{color:var(--bad)}
+.nw{white-space:nowrap}
+main{display:block;max-width:760px;margin:0 auto;padding:0 var(--pad) 120px}
+/* naslov: velik, jedan po ekranu; desno najviše jedna ikona */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:52px 0 0}
+h1{font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.03em;margin:0}
+.sub{font-size:15px;color:var(--mut);margin:6px 0 0}
+.ico{flex:none;width:38px;height:38px;border-radius:50%;background:var(--soft);display:grid;place-items:center}
+.ico svg{width:19px;height:19px;fill:none;stroke:var(--fg);stroke-width:2;stroke-linecap:round}
+/* glavni odgovor ekrana */
+.hero{margin:24px 0 0}
+.hero .lbl{font-size:15px;color:var(--mut);margin:0 0 2px}
+.big{font-size:48px;line-height:1.05;font-weight:700;letter-spacing:-.035em}
+.big small{font-size:22px;font-weight:600;color:var(--mut);letter-spacing:-.01em;margin-left:6px}
+.hero .line{font-size:15px;color:var(--mut);margin:8px 0 0}
+.panel{display:block;background:var(--soft);border-radius:18px;padding:18px 18px 16px;margin:20px 0 0}
+.panel .name{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15;display:flex;align-items:center;justify-content:space-between}
+.panel .facts{font-size:15px;color:var(--mut);margin:4px 0 10px}
+.panel p{margin:0;font-size:17px;line-height:1.4}
+/* sekcije: razmak umjesto okvira */
+h2{font-size:22px;font-weight:700;letter-spacing:-.025em;margin:40px 0 2px;display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+h2 a{font-size:15px;font-weight:500;color:var(--acc);letter-spacing:0}
+.hint{font-size:15px;color:var(--mut);margin:12px 0 0;line-height:1.4}
+/* redak popisa: ime + jedan redak objašnjenja lijevo, jedan broj desno */
+.list{margin:0;padding:0;list-style:none}
+.row{display:flex;align-items:center;gap:12px;min-height:64px;padding:11px 0;border-bottom:1px solid var(--line)}
+.list>.row:last-child,.list>li:last-child>.row{border-bottom:0}
+.row .m{flex:1;min-width:0}
+.row .t{font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .s{font-size:15px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.row .e{flex:none;text-align:right}
+.row .v{font-size:17px;font-weight:600;white-space:nowrap}
+.row .e .s{margin-top:1px}
+.chev{flex:none;width:8px;height:8px;border-right:2px solid var(--line2);border-top:2px solid var(--line2);transform:rotate(45deg);margin:0 2px 0 0}
+.rk{flex:none;width:24px;font-size:15px;color:var(--mut)}
+.colhead{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);padding:14px 0 6px;border-bottom:1px solid var(--line)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line2);margin:0 6px 1px 0;vertical-align:middle}
+.dot.good{background:var(--good)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+.warn{color:var(--warn)}.danger{color:var(--bad)}
+/* segmentirani izbor (jedan po ekranu) */
+.seg{display:flex;background:var(--soft);border-radius:11px;padding:3px;margin:22px 0 0}
+.seg a{flex:1;text-align:center;font-size:15px;padding:7px 0;border-radius:9px;white-space:nowrap}
+.seg a.on{background:#fff;font-weight:600;box-shadow:0 1px 3px rgba(11,18,32,.12)}
+.fld{display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:11px;padding:9px 12px;color:var(--mut);font-size:17px;margin:14px 0 0}
+.fld svg{width:17px;height:17px;fill:none;stroke:var(--mut);stroke-width:2;stroke-linecap:round;flex:none}
+/* prekidač */
+.sw{flex:none;width:51px;height:31px;border-radius:999px;background:var(--good);position:relative}
+.sw::after{content:"";position:absolute;top:2px;right:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.2)}
+/* donja traka (mobitel): 5 mjesta, linijske ikone, jedna boja za aktivno */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;background:rgba(255,255,255,.94);
+ -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border-top:1px solid var(--line);padding:7px 2px 24px}
+.tabs a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:500;color:var(--mut);letter-spacing:0}
+.tabs a.on{color:var(--acc)}
+.tabs svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.tabs .badge{position:relative;display:block;height:25px}.tabs .badge::after{content:"";position:absolute;top:1px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--acc)}
+/* bočni izbornik (računalo): isto što i donja traka + Više, ništa više */
+.side{display:none}
+.side .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;letter-spacing:-.02em;padding:4px 10px 18px}
+.side .brand svg{width:26px;height:26px}
+.side .fld{margin:0 0 14px;font-size:15px;padding:8px 10px}
+.side nav a{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:10px;font-size:15px;font-weight:500;color:var(--fg)}
+.side nav a svg{width:20px;height:20px;fill:none;stroke:var(--mut);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.side nav a.on{background:var(--soft);color:var(--acc);font-weight:600}.side nav a.on svg{stroke:var(--acc)}
+.side .foot{margin:18px 0 0;padding:12px 0 0;border-top:1px solid var(--line)}
+.side .foot a{display:block;padding:8px 10px;font-size:15px;color:var(--mut)}
+@media(min-width:900px){
+ body{display:grid;grid-template-columns:252px minmax(0,1fr)}
+ .side{display:block;min-height:100vh;border-right:1px solid var(--line);padding:22px 12px;background:#fff}
+ .tabs{display:none}
+ main{width:100%;padding:0 48px 80px}
+ .top{padding-top:40px}
+ .wide{max-width:980px}
+ .top .ico{display:none}
+}
+/*OSNOVA-KRAJ*/
+/* redak tokena: na mobitelu ime + razlog lijevo, pouzdanost + mcap desno; na računalu iste ćelije u stupcima */
+.tr{display:grid;grid-template-columns:minmax(0,1fr) auto 14px;grid-template-areas:"tk cf chev" "why mc chev";
+ column-gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line);min-height:64px}
+.tr .tk{grid-area:tk;font-size:17px;font-weight:600}
+.tr .why{grid-area:why;font-size:15px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr .cf{grid-area:cf;text-align:right;font-size:17px;font-weight:600}
+.tr .mc{grid-area:mc;text-align:right;font-size:15px;color:var(--mut);white-space:nowrap}
+.tr .lq,.tr .rg,.tr .sg,.tr .dk{display:none}
+.tr .chev{grid-area:chev}
+.th{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;color:var(--mut);padding:18px 0 8px;border-bottom:1px solid var(--line)}
+.th .so{color:var(--acc);font-weight:500}.th .so::after{content:"";display:inline-block;width:6px;height:6px;border-right:1.5px solid var(--acc);border-bottom:1.5px solid var(--acc);transform:rotate(45deg);margin:0 0 3px 7px}
+.th .d{display:none}
+.sec{font-size:15px;font-weight:600;color:var(--mut);margin:26px 0 0;padding:0 0 6px;border-bottom:1px solid var(--line)}
+.sec b{color:var(--fg)}
+.more{display:block;text-align:center;font-size:15px;color:var(--acc);padding:18px 0 0}
+@media(min-width:900px){
+ .tr,.th.grid{display:grid;grid-template-columns:minmax(0,1fr) 96px 92px 92px 92px 112px 14px;
+  grid-template-areas:"tk cf mc lq rg sg chev" "why cf mc lq rg sg chev";column-gap:16px}
+ .tr .lq,.tr .rg,.tr .sg{display:block;text-align:right;font-size:15px;color:var(--mut);grid-row:1/3}
+ .tr .lq{grid-area:lq}.tr .rg{grid-area:rg}.tr .sg{grid-area:sg}
+ .tr .cf,.tr .mc{grid-row:1/3}.tr .mc{font-size:17px;color:var(--fg)}
+ .tr .why .sgi{display:none}.tr .why .dk{display:inline}.tr .rg.warn{color:var(--warn)}
+ .th.grid{grid-template-areas:none;font-size:13px}.th.grid span{text-align:right}.th.grid span:first-child{text-align:left}
+ .th .p{display:none}.th .d{display:inline}
+}
+</style>
+</head>
+<body>
+<!--BOCNO a=tokeni--><aside class="side"><div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lgm" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#4f46e5"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lgm)"/><circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2" opacity=".55"/><circle cx="16" cy="16" r="4.5" fill="none" stroke="#fff" stroke-width="2"/><circle cx="16" cy="16" r="1.6" fill="#fff"/></svg>MemeSonar</div><div class="fld"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>Traži</div><nav><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>Pregled</a><a class=on href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Tokeni</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/></svg>Influenceri</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h2"/></svg>Novčanici</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 16a8.5 8.5 0 0 1 17 0"/><path d="M12 16l4.2-4.6"/><circle cx="12" cy="16" r="1.2"/></svg>Autopilot</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg>Više</a></nav><div class="foot"><a href="#">Postavke</a></div></aside><!--/BOCNO-->
+<main class="wide">
+  <div class="top"><h1>Tokeni</h1></div>
+  <p class="sub">21 token analiziran u zadnja 24 h · 3 u zoni ulaza</p>
+
+  <div class="seg"><a class="on" href="#">Novi</a><a href="#">Jaki</a><a href="#">Dugoročni</a></div>
+  <div class="fld"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>Simbol ili adresa</div>
+
+  <div class="th grid"><span><span class="so">Poredano po pouzdanosti</span></span><span class="d">Pouzdanost</span><span class="d">Mcap</span><span class="d">Likv.</span><span class="d">Rug</span><span class="d">Zadnji signal</span><span class="p">pouzdanost · mcap</span><span></span></div>
+
+  <div class="sec"><b>U zoni ulaza</b> · današnji prijedlog</div>
+  <a class="tr" href="#"><span class="tk">GIGAFROG</span><span class="why">Novac ulazi brzo<span class="sgi"> · prije 3 min</span></span><span class="cf">94</span><span class="mc">412k $</span><span class="lq">61k $</span><span class="rg">prolazi</span><span class="sg">prije 3 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">ARIA</span><span class="why">3 smart walleta<span class="sgi"> · prije 6 min</span></span><span class="cf">83</span><span class="mc">268k $</span><span class="lq">48,5k $</span><span class="rg">prolazi</span><span class="sg">prije 6 min</span><span class="chev"></span></a>
+  <a class="tr" href="#" style="border-bottom:0"><span class="tk">MOCHI</span><span class="why">1 smart wallet<span class="sgi"> · prije 18 min</span></span><span class="cf">76</span><span class="mc">96k $</span><span class="lq">27,4k $</span><span class="rg">prolazi</span><span class="sg">prije 18 min</span><span class="chev"></span></a>
+
+  <div class="sec"><b>Ostali</b> · 12</div>
+  <a class="tr" href="#"><span class="tk">MOONCAT</span><span class="why">3 smart walleta<span class="sgi"> · prije 2 min</span></span><span class="cf">75</span><span class="mc">186k $</span><span class="lq">39k $</span><span class="rg">prolazi</span><span class="sg">prije 2 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">TURBOX</span><span class="why"><span class="warn">Rug: oprez</span><span class="dk"> · 3 smart walleta</span><span class="sgi"> · prije 11 min</span></span><span class="cf">73</span><span class="mc">734k $</span><span class="lq">96k $</span><span class="rg warn">oprez</span><span class="sg">prije 11 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">RIZZ</span><span class="why">Zvali influenceri na X-u<span class="sgi"> · prije 25 min</span></span><span class="cf">72</span><span class="mc">1,34M $</span><span class="lq">148k $</span><span class="rg">prolazi</span><span class="sg">prije 25 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">SIGMA</span><span class="why">3 smart walleta<span class="sgi"> · prije 4 min</span></span><span class="cf">70</span><span class="mc">152k $</span><span class="lq">33,2k $</span><span class="rg">–</span><span class="sg">prije 4 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">NYAN</span><span class="why">1 smart wallet<span class="sgi"> · prije 9 min</span></span><span class="cf">63</span><span class="mc">79k $</span><span class="lq">24,1k $</span><span class="rg">–</span><span class="sg">prije 9 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">BORK</span><span class="why"><span class="warn">Rug: oprez</span><span class="dk"> · 1 smart wallet</span><span class="sgi"> · prije 31 min</span></span><span class="cf">62</span><span class="mc">241k $</span><span class="lq">44,8k $</span><span class="rg warn">oprez</span><span class="sg">prije 31 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">SOLDOGE</span><span class="why">Novac ulazi brzo<span class="sgi"> · prije 47 min</span></span><span class="cf">59</span><span class="mc">520k $</span><span class="lq">71k $</span><span class="rg">prolazi</span><span class="sg">prije 47 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">VIBE</span><span class="why">1 smart wallet<span class="sgi"> · prije 5 min</span></span><span class="cf">56</span><span class="mc">63k $</span><span class="lq">21,7k $</span><span class="rg">–</span><span class="sg">prije 5 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">ZOOMER</span><span class="why">Kupci prevladavaju<span class="sgi"> · prije 44 min</span></span><span class="cf">54</span><span class="mc">118k $</span><span class="lq">30,3k $</span><span class="rg">prolazi</span><span class="sg">prije 44 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">PEPEAI</span><span class="why"><span class="warn">Rug: oprez</span><span class="dk"> · tema je vruća</span><span class="sgi"> · prije 54 min</span></span><span class="cf">38</span><span class="mc">143k $</span><span class="lq">31k $</span><span class="rg warn">oprez</span><span class="sg">prije 54 min</span><span class="chev"></span></a>
+  <a class="tr" href="#"><span class="tk">PIXEL</span><span class="why">Novac ulazi brzo<span class="sgi"> · prije 58 min</span></span><span class="cf">37</span><span class="mc">305k $</span><span class="lq">52k $</span><span class="rg">prolazi</span><span class="sg">prije 58 min</span><span class="chev"></span></a>
+  <a class="tr" href="#" style="border-bottom:0"><span class="tk">LAMBO</span><span class="why">Cijena +118&nbsp;% u 1 h<span class="sgi"> · prije 14 min</span></span><span class="cf">36</span><span class="mc">51k $</span><span class="lq">19,6k $</span><span class="rg">–</span><span class="sg">prije 14 min</span><span class="chev"></span></a>
+  <a class="more" href="#">Što znači pouzdanost</a>
+</main>
+<!--TRAKA a=tokeni--><nav class="tabs" aria-label="Glavni izbornik"><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>Pregled</a><a class="on" href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Tokeni</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/></svg>Influenceri</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 16a8.5 8.5 0 0 1 17 0"/><path d="M12 16l4.2-4.6"/><circle cx="12" cy="16" r="1.2"/></svg>Autopilot</a><a href="#"><span class="badge"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg></span>Više</a></nav><!--/TRAKA-->
+</body>
+</html>

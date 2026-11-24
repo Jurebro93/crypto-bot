@@ -10,6 +10,7 @@ CREDITS = os.environ.get("WALLETS_RUN_CREDITS", "12000")
 JOBS = {
     "wallets": [[sys.executable, "run_wallets.py", "harvest", "--feeds", "--tokens", "15"],
                 [sys.executable, "run_wallets.py", "score", "--credits", CREDITS, "--max", "1000"],
+                [sys.executable, "run_wallets.py", "rang"],   # 11.11.: the copy ranking follows the new scores
                 [sys.executable, "run_wallets.py", "copy"]],
 }
 _running = {}  # name -> start time

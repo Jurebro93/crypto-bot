@@ -1,4 +1,4 @@
-"""Telegram channels, KOL wallets, convergence and exploration arms, all offline.
+"""KOL wallets, convergence and exploration arms, all offline (19.11.: the Telegram reader tests went with it).
 
     python3 -m unittest tests.test_social_sources_offline
 """
@@ -13,7 +13,6 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tg import discover, poll, reader, store as tstore, tgstat  # noqa: E402
 from kol import chainwatch, collect, converge, idents, store as kstore  # noqa: E402
 from paper import arms  # noqa: E402
 
@@ -32,96 +31,6 @@ def page(channel, posts, public=True, subs="12.5K"):
                  f'</div><span class="tgme_widget_message_views">{views}</span>'
                  f'<time datetime="{iso}" class="time">x</time></div></div>')
     return head + body
-
-
-class Reader(unittest.TestCase):
-    def test_parse(self):
-        p = page("gems", [(5, "2026-10-31T12:00:00+00:00", f"$PEPE CA: {CA1} join t.me/othercalls", "1.2K", None),
-                          (6, "2026-10-31T12:05:00+00:00", "gm", "300", "srcchan")])
-        info = reader.parse(p, "gems")
-        self.assertTrue(info["public"])
-        self.assertEqual(info["subs"], 12500)
-        self.assertEqual(info["title"], "Gem Calls")
-        a, b = info["posts"]
-        self.assertEqual(a["cas"], [CA1])
-        self.assertEqual(a["tickers"], ["PEPE"])
-        self.assertEqual(a["views"], 1200)
-        self.assertIn("othercalls", a["links"])
-        self.assertEqual(b["fwd_from"], "srcchan")
-
-    def test_channel_names(self):
-        self.assertIsNone(reader.channel_name("BonkBot_bot"))
-        self.assertIsNone(reader.channel_name("joinchat"))
-        self.assertEqual(reader.channel_name("@Sol_Calls"), "sol_calls")
-        self.assertEqual(discover.names_in_blob(b'{"url":"https://t.me/alpha_calls","x":"t.me/trunc\\u2026"}'),
-                         {"alpha_calls"})
-
-
-class Channels(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp()
-        self.db = os.path.join(self.tmp, "tg.db")
-        self.hype = os.path.join(self.tmp, "hype.db")
-        self.con = tstore.connect(self.db)
-        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tg", "config.json")) as f:
-            self.cfg = json.load(f)
-        self.now = 1_793_000_000
-
-    def iso(self, ts):
-        import datetime as dt
-        return dt.datetime.fromtimestamp(ts, dt.timezone.utc).isoformat()
-
-    def test_validate_poll_snowball(self):
-        tstore.add_candidates(self.con, ["gems", "private1"], "x", self.now - 7200)
-        pages = {"gems": page("gems", [(1, self.iso(self.now - 600), f"CA {CA1}", "100", None),
-                                       (2, self.iso(self.now - 300), f"next {CA2}", "200", "srcchan")]),
-                 "private1": page("private1", [], public=False)}
-        read = lambda n: reader.parse(pages[n], n)
-        cfg = dict(self.cfg, validate_per_tick=5)
-        visited, new = poll.tick(self.con, cfg, {}, self.now, read, sleep=lambda s: None, hype_db=self.hype)
-        self.assertEqual(visited, 2)
-        st = dict(self.con.execute("SELECT name, status FROM channels"))
-        self.assertEqual(st["gems"], "active")
-        self.assertEqual(st["private1"], "dead")
-        self.assertEqual(st["srcchan"], "candidate")  # found through the forward
-        h = sqlite3.connect(self.hype)
-        self.assertEqual(h.execute("SELECT COUNT(*) FROM tg_mentions").fetchone()[0], 2)
-        # a new post later: only it is stored, and lag is measured
-        pages["gems"] = page("gems", [(2, self.iso(self.now - 300), f"next {CA2}", "200", None),
-                                      (3, self.iso(self.now + 280), f"again {CA1}", "50", None)])
-        poll.visit(self.con, "gems", cfg, self.now + 300, read, self.hype)
-        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM posts WHERE channel='gems'").fetchone()[0], 3)
-        self.assertAlmostEqual(self.con.execute("SELECT lag_s FROM channels WHERE name='gems'").fetchone()[0], 20)
-        # hot channel (CA in the last hour) is due after 30 s, not 5 min
-        self.con.commit()
-        _, due = poll.due(self.con, cfg, {}, self.now + 340)
-        self.assertIn("gems", due)
-
-    def test_calls_into_kol(self):
-        tstore.add_candidates(self.con, ["gems"], "x", self.now)
-        self.con.execute("UPDATE channels SET subs=5000, status='active' WHERE name='gems'")
-        tstore.save_posts(self.con, "gems", [
-            {"post": 1, "ts": self.now, "text": f"ape {CA1}", "cas": [CA1], "tickers": [], "views": 900, "fwd_from": None},
-            {"post": 2, "ts": self.now + 5, "text": f"{CA2}", "cas": [CA2], "tickers": [], "views": 10, "fwd_from": "x1"}],
-            now=self.now, hype_db=self.hype)
-        self.con.commit()
-        kcon = kstore.connect(os.path.join(self.tmp, "kol.db"))
-        self.assertEqual(collect.from_telegram(kcon, self.db), 2)
-        rows = {r[0]: r[1:] for r in kcon.execute("SELECT token, handle, kind, followers, url FROM calls")}
-        self.assertEqual(rows[CA1], ("tg:gems", "call", 5000, "https://t.me/gems/1"))
-        self.assertEqual(rows[CA2][1], "repost")
-        self.assertEqual(collect.from_telegram(kcon, self.db), 0)  # copied once
-
-    def test_tgstat_parse(self):
-        resp = {"status": "ok", "response": {"items": [{"id": 1, "date": 100, "views": 5, "link": "t.me/early_calls/77",
-                                                        "text": CA1}],
-                                             "channels": [{"id": 9, "username": "@early_calls", "participants_count": 900}]}}
-        posts, subs = tgstat.parse(resp, CA1)
-        self.assertEqual(posts, [("early_calls", 77, 100, CA1, 5)])
-        self.assertEqual(subs, {"early_calls": 900})
-        r = tgstat.run(self.con, [CA1, CA2], dict(self.cfg["tgstat"], tokens_per_run=1), self.now,
-                       search_fn=lambda ca: resp, hype_db=self.hype)
-        self.assertEqual(r, (1, 1, 1))
 
 
 class Wallets(unittest.TestCase):

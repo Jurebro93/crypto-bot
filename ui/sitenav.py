@@ -53,7 +53,8 @@ ITEMS = {
     ],
 }
 
-PLUGINS = ("ui.blog", "ui.coinseo", "ui.botguides", "ui.marketpub")
+PLUGINS = ("ui.blog", "ui.coinseo", "ui.botguides", "ui.marketpub",
+           "makroinf.public")   # 15.11.: the macro influencers, next to the influencer ranking, only while published
 
 
 def _tools_items(lang):
@@ -78,11 +79,15 @@ def menu(lang):
             pass
     seen, out = set(), []
     for key, (label, hub, desc) in GROUPS[lang].items():
-        rows = []
-        for k, h, n, d in items:
+        rows, later = [], []
+        for k, h, n, d, *after in items:   # an optional 5th element: the href the item goes right after
             if k == key and h not in seen:
                 seen.add(h)
-                rows.append((h, n, d))
+                (later if after else rows).append(((h, n, d), after[0] if after else None))
+        rows = [r for r, _a in rows]
+        for r, a in later:
+            i = next((j + 1 for j, x in enumerate(rows) if x[0] == a), len(rows))
+            rows.insert(i, r)
         out.append((key, label, hub, desc, rows))
     return out
 
@@ -153,6 +158,7 @@ def coin_board(lang):
     try:
         from ui import coins as K
         from ui import coinseo as CS
+        from ui import tokenicons as TI
         rows = K.top()
     except Exception:  # noqa: BLE001
         return ""
@@ -177,8 +183,9 @@ def coin_board(lang):
         for x in lst:
             c = x.get("chg24h") or 0
             w = max(3, min(100, abs(c) / top * 100))
-            icon = (f"<img src=\"{esc(x['icon'])}\" alt='' width=22 height=22 loading=lazy referrerpolicy=no-referrer "
-                    "onerror=\"this.style.visibility='hidden'\">" if str(x.get("icon") or "").startswith("https://") else "<i></i>")
+            # 15.11. (vlasnik: "slike se ne učitavaju"): from our own address, small and cached (ui/tokenicons); the
+            # links in Jupiter's list (ipfs.io, Pinata) are blocked in the browser for ~40 % of the coins
+            icon = TI.img(x.get("mint")) or "<i></i>"
             trs.append(f"<a class=br href={prof}{x['slug']}>{icon}<b>{esc(x['symbol'] or '')}</b>"
                        f"<span class=bm>{_fmt_usd(x.get('mcap'))}</span>"
                        f"<span class=bb><em class={'up' if c >= 0 else 'dn'} style='width:{w:.0f}%'></em></span>"

@@ -92,7 +92,8 @@ def load(con, cfg, since):
                      "decision": decision, "reason": reason, "verdict": verdict, "rug_score": rscore,
                      "flags": json.loads(flags or "[]"), "trade_id": trade_id, "path": path,
                      "done": bool(path) and path[-1][0] - ts >= cfg["track_h"] * 3600 * 0.9,
-                     "raw_max": max(prices) / price - 1 if prices else 0.0, "rugged": rugged})
+                     "raw_max": max(prices) / price - 1 if prices else 0.0, "rugged": rugged,
+                     "n_pts": len(prices)})   # 12.11. (Jure, točka 4): the price points of the tracking window
     for r in rows:
         r["sim"] = sim.replay(r["price"], r["liquidity"], r["ts"], r["path"], cfg) if r["path"] else None
     return [r for r in rows if r["sim"]]
@@ -261,8 +262,12 @@ def run(con, cfg, hours=24, now=None):
     today = [r for r in learn if r["ts"] >= since - cfg["track_h"] * 3600]
     by_trade = {r["trade_id"]: r for r in learn if r["trade_id"]}
     skipped = [r for r in today if r["decision"].startswith("skip")]
+    from rangedca import missed as rmissed
     missed = sorted([r for r in skipped if r["sim"]["ret"] >= 0.5 or r["raw_max"] >= BIG],
                     key=lambda r: -r["raw_max"])
+    # 12.11. (Jure, točka 4): a winner read from fewer than 3 prices is nepouzdano: not a missed winner, counted apart
+    missed_unrel = [r for r in missed if rmissed.unreliable(r.get("n_pts"))]
+    missed = [r for r in missed if not rmissed.unreliable(r.get("n_pts"))]
     saved = [r for r in skipped if r["rugged"] or r["sim"]["ret"] <= -0.3]
     rug_fp = {}
     for r in learn:
@@ -291,6 +296,7 @@ def run(con, cfg, hours=24, now=None):
         "mistakes": mistakes(trades, by_trade),
         "missed": [{"symbol": r["symbol"], "token": r["token"], "decision": r["decision"], "reason": r["reason"],
                     "raw_max": round(r["raw_max"], 2), "sim_ret": r["sim"]["ret"], "url": r["url"]} for r in missed[:10]],
+        "missed_unreliable": len(missed_unrel),
         "saved": len(saved), "saved_pnl": round(sum(r["sim"]["pnl_usd"] for r in saved), 2),
         "filters": scoreboard(skipped + [r for r in today if r["decision"] == "taken"], lambda r: [r["decision"]]),
         "verdicts": scoreboard([r for r in learn if r["verdict"]], lambda r: [r["verdict"]]),
@@ -351,6 +357,9 @@ def to_md(rep, cfg):
               f"Preskočen jer: {_reason(m['reason'])}. {m['url'] or ''}" for m in rep["missed"]]
     else:
         L.append("- Nijedan preskočeni token nije napravio 2x.")
+    if rep.get("missed_unreliable"):   # 12.11. (Jure, točka 4)
+        from rangedca import missed as rmissed
+        L.append(f"- {rmissed.note(rep['missed_unreliable']).capitalize()}: nisu na popisu.")
     L.append(f"\nFilteri su izbjegli {rep['saved']} loših tokena (da smo ušli u sve: {rep['saved_pnl']:+.2f} USD).")
     L += ["", "## Filteri (zadnja 24 h)", "", "| Odluka | n | prosjek da smo ušli | PnL da smo ušli | 2x+ | rug |",
           "| --- | --- | --- | --- | --- | --- |"]

@@ -105,17 +105,22 @@ def is_pump(mint):
 
 
 def gate(token, price, liq, mcap, t0, features=None, cfg=None):
-    """Reason (plain Croatian) to refuse this entry, or None. t0: 'prolaz' / 'pad' / 'nije' / None (no row)."""
+    """Reason (plain Croatian) to refuse this entry, or None. t0: 'prolaz' / 'pad' / 'nije' / None (no row).
+    15.11. (vlasnik: "nema smisla, čak ni u demu, tradati mikrokapove tražeći 10 %"; trade/capgate): first the
+    microcap gate (MC >= 5M while mikrokap_blokada is on); the classic demo bot takes no moonshot exception (that one
+    is measured on the Autopilot's demo account, league.db)."""
+    try:
+        from trade import capgate
+        why = capgate.refusal(token, mcap, "demo bot (paper.db)", "paper-bot", None, liq=liq, real=False)
+    except Exception:  # noqa: BLE001 - trade/ unreadable: the old gate below
+        why = None
+    if why:
+        return why
     g = config(cfg)["gate"]
     if not g["enabled"]:
         return None
-    if g.get("makro_pad", True):   # 5.11.: no new entries while BTC is falling (market/makro.py)
-        try:
-            from market import makro
-            if makro.falling():
-                return "BTC pada (makro režim): bez novih ulaza dok se ne smiri"
-        except Exception:  # noqa: BLE001
-            pass
+    # 5.11.-14.11.: no new entries while BTC was falling (makro_pad). 15.11. (owner: "Želim da demo trguje cijelo
+    # vrijeme"): never a refusal any more; the stake is lowered instead (makro_size) and the trade records the state
     if mcap and mcap < g.get("min_mcap", 0):  # Nicholas 4.11.: ~$5k fresh listings are mostly rug pulls
         return f"market cap ${mcap:,.0f} ispod ${g['min_mcap']:,.0f} (premali, rizik ruga)".replace(",", ".")
     if (liq or 0) < g["min_liq"]:
@@ -400,6 +405,20 @@ def session_sizes(con, st, cfg, now, force=False):
     st["sessions"] = out
     st["history"] = (st.get("history") or [])[-60:]
     return out
+
+
+def makro_size(size, cfg=None, now=None):
+    """15.11.: (stake, note or None, the macro snapshot or None) of a demo entry. While BTC falls (market/makro.falling)
+    and gate.makro_pad is on: the stake x makro.MAKRO_DEMO_MULT (0.5), never 0: the demo keeps trading and learning,
+    the falling-BTC trades are measured apart (the snapshot goes into the trade's config "makro")."""
+    try:
+        from market import makro
+        snap = makro.snapshot(now)
+    except Exception:  # noqa: BLE001 - no market.db: the full stake, no state
+        return size, None, None
+    if not snap or not snap.get("falling") or not config(cfg)["gate"].get("makro_pad", True) or not size:
+        return size, None, snap
+    return round(size * makro.MAKRO_DEMO_MULT, 2), f"BTC pada (makro): ulog ×{makro.MAKRO_DEMO_MULT:g}".replace(".", ","), snap
 
 
 def size_for(st, token, size, now, cfg):

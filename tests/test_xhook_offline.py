@@ -9,10 +9,20 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kol import store as kstore, xhook  # noqa: E402
+from league import copy  # noqa: E402
 
 CFG = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")))
 NOW = 1_800_000_000
 CA = "DDmGnuvroxVrb7CSyjYcezFU8gnAfhKasg4ZZezmpump"
+_WAKE = mock.patch.object(copy, "WAKE", os.path.join(tempfile.mkdtemp(), ".copy_wake"))
+
+
+def setUpModule():   # 9.11. (review izvori): ingest() wakes the copy loop; the tests must not touch the repo's .copy_wake
+    _WAKE.start()
+
+
+def tearDownModule():
+    _WAKE.stop()
 
 
 class Rules(unittest.TestCase):

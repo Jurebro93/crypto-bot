@@ -110,7 +110,8 @@ def cmd_scan(a):
     path = a.calendar or latest_calendar()
     with open(path) as f:
         cal = json.load(f)
-    events = [e for e in cal["events"] if (e.get("hype") or 0) >= a.min_hype]
+    # 11.11. (owner's events rule): a regime label (kind "regime") is never searched for event tokens
+    events = [e for e in cal["events"] if (e.get("hype") or 0) >= a.min_hype and e.get("kind") != "regime"]
     events.sort(key=lambda e: -(e.get("token_likelihood") or 0))  # stable: hype order when absent
     events = events[:a.events]
     results, errors = scan(events, a.chain, a.min_liq, a.per_event)
@@ -177,4 +178,9 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    try:   # 15.11. (owner switch fokus_midcap, ops/fokus.py): its microcap sub-commands end at once while it is on
+        from ops import fokus
+        fokus.gate()
+    except ImportError:
+        pass
     sys.exit(main())

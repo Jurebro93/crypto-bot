@@ -94,8 +94,16 @@ function spy(){
   links.forEach((l,k)=>l.classList.toggle('on',k===i));
   const l=links[i];if(l)nav.scrollTo({left:l.offsetLeft-nav.clientWidth/2+l.offsetWidth/2,behavior:'smooth'})}
 let raf=0;addEventListener('scroll',()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;spy()})},{passive:true});
-let t=0;const later=()=>{clearTimeout(t);t=setTimeout(()=>{build();place();spy()},250)};
-addEventListener('resize',later);document.addEventListener('click',later);document.addEventListener('toggle',later,true);
+/* 11.11. (Jure: "kartice se ne otvaraju iz prvoga, kao da je lag"): the chips were rebuilt 250 ms after EVERY click and
+   toggle, measuring every <h2> of the page each time. Now only when the page's structure really changed (nodes added
+   or removed outside the chips, the tables' bars and the charts' tooltips), a box opened or closed, or the window was
+   resized; the work waits for an idle moment, never inside the tap */
+let t=0;const idle=window.requestIdleCallback||(f=>setTimeout(f,50));
+const later=()=>{clearTimeout(t);t=setTimeout(()=>idle(()=>{build();place();spy()},{timeout:600}),300)};
+addEventListener('resize',later);document.addEventListener('toggle',later,true);
+const mine=n=>n.nodeType!==1||!!(n.closest&&n.closest('.secnav,.pgbar,.apx-tip,.apx-chart,.apx-pchart,#tipbox'));
+new MutationObserver(ms=>{for(const m of ms)if(!mine(m.target)&&[...m.addedNodes,...m.removedNodes].some(n=>n.nodeType===1&&!mine(n))){later();return}})
+ .observe(main,{childList:true,subtree:true});
 if(top)top.onclick=()=>scrollTo({top:0,behavior:'smooth'});
 /* long tables: show PG rows, then "Vidi još 25" adds the next PG; sorting/filters/live updates re-apply it */
 const PG=25,pgL=(()=>{const d=document.getElementById('pglab'),s=d?[...d.children].map(x=>x.textContent.trim()):[];
@@ -117,7 +125,11 @@ const pgAll=()=>{document.querySelectorAll('table').forEach(pg);
   const h=location.hash&&document.getElementById(decodeURIComponent(location.hash.slice(1)));const r=h&&h.closest('tr.pgh');
   if(r){const t=r.closest('table');if(t._pg){t._pg.n=1e9;pg(t)}}};
 let pq=0;const pgSoon=()=>{if(!pq){pq=1;requestAnimationFrame(()=>{pq=0;pgAll()})}};
-new MutationObserver(ms=>{if(ms.some(m=>m.target.closest&&!m.target.closest('.pgbar,.secnav')))pgSoon()}).observe(document.body,{childList:true,subtree:true});
+/* 11.11.: only a change that touches a table (rows added, a table arriving with a lazy part) re-applies the pages;
+   a tooltip's text, a clock ("prije 3 s") or a chart's canvas no longer walk every table of the page each frame */
+const tabl=n=>n.nodeType===1&&(/^(TABLE|TBODY|TR)$/.test(n.tagName)||!!n.querySelector('table'));
+new MutationObserver(ms=>{if(ms.some(m=>m.target.closest&&!m.target.closest('.pgbar,.secnav')&&(/^(TABLE|TBODY)$/.test(m.target.tagName)||[...m.addedNodes].some(tabl))))pgSoon()})
+ .observe(document.body,{childList:true,subtree:true});
 document.addEventListener('input',e=>{if(e.target.matches&&e.target.matches('input[data-f]'))setTimeout(pgAll,0)});
 pgAll();
 build();place();spy();addEventListener('load',later);

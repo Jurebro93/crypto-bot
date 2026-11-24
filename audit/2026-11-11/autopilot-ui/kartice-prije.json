@@ -1,0 +1,137 @@
+{
+ "1440 /pravi-trade": [
+  {
+   "box": "Limit (kupi na MC), trailing i način izlaza",
+   "open_ms": 15,
+   "content_ms": 15,
+   "still_open_1s": true,
+   "max_event_ms": 32
+  },
+  {
+   "box": "#apx-ostalo Postavke i dijagnostika pravila, Grok, zastavice, ",
+   "open_ms": null,
+   "content_ms": null,
+   "still_open_1s": false,
+   "max_event_ms": 0
+  }
+ ],
+ "1440 /pregled": [],
+ "1440 /wallets": [],
+ "1440 /paper": [
+  {
+   "box": "sl 13 (100%)",
+   "open_ms": 9,
+   "content_ms": 9,
+   "still_open_1s": true,
+   "max_event_ms": 24
+  },
+  {
+   "box": "Više tradeova, brže učenje",
+   "open_ms": 9,
+   "content_ms": 9,
+   "still_open_1s": true,
+   "max_event_ms": 24
+  },
+  {
+   "box": "Nova pravila ulaza (od 1. 11.)",
+   "open_ms": 23,
+   "content_ms": 23,
+   "still_open_1s": true,
+   "max_event_ms": 24
+  },
+  {
+   "box": "Zatvoreni trejdovi",
+   "open_ms": 17,
+   "content_ms": 17,
+   "still_open_1s": true,
+   "max_event_ms": 56
+  },
+  {
+   "box": "DCA prijedlozi (kupnja u padu)",
+   "open_ms": 20,
+   "content_ms": 20,
+   "still_open_1s": true,
+   "max_event_ms": 24
+  },
+  {
+   "box": "Kandidati i odluke",
+   "open_ms": 20,
+   "content_ms": 20,
+   "still_open_1s": true,
+   "max_event_ms": 24
+  }
+ ],
+ "1440 /tokens": [
+  {
+   "box": "#tk-odb Odbačeni · 2 (rug ili pao na provjeri)",
+   "open_ms": 4,
+   "content_ms": 4,
+   "still_open_1s": true,
+   "max_event_ms": 16
+  }
+ ],
+ "375 /pravi-trade": [
+  {
+   "box": "#apx-ostalo Postavke i dijagnostika pravila, Grok, zastavice, ",
+   "open_ms": null,
+   "content_ms": null,
+   "still_open_1s": false,
+   "max_event_ms": 56
+  }
+ ],
+ "375 /pregled": [],
+ "375 /wallets": [],
+ "375 /paper": [
+  {
+   "box": "sl 13 (100%)",
+   "open_ms": 16,
+   "content_ms": 16,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  },
+  {
+   "box": "Više tradeova, brže učenje",
+   "open_ms": 16,
+   "content_ms": 16,
+   "still_open_1s": true,
+   "max_event_ms": 32
+  },
+  {
+   "box": "Nova pravila ulaza (od 1. 11.)",
+   "open_ms": 17,
+   "content_ms": 17,
+   "still_open_1s": true,
+   "max_event_ms": 16
+  },
+  {
+   "box": "Zatvoreni trejdovi",
+   "open_ms": 16,
+   "content_ms": 16,
+   "still_open_1s": true,
+   "max_event_ms": 32
+  },
+  {
+   "box": "DCA prijedlozi (kupnja u padu)",
+   "open_ms": 18,
+   "content_ms": 18,
+   "still_open_1s": true,
+   "max_event_ms": 16
+  },
+  {
+   "box": "Kandidati i odluke",
+   "open_ms": 19,
+   "content_ms": 19,
+   "still_open_1s": true,
+   "max_event_ms": 24
+  }
+ ],
+ "375 /tokens": [
+  {
+   "box": "#tk-odb Odbačeni · 2 (rug ili pao na provjeri)",
+   "open_ms": 16,
+   "content_ms": 16,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  }
+ ]
+}

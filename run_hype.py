@@ -9,7 +9,7 @@
     python3 run_hype.py wallet <address>           # score one wallet
     python3 run_hype.py buyers <mint>              # early buyers of a token, smart ones marked
 
-Telegram call channels: hype/channels.txt (one public channel name per line) or --channels a,b.
+19.11.: Telegram call channels are no longer read (vlasnik: Telegram out of every calculation; --channels is ignored).
 Alerts to your own bot when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set.
 """
 import argparse
@@ -24,11 +24,10 @@ import urllib.parse
 import urllib.request
 
 from dexscreener import client
-from hype import apify, evaluate, onchain, pulse, score, sources, store, telegram, xbuzz
+from hype import apify, evaluate, onchain, pulse, score, sources, store, xbuzz
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "hype.db")  # own file: SQLite on the shared mount locks badly under concurrent writers
-CHANNELS = os.path.join(HERE, "hype", "channels.txt")
 
 
 def _usd(x):
@@ -39,32 +38,12 @@ def _usd(x):
     return f"${x:.0f}"
 
 
-def _channels(arg):
-    if arg:
-        return [c.strip() for c in arg.split(",") if c.strip()]
-    if os.path.exists(CHANNELS):
-        with open(CHANNELS) as f:
-            return [l.strip() for l in f if l.strip() and not l.startswith("#")]
-    return []
-
-
 def calendar_keywords():
     files = sorted(glob.glob(os.path.join(HERE, "output", "calendar-*.json")))
     if not files:
         return set()
     with open(files[-1]) as f:
         return {score._norm(k) for e in json.load(f)["events"] for k in e.get("keywords", []) if len(k) >= 3}
-
-
-def collect_tg(channels):
-    posts, errors = telegram.mentions(channels)
-    con = store.connect(DB)
-    for p in posts:
-        for ca in p["cas"] or [""]:
-            con.execute("INSERT OR IGNORE INTO tg_mentions VALUES (?,?,?,?,?)",
-                        (p["channel"], p["post"], p["time"], ca, ",".join(p["tickers"])))
-    con.commit()
-    return posts, errors
 
 
 def candidates(tg_cas, use_metas=True, pump=None, kol_cas=()):
@@ -148,6 +127,20 @@ def early_buyers_cheap(mint, n=60, now=None):
     return out
 
 
+PF_KEYS = ("boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
+           "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl", "isCurrentlyLive",
+           "liveParticipants")
+
+
+def _pumpfun_extra(pf, shape=None):
+    """9.11. (audit P56): the holder / bundler / sniper shares a signal carries: pump.fun's board when it answered,
+    otherwise what topcheck (RugCheck) and rug.db already know (topcheck/holders.pumpfun_shape), so the token
+    pop-up, confidence and learning see the same shares as Pregled. None when nothing is known: never 0."""
+    if pf:
+        return {k: pf.get(k) for k in PF_KEYS}
+    return dict(shape) if shape else None
+
+
 def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     now_ms = (now or time.time()) * 1000
     ctx = apify_context(a)
@@ -207,6 +200,12 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     if keep:
         print(f"  zadržano {len(keep)} tokena (istaknuti + razina, zadnja {pcfg['sati']} h)", file=sys.stderr)
     pairs = client.tokens("solana", list(found))
+    try:   # 9.11. (audit P56): holder shares from data already on disk (topcheck RugCheck + rug.db), no new calls
+        from topcheck import holders as tholders
+        shape = tholders.pumpfun_shape(list(found))
+    except Exception as e:  # noqa: BLE001 - a missing table never stops the scan
+        print(f"  holderi (topcheck/rug.db): {e}", file=sys.stderr)
+        shape = {}
     best = {}
     for p in pairs:
         t = p["baseToken"]["address"]
@@ -284,10 +283,7 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             f["autor_nalet"] = round(min(1.0, (bursts[t]["n"] - 1) / 3), 2)
         if t in groups10:  # only set when it happened: 3 authors in 10 min = 0.5, 5+ = full; learning sets the weight
             f["grupa_10"] = round(min(1.0, 0.5 + (groups10[t]["n"] - 3) / 4), 2)
-        extra = {"x_trend": trend, "pumpfun": {k: pf.get(k) for k in (
-            "boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
-            "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl", "isCurrentlyLive",
-            "liveParticipants")} if pf else None,
+        extra = {"x_trend": trend, "pumpfun": _pumpfun_extra(pf, shape.get(t)),
             "kol_x": kol_ca.get(t, 0), "kol_group": kol_groups.get(t), "konv": conv.get(t),
             "autor_nalet": bursts.get(t), "grupa_10": groups10.get(t)}
         rows.append({"token": t, "symbol": sym, "name": name, "pair": p.get("pairAddress"), "url": p.get("url"),
@@ -359,7 +355,8 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     if apify.enabled() and not a.no_apify:  # paid: only tokens that already look good and passed T0
         rows.sort(key=lambda r: -r["score"])
         ok = [r for r in rows if r["tier"]["t0"] != "pad"]
-        for r in [r for r in ok if r["score"] >= a.x_min_score][:a.x_top]:
+        # 11.11.: x_buzz switched off in hype/apify.json "ugaseno" (the scanner's X momentum covers it): no line a token
+        for r in ([] if apify.off("x_buzz") else [r for r in ok if r["score"] >= a.x_min_score][:a.x_top]):
             try:
                 r["x"] = xbuzz.token_buzz(r["token"], r["symbol"])
                 r["features"]["x_buzz"] = r["x"]["feature"]
@@ -586,13 +583,10 @@ def fmt(r):
 
 def cmd_scan(a):
     w = score.load_weights(a.weights)
-    chans = _channels(a.channels)
-    if chans:
-        posts, errors = collect_tg(chans)
-        print(f"Telegram: {len(posts)} postova s CA/tickerom iz {len(chans)} kanala; greške: {errors or 'nema'}")
-    since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=6)).isoformat()
+    # 19.11. (vlasnik: Telegram out of every calculation, kol/tgout.py): no Telegram channel is read and the hype
+    # feature "telegram" stays empty
     con = store.connect(DB)
-    smart, tg = store.smart_set(con, a.smart_min), store.tg_counts(con, since)
+    smart, tg = store.smart_set(con, a.smart_min), {}
     kol = sources.kol_counts(con)
     con.close()
     try:  # profitable wallets from the shared registry, bots and snipers included (they are a signal too)
@@ -747,7 +741,7 @@ def main(argv=None):
         s.add_argument("--top", type=int, default=20)
         s.add_argument("--deep", type=int, default=10, help="copycat search + Helius check for this many")
         s.add_argument("--smart-min", type=float, default=50)
-        s.add_argument("--channels", help="comma-separated public Telegram channels")
+        s.add_argument("--channels", help="ignored since 19.11. (Telegram is not read any more)")
         s.add_argument("--weights", help="weights JSON, default hype/weights.json")
         s.add_argument("--no-metas", action="store_true")
         s.add_argument("--x-top", type=int, default=5, help="X buzz via Apify for this many (needs APIFY_TOKEN)")
@@ -796,4 +790,9 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    try:   # 15.11. (owner switch fokus_midcap, ops/fokus.py): its microcap sub-commands end at once while it is on
+        from ops import fokus
+        fokus.gate()
+    except ImportError:
+        pass
     sys.exit(main())

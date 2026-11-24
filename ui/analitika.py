@@ -80,6 +80,76 @@ def _rows(rows, fmt_key, prev=None):
 HEAD = ["Upit", ("Klikovi", "n"), ("Prikazi", "n"), ("CTR", "n"), ("Prosj. pozicija", "n")]
 
 
+def _index_html(con, m):
+    """Indeksiranost: Google's own verdict per URL (URL Inspection, analytics/gsc.py inspect_lines) and the pages
+    that lost all impressions week over week (gsc_pages)."""
+    out = ["<h3>Indeksiranost</h3>"]
+    if m.get("inspect_error"):
+        out.append(f"<div class=card><p class=neg><b>Zadnji pregled indeksa nije uspio:</b> "
+                   f"{esc(m['inspect_error'].removeprefix('gsc indeks: '))}</p></div>")
+    counts = con.execute("SELECT coverage_state, COUNT(*), SUM(verdict='PASS') FROM gsc_inspect "
+                         "GROUP BY 1 ORDER BY 2 DESC").fetchall()
+    total = sum(n for _, n, _ in counts)
+    when = (dt.datetime.fromtimestamp(int(m["inspect_ok"])).strftime("%d.%m.%Y. %H:%M") if m.get("inspect_ok") else "–")
+    out.append(f"<p class=mut>Googleova provjera URL-ova (URL Inspection): pregledano {total:,} stranica, zadnji "
+               f"pregled {when}, najviše {esc(os.environ.get('GSC_INSPECT_DAY', '300'))} dnevno.</p>")
+    out.append(table(["Stanje kod Googlea", ("Stranica", "n"), ("U indeksu", "n")],
+                     [[esc(st), (f"{n:,}", n, "n"), ("da" if ok == n else ("ne" if not ok else f"{ok:,}"), ok, "n")]
+                      for st, n, ok in counts], "gscidx", empty="Još nema pregleda (kreće nakon osvježavanja podataka)."))
+    out.append(_crawl_html(con, m))
+    pc, pp = (m.get("pages_cur") or "|").split("|"), (m.get("pages_prev") or "|").split("|")
+    lost = con.execute("SELECT p.page, p.imp_prev, p.clicks_prev, i.coverage_state, i.last_crawl FROM gsc_pages p "
+                       "LEFT JOIN gsc_inspect i ON i.url = p.page WHERE p.imp_prev > 0 AND p.imp_cur <= 0 "
+                       "ORDER BY p.imp_prev DESC, p.page LIMIT 50").fetchall()
+    out.append(f"<h3>Izgubile sve prikaze</h3><p class=mut>Stranice koje su imale prikaze {esc(pp[0])}–{esc(pp[-1])}, a "
+               f"{esc(pc[0])}–{esc(pc[-1])} nijedan (najviše 50, po prikazima prije).</p>")
+    out.append(table(["Stranica", ("Prikazi prije", "n"), ("Klikovi prije", "n"), "Stanje kod Googlea", "Zadnji crawl"],
+                     [[_short_page(u), (f"{i:,.0f}", i, "n"), (f"{c:,.0f}", c, "n"), esc(st or "još nije pregledano"),
+                       esc((lc or "–")[:10])] for u, i, c, st, lc in lost], "gsclost",
+                     empty="Nijedna stranica nije izgubila sve prikaze."))
+    bad = con.execute("SELECT url, coverage_state, page_fetch_state, last_crawl FROM gsc_inspect WHERE verdict != 'PASS' "
+                      "ORDER BY coverage_state, last_crawl DESC LIMIT 200").fetchall()
+    out.append("<h3>Nisu u indeksu</h3>")
+    out.append(table(["Stranica", "Stanje kod Googlea", "Dohvat", "Zadnji crawl"],
+                     [[_short_page(u), esc(st), esc(f or "–"), esc((lc or "–")[:10])] for u, st, f, lc in bad],
+                     "gscnoidx", empty="Sve pregledane stranice su u indeksu."))
+    return "".join(out)
+
+
+def _crawl_html(con, m):
+    """Crawl recency, indexed / not indexed per section and the sitemaps Search Console has (gsc_meta 'smapi')."""
+    import json
+    n, b, newest = gsc.crawl_stats(con, dt.date.today())
+    out = []
+    if n:
+        try:
+            sm = set(json.loads(m.get("sm_urls") or "[]"))
+        except ValueError:
+            sm = set()
+        left = len(sm - {u for (u,) in con.execute("SELECT url FROM gsc_inspect")}) if sm else None
+        out.append("<p class=mut>Zadnji crawl: " + ", ".join(f"{esc(k)} <b>{v:,}</b>" for k, v in b.items())
+                   + f"; najnoviji {esc(str(newest or '–'))}."
+                   + (f" Iz sitemapa još nepregledano {left:,} od {len(sm):,}." if left is not None else "") + "</p>")
+        cell = lambda v: (f"{v:,}", v, "n")  # noqa: E731
+        out.append(table(["Sekcija", ("U indeksu", "n"), ("Crawled, nije u indeksu", "n"), ("Google ne zna", "n"),
+                          ("Pregledano", "n")],
+                         [[esc(k), cell(a), cell(c), cell(u), cell(t)] for k, (a, c, u, t) in gsc.section_stats(con).items()
+                          if t], "gscsec"))
+    if m.get("smapi_error"):
+        out.append(f"<p class=neg>Sitemapovi u Search Consoleu: {esc(m['smapi_error'])}</p>")
+    elif m.get("smapi") is not None:
+        try:
+            rows = json.loads(m["smapi"])
+        except ValueError:
+            rows = []
+        out.append("<h3>Sitemap u Search Consoleu</h3>" + table(
+            ["Sitemap", "Zadnje preuzimanje", "Obrada", ("Greške", "n"), ("Upozorenja", "n"), ("Poslano", "n")],
+            [[esc(r["path"]), esc(r["downloaded"]), "čeka" if r["pending"] else "ok", (str(r["errors"]), r["errors"], "n"),
+              (str(r["warnings"]), r["warnings"], "n"), (f"{r['submitted']:,}", r["submitted"], "n")] for r in rows],
+            "gscsm", empty="<span class=neg>Nijedan sitemap nije poslan u Search Console.</span>"))
+    return "".join(out)
+
+
 def setup_html(err=None):
     email = gsc.account_email()
     steps = [
@@ -165,6 +235,7 @@ def _gsc_html():
         body.append("<h3>Stranice</h3>" + tdesc("Koje naše stranice Google najviše prikazuje i klika.")
                     + table(["Stranica"] + HEAD[1:], _rows(_top(con, "page"), _short_page, prevp), "gscp",
                             empty="Još nema stranica."))
+        body.append(_index_html(con, m))
         body.append("<h3>Zemlje</h3>" + table(["Zemlja"] + HEAD[1:], _rows(_top(con, "country"), lambda k: esc(k.upper())),
                                               "gscc"))
         body.append("<h3>Uređaji</h3>" + table(["Uređaj"] + HEAD[1:],
@@ -247,6 +318,7 @@ def _ga_html():
         body.append("<h3>Odakle dolaze</h3>" + tdesc("Izvor / način: google / organic = Google pretraga, (direct) = "
                                                     "upisali adresu ili bookmark, ostalo su poveznice s drugih stranica.")
                     + table(["Odakle"] + head, [[esc(k), cell(u), cell(s_), cell(v)] for k, u, s_, v in top("source")], "gas"))
+        body.append(_index_html(con, m))
         body.append("<h3>Zemlje</h3>" + table(["Zemlja"] + head,
                     [[esc(k), cell(u), cell(s_), cell(v)] for k, u, s_, v in top("country")], "gac"))
     finally:

@@ -48,7 +48,9 @@ def _kol(path):
     con.execute("CREATE TABLE token_hours (token TEXT, hour INTEGER, volume REAL, updated INTEGER)")
     con.execute("CREATE TABLE kols (handle TEXT PRIMARY KEY, bot INTEGER)")
     con.execute("CREATE TABLE calls (tweet_id TEXT, token TEXT, handle TEXT, ts INTEGER, kind TEXT, first_by_kol INTEGER, "
-                "max24 REAL)")
+                "max24 REAL, mcap0 REAL, rug INTEGER)")
+    con.execute("CREATE TABLE graduates (token TEXT PRIMARY KEY, first_seen INTEGER)")
+    con.executemany("INSERT INTO graduates VALUES (?,?)", [(f"g{i}", NOW - 2 * D - i * 3000) for i in range(300)])
     for t in range(40):
         con.executemany("INSERT INTO token_hours VALUES (?,?,?,?)",
                         [(f"tok{t}", h, 900.0 if h >= 14 else 100.0, NOW) for h in range(24)])
@@ -57,10 +59,10 @@ def _kol(path):
     for i in range(600):
         ts = NOW - 2 * D - i * 1800
         hr = (ts // 3600) % 24
-        rows.append((f"t{i}", f"tok{i}", "good", ts, "call", 1, 1.0 if hr >= 14 and i % 2 else 0.1))
-        rows.append((f"b{i}", f"tok{i}", "scanbot", ts, "call", 1, 5.0))     # bot: must not count
-    rows.append(("fresh", "tokX", "good", NOW - 3600, "call", 1, 9.0))           # younger than 24 h: must not count
-    con.executemany("INSERT INTO calls VALUES (?,?,?,?,?,?,?)", rows)
+        rows.append((f"t{i}", f"tok{i}", "good", ts, "call", 1, 1.0 if hr >= 14 and i % 2 else 0.1, 40000.0 + i, i % 9 == 0))
+        rows.append((f"b{i}", f"tok{i}", "scanbot", ts, "call", 1, 5.0, 1e9, 0))     # bot: must not count
+    rows.append(("fresh", "tokX", "good", NOW - 3600, "call", 1, 9.0, 5e4, 0))           # younger than 24 h: must not count
+    con.executemany("INSERT INTO calls VALUES (?,?,?,?,?,?,?,?,?)", rows)
     con.commit()
     con.close()
 

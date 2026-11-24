@@ -39,6 +39,15 @@ def sync(con, cfg, monitor=None, now=None, log=print):
     watch = [r[0] for r in con.execute("SELECT handle FROM watch ORDER BY score DESC")]
     rows = dict(con.execute("SELECT handle, last_run FROM monitor"))
     last = max(rows.values()) if rows else 0
+    why = apify.off("kol_monitor")
+    if why:   # 11.11.: switched off in hype/apify.json "ugaseno": stop the running monitor once, then nothing
+        if not rows:
+            return False
+        monitor(list(rows), url, stop=True, hours=round((now - last) / 3600, 2))
+        con.execute("DELETE FROM monitor")
+        con.commit()
+        log(f"live: xquik monitor zaustavljen ({why[:80]})")
+        return True
     changed, due = plan(watch, list(rows), last, now, cfg["watch"]["resync_h"])
     import hashlib
     url_h = hashlib.sha256(url.encode()).hexdigest()[:16]
@@ -64,4 +73,25 @@ def sync(con, cfg, monitor=None, now=None, log=print):
     con.commit()
     if changed:
         log(f"live: pratim uživo {len(watch)} KOL-ova: {', '.join('@' + h for h in watch) or '-'}")
+    return True
+
+
+def pause(con, cfg, monitor=None, now=None, log=print):
+    """19.11. (ops/drustveni: influenceri i Telegram jednom u 5 dana): outside the refresh window the paid monitor is
+    stopped once (the same call as an emptied watchlist; it settles the hours watched so far) and its rows cleared, so
+    the next sync inside the window starts it again. False when nothing runs, None without a public URL / Apify."""
+    from hype import apify, sources
+    monitor = monitor or sources.kol_monitor
+    now = now or int(time.time())
+    url = hook_url()
+    if not url or not apify.enabled():
+        return None
+    rows = dict(con.execute("SELECT handle, last_run FROM monitor"))
+    if not rows:
+        return False
+    last = max(rows.values())
+    monitor(list(rows), url, stop=True, hours=round((now - last) / 3600, 2))
+    con.execute("DELETE FROM monitor")
+    con.commit()
+    log(f"live: xquik monitor zaustavljen do sljedećeg društvenog prozora ({len(rows)} računa)")
     return True

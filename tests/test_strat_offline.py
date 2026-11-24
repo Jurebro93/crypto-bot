@@ -307,9 +307,10 @@ class TopWalletsAndBands(unittest.TestCase):
         src2 = {"novcanici": [(A, T0 - 600, "novčanik @hist", 0), (B, T0 - 30, "novčanik @hist", 0), (C, T0, "novčanik @bad", 0)]}
         w2 = run.wanted(src2, cfg, T0, 0, out2, top2)["top_novcanici"]
         self.assertEqual([e[0] for e in w2], [B])     # 10 min old buy is too late (novcanici_max_delay_s 120)
-        rows = [{"wallet": "H" * 44, "copy_score": 70, "labels": [],
+        rk = lambda w, n: {"target": w, "score": 70, "n": n, "proven": n >= 10, "copyable": True, "roi": 0.3}
+        rows = [{"wallet": "H" * 44, "ocjena": 70, "rang": rk("H" * 44, 40), "labels": [],
                  "stats": {"closed": 40, "closed_pnl_sol": 12.0, "win_rate": 0.6, "median_hold_min": 30, "last_trade_days": 0.5, "top_trade_share": 0.2}},
-                {"wallet": "L" * 44, "copy_score": 70, "labels": [],
+                {"wallet": "L" * 44, "ocjena": 70, "rang": rk("L" * 44, 5), "labels": [],
                  "stats": {"closed": 5, "closed_pnl_sol": 1.0, "win_rate": 0.6, "median_hold_min": 30, "last_trade_days": 0.5, "top_trade_share": 0.2}}]
         self.assertEqual(run.history_wallets(cfg, rows=rows, names={}), ["novčanik HHHHHH…"])   # 5 closed: not yet
 

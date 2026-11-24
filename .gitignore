@@ -4,6 +4,7 @@ __pycache__/
 *.db-journal
 output/
 trade/STOP
+trade/WAKE
 paper/config.suggested.json
 paper/config.*.bak.json
 *.whl

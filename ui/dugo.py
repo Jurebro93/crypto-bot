@@ -84,14 +84,17 @@ def page(qs):
     from dugo import run
     cfg = run.config()
     from ui.tokens import switch
-    b = ["<h1>Tokeni</h1>" + switch("/dugorocno")]
+    from ui import redak as R
+    # 10.11. (pregled): the same header and page width as Novi and Jaki, so the title does not jump between the tabs
+    b = ['<div class="ms-page ms-wide">' + str(R.top("Tokeni", "Stariji tokeni koji preživljavaju, jednom dnevno"))
+         + switch("/dugorocno")]
     con = store.ro()
     if con is None:
-        return "Dugoročni", "".join(b) + '<div class=empty>Prvi prolaz još traje (nekoliko minuta nakon pokretanja).</div>'
+        return "Dugoročni", "".join(b) + '<div class=empty>Prvi prolaz još traje (nekoliko minuta nakon pokretanja).</div></div>'
     try:
         day = con.execute("SELECT MAX(day) FROM snap").fetchone()[0]
         if not day:
-            return "Dugoročni", "".join(b) + '<div class=empty>Bot još skuplja dnevne cijene; popis se pojavljuje nakon prvog prolaza.</div>'
+            return "Dugoročni", "".join(b) + '<div class=empty>Bot još skuplja dnevne cijene; popis se pojavljuje nakon prvog prolaza.</div></div>'
         n_tok = con.execute("SELECT COUNT(*) FROM tokens WHERE candles_ts IS NOT NULL").fetchone()[0]
         n_all = con.execute("SELECT COUNT(*) FROM tokens").fetchone()[0]
         n_dead = con.execute("SELECT COUNT(*) FROM tokens WHERE status='mrtav'").fetchone()[0]
@@ -200,7 +203,7 @@ def page(qs):
                      "maknuto je s popisa.</p>")
     finally:
         con.close()
-    return "Dugoročni", "".join(b)
+    return "Dugoročni", "".join(b) + "</div>"
 
 
 def _sym(con, mint):

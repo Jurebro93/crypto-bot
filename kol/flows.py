@@ -13,17 +13,23 @@ H = 3600
 
 
 def _swaps(txs, mint):
-    """[(wallet, ts, kind, sol)] buys and sells of `mint` by each tx signer."""
+    """[(wallet, ts, kind, sol)] buys and sells of `mint` by the OWNER whose balance of the mint changed and who signed
+    (kol/groupdisc.owner_trades). 10.11.: until now the first account key, i.e. the fee payer, was taken as the
+    trader; a relayed / gasless swap is paid by a relayer for many different traders (Hope research: two relayers
+    "bought" for 153 and 104 wallets), so the relayer became an "insider" and the real buyers were lost. SOL legs
+    under wallets/rpc.DUST_SOL are fees or rent (a plain transfer), not a trade."""
+    from kol.groupdisc import owner_trades
     from wallets import rpc
     out = []
     for tx in txs:
         try:
-            signer = rpc._keys(tx)[0]
-        except (KeyError, IndexError, TypeError):
+            trades, _payer, _signers = owner_trades(tx, mint)
+        except (AttributeError, KeyError, TypeError, ValueError):
             continue
-        for r in rpc.parse(tx, signer):
-            if r["mint"] == mint and r["kind"] in ("buy", "sell"):
-                out.append((signer, r["ts"], r["kind"], abs(r["sol"])))
+        ts = tx.get("blockTime") or 0
+        for owner, kind, _amount, sol in trades:
+            if abs(sol) >= rpc.DUST_SOL:
+                out.append((owner, ts, kind, abs(sol)))
     return out
 
 

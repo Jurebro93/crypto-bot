@@ -7,6 +7,7 @@ GSC_SERVICE_ACCOUNT_JSON (the raw JSON or the same text base64-encoded). Nothing
   GSC_SERVICE_ACCOUNT_JSON   the key (required)
   GSC_SITE                   property, default sc-domain:<host of SITE_URL> (a Domain property, verified by TXT)
   GSC_EVERY_H                refresh interval in hours, default 6 (Google's data lags ~2 days anyway)
+  GSC_INSPECT_DAY            URL Inspection calls per day, default 300 (Google allows 2,000/day, 600/min)
 
 collect() stores everything in analytics.db (written only by the UI process): one row per day for the whole site,
 and the top queries / pages / countries / devices of the last 28 days and of the 28 days before (for the change).
@@ -17,6 +18,7 @@ import base64
 import datetime as dt
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -121,21 +123,26 @@ def token(scope=SCOPE):
         return res["access_token"]
 
 
-def _api(path, body=None):
-    url = API + path
+def _http(url, body=None):
     req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Authorization": "Bearer " + token(), "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def _api(path, body=None):
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.loads(r.read() or b"{}")
+        return _http(API + path, body)
     except urllib.error.HTTPError as e:
         msg = e.read().decode("utf-8", "replace")
         if e.code == 403 and ("has not been used" in msg or "SERVICE_DISABLED" in msg):
             raise GscError("Google Search Console API nije uključen u Google Cloud projektu: APIs & Services → "
                            "Library → Google Search Console API → Enable.")
         if e.code in (403, 404):
-            raise GscError(f"Račun {account_email()} nema pristup svojstvu {site()}. U Search Consoleu: Settings → "
-                           "Users and permissions → Add user → upiši taj e-mail (dovoljno je Restricted).")
+            # no e-mail here: this text also goes to the server log (the page shows the e-mail in the setup steps)
+            raise GscError(f"Service account nema pristup svojstvu {site()}. U Search Consoleu: Settings → "
+                           "Users and permissions → Add user → upiši e-mail računa sa stranice Analitika "
+                           "(dovoljno je Restricted).")
         if e.code == 429:
             raise GscError("Google kaže da previše pitamo (limit); idući pokušaj za nekoliko sati.")
         raise GscError(f"Search Console API greška (HTTP {e.code}).")
@@ -165,6 +172,11 @@ def connect(path=None):
         CREATE TABLE IF NOT EXISTS gsc_top (kind TEXT, period TEXT, key TEXT, clicks REAL, impressions REAL,
                                             ctr REAL, position REAL, PRIMARY KEY (kind, period, key));
         CREATE TABLE IF NOT EXISTS gsc_meta (k TEXT PRIMARY KEY, v TEXT);
+        CREATE TABLE IF NOT EXISTS gsc_pages (page TEXT PRIMARY KEY, imp_cur REAL, imp_prev REAL,
+                                              clicks_cur REAL, clicks_prev REAL);
+        CREATE TABLE IF NOT EXISTS gsc_inspect (url TEXT PRIMARY KEY, ts INTEGER, verdict TEXT, coverage_state TEXT,
+                                                robots_state TEXT, indexing_state TEXT, page_fetch_state TEXT,
+                                                last_crawl TEXT, google_canonical TEXT, user_canonical TEXT);
     """)
     return con
 
@@ -219,6 +231,373 @@ def collect(path=None, today=None, q=None):
         con.close()
 
 
+# --- diagnosis: why impressions fell (log lines + the "Indeksiranost" block on the Analitika page) -------------
+# Everything below runs after collect() in its own try blocks: a failure here never touches the numbers above.
+# Log lines to search for: "gsc dani:", "gsc stranice:", "gsc indeks:", "gsc indeks primjeri", "gsc crawl:",
+# "gsc indeks po sekciji:", "gsc sitemap:".
+
+INSPECT_URL = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect"
+DAYS_SHOWN = 21
+DAYS_EVERY_S = 6 * 3600 - 600     # "at most every 6 h", with a little slack for the 6 h refresh loop
+SECTIONS = [("/telegram/*", ("telegram", "telegram-channels", "telegram-kanali")),
+            ("/coin/*", ("coin",)),
+            ("/influencer/*", ("influencer", "influencers", "influenceri")),
+            ("/macro-influencer/*", ("macro-influencer", "macro-influencers", "makro-influencer", "makro-influenceri")),
+            ("/glossary/*", ("glossary", "rjecnik")),
+            ("/blog/*", ("blog",)),
+            ("/how-to-buy/*", ("how-to-buy", "kako-kupiti")),
+            ("/rug-check/*", ("rug-check", "provjera")),
+            ("naslovnica", ("",))]
+EXAMPLES = 20
+
+
+class InspectStop(GscError):
+    """URL Inspection cannot go on this run (403, 429, network, sign-in); message is one plain Croatian log line."""
+
+
+def base_url():
+    """Public origin whose URLs we inspect (must belong to the property)."""
+    s = (os.environ.get("SITE_URL") or "").strip().rstrip("/")
+    if s:
+        return s
+    st = site()
+    return st.rstrip("/") if st.startswith("http") else "https://" + st.removeprefix("sc-domain:")
+
+
+def section(url):
+    """Section name of a page by its first path segment; the /hr/ twin counts with its English section."""
+    parts = [p for p in urllib.parse.urlparse(url).path.split("/") if p]
+    if parts and parts[0] == "hr":
+        parts = parts[1:]
+    seg = parts[0] if parts else ""
+    for name, segs in SECTIONS:
+        if seg in segs:
+            return name
+    return "ostalo"
+
+
+def _path(url):
+    p = urllib.parse.urlparse(url)
+    return (p.path or "/") + (("?" + p.query) if p.query else "")
+
+
+def days_lines(path=None, today=None, force=False):
+    """[series line, lag line] for the last 21 days (missing day = 0: Google returns no row for a day without
+    impressions); [] when the series has not changed or was logged less than 6 h ago."""
+    today = today or dt.date.today()
+    con = connect(path)
+    try:
+        have = dict((d, (i, c)) for d, i, c in con.execute("SELECT day, impressions, clicks FROM gsc_daily"))
+        days = [today - dt.timedelta(days=n) for n in range(DAYS_SHOWN, 0, -1)]
+        line = "gsc dani: " + "; ".join(
+            f"{d} i={have.get(str(d), (0, 0))[0] or 0:.0f} k={have.get(str(d), (0, 0))[1] or 0:.0f}" for d in days)
+        m = meta(con)
+        if not force and (m.get("dani_sig") == line or time.time() - float(m.get("dani_ts") or 0) < DAYS_EVERY_S):
+            return []
+        _set(con, dani_sig=line, dani_ts=int(time.time()))
+        con.commit()
+        return [line, "gsc: zadnja 3 dana su nepotpuna (kašnjenje Googlea)"]
+    finally:
+        con.close()
+
+
+def week_periods(today=None):
+    """(cur_start, cur_end, prev_start, prev_end): the last 7 complete days (LAG_DAYS respected) and the 7 before."""
+    today = today or dt.date.today()
+    end = today - dt.timedelta(days=LAG_DAYS + 1)
+    start = end - dt.timedelta(days=6)
+    return start, end, start - dt.timedelta(days=7), start - dt.timedelta(days=1)
+
+
+def pages_lines(path=None, today=None, q=None):
+    """Pages by impressions, last 7 complete days against the 7 before, into gsc_pages; one log line."""
+    q = q or query
+    cs, ce, ps, pe = week_periods(today)
+    try:
+        cur = q(cs, ce, ("page",), 1000)
+        prev = q(ps, pe, ("page",), 1000)
+    except GscError as e:
+        return [f"gsc stranice: {e}"]
+    rows = {}
+    for which, rs in ((0, cur), (1, prev)):
+        for r in rs:
+            x = rows.setdefault(r["keys"][0], [0, 0, 0, 0])
+            x[which] = r.get("impressions") or 0
+            x[2 + which] = r.get("clicks") or 0
+    con = connect(path)
+    try:
+        con.execute("DELETE FROM gsc_pages")
+        con.executemany("INSERT OR REPLACE INTO gsc_pages VALUES (?,?,?,?,?)", [(k, *v) for k, v in rows.items()])
+        _set(con, pages_cur=f"{cs}|{ce}", pages_prev=f"{ps}|{pe}", pages_ts=int(time.time()))
+        con.commit()
+    finally:
+        con.close()
+    n = sum(1 for v in rows.values() if v[0] > 0)
+    m = sum(1 for v in rows.values() if v[1] > 0)
+    lost = sum(1 for v in rows.values() if v[1] > 0 and v[0] <= 0)
+    sec = {name: [0, 0, 0, 0] for name in [s_ for s_, _ in SECTIONS] + ["ostalo"]}
+    for k, v in rows.items():
+        x = sec[section(k)]
+        x[0] += v[1] > 0
+        x[1] += v[0] > 0
+        x[2] += v[1]
+        x[3] += v[0]
+    parts = ", ".join(f"{name} {a}→{b} (i {pi:.0f}→{ci:.0f})" for name, (a, b, pi, ci) in sec.items())
+    return [f"gsc stranice: s impresijama zadnjih 7 d {n} (prije {m}); izgubilo sve impresije {lost}; po sekciji: {parts}"]
+
+
+def inspect_url(url, site_url=None):
+    """One URL Inspection call → indexStatusResult dict. Raises InspectStop (stop this run) or GscError (this URL)."""
+    try:
+        res = _http(INSPECT_URL, {"inspectionUrl": url, "siteUrl": site_url or site()})
+    except urllib.error.HTTPError as e:
+        msg = e.read().decode("utf-8", "replace")
+        if e.code == 403 and ("has not been used" in msg or "SERVICE_DISABLED" in msg):
+            raise InspectStop("gsc indeks: Search Console API nije uključen u Google Cloud projektu (APIs & Services → "
+                              "Library → Google Search Console API → Enable); pregled indeksa preskočen.")
+        if e.code in (401, 403):
+            raise InspectStop(f"gsc indeks: service account nema dozvolu za pregled URL-ova svojstva {site()} "
+                              f"(HTTP {e.code}); pregled indeksa preskočen.")
+        if e.code == 429:
+            raise InspectStop("gsc indeks: Google kaže da previše pitamo (limit pregleda URL-ova); nastavak u idućem krugu.")
+        raise GscError(f"HTTP {e.code}")
+    except urllib.error.URLError as e:
+        raise InspectStop(f"gsc indeks: Google se ne javlja ({e.reason}); nastavak u idućem krugu.")
+    except InspectStop:
+        raise
+    except GscError as e:   # sign-in (token) failed: same plain message as collect(), no key or e-mail in it
+        raise InspectStop(f"gsc indeks: {e}")
+    except (OSError, ValueError) as e:
+        raise InspectStop(f"gsc indeks: Google se ne javlja ({type(e).__name__}); nastavak u idućem krugu.")
+    return (res.get("inspectionResult") or {}).get("indexStatusResult") or {}
+
+
+def hub_urls():
+    """Homepage (both languages) and the public hub tables."""
+    paths = ["/", "/hr"]
+    try:
+        from ui import public
+        paths += [p for p in public.hub_paths() if p != "/sitemap.xml"]
+    except Exception:  # noqa: BLE001
+        paths += ["/solana-meme-coins", "/influencers", "/telegram-channels", "/glossary", "/blog"]
+    b = base_url()
+    return [b + p if p != "/" else b + "/" for p in paths]
+
+
+def _sitemap_xml():
+    """The sitemap text: built in-process by ui/public.py (no network); else fetched from the site once."""
+    try:
+        from ui import public
+        return public.sitemap()
+    except Exception:  # noqa: BLE001
+        with urllib.request.urlopen(base_url() + "/sitemap.xml", timeout=60) as r:
+            return r.read().decode("utf-8", "replace")
+
+
+def sitemap_urls(con, today, src=None):
+    """Sitemap URLs on the public origin, rebuilt once a day and kept in gsc_meta."""
+    m = meta(con)
+    if m.get("sm_day") == str(today) and m.get("sm_urls"):
+        return json.loads(m["sm_urls"])
+    xml = (src or _sitemap_xml)()
+    b = base_url()
+    urls = list(dict.fromkeys(b + _path(u.strip()) for u in re.findall(r"<loc>(.*?)</loc>", xml or "")))
+    _set(con, sm_day=today, sm_urls=json.dumps(urls))
+    con.commit()
+    return urls
+
+
+def inspect_order(con, today, sitemap=None, cap=None):
+    """URLs to inspect now: hubs, then pages that lost all impressions (most previous impressions first), then the
+    sitemap, least recently inspected first (a rotation); none already inspected in the last 20 h; at most cap."""
+    recent = {u for (u,) in con.execute("SELECT url FROM gsc_inspect WHERE ts >= ?", (int(time.time()) - 20 * 3600,))}
+    last = dict(con.execute("SELECT url, ts FROM gsc_inspect"))
+    lost = [p for (p,) in con.execute("SELECT page FROM gsc_pages WHERE imp_prev > 0 AND imp_cur <= 0 "
+                                      "ORDER BY imp_prev DESC, page")]
+    sm = sitemap if sitemap is not None else sitemap_urls(con, today)
+    sm = sorted(sm, key=lambda u: last.get(u) or 0)   # stable: never inspected first, in sitemap order
+    out = []
+    for u in hub_urls() + lost + sm:
+        if u not in recent and u not in out:
+            out.append(u)
+            if cap is not None and len(out) >= cap:
+                break
+    return out
+
+
+CRAWLED_NOT = "Crawled - currently not indexed"
+UNKNOWN = "URL is unknown to Google"
+CRAWL_BUCKETS = ("zadnjih 3 d", "4-7 d", "8-14 d", "starije", "nikad")
+
+
+def _crawl_day(s):
+    """lastCrawlTime ('2026-11-12T08:01:02Z') → date, None when never crawled or unreadable."""
+    try:
+        return dt.date.fromisoformat((s or "")[:10])
+    except ValueError:
+        return None
+
+
+def crawl_stats(con, today):
+    """(stored, {bucket: n}, newest crawl date or None) over everything in gsc_inspect."""
+    b = dict.fromkeys(CRAWL_BUCKETS, 0)
+    newest, n = None, 0
+    for (lc,) in con.execute("SELECT last_crawl FROM gsc_inspect"):
+        n += 1
+        d = _crawl_day(lc)
+        if d is None:
+            b["nikad"] += 1
+            continue
+        newest = max(newest or d, d)
+        age = (today - d).days
+        b["zadnjih 3 d" if age <= 3 else "4-7 d" if age <= 7 else "8-14 d" if age <= 14 else "starije"] += 1
+    return n, b, newest
+
+
+def section_stats(con):
+    """{section: [indexed, crawled-not-indexed, unknown, all]} over gsc_inspect, sections as in "gsc stranice"."""
+    out = {name: [0, 0, 0, 0] for name in [s_ for s_, _ in SECTIONS] + ["ostalo"]}
+    for url, verdict, state in con.execute("SELECT url, verdict, coverage_state FROM gsc_inspect"):
+        x = out[section(url)]
+        x[0] += verdict == "PASS"
+        x[1] += state == CRAWLED_NOT
+        x[2] += state == UNKNOWN
+        x[3] += 1
+    return out
+
+
+def stats_lines(con, today):
+    n, b, newest = crawl_stats(con, today)
+    sec = section_stats(con)
+    return [f"gsc crawl: od {n} pregledanih zadnji crawl " + ", ".join(f"{k} {v}" for k, v in b.items())
+            + f"; najnoviji crawl {newest or '–'}",
+            "gsc indeks po sekciji: " + ", ".join(f"{k} {a}/{c}/{u}" for k, (a, c, u, _) in sec.items())]
+
+
+def sitemaps(site_url=None):
+    """Sitemaps submitted to Search Console (webmasters/v3 sitemaps.list): the API's dicts."""
+    return _api(f"/sites/{urllib.parse.quote(site_url or site(), safe='')}/sitemaps").get("sitemap", [])
+
+
+def _int(v):
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def sitemap_lines(path=None, today=None, fetch=None, force=False):
+    """One line per sitemap submitted to Search Console, once a day; the list is kept in gsc_meta for the page."""
+    today = today or dt.date.today()
+    con = connect(path)
+    try:
+        if not force and meta(con).get("smapi_day") == str(today):
+            return []
+        try:
+            sms = (fetch or sitemaps)()
+        except GscError as e:
+            _set(con, smapi_day=today, smapi_error=str(e))
+            con.commit()
+            return [f"gsc sitemap: {e}"]
+        rows = [{"path": x.get("path") or "?", "downloaded": (x.get("lastDownloaded") or "")[:10] or "–",
+                 "pending": bool(x.get("isPending")), "errors": _int(x.get("errors")),
+                 "warnings": _int(x.get("warnings")),
+                 "submitted": sum(_int(c.get("submitted")) for c in x.get("contents") or [])} for x in sms]
+        _set(con, smapi_day=today, smapi_error=None, smapi=json.dumps(rows), smapi_ts=int(time.time()))
+        con.commit()
+    finally:
+        con.close()
+    if not rows:
+        return ["gsc sitemap: nijedan sitemap nije poslan u Search Console"]
+    return [f"gsc sitemap: {r['path']} zadnje preuzimanje {r['downloaded']}, obrada "
+            f"{'isPending' if r['pending'] else 'ok'}, greške {r['errors']}, upozorenja {r['warnings']}, "
+            f"poslano {r['submitted']}" for r in rows]
+
+
+def inspect_lines(path=None, today=None, call=None, sleep=time.sleep, sitemap=None, pause=1.0):
+    """Today's share of URL Inspection (GSC_INSPECT_DAY, default 300, ~1 per second) into gsc_inspect; log lines."""
+    call = call or inspect_url
+    today = today or dt.date.today()
+    cap = int(os.environ.get("GSC_INSPECT_DAY", "300"))
+    con = connect(path)
+    try:
+        m = meta(con)
+        used = int(m.get("inspect_used") or 0) if m.get("inspect_day") == str(today) else 0
+        if used >= cap:
+            return []
+        try:
+            sm = sitemap if sitemap is not None else sitemap_urls(con, today)
+            todo = inspect_order(con, today, sm, cap - used)
+        except Exception as e:  # noqa: BLE001
+            return [f"gsc indeks: popis stranica nedostupan ({type(e).__name__}); pregled preskočen."]
+        done, errors, stop = [], 0, None
+        for i, url in enumerate(todo):
+            if i:
+                sleep(pause)
+            try:
+                r = call(url)
+            except InspectStop as e:
+                stop = str(e)
+                break
+            except GscError:
+                errors += 1
+                used += 1
+                if errors >= 5 and not done:
+                    stop = "gsc indeks: Google odbija pregled (5 grešaka zaredom); nastavak u idućem krugu."
+                    break
+                continue
+            used += 1
+            row = (url, int(time.time()), r.get("verdict") or "", r.get("coverageState") or "nepoznato",
+                   r.get("robotsTxtState") or "", r.get("indexingState") or "", r.get("pageFetchState") or "",
+                   r.get("lastCrawlTime") or "", r.get("googleCanonical") or "", r.get("userCanonical") or "")
+            con.execute("INSERT OR REPLACE INTO gsc_inspect VALUES (?,?,?,?,?,?,?,?,?,?)", row)
+            done.append(row)
+            if len(done) % 25 == 0:
+                _set(con, inspect_day=today, inspect_used=used)
+                con.commit()
+        kv = {"inspect_day": today, "inspect_used": used, "inspect_error": stop}
+        if done:
+            kv["inspect_ok"] = int(time.time())
+        _set(con, **kv)
+        con.commit()
+        stored = {u for (u,) in con.execute("SELECT url FROM gsc_inspect")}
+        stats = stats_lines(con, today) if done else []
+    finally:
+        con.close()
+    lines = []
+    if done or errors or not stop:
+        counts = {}
+        for row in done:
+            counts[row[3]] = counts.get(row[3], 0) + 1
+        txt = ", ".join(f"{k} {v}" for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+        lines.append(f"gsc indeks: pregledano {len(done)}; {txt or 'nema rezultata'}"
+                     + (f"; greške {errors}" if errors else "")
+                     + f"; ukupno u bazi {len(stored)}, sitemap još nepregledano {len(set(sm) - stored)}")
+        ex = {}
+        for url, _, verdict, state, _, _, fetch, lc, *_ in done:   # every state, indexed ones too (13.11. drop)
+            ex.setdefault(state, []).append(f"{_path(url)} (crawl {_crawl_day(lc) or '–'})")
+        for state, us in sorted(ex.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+            lines.append(f"gsc indeks primjeri {state}: " + ", ".join(us[:EXAMPLES]))
+        lines += stats
+    if stop:
+        lines.append(stop)
+    return lines
+
+
+def diagnose(path=None, today=None, q=None, call=None, sleep=time.sleep, sitemap=None, smfetch=None):
+    """The four diagnosis steps, each on its own: returns the log lines, never raises."""
+    out = []
+    for name, fn in (("dani", lambda: days_lines(path, today)),
+                     ("stranice", lambda: pages_lines(path, today, q)),
+                     ("indeks", lambda: inspect_lines(path, today, call, sleep, sitemap)),
+                     ("sitemap", lambda: sitemap_lines(path, today, smfetch))):
+        try:
+            out += fn()
+        except Exception as e:  # noqa: BLE001  (type only: a message could carry request details)
+            out.append(f"gsc {name}: neočekivana greška {type(e).__name__}")
+    return out
+
+
 def _loop(every_s):
     time.sleep(float(os.environ.get("GSC_START_DELAY_S", "90")))
     while True:
@@ -229,6 +608,11 @@ def _loop(every_s):
             print(f"gsc: {e}", flush=True)
         except Exception as e:  # noqa: BLE001
             print(f"gsc: neočekivana greška {e!r}", flush=True)
+        try:
+            for line in diagnose():
+                print(line, flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"gsc dijagnoza: neočekivana greška {type(e).__name__}", flush=True)
         time.sleep(every_s)
 
 

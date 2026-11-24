@@ -255,8 +255,8 @@ def page(qs, user):
                           usd(r["mcap"]), signed(move, "{:+.0%}"), usd(liq), ago(r["last_seen"]), act])
         b.append(f"<h2 id=prijedlozi>Prijedlozi alata</h2><p class=mut>Isti tokeni i isti poredak kao „Istaknuti kandidati” na "
                  "<a href=/>Pregledu</a>: confidence spaja hype, X, smart money, KOL, holdere, rug filter i evente. "
-                 "Tokeni koje je rug filter odbacio i tokeni koji su se u međuvremenu srušili (rug: 70%+ ispod vrha ili "
-                 "izvučena likvidnost) su skriveni osim ako ih uključiš ili tražiš po imenu; njih se ne može kupiti. "
+                 "Tokeni koje je rug filter odbacio i tokeni koji su se u međuvremenu srušili (rug: izvučena likvidnost, ili "
+                 "pad 70%+ od vrha uz prodaju deva / top holdera ili visok rug rizik) su skriveni osim ako ih uključiš ili tražiš po imenu; njih se ne može kupiti. "
                  f"Prikazano {len(srows)} (najviše {SUGGEST_MAX}). Upiši ulog u $ i klikni Kupi.</p>"
                  "<p class=mut>Prvih 20 prijedloga alat provjerava <b>svake 3 minute</b>: nova analiza u svakom skenu, "
                  "<b>stanje tržišta</b> (🚀 pumpa: ne kupuj, pričekaj · ↗ pad uz oporavak · 📉 pada · ➖ stabilno) i "
@@ -268,29 +268,6 @@ def page(qs, user):
 
         b.append("<p class=mut>Ideja kako poboljšati alat? Upiši je u <a href=/prijedlozi>Prijedloge</a>.</p>")
         return "Natjecanje", "".join(b)
-    finally:
-        con.close()
-
-
-def ideas_page(qs, user):
-    con = store.connect()
-    try:
-        b = ["<h1>Prijedlozi za nove mogućnosti</h1><p class=mut>Što bi alat trebao raditi bolje ili drugačije? "
-             "Sve ideje se spremaju ovdje i svi ih vide.</p>", _who(user), _err(qs)]
-        if user:
-            b.append('<form method=post action="/prijedlozi/add" class=card><textarea name=text rows=4 required '
-                     'style="width:100%;font:inherit;background:var(--card);color:var(--fg);border:1px solid var(--line);'
-                     'border-radius:6px;padding:8px" placeholder="npr. upozori me kad token iz mojih pozicija padne 30%…">'
-                     f'</textarea><p><button>Pošalji prijedlog</button> <span class=mut>kao {esc(user)}</span></p></form>')
-        rows = []
-        for i in store.ideas(con):
-            sel = "".join(f'<option{" selected" if s == i["status"] else ""}>{s}</option>' for s in STATUS)
-            change = _form("/prijedlozi/status", {"id": i["id"]}, "Spremi", f"<select name=status>{sel}</select>") \
-                if user else ""
-            rows.append([ts(i["ts"]), esc(i["user"]), (esc(i["text"]).replace("\n", "<br>"), "", "wrap"),
-                         badge(i["status"], STATUS.get(i["status"], "")) + " " + change])
-        b.append(table(["Kada", "Tko", ("Prijedlog", "wrap"), "Status"], rows, empty="Još nema prijedloga."))
-        return "Prijedlozi", "".join(b)
     finally:
         con.close()
 

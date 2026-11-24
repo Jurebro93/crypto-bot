@@ -195,8 +195,26 @@ def rocket_launches(start, days_ahead):
     return events
 
 
+def _iso_ts(x):
+    """An ISO 8601 time ("2026-11-18T11:00:00Z") or unix seconds -> unix seconds; None when absent / unreadable."""
+    if x in (None, ""):
+        return None
+    try:
+        return int(float(x))
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(dt.datetime.fromisoformat(str(x).replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return None
+
+
 def manual_events(start, days_ahead, path=MANUAL_FILE):
-    """Hand-curated events. "recurring": true repeats every year on MM-DD."""
+    """Hand-curated events. "recurring": true repeats every year on MM-DD.
+    11.11. (the owner's events rule): a seed carries its source(s), status and verification date; "event_ts" is the
+    EARLIEST global start (e.g. GTA 6: New Zealand's midnight); a seed with status "unconfirmed" is never seeded as
+    certain (skipped, its candidate dates stay in the file); kind "regime" (macro releases, a conference) is a market
+    regime label, never an event token (event_calendar/enrich: token likelihood 0; run_dex skips it)."""
     with open(path) as f:
         items = json.load(f)
     end = start + dt.timedelta(days=days_ahead)
@@ -204,6 +222,8 @@ def manual_events(start, days_ahead, path=MANUAL_FILE):
     for it in items:
         if not it.get("date"):
             continue  # date not known yet (e.g. product launch "TBD")
+        if it.get("status") == "unconfirmed":
+            continue  # sources disagree: never seeded as certain
         if it.get("recurring"):
             mm, dd = map(int, it["date"][-5:].split("-"))
             dates = [dt.date(y, mm, dd) for y in (start.year, start.year + 1)]
@@ -211,9 +231,16 @@ def manual_events(start, days_ahead, path=MANUAL_FILE):
             dates = [dt.date.fromisoformat(it["date"])]
         for d in dates:
             if start <= d <= end:
+                sig = {"keywords": it.get("keywords", [])}
+                for k in ("status", "verified", "sources", "regime", "end_date"):
+                    if it.get(k):
+                        sig[k] = it[k]
+                ets = _iso_ts(it.get("event_ts"))
+                if ets:
+                    sig["event_ts"] = ets
                 events.append({
                     "date": d.isoformat(), "title": it["title"], "kind": it.get("kind", "manual"),
                     "subject": it.get("subject", it["title"]), "source": "manual",
-                    "url": it.get("url", ""), "signals": {"keywords": it.get("keywords", [])},
+                    "url": it.get("url", ""), "signals": sig,
                 })
     return events

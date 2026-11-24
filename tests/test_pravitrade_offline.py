@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -17,6 +18,15 @@ from tests.test_trade_offline import CFG, FakeJup  # noqa: E402
 from trade import executor, jupiter, settings  # noqa: E402
 
 NOW = time.time()
+_WAKE = mock.patch.object(copy, "WAKE", os.path.join(tempfile.mkdtemp(), ".copy_wake"))
+
+
+def setUpModule():   # 9.11. (review izvori): follows and buys wake the copy loop; the tests must not touch the repo's .copy_wake
+    _WAKE.start()
+
+
+def tearDownModule():
+    _WAKE.stop()
 
 
 class PraviTrade(unittest.TestCase):
@@ -40,7 +50,8 @@ class PraviTrade(unittest.TestCase):
         self.lg.close()
         self.tmp.cleanup()
 
-    def _demo_buy(self, token, opened=NOW):
+    def _demo_buy(self, token, opened=NOW - 30):   # 9.11. (review novac): a copy younger than COPY_BOOK_WAIT_S without
+        # follow_id / copy_log is left for the next tick (league/copy.py books them a few ms after store.buy commits)
         self.lg.execute("INSERT OR IGNORE INTO accounts VALUES (?,?,?)", (settings.LEAGUE_USER, 1e9, 0))
         tid = store.buy(self.lg, settings.LEAGUE_USER, token, token, 25, 1.0, 1e6, "copy wallet X")
         self.lg.execute("UPDATE trades SET opened_ts=? WHERE id=?", (int(opened), tid))
@@ -107,9 +118,11 @@ class PraviTrade(unittest.TestCase):
         self.assertIn("err=", loc)
         self.assertFalse(settings.merged(CFG, self.con)["on"])
 
-        _, body = pravitrade.page({}, "jure")
+        _, body = pravitrade.page({"sve": "1"}, "jure")   # 11.11.: sve=1 renders the lazy parts (ui/apterm)
         self.assertIn("Uključi Autopilot", body)
-        self.assertIn("ISKLJUČEN", body)
+        # 10.11. (prijedlog dizajna, maketa autopilot.html): the state is a word after a dot, no capitals
+        self.assertIn("<span>Isključen</span>", body)
+        self.assertIn("Samo probno, bez novca", body)
         self.assertIn("Postavljanje walleta", body)
         self.assertNotIn("Svi nalozi", body)          # 4.11.: no order log, no demo tables
         self.assertNotIn("Demo praćenja", body)
@@ -126,8 +139,8 @@ class PraviTrade(unittest.TestCase):
         try:
             pravitrade.post("/pravi-trade/invite", {"u_list": ["ivan", "Nepoznat"]}, "Jure")
             self.assertEqual(settings.invited(self.con), ["Ivan"])
-            _, body = pravitrade.page({}, "Ivan")
-            self.assertIn("Koga bot prati", body)
+            _, body = pravitrade.page({"sve": "1"}, "Ivan")
+            self.assertIn("Koga pratimo", body)   # 11.11.: the card under the tables
             self.assertNotIn("Spremi limite", body)
             self.assertNotIn("Postavljanje walleta", body)   # invited: look only
         finally:
@@ -283,8 +296,10 @@ class Safety(LiveRoutes):
         self.assertEqual(r["status"], "blocked")
         self.assertIn("rezerva za prodaju", r["error"])
         self.w.sol_balance = lambda addr: 0.07
-        r = executor.buy(self.con, {**self.cfg, "size_sol": 0.05, "min_sol_reserve": 0.0, "max_sol_per_trade": 1}, "M",
-                         now=NOW)
+        # 15.11. navečer: the owner's 1 SOL floor of the wallet's value (executor.equity_floor) is set to 0 here: this
+        # test is about the reserve for selling
+        r = executor.buy(self.con, {**self.cfg, "size_sol": 0.05, "min_sol_reserve": 0.0, "max_sol_per_trade": 1,
+                                    "min_equity_sol": 0}, "M", now=NOW)
         self.assertEqual(r["status"], "open")   # 0.05 + 0.003 + 0.01 floor = 0.063 <= 0.07
 
     def test_sell_button_request(self):
@@ -372,7 +387,7 @@ class AutoPick(PraviTrade):
     def test_tool_picks_and_rotates_but_leaves_manual_and_stopped_alone(self):
         from ui import autopilot, pravitrade
         os.environ["TRADE_OWNER"] = "Jure"
-        st = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6}
+        st = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6, "mjera": "minutna"}   # 10.11.: the auto pick wants the minute check
         recs = {"kol": [{"handle": h, "live": live, "why": "dobar", "s": st} for h, live in
                         (("a", True), ("slow", False), ("b", True), ("c", True), ("d", True))],
                 "wal": [{"wallet": "W1", "name": "jedan", "why": "dobar", "s": st},
@@ -409,9 +424,10 @@ class AutoPick(PraviTrade):
             pravitrade.post("/pravi-trade/auto", {"on": "0", "days": "14", "n": "2"}, "Jure")
             recs["kol"] = []
             self.assertEqual(autopilot.sync_follows(self.lg, self.con, force=True), [])
-            _, body = pravitrade.page({}, "Jure")
+            _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: the follows are in "Koga pratimo" (lazy)
             self.assertIn("Neka alat sam bira", body)
-            self.assertIn("🤖 alat", body)
+            # 10.11. (Jure: "čista, minimalistička", no row of emojis): the tag is the words "odabrao alat" now
+            self.assertIn("odabrao alat", body)
         finally:
             autopilot.kol_recs, autopilot.wallet_recs, pravitrade._live_wallets = saved
 
@@ -430,4 +446,9 @@ class LiveLog(PraviTrade):
         self.assertIsNone(pravitrade.log_fragment("Ivan"))      # not invited
         _, body = pravitrade.page({}, "Jure")
         self.assertIn("/pravi-trade/log", body)
-        self.assertIn("Uživo: nalozi", body)
+        # 10.11. (Jure: "log na klik pri vrhu"): the order list is the "Tehnički zapis naloga" pop-up of the closed
+        # "Dnevnik Autopilota" (its rows come from /pravi-trade/dnevnik only when it is opened), no "Uživo: nalozi"
+        self.assertIn("Tehnički zapis naloga", body)
+        # 11.11. (ui/apterm): the decision log is the tab "Dnevnik" next to the positions, fetched when it is opened
+        self.assertIn("data-x-src=/pravi-trade/dnevnik", body)
+        self.assertGreater(body.index("id=dnevnik"), body.index("id=pozicije"))

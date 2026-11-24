@@ -1,4 +1,6 @@
 """Everything the morning report needs, from the databases the loops already fill (no paid API calls).
+16.11.: the midcap block comes from report/midcap.py; the microcap sections below (microcap()) are collected only while
+the owner switch fokus_midcap is off.
 
 Each section is collected on its own and degrades to None/[] when its database or table does not exist yet,
 so a fresh deploy still gets a report. All connections are read-only."""
@@ -113,8 +115,8 @@ def kols(now, top=10):
     if con is None:
         return {"top": [], "watch": [], "best_calls": [], "new_kols": 0, "calls_24h": 0}
     best = []
-    for r in _q(con, "SELECT handle, score, followers, stats FROM kols WHERE score IS NOT NULL ORDER BY score DESC "
-                     "LIMIT 60"):
+    for r in _q(con, "SELECT handle, score, followers, stats FROM kols WHERE score IS NOT NULL AND handle NOT LIKE 'tg:%' "
+                     "ORDER BY score DESC LIMIT 60"):   # 19.11. (vlasnik, kol/tgout.py): X influencers only
         s = json.loads(r["stats"] or "{}")
         if (s.get("measured") or 0) < 3:
             continue
@@ -126,9 +128,9 @@ def kols(now, top=10):
             break
     watch = [r["handle"] for r in _q(con, "SELECT handle FROM watch ORDER BY score DESC")]
     calls = _q(con, "SELECT handle, symbol, token, url, ts, followers, views, r1h, r6h, max24, mcap0 FROM calls "
-                    "WHERE kind = 'call' AND first_by_kol = 1 AND bad IS NULL AND ts >= ? ORDER BY COALESCE(max24, r6h, r1h, -1) DESC "
+                    "WHERE kind = 'call' AND first_by_kol = 1 AND bad IS NULL AND handle NOT LIKE 'tg:%' AND ts >= ? ORDER BY COALESCE(max24, r6h, r1h, -1) DESC "
                     "LIMIT 8", (now - 2 * DAY,))
-    n24 = _q(con, "SELECT COUNT(*) n FROM calls WHERE kind = 'call' AND ts >= ?", (now - DAY,))
+    n24 = _q(con, "SELECT COUNT(*) n FROM calls WHERE kind = 'call' AND handle NOT LIKE 'tg:%' AND ts >= ?", (now - DAY,))
     new = _q(con, "SELECT COUNT(*) n FROM kols WHERE first_seen >= ?", (now - DAY,))
     con.close()
     return {"top": best, "watch": watch, "best_calls": calls, "calls_24h": n24[0]["n"] if n24 else 0,
@@ -263,19 +265,147 @@ def market(now):
         return None
 
 
-def collect(now=None):
+def fokus_on():
+    """16.11.: the owner switch fokus_midcap (ops/fokus.py) decides whether the microcap sections are collected."""
+    try:
+        from ops import fokus
+        return fokus.on()
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour (switch off)
+        return False
+
+
+def collect(now=None, fokus=None):
+    """16.11. (vlasnik: "Sada idemo s mid cap tokenima"): the midcap block (report/midcap.py), the macro influencers,
+    the critic and the urgent spend always; the old microcap sections only while the switch fokus_midcap is off."""
     now = int(now or time.time())
+    fk = fokus_on() if fokus is None else bool(fokus)
+    from report import midcap
+    data = {"ts": now, "fokus": fk, "midcap": midcap.collect(now), "spend": spend(now),
+            "kriticar": kriticar(now), "makroinf": makroinf(now)}
+    if fk:
+        return data
+    data.update(microcap(now))
+    return data
+
+
+def microcap(now):
+    """The old (microcap) report data: weights, exits, sessions, KOLs, today's tokens, the pulse, the demo, the KOL
+    test, the entry rules, the strategy comparison, the scanner, pre-call insiders, momentum, the archive."""
     acc = session_accuracy()
     try:
         with open(os.path.join(HERE, "kol", "config.json")) as f:
             hit_x = json.load(f).get("hit_x", 0.5)
     except (OSError, ValueError):
         hit_x = 0.5
-    data = {"ts": now, "kol_hit_definition": f"+{hit_x:.0%} u 24 h nakon poziva", "weights": weight_changes(now), "exits": exit_changes(now), "sessions": acc,
+    data = {"kol_hit_definition": f"+{hit_x:.0%} u 24 h nakon poziva", "weights": weight_changes(now),
+            "exits": exit_changes(now), "sessions": acc,
             "kols": kols(now), "today": today_tokens(now, acc), "pulse": pulse(now), "paper": paper(now),
             "market": market(now), "koltest": koltest(now), "rules": rules(now),
-            "strategije": strategije(now), "spend": spend(now)}
+            "strategije": strategije(now), "skener": skener(now)}
+    data["insajderi"] = insajderi(now)   # 10.11. (flag insider_copy, kol/precall.py)
+    data["momentum"] = momentum(now)     # 11.11. (flags momentum_scalp, grok_ev_gate; momentum/)
+    data["arhiva"] = arhiva(now)         # 15.11. (ops/arhiva.py: microcap / rug rows moved to .gz archives last night)
     return data
+
+
+def makroinf(now):
+    """The macro influencers (makroinf/report.morning): the top 3 accurate (10+ episodes) and their BTC stance now,
+    the index of the most accurate and its change, the DEMO input state. None before the first scores."""
+    try:
+        from makroinf import report as mireport
+        return mireport.morning(now)
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
+
+
+def arhiva(now):
+    """The last night's archive move (ops/arhiva.summary): rows moved, MB freed, MB of .gz, free disk. None without one."""
+    try:
+        from ops import arhiva as arh
+        return arh.summary(now=now)
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
+
+
+def kriticar(now):
+    """15.11. (vlasnik): the OpenAI critic for the morning e-mail: its newest daily review and top findings, the newest
+    verdict per open position, its record of 7 days (hit rate 30 / 60 min and at the close, $ if followed) and its cost
+    yesterday (UTC) and this month. None before its first call (the e-mail then says so in one line)."""
+    con = ro("trade.db")
+    if con is None:
+        return None
+    con.row_factory = None
+    try:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='critic_calls'").fetchone():
+            return None
+        from critic import notes as cnotes
+        from critic import store as cstore
+        st = cstore.stats(con, 7, now)
+        d0 = cstore.day_start(now)
+        y_n, y_usd = con.execute("SELECT COUNT(*), COALESCE(SUM(cost_usd), 0) FROM critic_calls WHERE ts >= ? AND ts < ?",
+                                 (d0 - DAY, d0)).fetchone()
+        m_n, m_usd = con.execute("SELECT COUNT(*), COALESCE(SUM(cost_usd), 0) FROM critic_calls WHERE ts >= ?",
+                                 (cstore.month_start(now),)).fetchone()
+        summ = cnotes.latest_summary(con)
+        finds = cnotes.latest_findings(con, (summ or {}).get("ts", now) - 900, 3) if summ else []
+        pos = con.execute("SELECT v.symbol, v.mode, v.verdict, v.confidence, v.pnl_pct, v.ts FROM critic_verdicts v "
+                          "JOIN (SELECT pid, MAX(id) AS id FROM critic_verdicts GROUP BY pid) l ON l.id = v.id "
+                          "JOIN positions p ON p.id = v.pid WHERE p.status = 'open' ORDER BY v.ts DESC LIMIT 12").fetchall()
+        if not (summ or pos or st.get("poziva") or y_n or m_n):
+            return None
+        return {"sazetak": ({"title": summ.get("title"), "text": (summ.get("interpretation") or "")[:900],
+                             "ts": summ.get("ts")} if summ else None),
+                "nalazi": [{"title": f.get("title"), "text": (f.get("interpretation") or "")[:300],
+                            "prijedlog": (f.get("improvement") or "")[:300]} for f in finds],
+                "pozicije": [{"symbol": r[0], "mode": r[1], "verdict": r[2], "confidence": r[3], "pnl_pct": r[4],
+                              "ts": r[5]} for r in pos],
+                "presude": st.get("presude") or {}, "jucer": {"poziva": y_n, "usd": round(y_usd, 4)},
+                "mjesec": {"poziva": m_n, "usd": round(m_usd, 4)}, "budzet": st.get("budzet")}
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
+    finally:
+        con.close()
+
+
+def momentum(now):
+    """momentum_scalp's day (signals, hit rate, EV after cost, base rate, paper proof, backtest, spend) and Grok's EV
+    gate calibration (momentum/view.report_data). None while both flags are off and nothing was ever recorded."""
+    try:
+        from momentum import view
+        d = view.report_data(now)
+        if d["flag_mode"] == "off" and not d["signals_24h"] and not (d.get("grok_calibration") or {}).get("n_requests"):
+            return None
+        return d
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
+
+
+def insajderi(now):
+    """Pre-call insiders and launches from 10k (kol/precall.report_data): new candidates, the confirmed ones, their
+    paper copies and the day's cost per source. None before the first pass."""
+    try:
+        from kol import precall
+        path = db_path("early.db") if os.environ.get("REPORT_DB_DIR") else None
+        return precall.report_data(now, path=path)
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
+
+
+def skener(now):
+    """The market scanner in shadow (scan/shadow.report_data): per source found / outcomes / +20 % within 1 h and 4 h
+    / -30 % first / EV, the paper gate, lead time, today's spend per paid source. None before scan.db exists."""
+    try:
+        from scan import shadow, store
+        path = db_path("scan.db") if os.environ.get("REPORT_DB_DIR") else store.db_path()
+        con = store.ro(path)
+        if con is None:
+            return None
+        try:
+            return shadow.report_data(now, con=con)
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
 
 
 def spend(now):

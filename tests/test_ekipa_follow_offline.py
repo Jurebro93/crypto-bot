@@ -14,7 +14,7 @@ from kol import store as kstore  # noqa: E402
 from league import copy, store  # noqa: E402
 
 NOW = int(time.time())
-CREW = ["tg:apewonecall", "tg:chinesewhalespump", "tg:kolclant", "tg:pandacallslonge3", "tg:whalespumpbank"]
+CREW = ["apewonecall", "chinesewhalespump", "kolclant", "pandacallslonge3", "whalespumpbank"]   # 19.11.: X, was tg:
 TOK = "Tok1" + "x" * 40
 TOK2 = "Tok2" + "x" * 40
 
@@ -44,31 +44,31 @@ class Crew(unittest.TestCase):
         return lambda toks: {t: (0.001, 50_000, None, mcap, "SYM", {"m5": m5, "h1": m5}) for t in toks}
 
     def test_follow_normalises_members_and_defaults(self):
-        fid = copy.follow(self.lg, "pravi-trade", "ekipa", " @tg:whalespumpbank, tg:apewonecall ,tg:kolclant", "", 25, 5,
+        fid = copy.follow(self.lg, "pravi-trade", "ekipa", " @whalespumpbank, apewonecall ,kolclant", "", 25, 5,
                           "tpsl", "15%", "", max_mcap=1e6, max_runup=0.25, min_callers=1)
         f = next(x for x in copy.follows(self.lg, "pravi-trade") if x["id"] == fid)
-        self.assertEqual(f["target"], "tg:apewonecall,tg:kolclant,tg:whalespumpbank")
-        self.assertEqual(f["label"], "ekipa: apewonecall + kolclant + whalespumpbank")
+        self.assertEqual(f["target"], "apewonecall,kolclant,whalespumpbank")
+        self.assertEqual(f["label"], "ekipa: @apewonecall + @kolclant + @whalespumpbank")
         self.assertEqual((f["exit"]["max_mcap"], f["exit"]["max_runup"], f["exit"]["min_callers"]), (1e6, 0.25, 1))
         self.assertIn("samo do MC $1M", copy.describe_exit(f["exit"]))
         self.assertIn("+25% od poziva", copy.describe_exit(f["exit"]).replace(" %", "%"))
         with self.assertRaises(ValueError):
             copy.follow(self.lg, "pravi-trade", "ekipa", " , ", "", 25, 5, "tpsl", "15%", "")
         self.assertEqual(copy.followed_handles("pravi-trade", os.path.join(self.d, "league.db")),
-                         {"tg:apewonecall", "tg:kolclant", "tg:whalespumpbank"})
+                         {"apewonecall", "kolclant", "whalespumpbank"})
 
     def test_first_caller_enters_under_the_cap_and_before_the_runup(self):
         copy.follow(self.lg, "pravi-trade", "ekipa", ",".join(CREW), "", 25, 5, "tpsl", "15%", "",
                     max_mcap=1e6, max_runup=0.25)
         self.backdate()
-        self.call("tg:kolclant", TOK, NOW - 60)                    # the first of the crew posts
+        self.call("kolclant", TOK, NOW - 60)                    # the first of the crew posts
         out = copy.run_once(self.lg, self.market(400_000, m5=8.0), NOW, self.paths)
         self.assertEqual(len(out), 1)
         self.assertIn("kupljeno", out[0][1])
         t = [tuple(r) for r in self.lg.execute("SELECT token, source, status FROM trades").fetchall()]
-        self.assertEqual(t, [(TOK, "copy ekipa ekipa: apewonecall + chinesewhalespump + kolclant + pandacallslonge3 + whalespumpbank", "open")])
+        self.assertEqual(t, [(TOK, "copy ekipa ekipa: @apewonecall + @chinesewhalespump + @kolclant + @pandacallslonge3 + @whalespumpbank", "open")])
         # the second member calling the same token a minute later does not buy it again
-        self.call("tg:apewonecall", TOK, NOW - 10)
+        self.call("apewonecall", TOK, NOW - 10)
         self.assertEqual(copy.run_once(self.lg, self.market(500_000), NOW + 5, self.paths), [])
         self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 1)
 
@@ -76,8 +76,8 @@ class Crew(unittest.TestCase):
         copy.follow(self.lg, "pravi-trade", "ekipa", ",".join(CREW), "", 25, 5, "tpsl", "15%", "",
                     max_mcap=1e6, max_runup=0.25)
         self.backdate()
-        self.call("tg:kolclant", TOK, NOW - 60)
-        self.call("tg:kolclant", TOK2, NOW - 90)
+        self.call("kolclant", TOK, NOW - 60)
+        self.call("kolclant", TOK2, NOW - 90)
         mk = {TOK: (0.001, 50_000, None, 2_400_000, "BIG", {"m5": 3.0, "h1": 3.0}),
               TOK2: (0.001, 50_000, None, 300_000, "UP", {"m5": 41.0, "h1": 60.0})}
         self.assertEqual(copy.run_once(self.lg, lambda toks: mk, NOW, self.paths), [])
@@ -86,17 +86,32 @@ class Crew(unittest.TestCase):
         self.assertIn("+41% u zadnjih 5 min", notes[TOK2])   # 9.11. (audit P60): says what DexScreener measured
         self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
 
+    def test_runup_of_a_5_to_10_min_old_call_reads_the_hour_change(self):
+        """9.11. (audit P66): the only run_once path past 5 min (max_delay_min 10) gates on DexScreener's h1, not m5;
+        the log says which window it measured. No linear scaling (verifier)."""
+        copy.follow(self.lg, "pravi-trade", "ekipa", ",".join(CREW), "", 25, 5, "tpsl", "15%", "",
+                    max_mcap=1e6, max_runup=0.25)
+        self.backdate()
+        self.call("kolclant", TOK, NOW - 420)    # 7 min old: h1 decides
+        self.call("kolclant", TOK2, NOW - 400)
+        mk = {TOK: (0.001, 50_000, None, 300_000, "A", {"m5": 2.0, "h1": 60.0}),
+              TOK2: (0.001, 50_000, None, 300_000, "B", {"m5": 60.0, "h1": 2.0})}
+        copy.run_once(self.lg, lambda toks: mk, NOW, self.paths)
+        self.assertEqual({r[0] for r in self.lg.execute("SELECT token FROM trades")}, {TOK2})
+        notes = {r[0]: r[1] for r in self.lg.execute("SELECT token, note FROM copy_log WHERE action='preskočeno'")}
+        self.assertIn("+60% u zadnjih 60 min", notes[TOK])
+
     def test_min_callers_waits_for_the_second_member(self):
         copy.follow(self.lg, "pravi-trade", "ekipa", ",".join(CREW), "", 25, 5, "tpsl", "15%", "",
                     max_mcap=1e6, max_runup=0.25, min_callers=2)
         self.backdate()
-        self.call("tg:kolclant", TOK, NOW - 120)
+        self.call("kolclant", TOK, NOW - 120)
         self.assertEqual(copy.run_once(self.lg, self.market(400_000), NOW - 60, self.paths), [])
-        self.call("tg:whalespumpbank", TOK, NOW - 30)
+        self.call("whalespumpbank", TOK, NOW - 30)
         out = copy.run_once(self.lg, self.market(400_000), NOW, self.paths)
         self.assertEqual(len(out), 1)
         # an outsider's call never counts for the crew
-        self.call("tg:someone_else", TOK2, NOW - 20)
+        self.call("someone_else", TOK2, NOW - 20)
         self.assertEqual(copy.run_once(self.lg, self.market(400_000), NOW + 1, self.paths), [])
 
     def test_single_kol_follow_can_take_the_same_gates(self):
@@ -151,24 +166,35 @@ class Page(unittest.TestCase):
         self.assertIn("ekipu", loc)
         fl = copy.follows(self.lg, settings.LEAGUE_USER)
         self.assertEqual([(f["kind"], f["target"]) for f in fl], [("ekipa", ",".join(CREW))])
+        # 9.11. (audit P10/P17): "moj TP/SL" without a stop typed in gets the default stop; 10.11.: stored as "" and
+        # put on each entry from the owner's setting (league/copy.default_sl)
         self.assertEqual(fl[0]["exit"], {"mode": "tpsl", "tp": "15%", "sl": "", "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
-        _, body = pravitrade.page({"ekipa": "tg:x,tg:y"}, "Jure")
-        self.assertIn("🤝", body)
-        self.assertIn("ekipa</span>", body)
+        # 11.11. (ui/apterm): the follows' forms are in "Koga pratimo" (loaded on scroll; sve=1 renders it in), the
+        # prefill rides on its address and opens "Uredi praćenja"
+        first = pravitrade.page({"ekipa": "tg:x,tg:y"}, "Jure")[1]
+        self.assertIn('data-x-src="/pravi-trade/l/pratimo?ekipa=tg%3Ax%2Ctg%3Ay"', first)
+        _, body = pravitrade.page({"ekipa": "tg:x,tg:y", "sve": "1"}, "Jure")
+        self.assertIn("id=pratim open>", body)
+        # 10.11. (Jure: "čista, minimalistička"): the crew tag is the word "ekipa", without the 🤝 in front;
+        # 10.11. (prijedlog dizajna, maketa autopilot.html): the follow is a shared row, the word starts its line
+        self.assertIn('<div class="ms-s">ekipa · ', body)
+        self.assertNotIn("🤝", body)
         self.assertIn('value="tg:x,tg:y"', body)       # prefilled from /ekipe "zaprati ekipu →"
         # "Zaprati sve" from "Zovu sada" makes ONE crew follow, not five single ones
-        loc = pravitrade.post("/pravi-trade/followall", {"handles": "ansem,tg:alpha"}, "Jure")
+        loc = pravitrade.post("/pravi-trade/followall", {"handles": "ansem,alpha"}, "Jure")
         self.assertIn("ekipu", loc)
         fl = copy.follows(self.lg, settings.LEAGUE_USER)
-        self.assertEqual(sorted(f["target"] for f in fl), sorted([",".join(CREW), "ansem,tg:alpha"]))
-        self.assertIn("ve%C4%87%20prati", pravitrade.post("/pravi-trade/followall", {"handles": "tg:alpha, @ansem"}, "Jure"))
+        self.assertEqual(sorted(f["target"] for f in fl), sorted([",".join(CREW), "alpha,ansem"]))
+        self.assertIn("ve%C4%87%20prati", pravitrade.post("/pravi-trade/followall", {"handles": "alpha, @ansem"}, "Jure"))
 
-    def test_followed_handles_reach_polling_and_the_x_hook(self):
+    def test_followed_handles_reach_the_x_hook_and_telegram_is_out(self):
         from trade import settings
+        # 19.11. (vlasnik: Telegram out of every calculation): a crew keeps its X members, a Telegram channel alone is
+        # refused, and no Telegram channel is among the handles the bot listens to
         copy.follow(self.lg, settings.LEAGUE_USER, "ekipa", "tg:alpha,bigx", "", 25, 5, "tpsl", "15%", "")
-        copy.follow(self.lg, settings.LEAGUE_USER, "kol", "tg:solo", "", 25, 5, "tpsl", "15%", "")
-        from tg import poll
-        self.assertTrue({"alpha", "solo"} <= poll.followed_channels())
+        with self.assertRaises(ValueError):
+            copy.follow(self.lg, settings.LEAGUE_USER, "kol", "tg:solo", "", 25, 5, "tpsl", "15%", "")
+        self.assertEqual(copy.followed_handles(settings.LEAGUE_USER), {"bigx"})
         from kol import xhook
         kc = kstore.connect(os.path.join(self.tmp.name, "kol.db"))
         cfg = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")))

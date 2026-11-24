@@ -7,6 +7,8 @@ Public = history and scores: calls older than PUBLIC_DELAY_S with their outcome.
 copy trading and everything else stay behind the login (and are sent with X-Robots-Tag: noindex by run_ui).
 Pages are cached for CACHE_S, so search-engine crawlers cost almost nothing.
 """
+import contextlib
+import gzip
 import importlib
 import json
 import math
@@ -30,6 +32,7 @@ HANDLE = re.compile(r"[A-Za-z0-9_]{1,30}")
 BAD = re.compile(r"nigg|fag|hitler|retard|nazi|rape|porn|fuck|cunt|dick|cock|pussy|dojk", re.I)
 
 _cache, _lock = {}, threading.Lock()
+_inflight = {}   # path -> Event while one thread builds that public page (23.11.)
 
 L = {
     "en": dict(
@@ -39,9 +42,15 @@ L = {
         lb_h1="Crypto influencer leaderboard",
         lb_lead="We measure what the price did after every Solana token call an influencer posts on X: 1 hour, 24 hours, "
                 "the peak, and whether it rugged. The score shows who actually moves the market.",
-        cols=("#", "Influencer", "Score", "Hit rate", "Median 24h peak", "Rugs", "Late calls", "Followers", "Calls"),
+        cols=("#", "Influencer", "Verdict", "1 h", "24 h", "Score", "Hit rate", "Median 24h peak", "Rugs", "Late calls",
+              "Followers", "Calls"),
         how_h="How the score works",
-        how=("Hit rate: share of calls that gained at least 50% within 24 hours.",
+        how=("1 h: share of calls that reached +10 % before a −20 % stop within the first hour, measured from the minute "
+             "of the call (last 14 days).",
+             "24 h: share of calls still in profit a day later.",
+             "Verdict, from those two numbers: holds up (1 h {h1} or more and 24 h {d24} or more), quick exit only (1 h "
+             "{h1} or more, 24 h lower), not worth it (1 h under {h1}), too few calls (under {n} measured in 14 days).",
+             "Hit rate: share of calls that gained at least 50% within 24 hours.",
              "Median 24h peak: the typical highest point within 24 hours after the call.",
              "Rugs: share of called tokens that dropped 90% or more.",
              "Late calls: calls made after the price had already doubled in the 2 hours before.",
@@ -65,16 +74,21 @@ L = {
         post="post", foot="Not financial advice. Scores are measurements of past calls, not accusations or "
         "endorsements.", home="/", lb="/influencers", prof="/influencer/", login="Log in"),
     "hr": dict(
-        lb_title="Ljestvica crypto influencera: tko stvarno pomiče Solana tokene",
+        lb_title="Ljestvica kripto influencera: tko stvarno pomiče Solana tokene",
         lb_desc="Ocjene {n} crypto influencera na X-u, izmjerene na svakom pozivu Solana tokena: pogodak, vrh u 24 h, "
                 "rugovi i kasni pozivi. Osvježava se svaki dan.",
         lb_h1="Ljestvica crypto influencera",
         lb_lead="Za svaki poziv Solana tokena koji influencer objavi na X-u mjerimo što je cijena napravila: nakon sat "
                 "vremena, nakon 24 sata, najviši vrh i je li završio kao rug. Ocjena pokazuje tko stvarno pomiče tržište.",
-        cols=("#", "Influencer", "Ocjena", "Pogodak", "Medijan vrha 24 h", "Rugovi", "Kasni pozivi", "Pratitelji",
-              "Pozivi"),
+        cols=("#", "Influencer", "Presuda", "1 h", "24 h", "Ocjena", "Pogodak", "Medijan vrha 24 h", "Rugovi",
+              "Kasni pozivi", "Pratitelji", "Pozivi"),
         how_h="Kako se računa ocjena",
-        how=("Pogodak: udio poziva koji su narasli barem 50% u 24 sata.",
+        how=("1 h: udio poziva koji su u prvom satu došli do +10 % prije stopa −20 %, mjereno od minute poziva (zadnjih "
+             "14 dana).",
+             "24 h: udio poziva koji su dan kasnije u plusu.",
+             "Presuda iz ta dva broja: drži se (1 h {h1} ili više i 24 h {d24} ili više), samo brzo (1 h {h1} ili više, "
+             "24 h manje), ne isplati se (1 h ispod {h1}), premalo poziva (manje od {n} izmjerenih u 14 dana).",
+             "Pogodak: udio poziva koji su narasli barem 50% u 24 sata.",
              "Medijan vrha 24 h: tipičan najviši rast u 24 sata nakon poziva.",
              "Rugovi: udio pozvanih tokena koji su pali 90% ili više.",
              "Kasni pozivi: pozivi nakon što se cijena već udvostručila u 2 sata prije.",
@@ -103,7 +117,7 @@ L = {
 # (ui/kolstats.py), a month-by-month history, best/worst call, the median account as the yardstick, and a FAQ.
 P2 = {
     "en": dict(
-        title="@{h} (X / Twitter): crypto calls track record, hit rate and rugs | MemeSonar",
+        title="@{h} on X: crypto calls, track record, hit rate and rugs | MemeSonar",   # 13.11.: ≤ 60 chars w/o brand
         desc="Who is @{h} on X? {n} measured Solana token calls: price higher after 1 h in {up}, {hit} reached +15 %, "
              "median 24 h result {med}, {rug} rugged. Updated daily.",
         desc_few="Who is @{h} on X? We track their Solana token calls; {n} measured so far, too few for a verdict. "
@@ -129,7 +143,7 @@ P2 = {
               "{n} measured calls).")),
         tg_same="The same brand on Telegram: {c}"),
     "hr": dict(
-        title="@{h} (X / Twitter): kripto pozivi, rezultati, pogodak i rugovi | MemeSonar",
+        title="@{h} na X-u: kripto pozivi, rezultati, pogodak i rugovi | MemeSonar",
         desc="Tko je @{h} na X-u? {n} izmjerenih poziva Solana tokena: cijena viša nakon 1 h u {up}, {hit} doseglo "
              "+15 %, medijan nakon 24 h {med}, {rug} rugova. Osvježava se svaki dan.",
         desc_few="Tko je @{h} na X-u? Pratimo njegove pozive Solana tokena; dosad {n} izmjerenih, premalo za presudu. "
@@ -181,6 +195,8 @@ ul.lk{list-style:none;padding:0;margin:12px 0 16px;display:grid;gap:8px;color:#c
 .gbody{max-width:720px;font-size:17.5px}.gbody p{margin:0 0 14px}
 .cbr{display:grid;grid-template-columns:130px 1fr 70px;gap:10px;align-items:center;font-size:14px;margin:4px 0}.cbr i{height:10px;background:var(--soft);border-radius:8px;overflow:hidden;display:block}.cbr em{display:block;height:100%;border-radius:8px}.cbr b{text-align:right}.lbt{margin:0 0 12px}
 .rng{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-top:4px}
+.vdc{white-space:nowrap}.vd{display:inline-block;width:8px;height:8px;border-radius:50%;background:#cfd5e1;margin:0 6px 1px 0;vertical-align:middle}
+.vd.good{background:#16a34a}.vd.warn{background:#d97706}.vd.bad{background:#dc2626}
 .chips{display:flex;flex-wrap:wrap;gap:8px}.chips a{border:1px solid var(--line);border-radius:999px;padding:6px 14px;
 font-size:14px;background:#fff}
 """
@@ -212,13 +228,19 @@ def _int(x, lang):
     return s.replace(",", ".") if lang == "hr" else s
 
 
-def _usd(x):
+def _loc(s, lang):
+    """13.11. (SEO audit: English number formats on Croatian pages, "$465.2M i 563.022 holdera"): decimal comma and
+    thousands point on the Croatian pages, as ui/coinseo already does."""
+    return s.replace(",", "\0").replace(".", ",").replace("\0", ".") if lang == "hr" else s
+
+
+def _usd(x, lang="en"):
     if not x:
         return "–"
     for div, suf in ((1e9, "B"), (1e6, "M"), (1e3, "k")):
         if x >= div:
-            return f"${x / div:.1f}{suf}"
-    return f"${x:.0f}"
+            return _loc(f"${x / div:.1f}{suf}", lang)
+    return _loc(f"${x:.0f}", lang)
 
 
 def _cls(x):
@@ -258,8 +280,20 @@ def is_star(r, stars=None):
     return (r.get("followers") or 0) >= STAR_FOLLOWERS or r["handle"].lower() in stars
 
 
+INFL_TTL_S = 300   # 23.11. (hitno): one shared copy of the rows per process (ui/javniteret.shared)
+
+
 def influencers():
-    """Public rows: measured X influencers, no bots, best score first. Stars need one measured call, others three."""
+    """Public rows: measured X influencers, no bots, best score first. Stars need one measured call, others three.
+    23.11. (hitno): every /influencer/<h> and /macro-influencer/<h> page read the whole kols table with its stats
+    JSON (150-200 MB per page in a burst of a dozen); now one thread reads it and the copy is shared INFL_TTL_S.
+    The rows are shared: callers must not change them."""
+    from ui import javniteret
+    p = _kol_db()
+    return javniteret.shared(("influencers", p), INFL_TTL_S, _influencers, version=javniteret.file_version(p))
+
+
+def _influencers():
     con = _con()
     if con is None:
         return []
@@ -298,12 +332,12 @@ def _ga_tag(lang):
 
 
 # Share cards (scripts/og_cards.py): the section a public path belongs to -> ui/static/landing/og-<key>[-hr].jpg
-OG_PREFIX = (("kols", ("/influencer",)),
+OG_PREFIX = (("kols", ("/influencer", "/macro-influencer")),   # 15.11.: the macro influencers share the influencer card
              ("coins", ("/solana-meme-coins", "/coin/", "/how-to-buy", "/rug-check", "/solana-", "/meme-coin", "/best-time")),
              ("tools", ("/best-crypto-tools",)),
              ("learn", ("/blog", "/glossary")))
-OG_ALT = {"home": ("MemeSonar: token picks, influencer scores and wallet tracking for Solana",
-                   "MemeSonar: prijedlozi tokena, ocjena influencera i praćenje novčanika za Solanu"),
+OG_ALT = {"home": ("MemeSonar: wallets that buy before a Solana token jumps, measured after real costs",   # 20.11.
+                   "MemeSonar: novčanici koji kupuju prije skoka Solana tokena, izmjereno nakon stvarnog troška"),
           "kols": ("Crypto influencer leaderboard on MemeSonar", "Ljestvica kripto influencera na MemeSonaru"),
           "coins": ("Top 100 Solana meme coins, live, on MemeSonar", "Top 100 Solana meme coina uživo na MemeSonaru"),
           "tools": ("Best crypto tools compared on MemeSonar", "Usporedba kripto alata na MemeSonaru"),
@@ -324,11 +358,61 @@ def og_tags(lang, image_url, alt, w=1200, h=630):
             f'<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="{image_url}">')
 
 
+# 13.11. (Jure: "provjeri još jednom SEO metatitlove"): Google shows ~60 characters of a title (and the site name
+# on its own line above the result) and ~160 of a description; longer ones were cut mid-word on 61 of 70 audited pages
+# (ops/seoaudit.py). seo_title/seo_desc trim every public page in one place instead of 300 hand-written strings.
+TITLE_SOFT, TITLE_MAX, DESC_MAX = 60, 70, 160
+_BRAND = re.compile(r"\s+[|·]\s+MemeSonar\s*$")
+
+
+def seo_title(title):
+    """The <title>: over TITLE_SOFT the " | MemeSonar" tail goes (Google names the site anyway), over TITLE_MAX also
+    a closing "(...)" aside; whatever is left is kept whole (never cut mid-phrase)."""
+    t = " ".join((title or "").split())
+    if len(t) > TITLE_SOFT:
+        t = _BRAND.sub("", t)
+    if len(t) > TITLE_MAX:
+        t = re.sub(r"\s*\([^()]*\)\s*$", "", t) or t
+    return t
+
+
+def seo_desc(desc):
+    """The meta description in at most DESC_MAX characters: whole sentences when they leave 115+ characters, else cut
+    at a word with an ellipsis."""
+    d = " ".join((desc or "").split())
+    if len(d) <= DESC_MAX:
+        return d
+    cut = d[:DESC_MAX + 1]
+    end = max(cut.rfind(". "), cut.rfind("? "), cut.rfind("! "))
+    if end >= 115:
+        return d[:end + 1]
+    cut = d[:DESC_MAX]
+    return cut[:cut.rfind(" ")].rstrip(" ,;:–-(") + "…"
+
+
+NOT_FOUND = {"en": ("Page not found · MemeSonar", "This page does not exist or has moved.", "Home"),
+             "hr": ("Stranica nije pronađena · MemeSonar", "Ova stranica ne postoji ili je premještena.", "Naslovnica")}
+
+
+def not_found_html(path):
+    """The 404 page of the public site. 13.11.: it used to declare canonical + hreflang of /influencers, so Google
+    could fold every broken URL into the leaderboard; now no canonical, no alternates, noindex, the visitor's own
+    language and links to every section."""
+    lang = "hr" if path == "/hr" or path.startswith("/hr/") else "en"
+    title, lead, home = NOT_FOUND[lang]
+    links = " · ".join(f"<a href={p}>{esc(lab)}</a>" for p, lab, *_ in SECTIONS[lang])
+    body = (f"<section class=ph1><h1>404</h1><p class=lead>{esc(lead)}</p>"
+            f"<p><a href={L[lang]['home']}>{esc(home)}</a> · {links}</p></section>")
+    return _shell(lang, title, lead, "/", "/hr", body, not_found=True)
+
+
 def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonld="", og_image=None,
-           og_type="website", noindex=False):
+           og_type="website", noindex=False, not_found=False):
     """Page frame. path_hr=None: English-only page (no Croatian alternate; the language switch goes to /hr).
-    noindex: the page exists (links keep working) but is not offered to search engines (too little data)."""
+    noindex: the page exists (links keep working) but is not offered to search engines (too little data).
+    not_found: the 404 page: noindex, no canonical, no hreflang (it is no copy of any other page)."""
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    title, desc = seo_title(title), seo_desc(desc)
     card, og_alt = og_card(path_en, lang)
     og_alt = title if og_image else og_alt     # a page with its own cover (blog post): the alt is its title
     og_image = og_image or card
@@ -340,13 +424,14 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
     switch = (f"<a class=lnk href={path_hr or '/hr'} hreflang=hr>HR</a>" if lang == "en" else
               f"<a class=lnk href={path_en} hreflang=en>EN</a>")
     alt = (f'<link rel=alternate hreflang=en href="{base}{path_en}"><link rel=alternate hreflang=hr href="{base}{path_hr}">'
-           f'\n<link rel=alternate hreflang=x-default href="{base}{path_en}">') if path_hr else ""
+           f'\n<link rel=alternate hreflang=x-default href="{base}{path_en}">') if path_hr and not not_found else ""
+    head_canon = "" if not_found else f'<link rel=canonical href="{canon}">'
     return f"""<!doctype html><html lang={lang}><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><title>{esc(title)}</title>
-<meta name=description content="{esc(desc)}"><link rel=canonical href="{canon}">
-{'<meta name=robots content="noindex,follow">' if noindex else ''}{alt}
+<meta name=description content="{esc(desc)}">{head_canon}
+{'<meta name=robots content="noindex,follow">' if noindex or not_found else ''}{alt}
 <meta property="og:type" content="{og_type}"><meta property="og:title" content="{esc(title)}">
-<meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{canon}">
+<meta property="og:description" content="{esc(desc)}">{'' if not_found else f'<meta property="og:url" content="{canon}">'}
 {og_tags(lang, base + og_image, og_alt)}<meta name="twitter:title" content="{esc(title)}">
 <meta name="twitter:description" content="{esc(desc)}">
 <meta name=theme-color content="#ffffff">{_fav.HEAD}{jsonld}
@@ -403,8 +488,10 @@ def _median(xs):
 
 def _call_stats(handles):
     """Median 24 h peak and 1 h change of the measured calls of these influencers (calls older than 24 h)."""
+    if not handles:     # 10.11.: asked before opening, an empty list used to leave the connection open
+        return None
     con = _con()
-    if con is None or not handles:
+    if con is None:
         return None
     try:
         q = ",".join("?" * len(handles))
@@ -427,6 +514,38 @@ def _rng(s):
     return f" <span class=mut>({lo:.0f}–{hi:.0f})</span>" if lo is not None and hi is not None else ""
 
 
+def _verdicts():
+    """{handle malim slovima: redak presude} iz ui/kolsummary.verdict_stats(14): ista presuda (1 h i 24 h) kao ljestvica
+    u aplikaciji, profil i Autopilot (10.11., Jure, prijedlog 4.0 i 4.4). Brojke su zbirne (postotak), pa ne otkrivaju
+    svježe pozive koji su samo za članove. {} kad se ne može izračunati: stranica radi i bez stupaca."""
+    try:
+        from kol import store
+        from ui import kolsummary
+        kdb = _kol_db()
+        st = kolsummary.verdict_stats(14, kol_db=None if kdb == store.DB else kdb)
+    except Exception as e:  # noqa: BLE001 - javna stranica mora raditi i bez minutne provjere
+        print(f"public: presuda: {type(e).__name__}: {e}", flush=True)
+        return {}
+    return {k.lower(): v for k, v in st.items()}
+
+
+def _verdict_cells(v, lang):
+    """Tri ćelije: presuda (točka + riječ), 1 h, 24 h. Bez poziva u 14 dana: "premalo poziva" i crtice."""
+    from ui import kolsummary as KS
+    if not v:
+        k, n = "premalo", 0
+        h1 = d24 = None
+    else:
+        k, n = v["key"], v["n"]
+        h1 = v["h1"]
+        # 10.11. (pregled): like ui/kol.py, a 24-h share from fewer than VERDICT_MIN_N calls is not shown ("100 %" of 1)
+        d24 = v["plus24"] / v["n24"] if (v.get("n24") or 0) >= KS.VERDICT_MIN_N else None
+    word = KS.VERDICT_WORD_EN[k] if lang == "en" else (v["word"] if v else KS.VERDICT_WORD[k])
+    few = " mut" if k == "premalo" else ""
+    return (f"<td class=vdc><span class='vd {KS.VERDICT_DOT[k]}'></span>{esc(word)}</td>"
+            f"<td class='n vdc{few}'>{_pct(h1)}</td><td class='n vdc{few}'>{_pct(d24)}</td>")
+
+
 def leaderboard(lang):
     t, x = L[lang], LB_T[lang]
     allrows = influencers()
@@ -434,14 +553,17 @@ def leaderboard(lang):
     star_rows = [r for r in allrows if is_star(r, stars)][:50]
     rising = [r for r in allrows if not is_star(r, stars)][:100]
     c = t["cols"]
-    head = "".join(f"<th{' class=n' if j > 1 else ''}>{h}</th>" for j, h in enumerate(c))
+    # 10.11. (pregled): the verdict and the 1 h / 24 h columns never break inside a word on a phone
+    head = "".join(f"<th class='{'n ' if j > 2 else ''}{'vdc' if j in (2, 3, 4) else ''}'>{h}</th>" for j, h in enumerate(c))
+    vs = _verdicts()
 
     def table(rows):
         trs = []
         for i, r in enumerate(rows, 1):
             s = r["s"]
             trs.append(f"<tr><td class=mut>{i}</td><td><a href=\"{t['prof']}{r['handle']}\">@{esc(r['handle'])}</a></td>"
-                       f"<td class=n><b>{r['score']:.0f}</b>{_rng(s)}</td><td class=n>{_pct(s.get('hit_rate'))}</td>"
+                       + _verdict_cells(vs.get(r["handle"].lower()), lang)
+                       + f"<td class=n><b>{r['score']:.0f}</b>{_rng(s)}</td><td class=n>{_pct(s.get('hit_rate'))}</td>"
                        f"<td class='n {_cls(s.get('med_max24'))}'>{_pct(s.get('med_max24'), True)}</td>"
                        f"<td class=n>{_pct(s.get('rug_rate'))}</td><td class=n>{_pct(s.get('prepump_rate'))}</td>"
                        f"<td class=n>{_int(r['followers'], lang)}</td><td class=n>{s.get('measured', 0)}</td></tr>")
@@ -479,11 +601,15 @@ def leaderboard(lang):
           ".forEach(b=>b.classList.toggle('on',b===t));document.querySelectorAll('.bp[data-p]').forEach(p=>p.hidden="
           "p.dataset.p!==t.dataset.t);history.replaceState(null,'','#'+t.dataset.t)});"
           "if(location.hash==='#stars')document.querySelector('.lbt button[data-t=stars]').click()</script>")
-    how = "".join(f"<li>{h}</li>" for h in t["how"])
+    from ui import kolsummary as KS
+    how = "".join(f"<li>{h}</li>" for h in t["how"]).format(h1=_pct(KS.VERDICT_H1), d24=_pct(KS.VERDICT_D24),
+                                                             n=KS.VERDICT_MIN_N)
+    from ops import drustveni   # 19.11. (vlasnik): influencers refreshed once in 5 days, all resources on wallets
     body = (f"<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['lb_h1']}</h1><p class=lead>{t['lb_lead']}</p>"
-            f"</section>{tabs}<h2 class=s>{x['why_h']}</h2><ul class=how>{why}</ul>{cmp}"
+            f"</section>{drustveni.public_notice(lang)}{tabs}<h2 class=s>{x['why_h']}</h2><ul class=how>{why}</ul>{cmp}"
             f"<h2 class=s>{t['how_h']}</h2><ul class=how>{how}</ul>"
-            f"<div class=lock><p>{t['lb_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div>{js}")
+            f"<div class=lock><p>{t['lb_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div>"
+            + core_links("influencer", lang, skip={t["prof"] + r["handle"] for r in star_rows + rising}) + js)
     return _shell(lang, t["lb_title"], t["lb_desc"].format(n=len(allrows)), "/influencers", "/hr/influenceri", body)
 
 
@@ -533,7 +659,7 @@ def profile(handle, lang):
         post = (f"<a href=\"{esc(c['url'])}\" target=_blank rel=\"nofollow noopener\">{t['post']} ↗</a>"
                 if c["url"] and str(c["url"]).startswith("https://") else "–")
         crow.append(f"<tr><td class=mut>{d}</td><td><b>{esc(_sym(c['symbol'], c['token']))}</b></td>"
-                    f"<td class=n>{_usd(c['mcap0'])}</td>"
+                    f"<td class=n>{_usd(c['mcap0'], lang)}</td>"
                     + "".join(f"<td class='n {_cls(c[k])}'>{_pct(c[k], True)}</td>" for k in ("r1h", "r24h", "max24"))
                     + f"<td>{post}</td></tr>")
     ch = "".join(f"<th{' class=n' if 1 < j < 6 else ''}>{x}</th>" for j, x in enumerate(t["ccols"]))
@@ -550,7 +676,7 @@ def profile(handle, lang):
         "@context": "https://schema.org", "@type": "ProfilePage",
         "mainEntity": {"@type": "Person", "name": me["name"] or h, "alternateName": "@" + h,
                        "sameAs": [f"https://x.com/{h}"]},
-        "url": f"{base}{t['prof']}{h}"}) + "</script>" + honest["jsonld"])
+        "url": f"{base}{t['prof']}{h}"}).replace("</", "<\\/") + "</script>" + honest["jsonld"])   # 10.11. (pregled)
     lock = (f"<div class=lock><p>{P2[lang]['lock'].format(n=fresh)}</p><a class='btn sm' href={t['home']}#pristup>"
             f"{t['cta']}</a></div>")
     body = (f"<section class=ph1><div class=crumb><a href={t['lb']}>{t['back']}</a></div>"
@@ -613,7 +739,7 @@ def honest_block(handle, lang, me=None, kind="x"):
         if s["best"] and s["worst"]:
             def _row(lab, c):
                 return (f"<tr><td>{lab}</td><td><b>{esc(_sym(c['symbol'], c['token']))}</b></td>"
-                        f"<td class=mut>{time.strftime('%Y-%m-%d', time.gmtime(c['ts']))}</td><td class=n>{_usd(c['mcap0'])}</td>"
+                        f"<td class=mut>{time.strftime('%Y-%m-%d', time.gmtime(c['ts']))}</td><td class=n>{_usd(c['mcap0'], lang)}</td>"
                         f"<td class='n {_cls(c['r24h'])}'>{pct(c['r24h'], True)}</td></tr>")
             parts.append(f"<h2 class=s>{p['best_h']}</h2><div class=tw><table><tbody>{_row(p['best'], s['best'])}"
                          f"{_row(p['worst'], s['worst'])}</tbody></table></div>")
@@ -628,7 +754,8 @@ def honest_block(handle, lang, me=None, kind="x"):
                                                                    bhit=pct(basev.get("hit15")), rug=pct(s["rug"]), rugn=rugn)}}
            for q, a in p["faq"]] if s["enough"] else []
     jsonld = ('<script type="application/ld+json">' + json.dumps({"@context": "https://schema.org", "@type": "FAQPage",
-                                                                  "mainEntity": faq}) + "</script>") if faq else ""
+                                                                  "mainEntity": faq}).replace("</", "<\\/")
+              + "</script>") if faq else ""   # 10.11. (pregled): a name or answer with </script> cannot close the tag
     title = p["title"].format(h=label)
     if s["enough"]:
         desc = p["desc"].format(h=label, n=s["n"], up=pct(s["up1h"]), hit=pct(s["hit15"]), med=pct(s["med24"], True),
@@ -644,17 +771,41 @@ def honest_block(handle, lang, me=None, kind="x"):
 SECTIONS = {
     "en": [("/solana-meme-coins", "Meme coins", "Solana meme coins", "Top 100 Solana meme coins with charts and safety checks"),
            ("/influencers", "Influencers", "Crypto influencers", "Every influencer call measured: hit rate, rugs, late calls"),
-           ("/telegram-channels", "Telegram", "Crypto Telegram channels", "Crypto call channels on Telegram measured by what their calls did"),
+           ("/telegram-channels", "Telegram", "Crypto Telegram channels", "Crypto Telegram channels and their follower counts, updated weekly"),
            ("/glossary", "Glossary", "Crypto glossary", "Crypto and meme coin terms explained in plain words"),
            ("/blog", "Blog", "Blog", "Guides on wallet tracking, copy trading and rug pulls, with our data"),
            ("/best-crypto-tools", "Tools", "Best crypto tools", "Wallet trackers, trading bots, wallets, rug checkers and APIs compared, with prices")],
     "hr": [("/hr/solana-meme-coini", "Meme coini", "Solana meme coini", "Top 100 Solana meme coina s grafovima i sigurnosnom provjerom"),
            ("/hr/influenceri", "Influenceri", "Kripto influenceri", "Svaki poziv influencera izmjeren: pogodak, rugovi, kasni pozivi"),
-           ("/hr/telegram-kanali", "Telegram", "Kripto Telegram kanali", "Kripto call kanali na Telegramu izmjereni po tome što su im pozivi napravili"),
+           ("/hr/telegram-kanali", "Telegram", "Kripto Telegram kanali", "Kripto Telegram kanali i broj njihovih pratitelja, svaki tjedan"),
            ("/hr/rjecnik", "Rječnik", "Kripto rječnik", "Kripto i meme coin pojmovi objašnjeni jednostavno"),
            ("/hr/blog", "Blog", "Blog", "Vodiči o praćenju novčanika, copy tradingu i rug pullovima, s našim podacima"),
            ("/hr/najbolji-kripto-alati", "Alati", "Najbolji kripto alati", "Usporedba alata za praćenje novčanika, botova, novčanika, provjere ruga i API-ja, s cijenama")],
 }
+
+
+CORE_LINKS_H = {"coin": {"en": "More tokens we track with enough of our own data",
+                         "hr": "Još tokena koje pratimo s dovoljno naših podataka"},
+                "macro": {"en": "Macro influencers with the most scored calls",
+                          "hr": "Makro influenceri s najviše ocijenjenih poziva"},
+                "influencer": {"en": "Influencers with the most measured calls",
+                               "hr": "Influenceri s najviše izmjerenih poziva"}}
+
+
+def core_links(section, lang, skip=()):
+    """23.11. (SEO): crawlable links to the core pages of a section (ui/seoindex) that this hub does not link yet,
+    so every page in the sitemap is one click from a hub; "" when there are none."""
+    try:
+        from ui import seoindex
+        paths = [p for p in seoindex.section_paths(section, lang) if p not in skip]
+    except Exception as e:  # noqa: BLE001
+        print(f"seo: poveznice jezgre: {type(e).__name__}: {e}"[:200], flush=True)
+        return ""
+    if not paths:
+        return ""
+    chips = "".join(f"<a href=\"{esc(p)}\">{esc(('@' if section != 'coin' else '') + p.rsplit('/', 1)[1])}</a>"
+                    for p in paths)
+    return f"<h2 class=s>{CORE_LINKS_H[section][lang]}</h2><div class=chips>{chips}</div>"
 
 
 def nav_links(lang):
@@ -695,6 +846,17 @@ def _seo_extra(fn):
         return ""
 
 
+def _tp(fn, default=""):
+    """15.11.: the token pages (ui/tokenstranica.py: midcap pages, extra sections of the coin page); `default` if that
+    module fails, so the coin pages never break."""
+    try:
+        from ui import tokenstranica
+        return fn(tokenstranica)
+    except Exception as e:  # noqa: BLE001
+        print(f"tokenstranica: {type(e).__name__}: {e}"[:200], flush=True)
+        return default
+
+
 def _seo_robots():
     out = ()
     for mod in ("coinseo", "marketpub"):
@@ -705,75 +867,68 @@ def _seo_robots():
     return out
 
 
+# 23.11. (SEO): every Allow line with one real address it opens (tests/test_seo_indeks_offline renders each one).
+# Noindex sections stay crawlable on purpose: Google has to fetch a page to read its noindex (or its 410).
+ROBOTS_ALLOW = (
+    ("/$", "/"), ("/hr$", "/hr"), ("/sitemap.xml", "/sitemap.xml"),
+    ("/favicon", "/favicon.ico"), ("/apple-touch-icon.png", "/apple-touch-icon.png"), ("/icon-", "/icon-192.png"),
+    ("/site.webmanifest", "/site.webmanifest"), ("/static/landing/", None), ("/img/t/", None),
+    ("/influencers", "/influencers"), ("/influencer/", None), ("/hr/influenceri", "/hr/influenceri"),
+    ("/hr/influencer/", None), ("/solana-meme-coins", "/solana-meme-coins"),
+    ("/hr/solana-meme-coini", "/hr/solana-meme-coini"), ("/coin/", None), ("/hr/coin/", None),
+    ("/glossary", "/glossary"), ("/hr/rjecnik", "/hr/rjecnik"), ("/blog", "/blog"), ("/hr/blog", "/hr/blog"),
+    ("/best-crypto-tools", "/best-crypto-tools"), ("/hr/najbolji-kripto-alati", "/hr/najbolji-kripto-alati"),
+    ("/telegram-channels", "/telegram-channels"), ("/telegram/", None), ("/hr/telegram-kanali", "/hr/telegram-kanali"),
+    ("/hr/telegram/", None), ("/autopilot$", "/autopilot"), ("/hr/autopilot$", "/hr/autopilot"),
+)
+
+
 def robots():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    return ("User-agent: *\nAllow: /$\nAllow: /sitemap.xml\nAllow: /favicon\nAllow: /apple-touch-icon.png\nAllow: /icon-\nAllow: /site.webmanifest\nAllow: /hr$\nAllow: /influencers\nAllow: /influencer/\nAllow: /hr/influenceri\n"
-            "Allow: /hr/influencer/\nAllow: /solana-meme-coins\nAllow: /hr/solana-meme-coini\nAllow: /coin/\n"
-            "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /best-crypto-tools\nAllow: /hr/najbolji-kripto-alati\n"
-            "Allow: /telegram-channels\nAllow: /telegram/\nAllow: /hr/telegram-kanali\nAllow: /hr/telegram/\n"
-            + "".join(f"Allow: {p}\n" for p in _seo_robots()) + "Allow: /static/landing/\nDisallow: /\n\n"
+    return ("User-agent: *\n" + "".join(f"Allow: {p}\n" for p, _ex in ROBOTS_ALLOW)
+            + "".join(f"Allow: {p}\n" for p in _seo_robots()) + _makroinf_robots()
+            + "Disallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
 
 
-def sitemap():
-    base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    day = time.strftime("%Y-%m-%d", time.gmtime())
-    urls = [("/", "/hr", "1.0"), ("/influencers", "/hr/influenceri", "0.9")]
-    urls.append(("/solana-meme-coins", "/hr/solana-meme-coini", "0.9"))
+APP_ROBOTS = "User-agent: *\nDisallow: /\n"   # the app host (APP_URL): nothing of it belongs in search
+
+
+def _makroinf_robots():
+    """15.11. (makroinf/): the macro influencer pages' Allow lines, only while the owner switch makroinf_javno is on."""
     try:
-        from ui import coins as K
-        urls += [(f"/coin/{c['slug']}", f"/hr/coin/{c['slug']}", "0.8") for c in K.top()]
+        from makroinf import public as mpub
+        return mpub.robots_lines()
     except Exception:  # noqa: BLE001
-        pass
-    from ui import glossary_public as GP
-    urls.append(("/glossary", "/hr/rjecnik", "0.8"))
-    urls += [(f"/glossary/{e['en']}", f"/hr/rjecnik/{e['hr']}", "0.6") for e in GP.ENTRIES]
+        return ""
+
+
+def _makroinf_page(path):
+    """15.11. (makroinf/): fn() for /macro-influencers, /macro-influencer/<h> and the Croatian twins, else None. While
+    the owner switch makroinf_javno is off the fn answers None, so the page is a 404."""
     try:
-        from ui import coinseo
-        urls += coinseo.urls()
+        from makroinf import public as mpub
+        return mpub.match(path)
     except Exception as e:  # noqa: BLE001
-        print(f"sitemap: coinseo nedostupan: {e}", flush=True)
-    try:
-        from ui import marketpub
-        urls += marketpub.urls()
-    except Exception as e:  # noqa: BLE001
-        print(f"sitemap: tržište nedostupno: {e}", flush=True)
-    try:
-        from ui import tools
-        urls += tools.urls()
-    except Exception as e:  # noqa: BLE001
-        print(f"sitemap: alati nedostupni: {e}", flush=True)
-    try:   # 9.11.: offered to search engines only with 10+ clean measured calls (ui/kolstats.py), thin pages are noindex
-        from ui import kolstats as KS
-        con = _con()
-        clean = {}
-        if con is not None:
-            try:
-                clean = KS.clean_counts(con, prefix="")
-            finally:
-                con.close()
-        urls += [(f"/influencer/{r['handle']}", f"/hr/influencer/{r['handle']}", "0.7") for r in influencers()
-                 if clean.get(r["handle"], 0) >= KS.MIN_CLEAN]
-    except Exception as e:  # noqa: BLE001  (one broken source must not empty the whole sitemap)
-        print(f"sitemap: influenceri nedostupni: {e}", flush=True)
-    try:
-        from ui import telegrampub
-        urls += telegrampub.urls()
-    except Exception as e:  # noqa: BLE001
-        print(f"sitemap: telegram nedostupan: {e}", flush=True)
+        print(f"makroinf javno: {type(e).__name__}: {e}", flush=True)
+        return None
+
+
+def sitemap():
+    """23.11. (SEO, vlasnik: "smanjiš sitemapu, staviš samo relevantne stranice"): only the core of ui/seoindex.py
+    (hubs, editorial pages, the capped data pages), never anything else. lastmod is the day the page's content or data
+    last changed (no lastmod where we cannot say), never a future day."""
+    from ui import seoindex
+    base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">']
-    for en, hr, pr in urls:
-        for loc in (en, hr):
-            out.append(f"<url><loc>{base}{loc}</loc><lastmod>{day}</lastmod><priority>{pr}</priority>"
-                       f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
-                       f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/></url>')
-    from ui import blog
-    for en, hr, pr in blog.urls():   # posts without a Croatian version get no alternates
+    for en, hr, pr, mod in seoindex.core_urls():   # a page without a Croatian twin gets no alternates
+        alt = (f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
+               f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/>'
+               f'<xhtml:link rel="alternate" hreflang="x-default" href="{base}{en}"/>') if hr else ""
+        last = f"<lastmod>{mod}</lastmod>" if mod else ""
         for loc in (en, hr) if hr else (en,):
-            alt = (f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
-                   f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/>') if hr else ""
-            out.append(f"<url><loc>{base}{loc}</loc><lastmod>{day}</lastmod><priority>{pr}</priority>{alt}</url>")
+            out.append(f"<url><loc>{base}{loc}</loc>{last}<priority>{pr}</priority>{alt}</url>")
     out.append("</urlset>")
     return "\n".join(out)
 
@@ -792,8 +947,40 @@ def _seo_page(path):
     return None
 
 
-def route(path):
-    """(code, body bytes, content type) for a public path, or None when the path is not public."""
+GONE = b"410 Gone\n"   # 23.11. (SEO): Telegram channel pages that are not on the filtered list
+
+
+_ROBOTS_META = re.compile(r"<meta name=[\"']?robots[\"']?", re.I)
+
+
+def policy(path, html):
+    """The page as ui/seoindex decides: a page outside the core gets <meta name=robots content="noindex,follow">
+    (once; a page that already says noindex by itself keeps it). Every public page built here passes through this."""
+    from ui import seoindex
+    if seoindex.indexable(path) or _ROBOTS_META.search(html.split("</head>", 1)[0]):
+        return html
+    return html.replace("<meta charset=utf-8>", '<meta charset=utf-8>\n<meta name=robots content="noindex,follow">', 1) \
+        if "<meta charset=utf-8>" in html else html.replace("<head>", '<head><meta name=robots content="noindex,follow">', 1)
+
+
+def _makroinf_sync():
+    """15.11. (vlasnik: "... osvježavati i stranice koje vide korisnici i Google"): after a macro influencer scoring (or
+    a flip of the switch makroinf_javno) the cached macro pages, the sitemap and robots.txt are dropped here
+    (makroinf/web.sync; one look at makroinf.db per 20 s at most)."""
+    try:
+        from makroinf import web
+        if web.sync():   # 23.11.: the macro section of the indexed core follows the new scores / the switch
+            from ui import seoindex
+            seoindex.poke()
+    except Exception as e:  # noqa: BLE001 - the copies then simply live out CACHE_S
+        print(f"makroinf javno: osvježavanje: {type(e).__name__}: {e}"[:200], flush=True)
+
+
+def route(path, gate=False):
+    """(code, body bytes, content type) for a public path, or None when the path is not public.
+    gate: a visitor's request (run_ui, not logged in): a page that is not cached is built only with a slot of
+    ui/javniteret (at most UI_PUBLIC_BUILDS at once, none above UI_MEM_SHED_MB), else (503, tiny body, text/plain)
+    and run_ui adds Retry-After. The same path asked by several visitors at once is built once (23.11., hitno)."""
     if path in ("/robots.txt", "/sitemap.xml"):
         fn, ctype = (robots, "text/plain") if path == "/robots.txt" else (sitemap, "application/xml")
     elif path in ("/solana-meme-coins", "/hr/solana-meme-coini"):
@@ -803,17 +990,21 @@ def route(path):
         fn, ctype = _seo_page(path), "text/html"
     elif re.fullmatch(r"(/hr)?/coin/[^/]+", path):
         lang, slug = ("hr" if path.startswith("/hr") else "en"), path.rsplit("/", 1)[1]
-        fn, ctype = (lambda: coin_page(slug, lang)), "text/html"
+        fn, ctype = (lambda: coin_page(slug, lang) or _tp(lambda T: T.page(slug, lang), None)), "text/html"
     elif path in ("/influencers", "/hr/influenceri"):
         lang = "en" if path == "/influencers" else "hr"
         fn, ctype = (lambda: leaderboard(lang)), "text/html"
+    elif _makroinf_page(path):   # 15.11. (makroinf/): 404 while the owner switch makroinf_javno is off
+        fn, ctype = _makroinf_page(path), "text/html"
     elif path in ("/telegram-channels", "/hr/telegram-kanali"):
         from ui import telegrampub
         lang = "en" if path == "/telegram-channels" else "hr"
         fn, ctype = (lambda: telegrampub.hub(lang)), "text/html"
     elif re.fullmatch(r"(/hr)?/telegram/[^/]+", path):
-        from ui import telegrampub
+        from ui import seoindex, telegrampub
         lang, ch = ("hr" if path.startswith("/hr") else "en"), path.rsplit("/", 1)[1]
+        if not seoindex.tg_listed(ch):   # 23.11. (SEO): not a filtered crypto call channel: gone for good, no read
+            return 410, GONE, "text/plain"
         fn, ctype = (lambda: telegrampub.profile(ch, lang)), "text/html"
     elif path in ("/glossary", "/hr/rjecnik"):
         lang = "en" if path == "/glossary" else "hr"
@@ -841,28 +1032,158 @@ def route(path):
             return None
         lang, h = ("hr" if m.group(1) else "en"), m.group(2)
         fn, ctype = (lambda: profile(h, lang)), "text/html"
+    _makroinf_sync()   # 15.11.: a public page is served: drop the macro copies first if a scoring came since
     now = time.time()
+    ttl = _ttl(path)
     with _lock:
         hit = _cache.get(path)
-    if hit and now - hit[0] < CACHE_S:
-        return hit[1], hit[2], ctype
+        fresh = bool(hit) and now - hit[0] < ttl
+        ev = None if fresh else _inflight.get(path)
+        mine = not fresh and ev is None
+        if mine:
+            ev = _inflight[path] = threading.Event()
+    if fresh:
+        return hit[1], _raw(hit[2]), ctype
+    if hit and path in KEEP_PATHS:   # 23.11. (SEO): the last sitemap / robots.txt at once, rebuilt in the background
+        if mine:
+            threading.Thread(target=_rebuild, args=(path, fn, ev), daemon=True, name="javno-osvjezi").start()
+        return hit[1], _raw(hit[2]), ctype
+    if not mine:   # 23.11.: someone builds this very page now: wait for that copy instead of building it again
+        ev.wait(60)
+        with _lock:
+            hit = _cache.get(path)
+        if hit:
+            return hit[1], _raw(hit[2]), ctype
+    try:
+        from ui import javniteret
+        try:
+            with (javniteret.slot() if gate and path not in KEEP_PATHS else contextlib.nullcontext()):
+                try:
+                    body = fn()
+                except Exception as e:  # noqa: BLE001
+                    print(f"javna stranica {path} nije uspjela: {e}", flush=True)
+                    body = None
+        except javniteret.Refused:
+            return 503, javniteret.BODY, "text/plain"
+        code = 200 if body else 404
+        if not body:
+            body = not_found_html(path)
+        elif ctype == "text/html":
+            body = policy(path, body)
+        raw = body.encode("utf-8")
+        _keep(path, now, code, raw)
+        return code, raw, ctype
+    finally:
+        if mine:
+            with _lock:
+                _inflight.pop(path, None)
+            ev.set()
+
+
+# 23.11. (hitno): the copies were raw HTML (~54 KB a channel or influencer page, 2,000 of them = ~110 MB in the UI
+# process during a crawl) and were all dropped at once past 2,000. Now gzipped (~15 KB), bounded by bytes, the oldest
+# copy goes first; the Telegram pages (a list refreshed once in 5-7 days) are kept longer.
+CACHE_MAX_MB = float(os.environ.get("PUBLIC_CACHE_MAX_MB") or 24)
+TG_CACHE_S = int(os.environ.get("PUBLIC_TG_CACHE_S") or 6 * 3600)
+KEEP_PATHS = ("/sitemap.xml", "/robots.txt")
+KEEP_S = 3600
+
+
+def _ttl(path):
+    if path in KEEP_PATHS:
+        return KEEP_S
+    return TG_CACHE_S if re.match(r"(/hr)?/telegram(/|-channels$|-kanali$)", path) else CACHE_S
+
+
+def _rebuild(path, fn, ev):
+    """A stale sitemap / robots.txt rebuilt in the background (no gate: never refused); the old copy stays on error."""
     try:
         body = fn()
+        if body:
+            _keep(path, time.time(), 200, body.encode("utf-8"))
     except Exception as e:  # noqa: BLE001
-        print(f"javna stranica {path} nije uspjela: {e}", flush=True)
-        body = None
-    code = 200 if body else 404
-    if not body:
-        lang = "hr" if path.startswith("/hr") else "en"
-        body = _shell(lang, "404", "", "/influencers", "/hr/influenceri",
-                      f"<section class=ph1><h1>404</h1><p class=lead><a href={L[lang]['lb']}>{L[lang]['back']}</a></p>"
-                      "</section>")
-    raw = body.encode("utf-8")
+        print(f"javna stranica {path} nije osvježena: {type(e).__name__}: {e}"[:200], flush=True)
+    finally:
+        with _lock:
+            _inflight.pop(path, None)
+        ev.set()
+
+
+def _raw(gz):
+    return gzip.decompress(gz)
+
+
+def _keep(path, now, code, raw):
+    gz = gzip.compress(raw, 5)
     with _lock:
-        if len(_cache) > 2000:
-            _cache.clear()
-        _cache[path] = (now, code, raw)
-    return code, raw, ctype
+        _cache.pop(path, None)
+        _cache[path] = (now, code, gz)
+        total = sum(len(v[2]) for v in _cache.values())
+        for k in [k for k in _cache if k not in KEEP_PATHS and k != path]:   # the oldest first, never the sitemap
+            if total <= CACHE_MAX_MB * 1e6:
+                break
+            total -= len(_cache.pop(k)[2])
+
+
+# ---------- the daily refresh (02:00, run_web.py daily) --------------------------------------------------------------
+
+def drop_caches():
+    """Every in-memory copy of public data in this process is dropped, so the next view of each public page is built
+    from the databases as they are after the night's refresh. Called once per refresh by the marker watch
+    (ui/sitelog.watch -> ui/landing.refreshed), never from a request. Returns how many rendered pages were dropped.
+    The copies: rendered public pages (CACHE_S), the market snapshot (ui/marketpub, 30 min), the median account
+    (ui/kolstats, 1 h) and the group-call numbers of the landing page (ourtoken/advisor, 1 h)."""
+    with _lock:
+        n = len(_cache)
+        _cache.clear()
+    for what, drop in (("tržište", _drop_market), ("medijan računa", _drop_baseline), ("grupni pozivi", _drop_advisor),
+                       ("zajedničke kopije", _drop_shared)):
+        try:
+            drop()
+        except Exception as e:  # noqa: BLE001 - that copy then simply lives out its own cache time
+            print(f"javne stranice: kopija '{what}' nije odbačena: {type(e).__name__}: {e}", flush=True)
+    return n
+
+
+def _drop_shared():
+    from ui import javniteret   # 23.11.: the influencer rows, the Telegram list, the macro view
+    javniteret.forget()
+
+
+def _drop_market():
+    from ui import marketpub
+    with marketpub._lock:
+        marketpub._cache["t"] = 0.0     # the numbers stay as the fallback if the rebuild fails (marketpub.snapshot)
+
+
+def _drop_baseline():
+    from ui import kolstats
+    kolstats._BASE.clear()
+
+
+def _drop_advisor():
+    from ourtoken import advisor
+    advisor._CACHE.clear()
+
+
+def hub_paths():
+    """The public tables people land on (both languages) and the sitemap: what warm() rebuilds after the refresh."""
+    return [row[0] for lang in ("en", "hr") for row in SECTIONS[lang]] + ["/sitemap.xml"]
+
+
+def warm(paths=None, pause_s=1.0):
+    """Build the main public tables once after the night's refresh, one after another with a pause, so the first
+    visitor of the morning does not wait for them. Runs in the marker watch's thread. Returns how many were built."""
+    n = 0
+    for p in hub_paths() if paths is None else paths:
+        try:
+            if route(p):
+                n += 1
+        except Exception as e:  # noqa: BLE001
+            print(f"javne stranice: {p} nije pripremljena: {type(e).__name__}: {e}", flush=True)
+        if pause_s:
+            time.sleep(pause_s)
+    return n
 
 
 # ---------- top Solana meme coins ----------------------------------------------------------------------------------
@@ -876,7 +1197,7 @@ C = {
         lb_lead="The {n} largest Solana meme coins with real liquidity and holders, ranked by market cap. Click a coin "
                 "for its chart, safety check and which influencers called it.",
         cols=("#", "Coin", "Price", "24h", "Market cap", "Liquidity", "Holders", "24h volume"),
-        updated="Updated", p_title="{sym} price, market cap & holder analysis: is {name} safe? | MemeSonar",
+        updated="Updated", p_title="{sym} price, market cap & holders: is {name} safe? | MemeSonar",
         p_desc="{name} ({sym}) is the #{rank} Solana meme coin with a ${mcap} market cap and {holders} holders. Price "
                "chart, safety check, liquidity and the influencers who called it.",
         p_h1="{name} ({sym})", p_sub="price, holders and influencer calls",
@@ -908,7 +1229,7 @@ C = {
         lb_lead="{n} najvećih Solana meme coina s pravom likvidnošću i holderima, poredano po tržišnoj vrijednosti. "
                 "Klikni coin za graf, sigurnosnu provjeru i koji su ga influenceri zvali.",
         cols=("#", "Coin", "Cijena", "24 h", "Tržišna vrij.", "Likvidnost", "Holderi", "Volumen 24 h"),
-        updated="Osvježeno", p_title="{sym} cijena, market cap i analiza holdera: je li {name} siguran? | MemeSonar",
+        updated="Osvježeno", p_title="{sym} cijena, market cap i holderi: je li {name} siguran? | MemeSonar",
         p_desc="{name} ({sym}) je #{rank} Solana meme coin s tržišnom vrijednošću ${mcap} i {holders} holdera. Graf "
                "cijene, sigurnosna provjera, likvidnost i influenceri koji su ga zvali.",
         p_h1="{name} ({sym})", p_sub="cijena, holderi i pozivi influencera",
@@ -943,29 +1264,35 @@ def _hist_or_day(hist, key, day, t):
     return (day, t["chart_src_24"]) if day else (pts, t["chart_src_h"])
 
 
-def _price(p):
+def _price(p, lang="en"):
     if not p:
         return "–"
     if p >= 1:
-        return f"${p:,.2f}"
+        return _loc(f"${p:,.2f}", lang)
     if p >= 0.01:
-        return f"${p:.4f}"
+        return _loc(f"${p:.4f}", lang)
     dec = min(14, 3 - math.floor(math.log10(p)))      # 4 significant digits: $0.007281, $0.00001234
-    return f"${p:.{dec}f}"
+    return _loc(f"${p:.{dec}f}", lang)
 
 
-def _chg(x):
+def _chg(x, lang="en"):
     """Jupiter gives percent (e.g. -0.45 = -0.45%)."""
     if x is None:
         return "–"
-    return f"<span class={'pos' if x > 0 else 'neg' if x < 0 else 'mut'}>{x:+.1f}%</span>"
+    return f"<span class={'pos' if x > 0 else 'neg' if x < 0 else 'mut'}>{_loc(f'{x:+.1f}', lang)}%</span>"
 
 
-def _icon(u, sym):
+def _icon(u, sym, mint="", size=24):
+    """A coin's icon. 15.11. (vlasnik: "slike se ne učitavaju"): with the mint, from our own address (ui/tokenicons:
+    fetched once on the server, small, cached, the initials when there is none); the outside link only without one."""
+    style = "border-radius:50%;display:inline-block;vertical-align:middle;margin-right:8px;background:#eef"
+    from ui import tokenicons
+    own = tokenicons.img(mint, size, style)
+    if own:
+        return own
     if u and str(u).startswith("https://"):
-        return (f"<img src=\"{esc(u)}\" alt=\"\" width=24 height=24 loading=lazy referrerpolicy=no-referrer "
-                "onerror=\"this.style.visibility='hidden'\" "
-                "style='border-radius:50%;display:inline-block;vertical-align:middle;margin-right:8px;background:#eef'>")
+        return (f"<img src=\"{esc(u)}\" alt=\"\" width={size} height={size} loading=lazy referrerpolicy=no-referrer "
+                f"onerror=\"this.style.visibility='hidden'\" style='{style}'>")
     return ""
 
 
@@ -975,12 +1302,12 @@ def coin_list(lang):
     rows = K.top()
     trs = []
     for r in rows:
-        trs.append(f"<tr><td class=mut>{r['rank']}</td><td><a href=\"{t['prof']}{r['slug']}\">{_icon(r['icon'], r['symbol'])}"
+        trs.append(f"<tr><td class=mut>{r['rank']}</td><td><a href=\"{t['prof']}{r['slug']}\">{_icon(r['icon'], r['symbol'], r.get('mint'))}"
                    f"{esc(r['name'] or r['symbol'])}</a> <span class=mut>{esc(r['symbol'])}</span>"
-                   f"<div class='m mut'>{t['cols'][4]} {_usd(r['mcap'])}</div></td>"
-                   f"<td class=n>{_price(r['price'])}</td><td class=n>{_chg(r['chg24h'])}</td>"
-                   f"<td class='n x'>{_usd(r['mcap'])}</td><td class='n x'>{_usd(r['liq'])}</td>"
-                   f"<td class='n x'>{_int(r['holders'], lang)}</td><td class='n x'>{_usd(r['vol24'])}</td></tr>")
+                   f"<div class='m mut'>{t['cols'][4]} {_usd(r['mcap'], lang)}</div></td>"
+                   f"<td class=n>{_price(r['price'], lang)}</td><td class=n>{_chg(r['chg24h'], lang)}</td>"
+                   f"<td class='n x'>{_usd(r['mcap'], lang)}</td><td class='n x'>{_usd(r['liq'], lang)}</td>"
+                   f"<td class='n x'>{_int(r['holders'], lang)}</td><td class='n x'>{_usd(r['vol24'], lang)}</td></tr>")
     head = "".join(f"<th class='{'n' if j > 1 else ''}{' x' if j > 3 else ''}'>{x}</th>" for j, x in enumerate(t["cols"]))
     upd = max((r["updated"] or 0 for r in rows), default=0)
     when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(upd)) if upd else ""
@@ -990,7 +1317,8 @@ def coin_list(lang):
     body = (f"<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['lb_h1']}</h1>"
             f"<p class=lead>{t['lb_lead'].format(n=len(rows) or 100)}</p></section>{table}"
             f"<div class=lock><p>{base_t['lb_lock']}</p><a class='btn sm' href={base_t['home']}#pristup>{base_t['cta']}</a></div>"
-            + _seo_extra(lambda S: S.list_links(lang)))
+            + _seo_extra(lambda S: S.list_links(lang))
+            + core_links("coin", lang, skip={f"{t['prof']}{r['slug']}" for r in rows}))
     jsonld = ('<script type="application/ld+json">' + json.dumps({
         "@context": "https://schema.org", "@type": "ItemList", "name": t["lb_h1"],
         "itemListElement": [{"@type": "ListItem", "position": r["rank"], "name": f"{r['name']} ({r['symbol']})",
@@ -1012,14 +1340,14 @@ def coin_page(slug, lang):
     same = name.lower().lstrip("$") == sym.lower().lstrip("$")
     a = json.loads(r["audit"] or "{}")
     hold = _int(r["holders"], lang)
-    summary = t["summary"].format(name=name, rank=r["rank"] or "–", mcap=_usd(r["mcap"]), holders=hold,
-                                  liq=_usd(r["liq"]), vol=_usd(r["vol24"]),
-                                  chg=(f"{r['chg24h']:+.1f}%" if r["chg24h"] is not None else "–"))
+    summary = t["summary"].format(name=name, rank=r["rank"] or "–", mcap=_usd(r["mcap"], lang), holders=hold,
+                                  liq=_usd(r["liq"], lang), vol=_usd(r["vol24"], lang),
+                                  chg=(_loc(f"{r['chg24h']:+.1f}", lang) + "%" if r["chg24h"] is not None else "–"))
     c24 = r["chg24h"]
-    chg_card = (f"<b class={'pos' if c24 > 0 else 'neg'}>{c24:+.1f}%</b>" if c24 is not None else "<b>–</b>")
+    chg_card = (f"<b class={'pos' if c24 > 0 else 'neg'}>{_loc(f'{c24:+.1f}', lang)}%</b>" if c24 is not None else "<b>–</b>")
     cards = "".join(f"<div class=card>{v if v.startswith('<b') else f'<b>{v}</b>'}<span>{lab}</span></div>"
-                    for v, lab in zip((_price(r["price"]), _usd(r["mcap"]), chg_card, hold, _usd(r["liq"]),
-                                       _usd(r["vol24"])), t["cards"]))
+                    for v, lab in zip((_price(r["price"], lang), _usd(r["mcap"], lang), chg_card, hold, _usd(r["liq"], lang),
+                                       _usd(r["vol24"], lang)), t["cards"]))
     # price chart: our daily candles when we have them, else our own snapshots
     if len(o["candles"]) >= 7:
         pp, psrc = [(c["day"], c["c"]) for c in o["candles"]], t["chart_src_d"].format(n=len(o["candles"]))
@@ -1055,12 +1383,13 @@ def coin_page(slug, lang):
         h = c["handle"] or ""
         who = (f"<a href=\"{base_t['prof']}{esc(h)}\">@{esc(h)}</a>" if HANDLE.fullmatch(h) else esc(h))
         crow.append(f"<tr><td class=mut>{time.strftime('%Y-%m-%d', time.gmtime(c['ts']))}</td><td>{who}</td>"
-                    f"<td class=n>{_usd(c['mcap0'])}</td>"
+                    f"<td class=n>{_usd(c['mcap0'], lang)}</td>"
                     + "".join(f"<td class='n {_cls(c[k])}'>{_pct(c[k], True)}</td>" for k in ("r1h", "r24h", "max24"))
                     + "</tr>")
     ch = "".join(f"<th{' class=n' if j > 1 else ''}>{x}</th>" for j, x in enumerate(t["ccols"]))
     calls = (f"<div class=tw><table><thead><tr>{ch}</tr></thead><tbody>{''.join(crow)}</tbody></table></div>"
              if crow else f"<p class=mut>{t['no_calls']}</p>")
+    calls = _tp(lambda T: T.coin_calls(r["mint"], lang)) or calls   # 15.11.: clean calls, X + Telegram
     lock = ("<div class=lock style='display:block'><b style='font-size:18px'>" + t["lock_h"] + "</b><ul class=lk>"
             + "".join(f"<li>🔒 {x.format(n=o['fresh'])}</li>" for j, x in enumerate(t["lock"])
                       if j != (3 if o["fresh"] else 2))
@@ -1068,7 +1397,7 @@ def coin_page(slug, lang):
     rows = K.top()
     idx = next((i for i, x in enumerate(rows) if x["mint"] == r["mint"]), None)
     near = [x for x in rows[max(0, (idx or 0) - 4):(idx or 0) + 5] if x["mint"] != r["mint"]][:8] if idx is not None else []
-    sim = "".join(f"<a href=\"{t['prof']}{x['slug']}\">{esc(x['symbol'])} · {_usd(x['mcap'])}</a>" for x in near)
+    sim = "".join(f"<a href=\"{t['prof']}{x['slug']}\">{esc(x['symbol'])} · {_usd(x['mcap'], lang)}</a>" for x in near)
     mint = esc(r["mint"])
     links = (f"<a href=\"https://dexscreener.com/solana/{mint}\" target=_blank rel=\"nofollow noopener\">DexScreener ↗</a> · "
              f"<a href=\"https://solscan.io/token/{mint}\" target=_blank rel=\"nofollow noopener\">Solscan ↗</a>")
@@ -1087,16 +1416,17 @@ def coin_page(slug, lang):
         "mainEntity": [{"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": x}}
                        for q, x in faq]}) + "</script>")
     body = (f"<section class=ph1><div class=crumb><a href={t['lb_path']}>{t['back']}</a></div>"
-            f"<h1>{_icon(r['icon'], sym).replace('24', '44', 2)}{t['p_h1'].format(name=name, sym=sym)} "
+            f"<h1>{_icon(r['icon'], sym, r.get('mint'), 44)}{t['p_h1'].format(name=name, sym=sym)} "
             f"<span class=mut style='font-weight:500;font-size:.5em'>{t['p_sub']}</span></h1>"
             f"<p class=lead>{summary}</p></section><div class=cards>{cards}</div>{charts}{lock}"
             f"<h2 class=s>{t['safe_h']}</h2>{safe}<h2 class=s>{t['calls_h']}</h2><p class=mut>{t['calls_note']}</p>{calls}"
+            f"{_tp(lambda T: T.coin_extra(r, lang))}"
             f"{addr}<h2 class=s>{t['faq_h'].format(sym=sym)}</h2><div class=faq style='margin:0'>{faq_html}</div>"
             f"{_seo_extra(lambda S: S.more(r, lang, 'coin'))}"
             + (f"<h2 class=s>{t['similar']}</h2><div class=chips>{sim}</div>" if sim else ""))
     title = t["p_title"].format(name=r["name"] or r["symbol"], sym=r["symbol"])
     desc = t["p_desc"].format(name=r["name"] or r["symbol"], sym=r["symbol"], rank=r["rank"] or "–",
-                              mcap=_usd(r["mcap"]).lstrip("$"), holders=hold)
+                              mcap=_usd(r["mcap"], lang).lstrip("$"), holders=hold)
     return _shell(lang, title, desc, f"/coin/{slug}", f"/hr/coin/{slug}", body, jsonld=jsonld)
 
 
@@ -1179,7 +1509,7 @@ def glossary_term(slug, lang):
             f"<p class=lead><b style='color:var(--fg)'>{esc(name)}:</b> {esc(short)}</p></section>"
             f"<div class=gbody>" + (f"<p>{esc(long)}</p>" if long else "")
             + (f"<div class=card style='margin:18px 0'><span class=mut style='font-size:13px'>{g['ex']}</span>"
-               f"<p style='margin:6px 0 0'>{esc(ex)}</p></div>" if ex else "") + live + "</div>"
+               f"<p style='margin:6px 0 0'>{esc(ex)}</p></div>" if ex else "") + live + GP.extra(e, lang) + "</div>"
             + (f"<h2 class=s>{g['rel']}</h2><div class=chips>{rel}</div>" if rel else "")
             + f"<div class=lock><p>{L[lang]['lb_lock']}</p><a class='btn sm' href={L[lang]['home']}#pristup>"
               f"{L[lang]['cta']}</a></div>")
@@ -1190,8 +1520,13 @@ def glossary_term(slug, lang):
          "url": f"{base}{g['path']}{s_}",
          "inDefinedTermSet": {"@type": "DefinedTermSet", "name": g["h1"], "url": base + g["idx"]}},
         {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
-            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": answer}}]}],
+            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": answer}}]},
+        {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [   # 23.11.
+            {"@type": "ListItem", "position": 1, "name": g["h1"], "item": base + g["idx"]},
+            {"@type": "ListItem", "position": 2, "name": name, "item": f"{base}{g['path']}{s_}"}]}],
         ensure_ascii=False) + "</script>")
     title = g["t_title"].format(q=q, name=name)
-    desc = (short + " " + long)[:155].rsplit(" ", 1)[0] + "…" if len(short + " " + long) > 155 else short
+    if len(seo_title(title)) > 60:      # 23.11.: "What is FDV (...)? FDV (...) explained" repeats itself; the question alone
+        title = q
+    desc = (short + " " + long)[:155].rsplit(" ", 1)[0] + "…" if len(short + " " + long) > 155 else (short + " " + long).strip()
     return _shell(lang, title, desc, f"/glossary/{e['en']}", f"/hr/rjecnik/{e['hr']}", body, jsonld=jsonld)

@@ -45,7 +45,7 @@ def trim():
     mem.trim()
 
 
-def _render(key, build):
+def _render(key, build, light=False):
     """Render once even when several threads ask at the same moment (0.5 CPU can't afford doing it twice)."""
     with _lock:
         ev = _inflight.get(key)
@@ -59,7 +59,7 @@ def _render(key, build):
         if hit:
             return hit
     try:
-        return _build(key, build)
+        return _build(key, build, light)
     finally:
         if mine:
             with _lock:
@@ -73,11 +73,25 @@ def _snap_file(key):
     return os.path.join(SNAP_DIR, (key[0].strip("/").replace("/", "_") or "index") + ".html.gz")
 
 
+def _same_snapshot(f, gz):
+    """True when the file already holds this page (gzip bytes differ per call because of the header time, so the
+    contents are compared). run_ui._last_copy serves the old snapshot as a 200 and _build would save it again with
+    a new mtime, so the copy would never count as older than SNAP_MAX_S while the heavy lock stays busy (9.11.)."""
+    try:
+        with open(f, "rb") as fh:
+            old = fh.read()
+        return gzip.decompress(old) == gzip.decompress(gz)
+    except (OSError, EOFError, gzip.BadGzipFile, ValueError):
+        return False
+
+
 def _save_snap(key, gz):
     f = _snap_file(key)
     if not f:
         return
     try:
+        if _same_snapshot(f, gz):   # 9.11. (audit P33 review): a served-again old copy keeps its age
+            return
         os.makedirs(SNAP_DIR, exist_ok=True)
         tmp = f + ".tmp"
         with open(tmp, "wb") as fh:
@@ -104,17 +118,31 @@ def _load_snap(key, stale_ok=False):
     return (time.time() - FRESH_S - 1, 200, None, gz) if gz else None
 
 
-def _build(key, build):
-    with _build_slots:
+class _NoSlot:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _build(key, build, light=False):
+    # light: the English copy of a cached page (a text walk that may wait for translations, 13.11.): it holds no rows,
+    # so it does not take the one build slot the heavy page builds share
+    from ops import mem
+    with (_NoSlot() if light else _build_slots):
         t0 = time.time()
-        code, raw = build()
+        with mem.watch(key[0]):   # 20.11. (2): a build in the background (warm, refresh) is named too
+            res = build()
         dt = time.time() - t0
+    code, raw = res[0], res[1]
+    keep = res[2] if len(res) > 2 else True   # 13.11.: an English copy still partly Croatian is served, not kept
     entry = _pack(code, raw)
-    del raw
+    del raw, res
     trim()
     if dt > SLOW_S:
         print(f"ui: {key[0]} se gradio {dt:.1f} s", flush=True)
-    if code == 200:
+    if code == 200 and keep:
         _save_snap(key, entry[3])
         with _lock:
             _store[key] = entry
@@ -127,9 +155,9 @@ def _build(key, build):
     return entry
 
 
-def _refresh(key, build):
+def _refresh(key, build, light=False):
     try:
-        _render(key, build)
+        _render(key, build, light)
     except Exception as e:  # noqa: BLE001 - 5.11.: used to be silent, so a page could stay stale for days
         print(f"pagecache: osvježavanje {key[0]} palo: {type(e).__name__}: {str(e)[:120]}", flush=True)
     finally:
@@ -137,8 +165,9 @@ def _refresh(key, build):
             _busy.discard(key)
 
 
-def get(key, build):
-    """(code, raw, gz) for `key`; build() -> (code, raw bytes) renders the page. Only 200 answers are stored."""
+def get(key, build, light=False):
+    """(code, raw, gz) for `key`; build() -> (code, raw bytes[, keep]) renders the page. Only 200 answers are stored,
+    and not those with keep=False."""
     now = time.time()
     with _lock:
         hit = _store.get(key)
@@ -156,11 +185,43 @@ def get(key, build):
     if hit and age < FRESH_S:
         return hit[1:]
     if start_bg:
-        threading.Thread(target=_refresh, args=(key, build), daemon=True, name="page-refresh").start()
+        threading.Thread(target=_refresh, args=(key, build, light), daemon=True, name="page-refresh").start()
         return hit[1:]
     if hit and age < STALE_S:      # someone else is already refreshing it
         return hit[1:]
-    return _render(key, build)[1:]   # older than STALE_S: rebuilt now, so a broken build shows its error, not old data
+    return _render(key, build, light)[1:]   # older than STALE_S: rebuilt now, so a broken build shows its error, not old data
+
+
+def get_bg(key, build, placeholder):
+    """Like get(), but a page that is in neither memory nor on disk is rendered in the background and placeholder()
+    -> (code, raw bytes) is returned at once; a copy older than STALE_S is served while it is refreshed instead of
+    rebuilt while the visitor waits. For the HEAVY pages (run_ui): 9.11. 19:32 a visitor waited 60-180 s for the
+    child, Cloudflare gave up at 100 s, and the UI process was meanwhile pushed past the memory watchdog."""
+    with _lock:
+        hit = _store.get(key)
+    if hit is None:
+        snap = _load_snap(key, stale_ok=True)
+        if snap:
+            with _lock:
+                hit = _store.setdefault(key, snap)
+    now = time.time()
+    with _lock:
+        hit = _store.get(key)
+        age = now - hit[0] if hit else None
+        start_bg = (hit is None or age >= FRESH_S) and key not in _busy
+        if start_bg:
+            _busy.add(key)
+    if start_bg:
+        threading.Thread(target=_refresh, args=(key, build), daemon=True, name="page-refresh").start()
+    if hit:
+        return hit[1:]
+    code, raw = placeholder()
+    return code, raw, None
+
+
+def snapshot(paths):
+    """Keep the plain view of `paths` on disk like warm() does, without rendering them now (9.11.: /ekipe, /kol)."""
+    _snap_paths.update(paths)
 
 
 def clear():
@@ -170,15 +231,24 @@ def clear():
         _store.clear()
 
 
-def warm(paths, build_for, every_s=None):
+def warm(paths, build_for, every_s=None, skip_fresh_s=0):
     """Render `paths` in the background now (and every `every_s` seconds if given), one after another.
-    Their plain views are also kept on disk (see SNAP_DIR)."""
+    Their plain views are also kept on disk (see SNAP_DIR). skip_fresh_s: a page whose stored copy is younger than
+    this is not rendered at all in that pass. 9.11. (audit): run_ui.warm_build returned the stored bytes for such a
+    page, but _build packed them again with ts=now, so the copy's age restarted on every pass (served as fresh up to
+    FRESH_S + skip_fresh_s) and with every_s below the threshold the page was never rebuilt; skipping here keeps the
+    real age."""
     _snap_paths.update(paths)
     def run():
         while True:
             for p in paths:
+                key = (p, "", None)
+                with _lock:
+                    hit = _store.get(key)
+                if skip_fresh_s and hit and time.time() - hit[0] < skip_fresh_s:
+                    continue
                 try:
-                    _render((p, "", None), lambda p=p: build_for(p))
+                    _render(key, lambda p=p: build_for(p))
                 except Exception:
                     pass
             if not every_s:

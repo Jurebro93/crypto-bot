@@ -1,0 +1,133 @@
+{
+ "1440 /pravi-trade": [
+  {
+   "box": "Limit (kupi na MC), trailing i način izlaza",
+   "open_ms": 36,
+   "content_ms": 36,
+   "still_open_1s": true,
+   "max_event_ms": 56
+  },
+  {
+   "box": "#apx-ostalo Postavke i dijagnostika pravila, Grok, zastavice, ",
+   "open_ms": null,
+   "content_ms": null,
+   "still_open_1s": false,
+   "max_event_ms": 0
+  }
+ ],
+ "1440 /paper": [
+  {
+   "box": "sl 13 (100%)",
+   "open_ms": 15,
+   "content_ms": 15,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  },
+  {
+   "box": "Više tradeova, brže učenje",
+   "open_ms": 34,
+   "content_ms": 34,
+   "still_open_1s": true,
+   "max_event_ms": 56
+  },
+  {
+   "box": "Nova pravila ulaza (od 1. 11.)",
+   "open_ms": 43,
+   "content_ms": 43,
+   "still_open_1s": true,
+   "max_event_ms": 64
+  },
+  {
+   "box": "Zatvoreni trejdovi",
+   "open_ms": 130,
+   "content_ms": 130,
+   "still_open_1s": true,
+   "max_event_ms": 120
+  },
+  {
+   "box": "DCA prijedlozi (kupnja u padu)",
+   "open_ms": 56,
+   "content_ms": 56,
+   "still_open_1s": true,
+   "max_event_ms": 72
+  },
+  {
+   "box": "Kandidati i odluke",
+   "open_ms": 67,
+   "content_ms": 67,
+   "still_open_1s": true,
+   "max_event_ms": 64
+  }
+ ],
+ "1440 /tokens": [
+  {
+   "box": "#tk-odb Odbačeni · 2 (rug ili pao na provjeri)",
+   "open_ms": 25,
+   "content_ms": 25,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  }
+ ],
+ "375 /pravi-trade": [
+  {
+   "box": "#apx-ostalo Postavke i dijagnostika pravila, Grok, zastavice, ",
+   "open_ms": null,
+   "content_ms": null,
+   "still_open_1s": false,
+   "max_event_ms": 64
+  }
+ ],
+ "375 /paper": [
+  {
+   "box": "sl 13 (100%)",
+   "open_ms": 32,
+   "content_ms": 32,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  },
+  {
+   "box": "Više tradeova, brže učenje",
+   "open_ms": 31,
+   "content_ms": 31,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  },
+  {
+   "box": "Nova pravila ulaza (od 1. 11.)",
+   "open_ms": 47,
+   "content_ms": 47,
+   "still_open_1s": true,
+   "max_event_ms": 56
+  },
+  {
+   "box": "Zatvoreni trejdovi",
+   "open_ms": 111,
+   "content_ms": 111,
+   "still_open_1s": true,
+   "max_event_ms": 80
+  },
+  {
+   "box": "DCA prijedlozi (kupnja u padu)",
+   "open_ms": 92,
+   "content_ms": 92,
+   "still_open_1s": true,
+   "max_event_ms": 104
+  },
+  {
+   "box": "Kandidati i odluke",
+   "open_ms": 48,
+   "content_ms": 48,
+   "still_open_1s": true,
+   "max_event_ms": 48
+  }
+ ],
+ "375 /tokens": [
+  {
+   "box": "#tk-odb Odbačeni · 2 (rug ili pao na provjeri)",
+   "open_ms": 30,
+   "content_ms": 30,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  }
+ ]
+}

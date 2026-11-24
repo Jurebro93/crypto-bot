@@ -77,12 +77,20 @@ class Coins(unittest.TestCase):
                   "FAQPage", "last 24 hours", "<svg", "1 influencer calls from the last 24 hours", "/coin/bonk"):
             self.assertIn(s, html)
         self.assertNotIn("freshcaller", html)                                  # fresh calls stay members-only
-        self.assertIn("je li Pudgy Penguins siguran", public.route("/hr/coin/pengu")[1].decode())
+        hr = public.route("/hr/coin/pengu")[1].decode()
+        self.assertIn("je li Pudgy Penguins siguran", hr)
+        # 13.11. (SEO audit): Croatian number format on the Croatian page, English on the English one
+        self.assertNotRegex(hr.split("<script")[0], r"\$\d+\.\d[kMB]")
+        self.assertRegex(hr, r"\$\d+,\d[kMB]")
+        self.assertRegex(html, r"\$\d+\.\d[kMB]")
         self.assertEqual(public.route("/coin/nope")[0], 404)
         self.assertIn((public.route("/coin/../etc") or [404])[0], (404,))      # never a page
         sm = public.route("/sitemap.xml")[1].decode()
-        self.assertIn("https://example.com/coin/pengu", sm)
-        self.assertIn("https://example.com/solana-meme-coins", sm)
+        # 23.11. (SEO, ui/seoindex): a coin page is in the sitemap only with enough of our own data (none here);
+        # without it the page lives on as noindex,follow
+        self.assertNotIn("https://example.com/coin/pengu", sm)
+        self.assertIn("noindex,follow", html.split("</head>")[0])
+        self.assertIn("https://example.com/solana-meme-coins<", sm)
         self.assertIn("Allow: /coin/", public.route("/robots.txt")[1].decode())
 
     def test_day_series_and_price_format(self):

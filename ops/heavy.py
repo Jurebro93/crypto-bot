@@ -112,10 +112,57 @@ def slot(wait=None, priority=False, label=None):
 
 NICE = int(os.environ.get("HEAVY_NICE", "10"))   # 9.11. 19:05: CPU at 100 % from run_dugo/wallets score starved the UI
 
+# 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): the heavy, non-urgent jobs (scoring, learning, wallet scoring,
+# calendar, long-term layer) run only in this window of Zagreb hours; by day the single CPU belongs to the Autopilot,
+# the live feeds and the pages. "from-to" with to exclusive; "" (empty) = any time, as before.
+# 9.11. (audit): default 01-06 Zagreb, the window CLAUDE.md names (teški poslovi 01–06 CET) and learn/masovno.py
+# already uses; at 00:xx deploys still come, so the heavy jobs start an hour later.
+NIGHT = os.environ.get("HEAVY_NIGHT", "1-6")
+NIGHT_TZ = "Europe/Zagreb"
+
+
+def night_hours():
+    """(from, to) Zagreb hours of the night window, or None when the window is off."""
+    try:
+        a, b = NIGHT.split("-")
+        a, b = int(a), int(b)
+    except (ValueError, AttributeError):
+        return None
+    if not NIGHT or a == b:
+        return None
+    return a, b
+
+
+def night_now(now=None):
+    """True when heavy jobs may run: inside the night window (or no window configured)."""
+    win = night_hours()
+    if win is None:
+        return True
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    h = (now or dt.datetime.now(dt.timezone.utc)).astimezone(ZoneInfo(NIGHT_TZ)).hour
+    a, b = win
+    return a <= h < b if a < b else (h >= a or h < b)   # "22-6" wraps midnight
+
+
+def wait_for_night(label=None, step=60):
+    """Block until the night window; one log line when the wait starts."""
+    if night_now():
+        return
+    win = night_hours()
+    print(f"noć: {label or 'posao'} čeka noćni prozor ({win[0]:02d}-{win[1]:02d} Zagreb)", flush=True)
+    while not night_now():
+        time.sleep(step)
+
 
 def _nicer():
+    """The child goes TO nice NICE, not down BY it. 10.11.: start.sh now starts the background loops themselves at
+    nice 10 (low keep sched ...); another 10 on top would put a heavy job, which often holds a database lock that
+    others wait for, below every light job."""
     try:
-        os.nice(NICE)
+        now = os.nice(0)
+        if now < NICE:
+            os.nice(NICE - now)
     except OSError:
         pass
 
@@ -132,14 +179,31 @@ def run(args, wait=None, priority=False, **kw):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    priority = False
-    if argv and argv[0] == "--prio":
-        priority = True
+    priority = night = False
+    while argv and argv[0] in ("--prio", "--night"):
+        if argv[0] == "--prio":
+            priority = True
+        else:
+            night = True   # 9.11.: wait for the night window (HEAVY_NIGHT) before taking the lock
         argv = argv[1:]
     if not argv:
-        sys.exit("upotreba: python3 -m ops.heavy [--prio] SKRIPTA.py [argumenti]")
+        sys.exit("upotreba: python3 -m ops.heavy [--prio] [--night] SKRIPTA.py [argumenti]")
     if argv[0].endswith(".py") or argv[0] == "-m":
         argv = [sys.executable] + argv
+    try:   # 15.11. (owner switch fokus_midcap, ops/fokus.py): a microcap job ends at once, before the night wait / lock
+        from ops import fokus
+        if fokus.skip_cmd(argv):
+            return 0
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour
+        pass
+    try:   # 19.11. (vlasnik: influenceri i Telegram jednom u 5 dana, ops/drustveni.py): outside the refresh window a
+        from ops import drustveni   # social job ends at once, before the night wait and the lock (one line a day)
+        if drustveni.skip_cmd(argv):
+            return 0
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour
+        pass
+    if night:
+        wait_for_night(_label(argv))
     return run(argv, priority=priority).returncode
 
 

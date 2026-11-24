@@ -3,6 +3,68 @@
 Jedan zapis po danu, uvijek isti odjeljci: Odlučeno · U tijeku · Čeka Juru · Odbačeno · Bot u 5 brojki.
 Piše ga alat svaki dan u 18:00 CET i šalje Juri; stariji dani ostaju ovdje da se ne traži po porukama.
 
+## 9.11.2026. (kasna večer, deploy #75 i TP/SL po podacima)
+
+### Odlučeno i napravljeno (spojeno, radi)
+- Deploy #75 u 23:16 CET (Jure: "Da, mergaj sada"): gušenje servera i pop-up "Učitavam…". Provjereno na Renderu 12 min nakon deploya: KOL search krug 86 s (prije 2.809 s i 1.981 s), CPU 5–41 % (prije 100 % po 30–47 min svakog sata), nula 5xx od 23:21 (502/503 samo u minuti deploya), UI proces 66–69 MB, pravi trade petlja živa.
+- Uzroci (Render metrike + ispisi stanja procesa): upit graph_candidates skenirao je tablicu poziva za svaki redak grafa praćenja; čitanje "poziva zadnjeg sata" svake sekunde skeniralo je cijelu tablicu Telegram objava (85 MB) i X spominjanja jer nemaju indeks po vremenu; pop-up je slao zahtjev svake sekunde ne čekajući prethodni; UI je držao samo 5 veza u redu čekanja.
+
+### U tijeku (alat radi sam, u grani, nije na serveru)
+- TP/SL po podacima (Jure: "TP 20 / SL −40? koliko pogodaka treba? neka alat dinamički odluči"). Račun: treba = (SL + trošak) / (TP + SL); TP 15/SL 20 traži 63 %, TP 20/SL 40 traži 70 %: širi stop diže prag. Minutna provjera sprema prvu minutu dodira svake razine; kol/tpsl.py po izvoru bira par (10+ poziva, povučeno prema "bez prednosti", dokazano na starijim i novijim pozivima, prosjek iznad nule i na donjoj granici od 2 standardne pogreške) ili kaže "ne ulazi". Simulacija: izvor bez prednosti prolazi u 1–9 % slučajeva (samo po prosjeku 7–30 %), izvor s jakom prednošću u 42–97 %, ovisno o broju poziva i nemiru cijene. Novi izlaz praćenja "po podacima" za influencere i ekipe, zatvaranje nakon 60 min; na stranici redak "Po podacima: …" uz svako praćenje i tablica "Koji TP/SL se isplati" preko svih izmjerenih poziva. Brojke se pune nakon sljedećeg deploya.
+
+- "Što je novo" stajalo je na 5.11. (Jure 23:35: "ispada da se na alatu ne radi"): upisano 31 novost za 6.–10.11. u share/novosti.json, samo hrvatski tekst (bez engleskih polja unos ne ide na karticu ni u večernju X objavu), bez internih naziva i troškova. Vidljivo nakon sljedećeg deploya.
+
+- Autopilot, Jurine primjedbe 9./10.11. oko ponoći (u grani): (1) "koga već pratim ne prikazuj u prijedlozima": u "Zovu sada" se popis zapraćenih čitao preko veze na kojoj to čitanje puca, greška se gutala i skup je uvijek bio prazan, pa nitko nikad nije nestao s liste; sad radi na svakoj vezi, u bilo kojem velikom/malom slovu, a zapraćeni u retku koji ostaje je zelen; upisani @Ime dobiva oblik iz baze (inače ga kopiranje nikad ne bi vidjelo). (2) "token s 0 volumena nema smisla": "Zovu sada" i "Preporučeni tokeni" nude samo token s 5+ transakcija u zadnjih 5 min (uživo); pop-up kaže zašto ga nema. (3) "brojke u tablicu kao na DexScreeneru": okviri MC / likvidnost i stupci 5 min / 1 h / 6 h / 24 h s cijenom, volumenom i kupnjama/prodajama. (4) društveni signal: 5+ različitih računa objavilo adresu u satu piše među razlozima. (5) javna naslovnica: slika u okviru mobitela koja još nije stigla je svijetla, ne crna. Neovisni pregled TP/SL koda našao je 10 stvari (najteža: stari redak je pod TP 50 knjižio zatvaranje sata iznad cilja); sve popravljeno, suite 1090 OK.
+
+### Čeka Juru
+1. Merge TP/SL po podacima i novosti (sljedeći skupni deploy), ne 01–06 CET.
+2. Sljedeći korak za "tokene koji se bude" (tvoj prijedlog): lista trending tokena koji su pali pa im se vraća promet, uz broj računa koji su objavili adresu u zadnja 3 h i kupnje dokazanih novčanika; treba li i omjer kupnji/prodaja kao signal uz provjeru može li se token prodati.
+2a. Za koja praćenja uključiti izlaz "po podacima": samo nova, ili prebaciti i postojeća influencer/ekipa praćenja?
+3. Novosti 6.–10.11. i na X (engleski tekst uz unose), ili ostaju samo u aplikaciji?
+4. Brava "dokaz u demu" za pravi novac ostaje (10 zatvorenih, PnL > 0, 40 % dobitnih); prijedlog da izvor s dokazom iz povijesti prođe ranije čeka tvoju odluku.
+
+### Odbačeno / nema smisla (po podacima)
+- Fiksni TP 20 / SL −40 kao zadani par: traži 70 % čistih pogodaka; dnevnik prijedloga (7 d) ima 49 % za +15 % prije stopa −20 %.
+
+### Bot u 5 brojki
+- Bez novih mjerenja večeras; vrijede brojke iz zapisa "9.11.2026. (večer)" dolje. Server nakon deploya: CPU 5–41 %, RAM 1,6–1,8 GB (od toga 1,3–1,5 GB keš datoteka), disk 2,1 GB slobodno.
+
+## 9.11.2026. (noć, audit)
+
+### Odlučeno i napravljeno (spojeno, radi)
+- Audit Autopilota (audit/2026-11-09-autopilot.md; 61 nalaz spojen iz 85 potvrđenih, 12 odbačenih) našao je tri vrste problema: (1) svježina – "⟳ 1 s" je crtao brojke iz 60-s DexScreener keša, 1-s fragmenti radili su HTTP i spavali u niti zahtjeva, prikazivalo se vrijeme crtanja umjesto vremena podatka; (2) tumačenje – light RugCheck izvještaj bez holdera bio je "rug check prošao", nepoznati udjeli holdera brojali su se kao 0 (bodovi za "dobru koncentraciju"), stara mjera pogotka (fitilj +50 % u 24 h) rangirala je influencere iako minutna mjera postoji, prodaje bez SOL iznosa pravile su ROI novčanika; (3) novac – kopije bez stopa, TP/SL od sirove umjesto stvarne cijene ulaza, svježina mjerena od demo ulaza umjesto od poziva, pravi novac bez dokaza u demu, Jupiter 429 tumačen kao "nema prodavača". Popravljeno u 6 grupa datoteka (pogon, izvori, novac, pravitrade, zivo, stranice) + integracija predaja među grupama; 1.037 testova zeleno (uključeno noćno pregledavanje dolje).
+- Pogon (PR #69–#72, #74, grana): priprema baza pri deployu traje sekunde (sažimanje i čišćenje prešlo u satni posao), teške stranice nikad se ne grade u UI procesu (dijete na nice 5, warmer ne gradi stranicu mlađu od 4 min), /ekipe i /kol u djetetu sa zadnjom kopijom na disku, market/usage lagani poslovi, noćni prozor 01–06 CET za teške poslove (Jure: "brave zakaži za iza ponoć"), danju CPU Autopilotu i stranicama.
+- Izvori: DexScreener živi keš 3 s (najmanje 2 s; limit 300/min dijele svi procesi) za Autopilot, demo TP/SL i copy petlju, skeneri 60 s; X i Helius webhook pri zaključanoj bazi spremaju na disk i vraćaju 200 (ništa se ne gubi); svježa provjera bez podatka o holderima = "oprez", ne "prolazi"; praćeni TG kanal koji nije u bazi ulazi odmah; dokazani novčanici s udjelom "bagova" (neprodanih) ≥ 30 % nisu za kopiranje; udjeli holdera/bundlera/snajpera iz RugCheck + rug filtera kad pump.fun ploče nema (i u skenu).
+- Novac: ulaz samo MC ≥ 30k, samo bondani, likvidnost ≥ 3 % MC-a, koncentracija blokira samo na POZNATO lošem podatku; zadani stop −20 % za svaku TP/SL kopiju bez upisanog stopa (isti prag kao minutna provjera), TP/SL od stvarne cijene ulaza; svježina od poziva; pravi novac samo praćenju s dokazom u demu (10+ zatvorenih, PnL > 0, 40 %+ dobitnih; ručne kupnje izuzete); prodaja upisuje namjeru prije swapa i usklađuje se poslije; Jupiter 429/4xx = "nema odgovora, ne kupujem naslijepo"; ručna kupnja provjerava TP/SL i ulog PRIJE upisa demo tradea; deploy šalje SIGTERM procesu pravog novca, koji dovrši prolaz i izađe.
+- Autopilot uživo (pravitrade + zivo): minutna provjera je primarni rang influencera (fitilj samo rezerva, označena "stara mjera"), i na karticama "+10 % prije stopa · N poziva"; pop-up verdikt traži svjež razlog, veto pozivatelja iz minutne provjere (svi poznati pozivatelji hit15 < 30 % na 5+ poziva → Kupi odbija), rug check "nije rađen" i "tko drži supply: nepoznato" umjesto prolaza, vrijeme RugCheck podatka umjesto prolaza provjere, red "likvidnost X % MC-a", dokaz u demu po praćenju ("pravi novac: da/ne"); 1-s fragmenti čitaju keš koji puni pozadinska nit (nema HTTP-a ni spavanja u niti zahtjeva), "podaci od HH:MM:SS UTC" umjesto vremena crtanja, "učitavam…" dok prve brojke ne stignu; novčanici: prodaja bez SOL iznosa = zatvoreno ali povrat nepoznat, udio neprodanih kažnjava; dokazani novčanici prvi izvor auto-izbora.
+- Stranice: minutna mjera i vruća lista na Influenceri/Copy trading/Pregled, oznake Autopilota na Walleti, starost tržišnih podataka i "ispod 30k" na Tokeni, holderi "nepoznato" (nikad bodovi za nepoznato), zadnji stvarni signal kao svježina prijedloga, kartica "Kupnje i prodaje svih webhook novčanika" (brojala je sve webhook novčanike, ne samo praćene).
+- Zašto samo jedan pravi trade (Jure, 9.11. večer): razlozi blokade bili su samo u tablici pozicija. Sad /pravi-trade pod "Koga bot prati" za svako praćenje piše "Zadnjih 24 h: N signala · M ulaza · preskočeno (razlozi)" iz dnevnika kopiranja, a svaka blokirana prava narudžba ide u serverski log ("trade: … PRESKOČENO simbol (izvor): razlog").
+- 22:00 "nešto guši aplikaciju" (Jure): Render metrike 1 CPU na 100 % po 30–47 min svakog sata, 502/499 na stranicama. Uzrok iz faulthandler ispisa KOL search kruga: upit graph_candidates (kol/discover.py) s NOT EXISTS … LOWER() skenirao je cijelu tablicu poziva (130 MB) za svaki redak grafa praćenja, pa je svaki krug sjedio 30+ min na toj liniji (dumpovi 20:06–21:36, "cmd_search trajao 2809 s" i "1981 s"). Popravak: handleovi koji su već objavljivali čitaju se jednom preko indeksa i filtriraju u Pythonu; uz to backlog UI servera 5 → 128 da nalet anketa čeka umjesto da ga kernel odbije (502). Uz noćni prozor za run_dugo/corr/wallets iz ove grane, dnevni CPU ostaje Autopilotu i stranicama.
+- 23:07 pop-up na Autopilotu stoji na "Učitavam…" (Jure, snimka): CPU opet 100 % od 23:03 (isti KOL search krug), a pop-up je slao novi zahtjev svake sekunde ne čekajući prethodni, i svaki je zahtjev iznova čitao kol.db, tg.db i hype.db; čitanje "zadnjih sat vremena" skeniralo je cijelu tablicu Telegram objava (85 MB) i X spominjanja jer nemaju indeks po vremenu. Popravak: indeksi posts(ts) i kol_mentions(ts) pri startu, zadnjih sat vremena poziva čita se jednom (pozadinska nit) i dijeli svim pop-upovima, skripte drže najviše jedan zahtjev u letu (odustanu nakon 8 s i napišu "server je spor"), isto za žive kartice, demo i natjecanje.
+- Ispravak ranijeg zapisa (popodne, "DexScreener batch keš 1 s"): keš je stvarno bio 60 s; sada živi keš 3 s, živa lista 2 s u pozadinskoj niti, skeneri 60 s.
+- Noćno pregledavanje grane (Jure: "optimiziraj rad servera na Renderu, brave zakaži za iza ponoć tek"): zadani noćni prozor u kodu bio je 00–06 Zagreb, sad je 01–06 kao u pravilu i masovnoj knjizi (u 00:xx još stižu deployi); lista "dokazani dvaput" i copy lista (samo čitanje baze) dobile vlastitu dnevnu petlju svaka 3 h umjesto jednom po noći iza bodovanja; "Što kupiti sada" na serveru kaže "učitavam…" dok pozadinska nit ne složi prvi prolaz (prije: prazno, odjeljak skriven); DexScreener odbijenica (429/5xx) za pop-up pamti se 3 s pa 1-s anketa ne radi HTTP u niti zahtjeva (vraća se slot star do 60 s ili ništa); zagrijavanje stranica preskače stranicu mlađu od 4 min bez ponovnog pakiranja (starost se više ne resetira); pečat "podaci od" na živoj listi uzima najstariji DexScreener podatak u redovima, ne vrijeme slaganja HTML-a.
+
+### U tijeku (alat radi sam)
+- Minutno punjenje 30 dana nastavlja (brojke u večernjem zapisu dolje); teški poslovi (dugoročni sken, puni KOL krug, bodovanje novčanika) čekaju noćni prozor 01–06 CET.
+- Pozadinske niti Autopilota pune živi keš; prvi gledatelj nakon deploya vidi "učitavam…" dok prve brojke ne stignu (nekoliko sekundi, ovisi o DexScreeneru).
+- Kalendar i DexScreener sken event-tokena idu samo noću (po Jurinoj želji): demo ulazi po događajima čitaju zadnji noćni popis, pa su event-tokeni po danu svježi najviše jedan dan.
+- Deploy ove grane: jedan merge za sve valove (pogon + izvori + novac su već u main kroz #69–#74; pravitrade, zivo, stranice, noćni prozor i integracija čekaju jedan PR).
+
+### Čeka Juru
+1. LIVE prekidač na /pravi-trade uključen od 16:20 UTC, a pravilo (CLAUDE.md) kaže "dry dok strategija ne dokaže edge u demu": ostaje uključen (sad s vratima "dokaz u demu"), ili isključiti dok barem jedno praćenje ne prođe prag?
+2. Pragovi dokaza u demu (10+ zatvorenih, PnL > 0, 40 %+ dobitnih) – potvrda; vrijede li i za izvore bez praćenja (SimianX, ručne kupnje s lige), koji sad idu bez tih vrata?
+3. PumpPortal podatkovni ključ/novčanik (≥ 0,02 SOL) – kao jučer: bez uplate živi tok ostaje ugašen.
+4. Jedan merge po valu (deploy skuplja promjene) ostaje pravilo, ili se svaka grupa spaja zasebno čim je zelena?
+5. Pravi trade SPSC 17:19–17:28 UTC, −0,024 SOL: tvoj ručni test ili ulaz Autopilota? S novim vratima (dokaz u demu, svježina od poziva) takav ulaz bi sada bio blokiran – je li to u redu?
+6. Tri manje odluke: smiju li X webhook računi bez monitora u auto-izbor influencera (P42)? Ostaje li veto slabih pozivatelja i na ručnu kupnju "Kupi odmah" (P47)? Smije li se .copy_wake maknuti iz gita (datoteka je u .gitignore, a ipak praćena)?
+7. Kalendar i sken event-tokena samo noću: ostaje li tako (cijena je dnevna svježina event-tokena za demo ulaze), ili sken natrag na dnevnu petlju (lagan, bez Heliusa)?
+
+### Odbačeno / nema smisla (po podacima)
+- 12 nalaza audita (§6 izvještaja): namjerni rezervni putovi i dokumentirane odluke (Pregled nudi zadnje prijedloge kad je živa lista prazna, 'since' pri startu pravog novca, holder polja kao značajke za učenje a ne pragovi, javna lista /tokens po broju holdera, UTC vs Zagreb u dnevnom limitu kozmetika) – ostaju kako jesu.
+
+### Bot u 5 brojki
+- Bez novih mjerenja (noć je otišla na popravke, ništa od ovoga još nije na serveru); vrijede brojke iz zapisa "9.11.2026. (večer)" dolje.
+
 ## 9.11.2026. (večer)
 
 ### Odlučeno i napravljeno (spojeno, radi)

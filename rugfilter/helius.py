@@ -117,7 +117,7 @@ def wallet_first_txs(wallet, limit=10):
                                                      "sortOrder": "asc", "limit": limit,
                                                      "maxSupportedTransactionVersion": 1}])
     out = [_as_enhanced(t) for t in res.get("data", [])]
-    http.cache_put(cache_key, out)
+    http.cache_put(cache_key, out, ttl=WEEK)
     return out
 
 

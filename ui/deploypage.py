@@ -6,14 +6,24 @@ one boots (~30-40 s, see start.sh). This page covers that gap in two ways:
   2. a tiny service worker (/sw.js) keeps a copy in the browser of everyone who opened the site once and shows it
      whenever a page comes back 502/503/504 or the server cannot be reached (the seconds before start.sh runs).
 The page checks every 3 s whether the real site is back and reloads by itself.
+Machine clients of the MCP endpoint (/mcp, /api/mcp/*) get a JSON 503 with Retry-After instead (api_answer, 10.11.).
 
-Light landing style (rule 34), mobile first, Croatian + English in one file; Croatian only for now
-(Nicholas, 1.11.), DEPLOY_LANG=auto picks from the cb_lang cookie, then the browser language. DEPLOY_SW=0 turns the service worker off everywhere (kill switch).
+Light landing style (rule 34), mobile first, Croatian + English in one file. 15.11. (vlasnik: the site is shown to many
+foreigners, and memesonar.app/ served the Croatian page during a deploy): English always, Croatian only when the
+request is clearly Croatian: the path is /hr or /hr/..., or the cb_lang cookie says hr (lang_for; never the browser
+language alone). The server renders the right language (deploy_wait.py, /cekamo-deploy) and the page's script decides
+again from its own address and cookie, so the service worker's one stored copy shows the right language as well.
+19.11. (vlasnik: still Croatian on his own devices, whose cb_lang cookie says hr): ENGLISH for everybody by default
+(forced_lang); DEPLOY_LANG=hr forces Croatian, DEPLOY_LANG=auto brings the per-request rule above back.
+DEPLOY_SW=0 turns the service worker off everywhere (kill switch).
+15.11. (vlasnik: "slike se ne učitavaju"): during a deploy deploy_wait.py serves images (static_answer) normally; only
+pages get this page. The service worker stores a copy only when it is a real 200 page (never a 503 / deploy answer).
 """
 import hashlib
 import html as _html
 import json
 import os
+import re
 from ui import favicon as _fav  # noqa: E402
 
 PATH = "/cekamo-deploy"      # the page itself: preview + what the service worker caches
@@ -119,9 +129,9 @@ footer{text-align:center;font-size:12px;color:var(--mut);padding:0 16px 22px}
 
 JS = r"""
 (function(){
-var D=window.__D,lang=D.lang||'hr';   // Croatian only for now (DEPLOY_LANG=auto: cookie, then browser language)
-if(lang==='auto')lang=(document.cookie.match(/(?:^|; )cb_lang=(hr|en)/)||[])[1]||
-  (/^(hr|bs|sr)/.test((navigator.language||'').toLowerCase())||location.hostname.indexOf('app.')===0?'hr':'en');
+var D=window.__D,lang=D.lang||'auto';
+// 15.11.: English always; Croatian only for a /hr address or the cb_lang=hr cookie (never the browser language alone)
+if(lang!=='hr'&&lang!=='en')lang=/^\/hr(\/|$)/.test(location.pathname)||/(?:^|; )cb_lang=hr(?:;|$)/.test(document.cookie)?'hr':'en';
 var en=lang==='en',T=D.t[lang],$=function(id){return document.getElementById(id)};
 document.documentElement.lang=lang;
 var off=navigator.onLine===false,j=D.jokes[Math.floor(Math.random()*D.jokes.length)];
@@ -178,33 +188,61 @@ TEXT = {
 _cache = {}
 
 
-def html():
-    """The whole page as one string (no outside files: it must work while the server is down)."""
-    if "p" not in _cache:
+def forced_lang():
+    """19.11. (vlasnik: "rekao sam da se prevede na engleski stranica dok se radi novi deploy. Vidim da nije to
+    napravljeno": the rule of 15.11. still showed Croatian on HIS devices, because his own cb_lang cookie says hr, and
+    those are the devices he shows the site to foreigners on): ENGLISH for everybody by default. DEPLOY_LANG=hr forces
+    Croatian; DEPLOY_LANG=auto brings back the per-request rule of 15.11. (lang_for: Croatian for /hr or cb_lang=hr)."""
+    v = (os.environ.get("DEPLOY_LANG") or "").strip().lower()
+    if v == "auto":
+        return ""
+    return "hr" if v == "hr" else "en"
+
+
+def lang_for(path="/", cookie=""):
+    """15.11.: "en" always, "hr" only for a clearly Croatian request: the path /hr or /hr/..., or the cb_lang=hr cookie.
+    The browser's own language (Accept-Language) is never enough on its own."""
+    if forced_lang():
+        return forced_lang()
+    p = (path or "/").split("?", 1)[0].split("#", 1)[0]
+    if p == "/hr" or p.startswith("/hr/"):
+        return "hr"
+    for part in (cookie or "").split(";"):
+        k, _, v = part.strip().partition("=")
+        if k == "cb_lang" and v.strip() == "hr":
+            return "hr"
+    return "en"
+
+
+def html(lang="en"):
+    """The whole page as one string (no outside files: it must work while the server is down), rendered in `lang`;
+    its script checks the language again from the address and the cookie where it is shown (lang_for, the same rule)."""
+    lang = "hr" if lang == "hr" else "en"
+    if lang not in _cache:
         svg, name = _logo()
         data = json.dumps({"jokes": JOKES, "news": _news(), "t": TEXT,
-                           "lang": os.environ.get("DEPLOY_LANG", "hr")}, ensure_ascii=False).replace("</", "<\\/")
-        j = JOKES[0]
-        _cache["p"] = f"""<!doctype html><html lang=hr><head><meta charset=utf-8>
+                           "lang": forced_lang() or "auto"}, ensure_ascii=False).replace("</", "<\\/")
+        j, t, en = JOKES[0], TEXT[lang], lang == "en"
+        _cache[lang] = f"""<!doctype html><html lang={lang}><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><meta name=robots content="noindex,nofollow">
-<meta name=theme-color content="#ffffff"><title>Deploy u tijeku · {_html.escape(name)}</title>{_fav.HEAD}
+<meta name=theme-color content="#ffffff"><title>{_html.escape(t['title'])} · {_html.escape(name)}</title>{_fav.HEAD}
 <style>{CSS}</style></head><body><main>
 <div class=top>{svg}<span>{_html.escape(name)}</span></div>
-<div class=pill><span class=dot></span><span id=pill>{TEXT['hr']['pill']}</span></div>
+<div class=pill><span class=dot></span><span id=pill>{t['pill']}</span></div>
 <div class=sonar aria-hidden=true><i></i><i></i><i></i><div class=sweep></div><b>🚀</b></div>
-<h1 id=h>{_html.escape(j[0])}</h1><p class=sub id=s>{_html.escape(j[2])}</p>
+<h1 id=h>{_html.escape(j[1 if en else 0])}</h1><p class=sub id=s>{_html.escape(j[3 if en else 2])}</p>
 <div class=cnt><svg width=34 height=34 viewBox="0 0 34 34"><circle cx=17 cy=17 r=14 stroke="#e8ebf2"/>
 <circle id=ring cx=17 cy=17 r=14 stroke="#0fb5a0" stroke-linecap=round /></svg><span id=cl>…</span></div>
-<div class=row><button class="btn p" id=again type=button>Probaj sad</button></div>
+<div class=row><button class="btn p" id=again type=button>{t['again']}</button></div>
 <section class=card id=news><h2 id=nh></h2><p><b id=nt></b><span id=nx></span></p></section>
 <section class=card><h2 id=gh></h2><div class=game id=g aria-hidden=true></div>
 <div class=meta><span id=sc></span><span id=ath></span></div>
-<div class=row style="margin-top:4px"><button class="btn p" id=pump type=button>Pumpaj</button>
-<button class="btn g" id=dump type=button>Prodaj</button></div></section>
-<p class=safe id=safe>{TEXT['hr']['safe']}</p>
+<div class=row style="margin-top:4px"><button class="btn p" id=pump type=button>{t['pump']}</button>
+<button class="btn g" id=dump type=button>{t['dump']}</button></div></section>
+<p class=safe id=safe>{t['safe']}</p>
 </main><footer>memesonar.app</footer>
 <script>window.__D={data};</script><script>{JS}</script></body></html>"""
-    return _cache["p"]
+    return _cache[lang]
 
 
 def sw_on():
@@ -220,10 +258,16 @@ def sw_js():
                 "self.addEventListener('activate',function(e){e.waitUntil(caches.keys().then(function(k){"
                 "return Promise.all(k.filter(function(n){return n.indexOf('ms-deploy')===0}).map(function(n){return caches.delete(n)}))})"
                 ".then(function(){return self.registration.unregister()}))});")
-    ver = hashlib.sha1(html().encode("utf-8")).hexdigest()[:10]
+    ver = hashlib.sha1((html("en") + html("hr")).encode("utf-8")).hexdigest()[:10]
+    # 15.11.: the copy is stored only when it is a real 200 page from the app (good()): never a 503, a deploy_wait
+    # answer (X-MemeSonar-Deploy) or a redirect; images and API calls are never touched (only navigations)
     return f"""// MemeSonar: friendly page instead of a bare 502 while a new version starts (ui/deploypage.py)
 var C='ms-deploy-{ver}',P='{PATH}',H='{HEADER.lower()}';
-self.addEventListener('install',function(e){{e.waitUntil(caches.open(C).then(function(c){{return c.add(new Request(P,{{cache:'reload'}}))}})
+function good(res){{return !!res&&res.status===200&&res.type==='basic'&&!res.redirected&&!res.headers.get(H)&&
+  (res.headers.get('content-type')||'').indexOf('text/html')===0}}
+self.addEventListener('install',function(e){{e.waitUntil(fetch(new Request(P,{{cache:'reload',credentials:'same-origin'}}))
+  .then(function(res){{if(!good(res))throw new Error('deploy page not stored: '+res.status);
+    return caches.open(C).then(function(c){{return c.put(P,res)}})}})
   .then(function(){{return self.skipWaiting()}}))}});
 self.addEventListener('activate',function(e){{e.waitUntil(caches.keys().then(function(k){{return Promise.all(k.filter(function(n){{
   return n.indexOf('ms-deploy')===0&&n!==C}}).map(function(n){{return caches.delete(n)}}))}}).then(function(){{return self.clients.claim()}}))}});
@@ -242,3 +286,91 @@ def register_tag():
                 ".getRegistrations().then(function(r){r.forEach(function(x){x.unregister()})}).catch(function(){})</script>")
     return ("<script>if('serviceWorker'in navigator&&location.protocol==='https:')window.addEventListener('load',function()"
             "{navigator.serviceWorker.register('/sw.js').catch(function(){})})</script>")
+
+
+# ---------- images during a deploy (15.11., vlasnik: "slike se ne učitavaju") -----------------------------------------
+# deploy_wait.py answered every address with the 503 page, images too: a page open during one of the day's ~8 deploys
+# (or loaded from Cloudflare/the browser just then) got that HTML for its screenshots, favicons and og images and kept
+# the broken pictures until a reload. Now images come from the disk as usual; only pages get the deploy page.
+STATIC_DIR = os.path.join(_ROOT, "ui", "static", "landing")
+_LANDING = re.compile(r"^/static/landing/([a-z0-9\-]+\.(jpg|png|webp))$")   # the same file names run_ui._static serves
+_TYPES = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+
+def static_answer(path):
+    """(status, headers, body) for a static file while the app is starting, None for everything else (pages keep the
+    deploy page): /static/landing/<file> and the favicons from the disk with run_ui's cache times, a token icon
+    (/img/t/<mint>.webp) from the icon cache or its initials placeholder (ui/tokenicons.cached: never a fetch here).
+    A missing file is a 404, never a 503."""
+    path = (path or "").split("?", 1)[0]
+    m = _LANDING.match(path)
+    if m:
+        try:
+            with open(os.path.join(STATIC_DIR, m.group(1)), "rb") as f:
+                body = f.read()
+        except OSError:
+            return 404, {"Content-Type": "text/plain", "Cache-Control": "no-store"}, b""
+        return 200, {"Content-Type": _TYPES[m.group(2)], "Cache-Control": "public, max-age=86400"}, body
+    if path in _fav.PATHS:
+        try:
+            body, ctype = _fav.get(path)
+        except (OSError, TypeError):
+            return 404, {"Content-Type": "text/plain", "Cache-Control": "no-store"}, b""
+        return 200, {"Content-Type": ctype, "Cache-Control": "public, max-age=604800"}, body
+    if path.startswith("/img/t/"):
+        from ui import tokenicons
+        m = tokenicons.ROUTE.match(path)
+        if not m:
+            return 404, {"Content-Type": "text/plain", "Cache-Control": "no-store"}, b""
+        return tokenicons.cached(m.group(1))
+    return None
+
+
+# ---------- machine clients during a deploy (MCP) --------------------------------------------------------------------
+# 10.11. (Grok MCP audit 11): during a deploy the MCP endpoint answered with the HTML page above and an HTTP error, so an
+# MCP client (Grok) got a page it cannot read instead of "try again". The hosted MCP endpoint (POST /mcp, JSON-RPC 2.0)
+# and its REST data (/api/mcp/*) now get a 503 in JSON with Retry-After from deploy_wait.py; browsers keep the page.
+API_RETRY_S = 30
+RPC_DEPLOY_CODE = -32001   # JSON-RPC server-error range (-32000..-32099): implementation-defined, here "retry later"
+RPC_DEPLOY_MSG = "MemeSonar deploy in progress, retry later"
+API_BODY_MAX = 200_000     # read at most this much of a request body (run_ui._mcp_rpc reads the same)
+
+
+def is_api(path):
+    """True for the addresses machine clients use, routed the same way as run_ui: /mcp exactly, and /api/mcp/..."""
+    path = (path or "").split("?", 1)[0]
+    return path == "/mcp" or path.startswith("/api/mcp/")
+
+
+def _rpc_id(msg):
+    """The id of one JSON-RPC request when it is a valid id (string or number, never a bool), else None."""
+    if isinstance(msg, dict):
+        mid = msg.get("id")
+        if isinstance(mid, (str, int, float)) and not isinstance(mid, bool):
+            return mid
+    return None
+
+
+def _rpc_error(mid):
+    return {"jsonrpc": "2.0", "id": mid, "error": {"code": RPC_DEPLOY_CODE, "message": RPC_DEPLOY_MSG,
+                                                    "data": {"retry_after": API_RETRY_S}}}
+
+
+def api_answer(path, body=b""):
+    """(503, headers, JSON bytes) for an MCP request while the app is starting; None for every other address (those
+    keep the HTML page). /mcp: a JSON-RPC 2.0 error with the request's id (null when the body is not JSON or carries
+    no usable id; a batch gets one error per request that has an id). /api/mcp/*: {"error", "retry_after"}."""
+    if not is_api(path):
+        return None
+    if path.split("?", 1)[0] == "/mcp":
+        try:
+            msg = json.loads(body or b"null")
+        except (ValueError, TypeError):   # not JSON (UnicodeDecodeError is a ValueError too)
+            msg = None
+        if isinstance(msg, list):
+            out = [_rpc_error(_rpc_id(m)) for m in msg[:50] if isinstance(m, dict) and "id" in m] or _rpc_error(None)
+        else:
+            out = _rpc_error(_rpc_id(msg))
+    else:
+        out = {"error": "deploy in progress", "retry_after": API_RETRY_S}
+    return 503, {"Content-Type": "application/json", "Retry-After": str(API_RETRY_S)}, json.dumps(out).encode("utf-8")

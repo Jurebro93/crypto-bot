@@ -51,10 +51,13 @@ def parse_level(text, entry_px, entry_mcap, kind, pct_base=None):
     return (pct_base or entry_px) * (1 + pct / 100), f"{pct:+g}%"
 
 
-def set_auto(con, user, trade_id, mode, tp="", sl="", from_eff=False):
+def set_auto(con, user, trade_id, mode, tp="", sl="", from_eff=False, hold_s=None, until=None):
     """from_eff (9.11., audit P38): percent TP/SL measured from the effective entry (entry_eff: fee + impact) instead
     of the raw entry price, so "+15 %" means +15 % on what was really paid. Copy trading (real money) uses it; the
-    players' own rules keep the raw entry (their tests and pages count on it)."""
+    players' own rules keep the raw entry (their tests and pages count on it).
+    hold_s (9.11., kol/tpsl.py): a TP/SL chosen from the measured hour after a call is only known for that hour, so
+    the position is sold at the market hold_s seconds after it was opened if neither level was touched (stored as
+    the unix time `until`; a DCA buy passes the stored `until` back so the limit does not restart)."""
     t = con.execute("SELECT * FROM trades WHERE id=? AND user=? AND status='open'", (trade_id, user)).fetchone()
     if not t:
         raise ValueError("nema te otvorene pozicije")
@@ -76,6 +79,8 @@ def set_auto(con, user, trade_id, mode, tp="", sl="", from_eff=False):
                 "tp_in": tp or "", "sl_in": sl or ""}   # typed text: a DCA buy re-reads a percent from the new average
         if from_eff:
             auto["from_eff"] = True
+        if until or hold_s:
+            auto["until"] = int(until or (t["opened_ts"] or time.time()) + hold_s)
     else:
         raise ValueError("nepoznat način")
     con.execute("UPDATE trades SET auto=?, auto_state=NULL WHERE id=?", (json.dumps(auto) if auto else None, trade_id))
@@ -182,6 +187,10 @@ def describe(auto_json):
     if a["mode"] == "smart":
         return "auto: Smart sell"
     parts = ([f"TP {a['tp']}"] if a.get("tp") else []) + ([f"SL {a['sl']}"] if a.get("sl") else [])
+    if a.get("until"):   # 9.11.: a data exit (kol/tpsl.py) is closed at the end of the measured hour
+        import datetime as _dt
+        import zoneinfo
+        parts.append("najdulje do " + _dt.datetime.fromtimestamp(a["until"], zoneinfo.ZoneInfo("Europe/Zagreb")).strftime("%H:%M"))
     return "auto: " + ", ".join(parts)
 
 
@@ -201,12 +210,272 @@ def _klasa(tokens):
         return {}
 
 
+def _tpsl_hit(a, price, liq, now):
+    """What closes a TP/SL position at this price, or None."""
+    return (("TP " + a["tp"]) if a.get("tp_px") and price >= a["tp_px"] else
+            ("SL " + a["sl"]) if a.get("sl_px") and price <= a["sl_px"] else
+            "vrijeme (ni TP ni SL u izmjerenom roku)" if a.get("until") and now >= a["until"] and (liq or 0) > 0
+            else None)   # 10.11. (review): a liquidity read of 0 at the deadline would book -100 %: wait a pass
+
+
+def tpsl_rule(hit, price=None):
+    """10.11. (Grok MCP audit 1): the exit_rule of a TP/SL close (league/store.EXIT_RULES) from _tpsl_hit's text;
+    a close at no price is a rug. A group exit (several lots on one average, ui/pravitrade) is the same TP / SL."""
+    if price is not None and price <= 0:
+        return "rug"
+    return "tp" if hit.startswith("TP") else "sl" if hit.startswith("SL") else "time"
+
+
+# 10.11. (Grok MCP audit 4, flag stop_grace): a proven KOL / crew copy's stop sleeps for league/copy.GRACE_S after the
+# entry (0xMarko77's Hope copy was stopped at -10.7 % after 104 s). These rug flags wake it at once.
+GRACE_RUG_PX = 0.5    # the price at or under half of the entry
+GRACE_RUG_LIQ = 0.2   # the pool under a fifth of what it was at the entry (paper/config rug_liq, Smart sell's own rug)
+GRACE_RUG_CACHE_S = 10   # rugfilter/collapse reads hype.db: once per token this often, not every second of the grace
+_RUG_SEEN = {}
+
+
+def _collapsed(token, mcap, liq, now):
+    hit = _RUG_SEEN.get(token)
+    if hit is None or now - hit[0] >= GRACE_RUG_CACHE_S:
+        try:
+            from . import copy
+            col = copy._rugged(token, mcap, liq)   # rugfilter/collapse.check: the peak of the last day vs now
+        except Exception:  # noqa: BLE001 - the check is a guard: unknown is no rug flag
+            col = None
+        hit = (now, col)
+        _RUG_SEEN[token] = hit
+        if len(_RUG_SEEN) > 500:
+            _RUG_SEEN.clear()
+    return hit[1]
+
+
+def _grace_rug(t, a, price, liq, mcap, now):
+    """The rug flag that ends the grace (Croatian text), or None: the price at or under GRACE_RUG_PX of the entry,
+    the pool under GRACE_RUG_LIQ of the entry's, or rugfilter/collapse calling the token collapsed."""
+    entry = t["entry_px"]
+    if not price or price <= 0:
+        return "cijena 0"
+    if entry and price <= GRACE_RUG_PX * entry:
+        return f"cijena {price / entry - 1:+.0%} od ulaza"
+    liq0 = a.get("grace_liq")
+    if liq0 and (liq or 0) < GRACE_RUG_LIQ * liq0:
+        return f"likvidnost pala s ${liq0:,.0f} na ${liq or 0:,.0f}"
+    col = _collapsed(t["token"], mcap, liq, now)
+    return f"rug: {col['text']}" if col else None
+
+
+def grace(con, t, a, price, liq, mcap, now, what="SL"):
+    """A stop of trade t (a dict of its row) is about to fire inside its grace window (auto JSON grace_until,
+    league/copy._grace_at_entry). Returns "hold" when stop_grace applies to the account now (the stop waits), "rug"
+    when a rug flag ends the grace (the stop fires, exit_rule "rug"), None otherwise (the old behaviour: the stop
+    fires). While the flag only shadows the account, the stop fires and the decision the grace would have taken is
+    logged. Off = None after one cached flag read."""
+    until = a.get("grace_until")
+    if not until or now >= until:
+        return None
+    from . import flags
+    m = flags.mode("stop_grace")
+    if m == "off":
+        return None
+    on = flags.applies("stop_grace", t["user"], m)
+    if not on and not flags.shadowing("stop_grace", t["user"], m):
+        return None
+    rug = _grace_rug(t, a, price, liq, mcap, now)
+    if on:
+        return "rug" if rug else "hold"
+    if not rug:
+        entry = t["entry_px"] or 0
+        flags.shadow(con, "stop_grace", t.get("follow_id"), t["token"], "stop", "drži (grace)",
+                     {"trade_id": t["id"], "stop": what, "ret": round(price / entry - 1, 4) if entry else None,
+                      "age_s": int(now - (t["opened_ts"] or now)), "grace_until": until}, now)
+    return None
+
+
+# 10.11. (Jure: "TP je bio +40 % od ulaza 84k, graf je dotakao 117k i malo preko, a automatska prodaja se nije
+# napravila"): run_once below checks every player's positions once per loop pass (EVERY_S = 20 s, after the copy
+# pass, the auto pick, SimianX, DCA and rekt), so a wick of a few seconds over the target was never seen. The
+# Autopilot's real money follows its demo trades, so their TP/SL are checked here on their own, every FAST_EVERY_S,
+# from the short live price cache (DexScreener 3 s, Jupiter's price when DexScreener has none).
+FAST_EVERY_S = 1.0
+FAST_BEAT_S = 600   # one line in the log this often: how many TP/SL positions are watched and whether prices come
+
+
+# 16.11. (vlasnik, jutarnji izvještaj: stop -20 %, izlaz -59,4 %): every TP/SL stop of a demo trade (the real account's
+# too) records its planned stop against the exit price and why they differ (trade/stopgap: rug, a liquidity drop from
+# the last hour's high, a gap through the stop); the loops' own quotes give the hour's liquidity
+_WIN = {"w": None}
+
+
+def _win():
+    if _WIN["w"] is None:
+        from trade import stopgap
+        _WIN["w"] = stopgap.Window()
+    return _WIN["w"]
+
+
+def _stop_gap(con, t, a, price, liq, rule, now):
+    """One stop_gaps row for a TP/SL close by its stop (rule sl / rug) and the commit; never raises."""
+    if rule not in ("sl", "rug"):
+        return
+    try:
+        from trade import stopgap
+        stopgap.record(con, "tpsl", t["id"], t["user"], t["token"], t["symbol"], t["entry_px"], a.get("sl_px"), price,
+                       rule, now, trade_id=t["id"], liq_ref=_win().ref(t["token"], now), liq_exit=liq,
+                       rug=rule == "rug")
+        con.commit()
+    except Exception as e:  # noqa: BLE001 - a measurement never stops an exit
+        print(f"auto sell: zapis stop gapa: {type(e).__name__}: {e}", flush=True)
+
+
+def _fast_market(market, tokens):
+    mk = dict(market(tokens) or {})
+    missing = [t for t in tokens if t not in mk]
+    if missing:
+        try:
+            from ui.paper import jup_prices
+            for m, (px, liq) in jup_prices(missing).items():
+                mk[m] = (px, liq, None, None)
+        except Exception:  # noqa: BLE001 - no price: no sale this second
+            pass
+    return mk
+
+
+def fast_once(con, market, user, now=None):
+    """The TP/SL of one account's open positions at the current price: [(user, symbol, what happened)], plus the
+    number watched and priced as the last item's stats via fast_once.last."""
+    now = now or time.time()
+    users = (user,) if isinstance(user, str) else tuple(user)   # 10.11.: the Autopilot and its paper account
+    rows = [dict(r) for r in con.execute(
+        "SELECT * FROM trades WHERE status='open' AND user IN (%s) AND auto IS NOT NULL" % ",".join("?" * len(users)),
+        users)]
+    rows = [r for r in rows if (json.loads(r["auto"]) or {}).get("mode") == "tpsl"]
+    # 10.11. (league/exitplan): a lot whose token has an exit plan in force for its account leaves the default TP/SL
+    # to the plan's executor (paused plans or flag off: the default is back)
+    try:
+        from . import exitplan
+        planned = {u: exitplan.in_force_tokens(con, u) for u in users}
+        rows = [r for r in rows if r["token"] not in planned.get(r["user"], set())]
+    except Exception:  # noqa: BLE001 - plans unreadable: the default TP/SL holds
+        pass
+    fast_once.last = (len(rows), 0)
+    if not rows:
+        return []
+    mk = _fast_market(market, sorted({r["token"] for r in rows}))
+    fast_once.last = (len(rows), sum(1 for r in rows if r["token"] in mk))
+    done = []
+    for t in rows:
+        if t["token"] not in mk:
+            continue
+        price, liq, _, mcap = mk[t["token"]]
+        if not price or price <= 0:
+            continue
+        _win().note(t["token"], now, liq)
+        a = json.loads(t["auto"])
+        hit = _tpsl_hit(a, price, liq, now)
+        if hit:
+            rule = tpsl_rule(hit, price)
+            if rule == "sl" and a.get("grace_until"):   # 10.11. (Grok MCP audit 4): flag stop_grace
+                g = grace(con, t, a, price, liq, mcap, now, hit)
+                if g == "hold":
+                    continue
+                rule = "rug" if g == "rug" else rule
+            try:
+                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap, exit_rule=rule)
+            except ValueError:   # the main loop closed it in the same second
+                continue
+            _stop_gap(con, t, a, price, liq, rule, now)
+            done.append((t["user"], t["symbol"] or t["token"][:6], f"auto {hit}: {pnl:+.2f} $"))
+    return done
+
+
+fast_once.last = (0, 0)
+
+
+def _real_user():
+    from trade import settings as tsettings
+    return tsettings.LEAGUE_USER
+
+
+def fast_loop(market, user=None, every=FAST_EVERY_S):
+    """Background thread body for run_ui.py: the Autopilot account's TP/SL every `every` seconds."""
+    if user is None:   # 10.11. (Phase 0): the paper account gets the same 1-second exits, or paper would lag live
+        from trade import settings as tsettings
+        user = (tsettings.LEAGUE_USER, tsettings.PAPER_USER)
+    con, beat = None, 0.0
+    while True:
+        try:
+            if con is None:
+                con = store.connect()
+            sold = fast_once(con, market, user)
+            for u, name, what in sold:
+                print(f"natjecanje {u} {name}: {what}", flush=True)
+            if any(u == _real_user() for u, _n, _w in sold):
+                # 13.11. (owner's order point 2): run_trade mirrors the real account's TP/SL sale now, not at its
+                # next pass (the exit plans ring it themselves, league/exitplan.run_once)
+                try:
+                    from trade import wake
+                    wake.ring("auto TP/SL")
+                except Exception:  # noqa: BLE001
+                    pass
+            try:   # 10.11. (Jure): the MCP client's exit plans, the same 1-s pass (league/exitplan.py)
+                from . import exitplan
+                for u, _tok, _trig, text in exitplan.run_once(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"planovi izlaza: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:   # 10.11. (Jure, flag range_dca): the range rounds' exits, the same 1-s pass (rangedca/trade.py)
+                from rangedca import trade as rtrade
+                for text in rtrade.exits_once(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"range izlazi: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:   # 15.11. (flag oscilator): the oscillator scalp's exits and entries (oscilator/live.py), at most every
+                from oscilator import live as olive   # OSC_TICK_S (5 s); off with nothing open: one cached flag read
+                for text in olive.tick(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"oscilator: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:   # 15.11. (flag veliki_range): the big tokens' range entries and exits (veliki/live.py), at most every
+                from veliki import live as vlive   # VEL_TICK_S (10 s); off with nothing open: one cached flag read
+                for text in vlive.tick(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"veliki: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:   # 11.11. (Jure, flag momentum_scalp): TP1 / trailing / stop / 45 min (momentum/trade.py)
+                from momentum import trade as mtrade
+                for text in mtrade.exits_once(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"momentum izlazi: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            if time.time() - beat >= FAST_BEAT_S:
+                beat = time.time()
+                n, priced = fast_once.last
+                print(f"autopilot izlazi: prati {n} TP/SL pozicija, cijena za {priced}", flush=True)
+        except Exception as e:  # noqa: BLE001 - a bad second never stops the watch
+            print(f"autopilot izlazi: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:
+                con.close()
+            except Exception:  # noqa: BLE001
+                pass
+            con = None
+        time.sleep(every)
+
+
 def run_once(con, market, now=None):
     """Check every open position with auto sell on; returns [(user, symbol, what happened)]."""
     from exits import profiles
     from paper import sim
     now = now or time.time()
     rows = [dict(r) for r in con.execute("SELECT * FROM trades WHERE status='open' AND auto IS NOT NULL")]
+    # 11.11. (zonewatch audit): this 20-s loop sold a lot by its own TP/SL even when an exit plan was in force for its
+    # account (only fast_once skipped them), so a plan's half at +15 % / trailing could be overridden by the lot's TP;
+    # the plan's executor decides for those tokens, as in fast_once (plans paused or flag off: the default is back)
+    try:
+        from . import exitplan
+        planned = {u: exitplan.in_force_tokens(con, u) for u in {r["user"] for r in rows}}
+        rows = [r for r in rows if r["token"] not in planned.get(r["user"], set())]
+    except Exception:  # noqa: BLE001 - plans unreadable: the default TP/SL holds
+        pass
     if not rows:
         return []
     mk = market({r["token"] for r in rows}) or {}
@@ -220,10 +489,18 @@ def run_once(con, market, now=None):
         a = json.loads(t["auto"])
         name = t["symbol"] or t["token"][:6]
         if a["mode"] == "tpsl":
-            hit = ("TP " + a["tp"]) if a.get("tp_px") and price >= a["tp_px"] else \
-                  ("SL " + a["sl"]) if a.get("sl_px") and price <= a["sl_px"] else None
+            if price and price > 0:
+                _win().note(t["token"], now, liq)
+            hit = _tpsl_hit(a, price, liq, now)
             if hit:
-                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap)
+                rule = tpsl_rule(hit, price)
+                if rule == "sl" and a.get("grace_until"):   # 10.11. (Grok MCP audit 4): flag stop_grace
+                    g = grace(con, t, a, price, liq, mcap, now, hit)
+                    if g == "hold":
+                        continue
+                    rule = "rug" if g == "rug" else rule
+                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap, exit_rule=rule)
+                _stop_gap(con, t, a, price, liq, rule, now)
                 done.append((t["user"], name, f"auto {hit}: {pnl:+.2f} $"))
             continue
         st = json.loads(t["auto_state"]) if t["auto_state"] else None
@@ -233,10 +510,21 @@ def run_once(con, market, now=None):
             st = {"cfg": cfg, "pos": pos}
         cfg, pos = st["cfg"], st["pos"]
         before_left, n_fills = pos["left"], len(pos["fills"])
+        snap = json.dumps(st) if a.get("grace_until") and now < a["grace_until"] else None
         sim.step(pos, price, liq, now, cfg)
-        for f in pos["fills"][n_fills:]:
+        new = pos["fills"][n_fills:]
+        grace_rug = False
+        if snap and new and not pos["open"] and new[-1]["reason"] == "stop_loss":
+            # 10.11. (Grok MCP audit 4): the profile's own stop inside the grace of a proven copy (flag stop_grace)
+            g = grace(con, t, a, price, liq, mcap, now, "stop_loss")
+            if g == "hold":   # the stop did not happen: the state stays as it was before this price
+                con.execute("UPDATE trades SET auto_state=? WHERE id=?", (snap, t["id"]))
+                continue
+            grace_rug = g == "rug"
+        for f in new:
             if not pos["open"] and f is pos["fills"][-1]:
-                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto: {f['reason']}", mcap=mcap)
+                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto: {f['reason']}", mcap=mcap,
+                                 exit_rule="rug" if grace_rug else store.smart_rule(f["reason"]))
                 done.append((t["user"], name, f"auto {f['reason']}: zatvoreno {pnl:+.2f} $"))
             else:
                 share = f["frac"] / before_left if before_left > 0 else 0
@@ -249,9 +537,29 @@ def run_once(con, market, now=None):
     return done
 
 
+def _fokus():
+    """15.11. (owner switch fokus_midcap, ops/fokus.py): True while the microcaps get no resources; never raises."""
+    try:
+        from ops import fokus
+        return fokus.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def loop(market, every=EVERY_S):
     """Background thread body for run_ui.py."""
+    try:   # 15.11. (trade/capgate): the microcap gate's rule once at the start; the day's counter at each new day
+        from trade import capgate
+        capgate.start_line()
+        capgate.day_tick()
+    except Exception as e:  # noqa: BLE001 - never stops the loop
+        print(f"mikrokap blokada: {type(e).__name__}: {e}", file=sys.stderr)
     while True:
+        try:
+            from trade import capgate
+            capgate.day_tick()   # "mikrokap 15.11.: odbijeno N ulaza ispod 5M, moonshot iznimki M" once a day
+        except Exception:  # noqa: BLE001
+            pass
         try:
             con = store.connect()
             # 9.11. (audit P27): copy trading goes FIRST (the wake-up from a webhook is for it: every second of a fresh
@@ -262,6 +570,42 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"copy trading: {type(e).__name__}: {e}", file=sys.stderr)
+            fk = _fokus()   # 15.11. (owner switch fokus_midcap): no entries of the microcap strategies below
+            try:   # 11.11. (Jure, flag fast_path G24): the fast path's BUY decisions and copy exits (fast/paper.py),
+                from fast import paper as fpaper   # right after the copy loop: the same wake-up brings both; prices
+                for user, what in fpaper.run_once(con):   # through league/copy.market (it marks the bonding curve)
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"fast path ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 15.11. (flag konsenzus): the source consensus strategy's entries (konsenzus/live.py): demo always in
+                from konsenzus import live as klive   # paper; real only behind pravi_novac_izvori + the holdout proof
+                for user, what in ([] if fk else klive.run_once(con)):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"konsenzus ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 15.11. (flag insajderi2, insajderi/live.py): the confirmed insider groups' buys -> demo entries, exit
+                from insajderi import live as ilive   # when the group sells; NEVER_LIVE (the demo account only). Not
+                for user, what in ilive.run_once(con):   # behind fokus_midcap: its budgeted exception (MC >= 5M gate)
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"insajderi2 ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 19.11. (flag insajderi2, insajderi/pp_live.py): the pump groups' and the bundles' buys ->
+                from insajderi import pp_live   # demo entries on its own demo account (autopilot-novcanici), exit when
+                for user, what in pp_live.run_once(con):   # they sell; NEVER_LIVE, no real path; not behind fokus_midcap
+                    print(f"{user}: {what}", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"prije pumpe demo: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 19.11. (vlasnik: "mjeri svaki ulaz u postocima", league/mjera.py): the open measurement rows
+                from . import mjera   # priced (bounded: MAX_ROWS rows, MAX_PASS_S s, every EVERY_S), the daily line
+                mjera.tick(con)
+            except Exception as e:  # noqa: BLE001
+                print(f"mjerenje praćenja novčanika: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 16.11. (flag kopija_dokazani, wallets/kopija_demo.py): the proven-twice copyable wallets' buys ->
+                from wallets import kopija_demo   # demo copies with his price, ours and the delay; NEVER_LIVE (the demo
+                for user, what in kopija_demo.run_once(con):   # account only); not behind fokus_midcap (a measurement)
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"kopija dokazanih: {type(e).__name__}: {e}", file=sys.stderr)
             try:
                 for user, name, what in run_once(con, market):
                     print(f"natjecanje {user} {name}: {what}", flush=True)
@@ -285,6 +629,24 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"dca: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 10.11. (Jure, flag range_dca): range entries, lot 1 and lot 2 (rangedca/trade.py); off: one flag read
+                from rangedca import trade as rtrade
+                for user, what in ([] if fk else rtrade.run_once(con)):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"range ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 11.11. (Jure, flag momentum_scalp): entries on fresh signals (momentum/trade.py); off: one flag read
+                from momentum import trade as mtrade
+                for user, what in ([] if fk else mtrade.run_once(con)):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"momentum ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 11.11. (Jure, flag proposals G21): paper: a proposal in its entry zone (proposals/)
+                from proposals import paper as ppaper
+                for user, what in ([] if fk else ppaper.run_once(con, market)):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"prijedlozi ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # rekt: a player (or the bot) under $25 starts a new round with $1,000 (league/rekt.py)
                 from . import rekt
                 from ui import leaguedash

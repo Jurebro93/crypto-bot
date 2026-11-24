@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from league import copy, store
 from ui.html import ago, badge, esc, num, signed, table, tdesc, tlink, usd, wlink
-from ui.kol import klink, pct, share
+from ui.kol import MINUTE_HEAD, hook_handles, klink, minute_cells, minute_stats, pct, share, speed_badge
 
 KOL_ROWS = 60
 WALLET_ROWS = 100
@@ -55,8 +55,12 @@ def _koltest():
     return out
 
 
-def kol_rows():
-    """Influencers to follow: measured X/Telegram callers, best call power first, bots out."""
+def kol_rows(now=None):
+    """Influencers to follow: measured X/Telegram callers, best call power first, bots out.
+    9.11. (audit P42/P43): 'live' stays the xquik monitor table (kol/live.py), 'hook' is the X webhook rule set
+    (kol/xhook, kv 'xhook'), 'fast' = either: the webhook is wider (followed + hot list + watch + big accounts) and is
+    what delivers in seconds, so a hot-list account without a monitor row no longer reads "sporije". 'ms' is the
+    kol/minute.handle_stats row (hits before the stop from the minute of the call) and 'hot' the hot-list flag."""
     p = copy._paths()
     con = _ro(p["kol"])
     if con is None:
@@ -67,6 +71,7 @@ def kol_rows():
         except sqlite3.OperationalError:
             bots = set()
         live = {h for (h,) in copy._q(con, "SELECT handle FROM monitor")}
+        hook = hook_handles(con)
         week = dict(copy._q(con, "SELECT handle, COUNT(DISTINCT token) FROM calls WHERE kind='call' AND ts >= ? "
                                  "GROUP BY handle", (int(time.time()) - 7 * 86400,)))
         last = dict(copy._q(con, "SELECT handle, MAX(ts) FROM calls WHERE kind='call' GROUP BY handle"))
@@ -75,6 +80,7 @@ def kol_rows():
     finally:
         con.close()
     kt = _koltest()
+    ms, hot = minute_stats(now)
     out = []
     for h, fol, sc, st in rows:
         if h in bots or h.startswith("w:"):
@@ -82,10 +88,13 @@ def kol_rows():
         s = json.loads(st or "{}")
         if s.get("measured", 0) < 3 or s.get("trial"):  # na probi (kol/discover.py): not copied until proven
             continue
-        out.append({"handle": h, "followers": fol, "score": sc, "s": s, "live": h in live, "week": week.get(h, 0),
+        mon, wh = h in live, h.lower() in hook
+        out.append({"handle": h, "followers": fol, "score": sc, "s": s, "live": mon, "hook": wh, "fast": mon or wh,
+                    "ms": ms.get(h), "hot": h in hot, "week": week.get(h, 0),
                     "last": last.get(h), "kt": kt.get(h, {}).get("x")})
-    # live-watched first: only their calls arrive fast enough to be copied; then call power
-    return sorted(out, key=lambda r: (r["live"], r["score"] or 0), reverse=True)
+    # delivered in seconds first (webhook or monitor): only their calls arrive fast enough to be copied; then the
+    # hot list (measured +10 % before the stop on recent calls), then call power
+    return sorted(out, key=lambda r: (r["fast"], r["hot"], r["score"] or 0), reverse=True)
 
 
 def wallet_rows():
@@ -208,14 +217,16 @@ def _kol_table(rows, mine, user, q):
     out = []
     for r in rows[:KOL_ROWS]:
         s = r["s"]
-        speed = badge("⚡ uživo", "good") if r["live"] else badge("sporije", "warn")
-        out.append([klink(r["handle"]) + " " + speed, num(r["followers"]), (f"<b>{r['score']:.0f}</b>", r["score"], "n"),
-                    num(s.get("measured")), share(s.get("hit_rate")), pct(s.get("med_max24")), share(s.get("rug_rate")),
+        speed = speed_badge(r.get("hook"), r["live"])
+        out.append([klink(r["handle"]) + " " + speed + (" " + badge("🔥 vruća lista", "good") if r.get("hot") else ""),
+                    num(r["followers"]), (f"<b>{r['score']:.0f}</b>", r["score"], "n"),
+                    num(s.get("measured")), *minute_cells(r.get("ms")),
+                    share(s.get("hit_rate")), pct(s.get("med_max24")), share(s.get("rug_rate")),
                     share(s.get("prepump_rate")), num(r["week"]), *_kt_cells(r["kt"]), ago(r["last"]),
                     _btn("kol", r["handle"], "@" + r["handle"] if not r["handle"].startswith("tg:") else r["handle"],
                          mine, user)])
-    return table(["Influencer", ("Pratitelji", "n"), ("Moć poziva", "n"), ("Izmjerenih poziva", "n"),
-                  ("Pogodak (+50% u 24 h)", "n"), ("Medijan max 24 h", "n"), ("Rugovi", "n"), ("Kasni pozivi", "n"),
+    return table(["Influencer", ("Pratitelji", "n"), ("Moć poziva", "n"), ("Izmjerenih poziva", "n"), *MINUTE_HEAD,
+                  ("Pogodak (+50% u 24 h, stara mjera)", "n"), ("Medijan max 24 h", "n"), ("Rugovi", "n"), ("Kasni pozivi", "n"),
                   ("Tokena u 7 dana", "n"), ("KOL test: +20%", "n"), ("KOL test: $ po ulazu", "n"),
                   "Zadnji poziv", ""], out, tid="cpkol",
                  empty="Još nema influencera s dovoljno izmjerenih poziva (barem 3).")
@@ -300,10 +311,14 @@ def page(qs, user):
                  f'size=30 value="{esc(qs.get("q", ""))}"><button>Traži</button> <a href=/copy-trading>očisti</a></form>')
 
         b.append('<h2 id=influenceri>Influenceri: uđi na njihov sljedeći call</h2>' + tdesc(
-            "Influenceri s barem 3 izmjerena poziva; prvo oni koje pratimo uživo, pa najjači (bot računi koji samo objavljuju svaki novi token su "
-            "izbačeni). <b>Pogodak</b> = token je narastao +50% u 24 h nakon poziva. <b>Kasni pozivi</b> = token je već "
+            "Influenceri s barem 3 izmjerena poziva; prvo oni koje pratimo uživo, pa vruća lista, pa najjači (bot računi koji samo objavljuju svaki novi token su "
+            "izbačeni). <b>+10 % / +15 % prije stopa</b> = minutna provjera od minute objave sa stopom −20 % (14 dana, barem 3 "
+            "poziva, stranica Ekipe): to je mjera po kojoj se bira koga pratiti; <b>🔥 vruća lista</b> = računi koji je prolaze, "
+            "X webhook i Telegram čitač ih prate u sekundama. <b>Pogodak</b> = token je narastao +50% u 24 h nakon poziva "
+            "(stara mjera, prekasna i preoptimistična za pravi novac). <b>Kasni pozivi</b> = token je već "
             "skočio prije poziva. <b>KOL test</b> = kako je prošao naš probni ulaz od $50 na svaki svjež poziv tog "
-            "influencera. <b>⚡ uživo</b> znači da njegove objave vidimo u sekundama; ostale vidimo tek pri skeniranju, "
+            "influencera. <b>⚡ uživo</b> znači da njegove objave vidimo u sekundama (X webhook ili xquik monitor, piše u "
+            "tooltipu); ostale vidimo tek pri skeniranju, "
             "često prekasno, a poziv stariji od 10 minuta se ne kopira. Kad ga pratiš, alat ulazi na <b>svaki</b> njegov novi "
             "call (najviše koliko upišeš na dan) dok ne klikneš Prestani; ako želiš samo jedan ulaz, odaberi "
             "„samo sljedeći call”."))

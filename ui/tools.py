@@ -111,7 +111,7 @@ def _tool_card(t, lang):
     feats = "".join(f"<li>{esc(f)}</li>" for f in x["feats"])
     paid = "" if x["paid"] == "–" else f"<b>{s['paid']}</b><span>{esc(x['paid'])}</span>"
     return (f"<div class=tc id=\"{_anchor(t['name'])}\"><h3>{esc(t['name'])} {badge} {link}</h3>"
-            f"<p class=meta style='margin:0'>{esc(x['best'])} · {esc(t['chains'])}</p><p>{esc(x['what'])}</p>"
+            f"<p class=meta style='margin:0'>{esc(x['best'])} · {esc(_data().chains(t, lang))}</p><p>{esc(x['what'])}</p>"
             f"<ul>{feats}</ul><div class=pr><b>{s['free']}</b><span>{esc(x['free'])}</span>{paid}</div>"
             f"<p class=wo><b>{s['watch']}:</b> {esc(x['watch'])}</p></div>")
 
@@ -129,7 +129,7 @@ def _table(tools, lang):
         x = t[lang]
         name = f"<a href=#{_anchor(t['name'])}>{esc(t['name'])}</a>" + (f" <span class=badge>{s['ours']}</span>"
                                                                        if t["ours"] else "")
-        rows.append(f"<tr><td>{name}</td><td>{esc(x['best'])}</td><td>{esc(t['chains'])}</td><td>{esc(x['free'])}</td>"
+        rows.append(f"<tr><td>{name}</td><td>{esc(x['best'])}</td><td>{esc(_data().chains(t, lang))}</td><td>{esc(x['free'])}</td>"
                     f"<td>{esc(x['paid'])}</td></tr>")
     return f"<div class=tw><table class=ttab><thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
 

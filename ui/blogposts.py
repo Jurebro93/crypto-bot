@@ -6,6 +6,7 @@
 - KOL: influencer calls measured by the app (price 1 h / 24 h after each call, bots excluded).
 Keep numbers here in sync with the text; each post states its sample and date.
 """
+from ui import blogsources as S
 from ui import calcs as CALC
 from ui.blogviz import bars, grid, stats
 
@@ -16,16 +17,16 @@ KOL = "MemeSonar influencer call measurements, October 2026"
 POSTS = []
 
 
-def post(slug, tag, h1, title, desc, kw, mins, tldr, body, related=(), date="2026-11-01"):
+def post(slug, tag, h1, title, desc, kw, mins, tldr, body, related=(), date="2026-11-01", updated=None):
     POSTS.append(dict(slug=slug, tag=tag, h1=h1, title=title, desc=desc, kw=kw, mins=mins, tldr=tldr, body=body,
-                      related=related, date=date))
+                      related=related, date=date, **({"updated": updated} if updated else {})))
 
 
 # 1 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 post(
     "what-is-wallet-tracking", "Wallet tracking",
     "What is wallet tracking? How to track Solana wallets (and why most 'smart money' isn't)",
-    "What is wallet tracking? A Solana wallet tracker guide with real data | MemeSonar",
+    "What is wallet tracking? Solana wallet tracker guide",
     "Wallet tracking means following what specific Solana wallets buy and sell. We tracked 469 wallets: only 11 of "
     "50 active ones made money. Here is how to find the few worth following.",
     ["wallet tracker", "solana wallet tracker", "smart money tracker", "how to track crypto wallets"], 7,
@@ -88,8 +89,15 @@ tracker adds three things: alerts in real time, a score built from closed trades
 snipers and insiders. MemeSonar adds a fourth: it checks every token a tracked wallet buys against our
 <a href=/blog/how-to-spot-a-rug-pull>rug filter</a> before you see it, and it tells you when <b>several</b> good
 wallets buy the same token, which matters far more than one wallet alone.</p>
+<h2>Update, 23 November 2026: wallets that buy before pumps</h2>
+<p>The numbers above are a snapshot of 30 October. Since then the tool has moved its focus to one question: which
+wallets buy before a Solana token jumps? It read 345 pumps over 180 days to full depth and found 47,752 early buyers,
+of whom 8,273 sold into the pump. Only 257 groups of wallets were early in three or more pumps, and 90 of those were
+confirmed on later days. Copying them on history after real costs was still not proven profitable. The full census
+is in <a href=/blog/wallets-that-buy-before-a-solana-token-jumps>wallets that buy before a Solana token jumps</a>.</p>
 <p>Next: <a href=/blog/what-is-copy-trading>what copy trading is and when it is profitable</a>.</p>
-""", related=("what-is-copy-trading", "bundles-and-snipers", "how-to-spot-a-rug-pull"))
+""", related=("wallets-that-buy-before-a-solana-token-jumps", "what-is-copy-trading", "bundles-and-snipers"),
+    updated="2026-11-23")
 
 
 # 2 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -147,14 +155,23 @@ trades are negative.</li>
 the market (tokens called by a measured influencer reached 2x in 52% of cases, against 14% without a call), but
 influencers can also be paid to post. The best signal is both: <a href=/blog/influencer-clustering>several
 independent influencers</a> and good wallets on the same token within minutes.</p>
-""", related=("what-is-wallet-tracking", "influencer-clustering", "what-is-dca-in-crypto"))
+
+<h2>Update, 23 November 2026: we tested copying on history</h2>
+<p>The two candidates above came from a 30 October snapshot. Since then we ran a stricter test: wallets chosen from
+the past only, copied with a delay, after real costs, with missed buys counted. Copying pre-pump wallets 60 seconds
+after them averaged +29.7 % per copy, but the 95 % interval ran from −12.9 % to +114.3 % (1,219 copies, 34.8 % of
+buys missed), so it is not proven. A fast 2-second copy with 1 % slippage averaged −7.6 %. Jupiter's own risk page
+says the same in general terms: when you copy a wallet {S.a("jup_risks", "you trade later and at your own price")}.
+Read <a href=/blog/does-copying-smart-wallets-pay>does copying smart wallets pay after real costs?</a> before you
+copy anyone.</p>
+""", related=("does-copying-smart-wallets-pay", "what-is-wallet-tracking", "tokens-sent-to-kol-wallets"), updated="2026-11-23")
 
 
 # 3 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 post(
     "what-is-a-kol-in-crypto", "Influencers",
     "What is a KOL in crypto? How influencer calls move Solana tokens",
-    "What is a KOL in crypto? Do crypto influencer calls work? (data) | MemeSonar",
+    "What is a KOL in crypto? Do influencer calls work?",
     "A KOL (key opinion leader) is a crypto influencer whose posts move prices. We measured every Solana token call: "
     "called tokens doubled in 52% of cases vs 14% without a call. How to read a KOL.",
     ["what is a kol", "crypto kol", "kol crypto", "crypto influencers"], 6,
@@ -208,7 +225,7 @@ active "KOLs" and had no signal at all. You can see live scores on our public
 post(
     "influencer-clustering", "Influencers",
     "Influencer clustering: why 3 KOLs calling the same token in 15 minutes matters",
-    "Crypto influencer clustering: when several KOLs call one token (data) | MemeSonar",
+    "Influencer clustering: several KOLs call one token",
     "When 3+ crypto influencers call the same Solana token within 15 minutes, 59% of those tokens doubled vs 33% "
     "otherwise. How clusters form, and how to spot a paid campaign.",
     ["kol crypto", "crypto influencers", "best crypto influencers", "crypto kol"], 6,
@@ -333,7 +350,7 @@ labelled, and every hour the system learns the profile of the rugs it caught.</p
 post(
     "what-is-pump-fun", "Basics",
     "What is pump.fun? How it works, and what our data says about your odds",
-    "What is pump.fun and how does it work? Bonding curve, graduation and real odds | MemeSonar",
+    "What is pump.fun? Bonding curve, graduation and real odds | MemeSonar",
     "Pump.fun lets anyone launch a Solana meme coin in a minute. How the bonding curve and graduation work, and why "
     "only 0.8% of random new tokens ever double after their first 15 minutes.",
     ["what is pump fun", "how does pump fun work", "pump fun bonding curve", "pump fun graduation"], 6,
@@ -369,12 +386,19 @@ the median time to graduation was about 15 minutes.</p>
 <a href=/blog/how-to-trade-meme-coins>how to trade meme coins</a>. The few that made it big are on our
 <a href=/solana-meme-coins>top 100 Solana meme coins</a> list.</p>
 
+<h2>Where pump.fun stands on 23 November 2026</h2>
+<p>pump.fun is still the busiest place where Solana meme coins are born. On 23 November 2026 the tool measured $83.4
+million of 24-hour volume on the pump.fun bonding curve (6 % below its 7-day average) and $109.8 million on PumpSwap,
+where coins trade after they {S.a("pump_fees", "graduate")} (39 % below). Research on late 2024 found the same shape at
+a larger scale: pump.fun made up {S.a("arxiv_memecoin", "up to 71.1% of tokens minted on Solana, while fewer than 2% of them reached major DEXs")}. Live numbers: <a href=/solana-launchpads>Solana launchpads</a>; how this compares with
+Bitcoin: <a href=/blog/do-solana-meme-coins-follow-bitcoin>do Solana meme coins follow Bitcoin?</a></p>
+
 <h2>Is pump.fun safe?</h2>
 <p>The platform itself removes some classic rug tricks: mint and freeze authority are off, and the curve holds the
 liquidity until graduation. What it cannot stop is people. Serial creators, bundled launches and snipers are all common
 on pump.fun. Before you buy, check the creator's history and the first buyers, as in
 <a href=/blog/how-to-spot-a-rug-pull>how to spot a rug pull</a>.</p>
-""", related=("how-to-trade-meme-coins", "bundles-and-snipers", "how-to-spot-a-rug-pull"))
+""", related=("how-to-spot-a-pump-fun-runner", "do-solana-meme-coins-follow-bitcoin", "how-to-spot-a-rug-pull"), updated="2026-11-23")
 
 
 # 7 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -485,14 +509,14 @@ the ones that didn't make it.</p>
 <h2>Practice before you use real money</h2>
 <p>MemeSonar's members trade with a $1,000 demo balance in a friendly league, with the same signals and rug filter
 the system uses. It is the cheapest way to find out whether your plan works.</p>
-""", related=("what-is-pump-fun", "market-cap-liquidity-slippage", "what-is-dca-in-crypto"))
+""", related=("do-solana-meme-coins-follow-bitcoin", "what-is-pump-fun", "market-cap-liquidity-slippage"))
 
 
 # 9 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 post(
     "what-is-dca-in-crypto", "Basics",
     "What is DCA in crypto? Dollar-cost averaging for meme coins, with a worked example",
-    "What is DCA in crypto? Dollar-cost averaging explained with an example | MemeSonar",
+    "What is DCA in crypto? Dollar-cost averaging explained",
     "DCA (dollar-cost averaging) means buying a fixed amount at regular intervals instead of all at once. A worked "
     "example: $500 at once vs. 10 x $50, on a falling and on a rugging token.",
     ["what is dca", "dca crypto", "crypto dca bot", "dollar cost averaging crypto"], 5,
@@ -599,7 +623,7 @@ FEE_SRC = "exchanges' published fee pages and the top7.hr comparison of 28 Sep 2
 post(
     "best-crypto-exchanges-croatia", "Exchanges",
     "Best crypto exchanges in Croatia and the EU (2026): licensed under MiCA, compared",
-    "Best crypto exchanges in Croatia 2026: MiCA-licensed, fees compared | MemeSonar",
+    "Best crypto exchanges in Croatia 2026: MiCA, fees",
     "Which crypto exchanges are licensed for Croatia in 2026? 5 HANFA-licensed Croatian firms and 9 MiCA exchanges "
     "compared by regulator, fees, Croatian support and cash options.",
     ["best crypto exchange croatia", "crypto exchange eu regulated", "mica licensed exchanges", "kriptomjenjačnica"], 9,
@@ -759,7 +783,7 @@ a plan the decision gets made by emotion. See <a href=/blog/how-to-trade-meme-co
 post(
     "how-to-use-jupiter-swap", "Guides",
     "How to use Jupiter swap on Solana: settings that save you money",
-    "How to use Jupiter swap (jup.ag): slippage, priority fees, limit orders | MemeSonar",
+    "How to use Jupiter swap: slippage, fees, limit orders",
     "A practical Jupiter swap guide: connecting a wallet, checking the token, slippage and priority fee settings, "
     "limit orders and DCA, and the mistakes that cost the most.",
     ["jupiter swap", "how to use jupiter swap", "jup.ag", "jupiter exchange solana"], 6,
@@ -865,7 +889,7 @@ and exclude bot accounts.</p>
 <p>In the EU, MiCA explicitly bans market manipulation in crypto-assets, including spreading misleading information to
 move a price. Enforcement on anonymous on-chain projects is hard, so in practice protecting yourself is your job: small
 size, a clear exit, and no buying because a chat says "now".</p>
-""", related=("how-to-spot-a-rug-pull", "bundles-and-snipers", "influencer-clustering"))
+""", related=("how-to-spot-a-rug-pull", "fake-volume-check", "bundles-and-snipers"))
 
 
 # 15 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -874,7 +898,7 @@ TAX_SRC = "Porezna uprava opinion 410-01/17-08/29 (19 Mar 2018), Porezna uprava 
 post(
     "crypto-cards-croatia", "Cards",
     "Crypto cards in Croatia (2026): which ones work, what they cost, and the tax catch",
-    "Best crypto cards in Croatia 2026: Revolut, Crypto.com, Bybit, Bitpanda compared | MemeSonar",
+    "Best crypto cards in Croatia 2026: Revolut, Bybit",
     "Which crypto debit cards can you use in Croatia in 2026? Revolut, Crypto.com, Bybit EU, Bitpanda, Kraken and OKX "
     "compared by licence, fees and cashback, plus why every card payment is a crypto sale.",
     ["crypto card croatia", "crypto debit card europe", "best crypto card", "kripto kartica"], 7,
@@ -935,7 +959,7 @@ gain into a taxed one.</li>
 post(
     "crypto-tax-croatia", "Tax",
     "Crypto tax in Croatia (2026): 12%, the two-year rule and how to file JOPPD",
-    "Crypto tax in Croatia 2026: 12% rate, two-year rule, JOPPD step by step | MemeSonar",
+    "Crypto tax in Croatia 2026: 12%, two-year rule, JOPPD",
     "How crypto is taxed in Croatia: 12% on gains, tax-free after two years, crypto-to-crypto swaps not taxed, losses "
     "within the year, and how to file the JOPPD form by the end of February. With examples.",
     ["crypto tax croatia", "porez na kriptovalute", "croatia capital gains tax crypto", "joppd kriptovalute"], 8,
@@ -948,7 +972,7 @@ post(
 <div class=tw><table><thead><tr><th>Question</th><th>Answer for individuals</th></tr></thead><tbody>
 <tr><td>Tax type</td><td>Income from capital (capital gains)</td></tr>
 <tr><td>Rate</td><td><b>12%</b> on gains from 2024 on; no surtax (prirez). Before 2024: 10% plus surtax</td></tr>
-<tr><td>Held more than two years</td><td>Tax-free, whatever the amount</td></tr>
+<tr><td>Held more than two years</td><td>Tax-free, whatever the amount, but the sale is still reported on JOPPD</td></tr>
 <tr><td>Crypto swapped for crypto</td><td>Not taxed at the swap; the gain is counted when you exchange for money</td></tr>
 <tr><td>Crypto sold for euros, or spent with a crypto card</td><td>Taxable if there is a gain</td></tr>
 <tr><td>Just buying or holding</td><td>Not taxed</td></tr>
@@ -981,7 +1005,8 @@ and back to SOL is not taxed until you cash out to euros, but you still need the
 <li>Export every buy, sell and swap from each exchange and wallet for the year.</li>
 <li>For each sale for money, take the cost of the oldest coins first (<b>FIFO</b>).</li>
 <li>Gain = sale amount minus cost minus fees. Add all gains, subtract all losses of the same year.</li>
-<li>Skip coins held longer than two years; they are exempt.</li>
+<li>Coins held longer than two years are exempt from tax, but their sale still goes on the JOPPD form: the tax
+office {S.a("porezna_joppd", "confirmed this on 6 February 2026")}.</li>
 <li>Tax = 12% of the net gain.</li>
 </ol>
 
@@ -1001,7 +1026,8 @@ tax authorities, so cross-checks will become routine.</p>
 are not covered by a published opinion; ask before you file. For companies the rules are completely different, see
 <a href=/blog/company-crypto-investment-croatia>can a company invest in crypto in Croatia</a>.</p>
 <p class=mut>Not tax advice. Rules and forms change; confirm with Porezna uprava or a tax adviser.</p>
-""", related=("crypto-cards-croatia", "company-crypto-investment-croatia", "best-crypto-exchanges-croatia"))
+""", related=("crypto-cards-croatia", "company-crypto-investment-croatia", "best-crypto-exchanges-croatia"),
+    updated="2026-11-23")
 
 
 # 17 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1010,7 +1036,7 @@ CO_SRC = ("Zakon o porezu na dobit (10%/18%), dividend tax 12% since 2024, HSFI 
 post(
     "company-crypto-investment-croatia", "Business",
     "Can a company invest in crypto in Croatia? d.o.o., obrt, tax and accounting",
-    "Can a Croatian company (d.o.o.) invest in crypto? Tax, accounting, banks | MemeSonar",
+    "Can a Croatian d.o.o. invest in crypto? Tax and banks",
     "Yes, a Croatian d.o.o. can buy crypto with its own money. How it is booked (HSFI 5 or 10), taxed (10% or 18% "
     "profit tax, no two-year exemption), VAT, banks, and when holding privately is cheaper.",
     ["can a company invest in crypto", "business crypto account", "d.o.o. kriptovalute", "company crypto tax croatia"], 8,
@@ -1088,7 +1114,7 @@ Personal crypto tax rules: <a href=/blog/crypto-tax-croatia>crypto tax in Croati
 post(
     "why-big-influencer-calls-are-hard-to-trade", "Influencers",
     "Why trading calls from the biggest crypto influencers is so hard (and where the edge is)",
-    "Why copying big crypto influencers fails: sniper bots, priority fees, front-running | MemeSonar",
+    "Why copying big crypto influencers fails: snipers, fees",
     "Big influencer calls are watched by thousands of people and sniper bots that pay higher fees to buy first. How "
     "priority fees and Jito tips work, and why rising stars leave more room.",
     ["crypto influencer calls", "front running crypto", "solana priority fee", "sniper bot solana"], 7,
@@ -1165,3 +1191,4 @@ good record is rarely on their list.</li>
 # Posts added on 1 November 2026 live in their own module (sources noted per figure).
 from ui import blogposts_nov  # noqa: E402,F401
 from ui import blogposts_seo  # noqa: E402,F401
+from ui import blogposts_nov23  # noqa: E402,F401

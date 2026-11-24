@@ -52,12 +52,9 @@ class League(unittest.TestCase):
         self.assertIn("err=", league.post("/natjecanje/buy", {"token": MINT, "size": "50"}, None))
         import sqlite3
         self.assertIn("disk servera je trenutno pun", league.db_error(sqlite3.OperationalError("database or disk is full")))
-        league.post("/prijedlozi/add", {"text": "alarm za pad <30%>"}, "Panda")
         for user in ("Jure", None):
             self.assertIn("Ljestvica", league.page({}, user)[1])
             self.assertIn("<b>Jure</b>", league.page({}, user)[1])   # everyone sees Jure's position
-            body = league.ideas_page({}, user)[1]
-            self.assertIn("&lt;30%&gt;", body)
         con = store.connect()
         tid = store.trades(con, "Jure", "open")[0]["id"]
         self.assertIn("ok=", league.post("/natjecanje/sell", {"id": str(tid)}, "Jure"))
@@ -240,25 +237,26 @@ class DiskFull(unittest.TestCase):
         saved = http.CACHE_DIR
         http.CACHE_DIR = tempfile.mkdtemp()
         try:
-            for i in range(5):
-                p = os.path.join(http.CACHE_DIR, f"{i}.json")
+            now = time.time()
+            for i in range(5):   # 12.11.: week-class files (a reader keeps them for days)
+                p = os.path.join(http.CACHE_DIR, f"w-{i}.json")
                 with open(p, "w") as f:
                     f.write("x" * 400_000)
-                os.utime(p, (1000 + i, 1000 + i))   # 0 is the oldest
-            fresh = os.path.join(http.CACHE_DIR, "new.json")
+                os.utime(p, (now - 5000 + i, now - 5000 + i))   # 0 is the oldest
+            fresh = os.path.join(http.CACHE_DIR, "w-new.json")
             with open(fresh, "w") as f:
                 f.write("x" * 400_000)
             self.assertEqual(http.prune(max_mb=1.3, max_age=10**12)[0], 3)   # oldest first until under 1.3 MB
-            self.assertEqual(sorted(os.listdir(http.CACHE_DIR)), ["3.json", "4.json", "new.json"])
+            self.assertEqual(sorted(os.listdir(http.CACHE_DIR)), ["w-3.json", "w-4.json", "w-new.json"])
             self.assertTrue(os.path.exists(fresh))
             self.assertEqual(http.prune(max_mb=100, max_age=3600)[0], 2)   # older than an hour
-            self.assertEqual(os.listdir(http.CACHE_DIR), ["new.json"])
+            self.assertEqual(os.listdir(http.CACHE_DIR), ["w-new.json"])
             rpc = os.path.join(http.CACHE_DIR, "rpc-abc.json")
             with open(rpc, "w") as f:
                 f.write("{}")
             os.utime(rpc, (time.time() - 7200,) * 2)               # Helius RPC cache is dead after its 10 min TTL
             self.assertEqual(http.prune()[0], 1)
-            self.assertEqual(os.listdir(http.CACHE_DIR), ["new.json"])
+            self.assertEqual(os.listdir(http.CACHE_DIR), ["w-new.json"])
         finally:
             http.CACHE_DIR = saved
 
@@ -306,9 +304,9 @@ class Login(unittest.TestCase):
                 return e.code
 
         self.assertEqual(get("/prijava", "x", "shared"), 200)          # shared password: login form for a player
-        self.assertEqual(get("/prijava", "Ivan", "ivanpw"), 303)       # player: on to the league
+        self.assertEqual(get("/prijava", "Ivan", "ivanpw"), 303)       # player: on to Pregled (19.11.)
         self.assertEqual(get("/prijava?kao=Ivan", "Ivan", "ivanpw"), 200)  # switching user shows the form
-        self.assertEqual(get("/natjecanje", "x", "wrong"), 401)
+        self.assertEqual(get("/tokens", "x", "wrong"), 401)            # 19.11.: /natjecanje is a redirect now
 
         # login form + cookie (phones / in-app browsers that never show the browser's password box)
         import urllib.parse
@@ -331,7 +329,7 @@ class Login(unittest.TestCase):
         code, hdr = post_login("Ivan", "ivanpw")
         self.assertEqual((code, hdr["Location"]), (303, "/tokens"))
         cookie = hdr["Set-Cookie"].split(";")[0]
-        r = opener.open(urllib.request.Request(base + "/natjecanje", headers={"Cookie": cookie}))
+        r = opener.open(urllib.request.Request(base + "/vise", headers={"Cookie": cookie}))   # 19.11.
         self.assertEqual(r.status, 200)
         self.assertEqual(run_ui.cookie_user(cookie.split("=", 1)[1]), (True, "Ivan"))
         self.assertEqual(post_login("Ivan", "nope")[0], 401)

@@ -15,6 +15,7 @@ import base64
 import gzip
 import hashlib
 import hmac
+import json
 import os
 import re
 import sys
@@ -30,18 +31,43 @@ if SITE_URL:
 PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(/.*)?|solana-meme-coins(/.*)?|coin/.*|"
                          r"glossary(/.*)?|blog(/.*)?|best-crypto-tools(/.*)?|how-to-buy(/.*)?|rug-check(/.*)?|"
                          r"solana-market|meme-coin-season-index|solana-launchpads|solana-dex-volume|best-time-to-trade-crypto|"
+                         r"telegram-channels|telegram/.*|"   # 10.11. (pregled): linked from the landing log and blogs
+                         r"macro-influencers?(/.*)?|"   # 15.11. (makroinf/): 404 while the owner switch is off
                          r"embed/.*|static/landing/.*|share/novosti\.png)$")
+
+
+
+
+def slash_redirect(path):
+    """23.11. (SEO): a known public path with a trailing slash ("/influencers/", "/hr/", "/coin/x/") -> the same
+    path without it (301, the caller keeps the query); None for "/" and for every app path."""
+    if len(path) < 2 or not path.endswith("/"):
+        return None
+    bare = path.rstrip("/")
+    if bare and (PUBLIC_PATH.match(bare) or bare == "/dobrodosli" or re.fullmatch(r"/(en/|hr/)?autopilot", bare)):
+        return bare
+    return None
 
 
 APP_URL = os.environ.get("APP_URL", "").strip().rstrip("/") if SITE_URL else ""
 if APP_URL:
     os.environ["APP_URL"] = APP_URL
+# 10.11. (Jure): the public Autopilot page is SHARED, not PUBLIC: a visitor reads it on the site and a logged-in
+# player reads it (and writes in its chat) on the app host, where the login cookie is; a PUBLIC path would send the
+# player from the app host to the site, where nobody is logged in.
 SHARED_PATH = re.compile(r"^/(static/landing/.*|hook/.*|nas-token/\d+/meta\.json|jezik|sw\.js|cekamo-deploy|healthz|"
-                         r"favicon\.ico|favicon\.svg|apple-touch-icon\.png|icon-(192|512)\.png|site\.webmanifest)$")   # served on every host
+                         r"img/t/[1-9A-HJ-NP-Za-km-z]{32,44}\.webp|"   # 15.11.: token icons (ui/tokenicons)
+                         r"favicon\.ico|favicon\.svg|apple-touch-icon\.png|icon-(192|512)\.png|site\.webmanifest|"
+                         r"(en/|hr/)?autopilot|autopilot/chat)$")   # served on every host
 
 
 def _host(url_or_host):
     return (url_or_host or "").split("://", 1)[-1].split("/")[0].split(":")[0].lower()
+
+
+def _has_lang_cookie(cookie):
+    """True when the visitor chose a language (cb_lang cookie present), not only the default."""
+    return any(p.strip().startswith(i18n.COOKIE + "=") for p in (cookie or "").split(";"))
 
 
 def is_public(path):
@@ -94,7 +120,7 @@ def on_site_host(host):
 
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qsl, unquote, urlsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -144,15 +170,31 @@ def cookie_user(value):
         return bool(PASSWORD), None
     if VIEWER_PASS and name.lower() == VIEWER.lower():
         return True, None
-    from league import profiles
+    from league import izbaceni, profiles
+    if izbaceni.is_out(name):   # 19.11. (owner's order): a removed user's cookie no longer opens the app
+        return False, None
     if not profiles.session_ok(name, exp - COOKIE_DAYS * 86400):   # "odjavi me svugdje" or a new password
         return False, None
     player, ppw = PLAYERS.get(name.lower(), (None, ""))
     if player:
         return (True, player) if ppw or profiles.has_password(player) else (False, None)
     from league import members   # registered through an invite link
+    if members.reserved(name):   # 18.11. (audit): never a session as one of the tool's own accounts (real-money mirror)
+        return False, None
     member = members.exists(name)
     return (True, member) if member else (False, None)
+
+
+def _note_visit(who, path):
+    """19.11.: a logged-in person opened a page: league/posjeti.py (files, polls, MCP and webhooks do not count).
+    Never fails the request."""
+    try:
+        if who and AUTH:
+            from league import posjeti
+            if posjeti.counts(urlsplit(path or "").path):
+                posjeti.note(who)
+    except Exception:  # noqa: BLE001 - posjeti.note already says it once an hour
+        pass
 
 
 def _cookie_name(value):
@@ -167,6 +209,10 @@ def _cookie_name(value):
 def check_password(name, pw):
     """(ok, player or None): a player's own name + password, or the shared UI_PASSWORD with any name."""
     player, ppw = PLAYERS.get((name or "").strip().lower(), (None, ""))
+    from league import izbaceni
+    out = izbaceni.is_out(name) and not (VIEWER_PASS and (name or "").strip().lower() == VIEWER.lower())
+    if out:   # 19.11. (owner's order, league/izbaceni.py): removed, so his own password no longer works
+        player = None
     if player:
         from league import profiles
         own = profiles.check_password(player, pw)   # a password the player set in ⚙️ Postavke replaces UI_PASS_<NAME>
@@ -176,7 +222,7 @@ def check_password(name, pw):
             return True, player
     if VIEWER_PASS and (name or "").strip().lower() == VIEWER.lower():
         return hmac.compare_digest(pw.encode(), VIEWER_PASS.encode()), None
-    if not player:
+    if not player and not out:
         from league import members   # registered through an invite link
         member = members.verify(name, pw)
         if member:
@@ -219,6 +265,10 @@ def login_page(qs, err=""):
 
 
 def route(path, qs):
+    from ui import umirovljeno   # 19.11.: pages of the stopped microcap strategies answer with one line
+    gone = umirovljeno.page(path, qs)
+    if gone:
+        return gone
     if path == "/pregled":
         from ui import pocetna
         return pocetna.page(qs)
@@ -234,12 +284,20 @@ def route(path, qs):
     if path == "/strategije":
         from ui import strategije
         return strategije.page(qs)
-    if path == "/izvori":
-        from ui import izvori
-        return izvori.page(qs)
+    if path == "/telegram-kanali":   # 19.11. (vlasnik): the informational Telegram list (ui/tgkanali.py), every user
+        from ui import tgkanali
+        return tgkanali.page(qs)
     if path == "/ekipe":   # 9.11.: crews and the minute check (kol/minute.py)
         from ui import ekipe
         return ekipe.page(qs)
+    if path == "/kol/analize":   # 10.11. (Jure, prijedlog 3.3): the analyses that were folded under /kol, one tap away
+        return kol.analize_page(qs)
+    if path == "/kol-makro" or path.startswith("/kol-makro/"):   # 15.11. (makroinf/web.py): macro influencers in the app
+        from makroinf import web as miweb
+        h = path[len("/kol-makro/"):]
+        if h == "biblioteka":   # 15.11. navečer: the library of every stored post (makroinf/appviews.py)
+            return miweb.library(qs)
+        return miweb.profile_page(h) if h else miweb.list_page(qs=qs)
     if path.startswith("/kol/"):
         return kol.kol_page(path[len("/kol/"):], qs)
     if path == "/wallets":
@@ -248,11 +306,11 @@ def route(path, qs):
         return pages.wallet(path[len("/wallet/"):], qs)
     if path == "/tokens":
         return tokens.page(qs)
-    if path == "/tokens/jaki":
-        return tokens.page(qs, view="jaki")
+    if path == "/tokens/jaki":   # 19.11.: the old Jaki view; do_GET redirects it to /tokens (tokens.redirect_for)
+        return tokens.page({})
     if path.startswith("/token/"):
         return pages.token(path[len("/token/"):], qs)
-    if path == "/events":
+    if path == "/events":   # 19.11.: do_GET redirects it (ui/maknuto); kept for callers of route()
         return pages.events(qs)
     if path == "/watch":
         return watch.page(qs)
@@ -262,6 +320,9 @@ def route(path, qs):
         return usage.page(qs)
     if path == "/market":
         return market.page(qs)
+    if path == "/trziste":   # 20.11. market/trziste.py: BTC, Fear & Greed, meme volume vs the tokens (analysis only)
+        from ui import trziste
+        return trziste.page(qs)
     if path == "/analitika":
         from ui import analitika
         return analitika.page(qs)
@@ -270,6 +331,9 @@ def route(path, qs):
     if path == "/izlazi":
         from ui import exitspage
         return exitspage.page(qs)
+    if path == "/izlazi/izvori":   # 15.11. (izlazi/): the exits learned per source
+        from ui import izlaziizvori
+        return izlaziizvori.page(qs)
     if path == "/dugorocno":
         from ui import dugo
         return dugo.page(qs)
@@ -291,6 +355,9 @@ def route(path, qs):
     if path == "/mapa":
         from ui.html import map_page
         return map_page(qs)
+    if path in ("/vise", "/vise/sustav"):   # 10.11. (Jure, prijedlog 3.5): "Više" is a page now, not the ☰ drawer
+        from ui.html import vise_page
+        return vise_page(qs, "sustav" if path == "/vise/sustav" else None)
     if path == "/trazi":
         from ui import search
         return search.page(qs)
@@ -312,6 +379,11 @@ def _error_html():
     """Generic error text for the page; the traceback goes to the server log only (audit 4.11. §4.3)."""
     ref = hashlib.sha256(f"{time.time()}{os.getpid()}".encode()).hexdigest()[:8]
     print(f"ui-greska {ref}:\n{traceback.format_exc()}", file=sys.stderr, flush=True)
+    try:   # 10.11. (Jure): the same error in Sentry, under the mark the page and the log show
+        from ops import sentry
+        sentry.capture(where=f"ui-greska {ref}")
+    except Exception:  # noqa: BLE001 - the error page must still be shown
+        pass
     return (f"<h1>Greška</h1><p>Stranica se nije mogla složiti. Pokušaj ponovno za minutu. "
             f"<span class=mut>Oznaka za log: {ref}</span></p>")
 
@@ -347,23 +419,69 @@ def build(path, qs, lang="hr"):
     return code, i18n.translate(html).encode("utf-8")
 
 
-HEAVY = ("/tokens", "/tokens/jaki", "/pregled")   # pages that read every hype signal: built by build_in_child, never in this process
+# pages that read every hype signal (or, /ekipe and /kol, every minute candle / every call): built by build_in_child,
+# never in this process. 9.11. 19:32: /ekipe (180 s) and /kol (30 s) built here took the UI process to 818 MB, the
+# memory watchdog stopped it and every visitor saw Cloudflare's 502 and then the deploy page for a minute.
+HEAVY = ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol", "/kol/analize")
 WARM = ("/pregled", "/tokens")   # pre-rendered every few minutes; the others are built on the first visit
+SNAPSHOT_ONLY = ("/ekipe", "/kol", "/kol/analize")   # not warmed (180 s / 30 s of CPU), their last good build is kept on disk
+# 10.11.: /kol/analize holds what /kol built before (pairs, correlations, together): same child build and snapshot
+BUILDING_REFRESH_S = int(os.environ.get("UI_BUILDING_REFRESH_S", "20"))
+WARM_SKIP_FRESH_S = int(os.environ.get("UI_WARM_SKIP_FRESH_S", "240"))   # the warmer leaves a page younger than this alone
+CHILD_NICE = int(os.environ.get("UI_CHILD_NICE", "5"))   # page builds below the request threads, above the heavy jobs
+# 9.11. 22:00: the stdlib server keeps only 5 connections waiting to be accepted; with the CPU at 100 % (KOL search
+# round) the 1-2 s fragment polls of a few open Autopilot tabs overflowed it, the kernel refused the rest and Render
+# showed 502 (59 of them at 21:15 UTC) although the UI process was alive. A deeper backlog queues them instead.
+ThreadingHTTPServer.request_queue_size = int(os.environ.get("UI_BACKLOG", "128"))
+
+
+def _nice_child():
+    """Page builds run at nice CHILD_NICE: below the request threads (nice 0) and above the heavy jobs (ops/heavy
+    NICE). 9.11. 20:10: 1 CPU at 100 % (run_dugo + KOL round + a 45-s /pregled build) and every visitor's request,
+    every 1-s Autopilot fragment, waited for CPU behind the page build."""
+    try:
+        os.nice(CHILD_NICE)
+    except (OSError, AttributeError):
+        pass
+
+
+def warm_build(path):
+    """build_in_child for the warmer: when the page was built less than WARM_SKIP_FRESH_S ago (a visitor's refresh or
+    the previous pass) the cached copy is kept, instead of another 22-45 s child build next to the heavy jobs every
+    UI_WARM_EVERY_S whether anyone looked or not (9.11. 20:10, 1 CPU at 100 %). 9.11. (audit): pagecache.warm now
+    skips such a page before calling this (skip_fresh_s), so the stored copy is not re-packed with a new time; this
+    check stays as the guard for a visitor's build that landed in between."""
+    with pagecache._lock:
+        hit = pagecache._store.get((path, "", None))
+    if hit and time.time() - hit[0] < WARM_SKIP_FRESH_S:
+        return 200, gzip.decompress(hit[3])
+    return build_in_child(path)
+
+
+def _building_html(path):
+    """The 503 "being built" page: refreshes itself (meta refresh + Retry-After in _send) and offers the pages that
+    never wait (Autopilot, Natjecanje), so it is a short wait, not a dead end (9.11. 18:08-18:17: Pregled was this
+    page for 10 min and the only way on was to keep clicking)."""
+    body = (f"<h1>Stranica se trenutno slaže</h1><p>Poslužitelj je zauzet drugim poslom; stranica se gradi u pozadini "
+            f"i ova se sama osvježava za {BUILDING_REFRESH_S} s. Pokušaj ponovno za minutu ako se ne pojavi.</p>"
+            f"<p><a href=/wallets>Novčanici</a> · <a href=/tokens>Tokeni</a> · <a href=/>Na pregled</a></p>")
+    html = page("Stranica nije dostupna", body, path)
+    meta = f'<meta http-equiv="refresh" content="{BUILDING_REFRESH_S}">'
+    html = html.replace("<head>", "<head>" + meta, 1) if "<head>" in html else meta + html
+    return 503, i18n.translate(html).encode("utf-8")
 
 
 def _last_copy(path, why):
     """(code, html bytes) when the child could not render `path`: the last snapshot pagecache saved on disk (served as
-    a 200 so the visitor sees data; its age shows in the page), or a 503 "try again in a minute". 9.11. (audit P33):
-    never build(path) here instead; the HEAVY pages hold ~200 MB of rows and this process also runs the copy/auto-sell
-    loop and the webhooks, so an OOM or a watchdog SIGTERM here stops real-money copies for 30 s+."""
+    a 200 so the visitor sees data; its age shows in the page), or the self-refreshing 503 (_building_html). 9.11.
+    (audit P33): never build(path) here instead; the HEAVY pages hold ~200 MB of rows and this process also runs the
+    copy/auto-sell loop and the webhooks, so an OOM or a watchdog SIGTERM here stops real-money copies for 30 s+."""
     snap = pagecache._load_snap((path, "", None), stale_ok=True)
     if snap:
         print(f"ui: {why}, služim zadnju spremljenu kopiju {path}", flush=True)
         return 200, gzip.decompress(snap[3])
     print(f"ui: {why}, nema spremljene kopije {path}", flush=True)
-    html = page("Stranica nije dostupna", "<h1>Stranica se trenutno slaže</h1><p>Poslužitelj je zauzet drugim poslom. "
-                "Pokušaj ponovno za minutu. <a href=/>Na pregled</a></p>", path)
-    return 503, i18n.translate(html).encode("utf-8")
+    return _building_html(path)
 
 
 def build_in_child(path):
@@ -389,7 +507,7 @@ def build_in_child(path):
                 print(f"ui: brava zauzeta ({heavy.holder() or 'nepoznat posao'}), slobodno "
                       f"{free if free is None else round(free)} MB: gradim {path} bez brave", flush=True)
             r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
-                               timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
+                               timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")), preexec_fn=_nice_child)
         for ln in r.stderr.decode(errors="replace").splitlines():
             if ln.startswith("ui-tijek:"):   # where a slow build spent its time
                 print(ln, flush=True)
@@ -402,10 +520,43 @@ def build_in_child(path):
 
 
 def english(raw, gz, lang):
-    """(200, html bytes) in `lang` from a Croatian page as pagecache keeps it."""
+    """(200, html bytes, keep) in `lang` from a Croatian page as pagecache keeps it. 13.11. (Jure: the token page was
+    Croatian in English): new text is translated while the visitor waits (up to i18n.SYNC_S), and a copy that is still
+    partly Croatian is not cached (keep=False), so the next view is built again with the translations that arrived."""
     html = (raw if raw is not None else gzip.decompress(gz)).decode("utf-8")
     i18n.LANG.set(lang)
-    return 200, i18n.translate(html).encode("utf-8")
+    out = i18n.translate(html, wait=i18n.SYNC_S)
+    return 200, out.encode("utf-8"), i18n.last_missing() == 0
+
+
+def english_json_html(body):
+    """A JSON answer whose "html" holds page parts (Autopilot's /api/first): those parts in English (ui/i18n), the
+    numbers as they are. Unreadable JSON is returned unchanged."""
+    try:
+        d = json.loads(body)
+    except ValueError:
+        return body
+    parts = d.get("html") if isinstance(d, dict) else None
+    if not isinstance(parts, dict):
+        return body
+    d["html"] = {k: i18n.translate(v) if isinstance(v, str) else v for k, v in parts.items()}
+    return json.dumps(d, ensure_ascii=False)
+
+
+def english_search_json(body):
+    """/api/trazi in English: page names, descriptions and sections and the tokens' "seen in" words through ui/i18n
+    (dictionary only; names of tokens, KOLs and wallets stay as they are)."""
+    try:
+        d = json.loads(body)
+    except ValueError:
+        return body
+    for p in d.get("pages") or []:
+        for k in ("name", "desc", "sec"):
+            if isinstance(p.get(k), str):
+                p[k] = i18n.t(p[k])
+    for t in d.get("tokens") or []:
+        t["src"] = [i18n.t(x) if isinstance(x, str) else x for x in t.get("src") or []]
+    return json.dumps(d, ensure_ascii=False)
 
 
 def _banner(path):
@@ -429,7 +580,19 @@ class Handler(BaseHTTPRequestHandler):
         i18n.LANG.set(self.lang)
 
     def do_GET(self):
+        # 20.11. (2): a request whose handling raises this process by 150+ MB is named in the log (ops/mem.watch)
+        from ops import mem
+        with mem.watch(urlsplit(self.path).path):
+            return self._do_get()
+
+    def do_POST(self):
+        from ops import mem
+        with mem.watch("POST " + urlsplit(self.path).path):
+            return self._do_post()
+
+    def _do_get(self):
         self._index = False   # every page is noindex unless it is one of the public, indexable ones
+        self._robots = None   # the X-Robots-Tag of a noindex page (default "noindex, nofollow")
         self._public = False  # public pages have their own English version and are never run through ui/i18n
         self._set_lang()
         ok = not AUTH or self._authorized()
@@ -443,20 +606,42 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=604800")
             self.end_headers()
             return self.wfile.write(body)
+        if path.startswith("/img/t/"):   # 15.11.: token icons through our own address (ui/tokenicons), every host, no login
+            return self._token_icon(path)
         if path.startswith("/admin/export/"):   # 7.11.: read-only database copy for offline analysis (EXPORT_KEY)
             return self._export(path[len("/admin/export/"):], qs)
+        if path.startswith("/api/mcp/"):   # 10.11.: the MemeSonar MCP server's data (Bearer MCP_API_KEY), no login
+            return self._mcp_get(path, qs)
+        if path == "/mcp":   # 10.11.: the hosted MCP endpoint answers POST only (no server-initiated stream)
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        to = slash_redirect(path)   # 23.11. (SEO): "/influencers/" was the 401 login page with noindex
+        if to:
+            return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
+        if path == "/robots.txt" and APP_URL and _host(self.headers.get("Host")) == _host(APP_URL):
+            # 23.11. (SEO): the app host has its own robots.txt (nothing there is for search), no 301 to the site
+            from ui import public
+            self._index = True
+            return self._send(200, public.APP_ROBOTS.encode("utf-8"), "text/plain", cache_control="public, max-age=3600")
         to = moved_to_site(self.headers.get("Host"), path, ok and AUTH)
         if to:
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
         if path == "/jezik":
             return self._lang_switch(qs)
+        from ui import maknuto   # 19.11. (vlasnik): Eventi, Zadnji sken, Za WhatsApp, Ideje, Natjecanje are gone
+        to = maknuto.redirect(path)
+        if to:
+            return self._redirect(to, code=303)
         if path in ("/sw.js", deploypage.PATH, "/healthz"):   # deploy page + its service worker, every host, no login
             if path == "/sw.js":
                 return self._send(200, deploypage.sw_js().encode("utf-8"), "text/javascript")
             if path == "/healthz":
                 return self._send(200, b"ok", "text/plain")
-            self._public = True
-            return self._send(200, deploypage.html().encode("utf-8"))
+            self._public = True   # 15.11.: English unless clearly Croatian (/hr address or cb_lang=hr cookie)
+            return self._send(200, deploypage.html(deploypage.lang_for(path, self.headers.get("Cookie") or "")).encode("utf-8"))
         if path == "/prijava":
             return self._login(qs)
         if path == "/registracija":
@@ -470,14 +655,29 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/en" and (site or not ok):
                 return self._redirect("/", code=301 if site else 303)
             lang = "en" if path in ("/", "/en") else "hr"   # /en: the English page for logged-in users (canonical /)
-            self._index = path not in ("/dobrodosli", "/en")
+            from ui import seoindex   # 23.11.: the policy of ui/seoindex (the homepage is always in its core)
+            self._index = path not in ("/dobrodosli", "/en") and seoindex.indexable(path)
             return self._send(200, landing.page_html(qs, logged_in=ok and AUTH and not site, ok=qs.get("poslano") == "1", lang=lang)
                               .encode("utf-8"))
         from ui import public
-        pub = public.route(path)
-        if pub:   # indexable pages: influencer leaderboard and profiles, robots.txt, sitemap.xml
+        # 23.11. (hitno): a visitor who is not logged in builds an uncached public page only with a free slot
+        # (ui/javniteret: crawler bursts of per-entity pages stopped this process 11 times in 2.5 days)
+        pub = public.route(path, gate=not (AUTH and ok))
+        if pub:   # public pages: indexable only when ui/seoindex says so (its core); robots.txt, sitemap.xml
+            from ui import seoindex
             self._public = True
-            self._index = pub[0] == 200
+            self._index = pub[0] == 200 and seoindex.indexable(path)
+            if pub[0] == 200 and not self._index:   # 23.11. (SEO): reachable, its links followed, not in the index
+                self._robots = "noindex, follow"
+            if pub[0] == 410:   # 23.11. (SEO): a Telegram channel that is not on the filtered list: gone, cacheable
+                self._robots = "noindex"
+                return self._send(410, pub[1], pub[2], cache_control="public, max-age=86400")
+            if pub[0] == 503:   # the gate: Retry-After, no noindex header, no login page (23.11.)
+                from ui import javniteret
+                return self._send(503, pub[1], pub[2], retry_after=javniteret.RETRY_AFTER)
+            if path in ("/robots.txt", "/sitemap.xml") and pub[0] == 200:
+                # 23.11. (SEO): Cloudflare keeps them an hour, so a restart of this process never hides robots.txt
+                return self._send(pub[0], pub[1], pub[2], cache_control="public, max-age=3600")
             return self._send(pub[0], pub[1], pub[2])
         if path.startswith("/static/landing/"):
             return self._static(path[len("/static/landing/"):])
@@ -494,6 +694,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=600")
             self.end_headers()
             return self.wfile.write(body)
+        if path in ("/autopilot", "/en/autopilot", "/hr/autopilot", "/autopilot/chat", "/autopilot/zivo"):   # 10.11. (Jure): public Autopilot page, its chat and its live parts
+            return self._autopilot(path, qs, ok)
         m = re.fullmatch(r"/nas-token/(\d+)/meta\.json", path)
         if m:   # public token metadata: wallets, pump.fun and explorers read it without logging in
             from ui import nastoken
@@ -533,6 +735,78 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/kol-insajderi":
+            # 16.11. (vlasnik, insajderi/kolwallets.py): the influencers' probably linked wallets. The OWNER only,
+            # checked here on the server (inferences about named people: no other account, no cached copy, never a
+            # public page); the page is built per request from insajderi.db (a few small reads).
+            from trade import settings as tsettings
+            from ui import kolinsajderi
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/kol>← Na influencere</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+            try:
+                html = page(*kolinsajderi.page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
+        if path == "/novcanici-admin":
+            # 19.11. (vlasnik: "the admin must have a dashboard with more data about the wallets than an ordinary
+            # user"; ui/novadmin.py): the OWNER only, checked here on the server like /kol-insajderi and /stanje, before
+            # anything is read; the rendered page is kept by pagecache under its own key (read-only reads, no network)
+            from trade import settings as tsettings
+            from ui import novadmin
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/wallets>← Na novčanike</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+
+            def build_admin(q=qs, lang=self.lang):
+                try:
+                    html = page(*novadmin.page(q, self.user), path)
+                except Exception:
+                    return 500, page("Greška", _error_html(), path).encode("utf-8")
+                if lang == "en":
+                    html = i18n.translate(html)
+                return 200, html.encode("utf-8")
+            code, raw, gz = pagecache.get(("/novcanici-admin", u.query, "vlasnik", self.lang), build_admin)
+            return self._send(code, raw, gz=gz, translated=True)
+        if path == "/stanje":
+            # 17.11. (vlasnik: "Find all of the implicit state machines in my app", stanja/): what is switched on, who
+            # set it and since when + the dictionary of every status word. The OWNER only (the switches of the real
+            # account), checked here on the server; built per request from a few small read-only reads, never cached.
+            from trade import settings as tsettings
+            from ui import stanje
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/>← Na početnu</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+            try:
+                html = page(*stanje.page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
+        if path == "/kol-makro" or path.startswith("/kol-makro/"):
+            # 15.11. (vlasnik: "... staviti ih za sve korisnike aplikacije pod influencere, makroinfluencer i tab ...
+            # osvježavati i stranice koje vide korisnici"): every logged-in user. After a macro scoring the cached
+            # copies are dropped first (makroinf/web.sync), then the tab's list (a fragment the /kol tab fetches) or a
+            # page through route() and pagecache like any other.
+            from makroinf import web as miweb
+            try:
+                miweb.sync()
+            except Exception:  # noqa: BLE001 - the copies then live out their own cache time
+                pass
+            if path == "/kol-makro/lista":
+                try:
+                    frag = miweb.tab_html()
+                except Exception:  # noqa: BLE001
+                    _error_html()   # the traceback to the log under a reference; the tab says "try again"
+                    return self._send(500, b"")
+                return self._send(200, frag.encode("utf-8"))
+        if path == "/tokenstranica/povratne":   # 15.11.: comments and votes of a token page, for this player
+            from ui import tokenstranica
+            frag = tokenstranica.fb_fragment(self.user, qs.get("m", ""), qs.get("e", ""))
+            return self._send(200, i18n.translate(frag).encode("utf-8"), translated=True)
         if path == "/pravi-trade/log":   # live order log on the Autopilot page, re-fetched every few seconds
             from ui import pravitrade
             frag = pravitrade.log_fragment(self.user)
@@ -542,26 +816,54 @@ class Handler(BaseHTTPRequestHandler):
             frag = (pravitrade.token_popup(self.user, qs.get("m", "")) if path == "/pravi-trade/token"
                     else pravitrade.crew_popup(self.user, qs.get("h", "")))
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path == "/pravi-trade/preskok":
+            # 10.11. (Jure): the pop-up of one skipped buy (market cap at the call, +5/+10/+15 min, now), same access
+            # as the page; a failure is a 500 with no text and the pop-up says "nema svježih podataka" (POP_JS)
+            from ui import pravitrade
+            try:
+                frag = pravitrade.skip_popup(self.user, qs.get("m", ""), qs.get("t", ""))
+            except Exception:  # noqa: BLE001
+                _error_html()
+                return self._send(500, b"")
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
         if path in ("/pravi-trade/pozicije", "/pravi-trade/zovu", "/pravi-trade/ideje"):   # 9.11.: live fragments
             from ui import pravitrade
             fn = {"/pravi-trade/pozicije": pravitrade.positions_fragment, "/pravi-trade/zovu": pravitrade.callers_fragment,
                   "/pravi-trade/ideje": pravitrade.ideas_fragment}[path]
             frag = fn(self.user)
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path == "/pravi-trade/prijedlozi":
+            # 11.11. (Jure, proposals/ flag proposals G21): the card's list, polled every 150 s; owner only (403 for
+            # anybody else); it only reads proposals.db (cached), a failure greys the box
+            from ui import pravitrade
+            try:
+                frag = pravitrade.proposals_fragment(self.user)
+            except Exception:  # noqa: BLE001
+                _error_html()
+                return self._send(500, b"")
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path in ("/pravi-trade/graf", "/pravi-trade/dnevnik", "/pravi-trade/preporuke"):
+            # 10.11. (Jure: graf na vrhu, dnevnik na klik, čista stranica): the header with the chart (every 45 s), the
+            # open decision log (every second) and the recommendations (once, when opened); same access as the page.
+            # A failure is a 500 with no text: the page greys the box and tries again, the trade loop never notices.
+            from ui import pravitrade
+            fn = {"/pravi-trade/graf": pravitrade.head_fragment, "/pravi-trade/dnevnik": pravitrade.dnevnik_fragment,
+                  "/pravi-trade/preporuke": pravitrade.recs_fragment}[path]
+            try:
+                frag = fn(self.user)
+            except Exception:  # noqa: BLE001
+                _error_html()   # the traceback to the log under a reference; the box only greys out
+                return self._send(500, b"")
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path.startswith(("/pravi-trade/api/", "/pravi-trade/l/", "/pravi-trade/static/")):
+            # 11.11. (Jure: Autopilot kao terminal, ui/apterm.py): the first view as JSON, the shared live tick (SSE
+            # and the 5-s poll), the chart's candles, the parts loaded on scroll and the page's static files. All
+            # read-only GETs with the page's access; a failure is a 500 with no text (the block greys out).
+            return self._apterm(path, qs)
         if path == "/pravi-trade":
             from ui import pravitrade
             try:
                 html = page(*pravitrade.page(qs, self.user), path)
-            except Exception:
-                html = page("Greška", _error_html(), path)
-            return self._send(200, html.encode("utf-8"))
-        if path in ("/natjecanje", "/prijedlozi", "/copy-trading"):
-            SHOW_ALL.set(qs.get("sve") == "1")
-            from ui import copytrade
-            fn = {"/natjecanje": league.page, "/prijedlozi": league.ideas_page,
-                  "/copy-trading": copytrade.page}[path]
-            try:
-                html = page(*fn(qs, self.user), path)
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
@@ -579,20 +881,16 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200 if res else 404, html.encode("utf-8"))
-        if path == "/whatsapp":
-            from ui import whatsapp
-            try:
-                html = page(*whatsapp.page(qs, self.user), path)
-            except Exception:
-                html = page("Greška", _error_html(), path)
-            return self._send(200, html.encode("utf-8"))
         if path.startswith("/izvjestaj/raw/"):
             from ui import reportpage
             body = reportpage.raw(path[len("/izvjestaj/raw/"):])
             return self._send(200 if body else 404, body or b"nema izvjestaja")
         if path == "/api/trazi":
             from ui import search
-            return self._send(200, search.api(qs.get("q", "")).encode("utf-8"), "application/json")
+            out = search.api(qs.get("q", ""))
+            if self.lang == "en":   # 13.11.: the search drop-down's words come from this JSON, not from the page
+                out = english_search_json(out)
+            return self._send(200, out.encode("utf-8"), "application/json")
         if path == "/api/pojam":
             from ui import glossarypage
             frag = glossarypage.fragment(qs.get("k", ""), qs.get("l", "")[:80], qs.get("t", "")[:800])
@@ -611,20 +909,29 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 frag = _error_html()
             return self._send(200, frag.encode("utf-8"))
-        if path == "/watch":   # Prije eventa is a section of Eventi since 4.11.
-            return self._redirect("/events#prije", code=301)
+        if path in ("/tokens", "/tokens/jaki"):   # 19.11.: the old Novi / Jaki views move to the new default view
+            to = tokens.redirect_for(path, qs)
+            if to:
+                return self._redirect(to, code=302)
+        if path == "/izvori":   # 19.11. (vlasnik: Telegram out of every calculation): the old page -> the info list
+            return self._redirect("/telegram-kanali", code=301)
         if path == "/":   # the app opens on Pregled (4.11.: one page with the most important things, then Tokeni)
             return self._redirect("/pregled" + (f"?{u.query}" if u.query else ""), code=302)
         key = (path, u.query, None)    # route() pages are the same for every user
         # the heaviest pages always in a child process, also when a visitor comes before the warm-up finished
         # (right after a deploy: built here they pushed this process to ~200 MB, 1.11.)
-        mk = (lambda: build_in_child(path)) if path in HEAVY and not u.query else (lambda: build(path, qs))
+        heavy_page = path in HEAVY and not u.query
+        mk = (lambda: build_in_child(path)) if heavy_page else (lambda: build(path, qs))
+        # 9.11. 19:32: a heavy page that is in neither memory nor on disk is built in the background and the visitor
+        # gets the self-refreshing "being built" page at once, instead of a request that hangs 60-180 s (Cloudflare
+        # gives up at 100 s) while the child renders
+        fetch = (lambda k, b: pagecache.get_bg(k, b, lambda: _building_html(path))) if heavy_page else pagecache.get
         if self.lang == "hr":
-            code, raw, gz = pagecache.get(key, mk)
+            code, raw, gz = fetch(key, mk)
         else:   # English = the (pre-rendered) Croatian page translated, so it is as fast as the Croatian one
-            code, raw, gz = pagecache.get(key, mk)   # cached Croatian page, then translated
+            code, raw, gz = fetch(key, mk)   # cached Croatian page, then translated
             if code == 200:
-                code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang))
+                code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang), light=True)
         if AUTH and self.role != "admin":   # non-admins get a copy without the adm-only parts (audit 4.11. §4.2)
             code, raw, gz = pagecache.get(key + (self.lang, "noadm"), lambda c=code, r=raw, g=gz: _no_admin(c, r, g))
         self._send(code, raw, gz=gz, translated=True)
@@ -679,11 +986,59 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
 
-    def _send(self, code, body, ctype="text/html", gz=None, translated=False):
+    def _mcp_auth(self):
+        """True, or the (code, json) to answer: 404 while MCP_API_KEY is not set (the API does not exist), 401 on a
+        wrong key."""
+        from ui import mcpapi
+        ok = mcpapi.authorized(self.headers.get("Authorization"))
+        if ok is None:
+            return 404, '{"error": "not found"}'
+        if not ok:
+            return 401, '{"error": "wrong or missing Authorization: Bearer <key>"}'
+        return True
+
+    def _mcp_get(self, path, qs):
+        from ui import mcpapi
+        a = self._mcp_auth()
+        if a is not True:
+            return self._send(a[0], a[1].encode("utf-8"), "application/json")
+        try:
+            code, out = mcpapi.answer(path, qs)
+        except Exception as e:  # noqa: BLE001 - a broken part answers JSON, never a traceback page
+            print(f"mcp: {path}: {type(e).__name__}: {e}", flush=True)
+            code, out = 500, json.dumps({"error": f"{type(e).__name__}"})
+        return self._send(code, out.encode("utf-8"), "application/json")
+
+    def _mcp_rpc(self):
+        from ui import mcpapi
+        a = self._mcp_auth()
+        if a is not True:
+            return self._send(a[0], a[1].encode("utf-8"), "application/json")
+        n = int(self.headers.get("Content-Length") or 0)
+        got = (self.headers.get("Authorization") or "").strip()
+        code, out = mcpapi.rpc(self.rfile.read(min(n, 200_000)), got[7:].strip() if got.lower().startswith("bearer ") else got)
+        return self._send(code, out.encode("utf-8"), "application/json")
+
+    def _mcp_post(self):
+        from ui import mcpapi
+        a = self._mcp_auth()
+        if a is not True:
+            return self._send(a[0], a[1].encode("utf-8"), "application/json")
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            body = json.loads(self.rfile.read(min(n, 100_000)) or b"{}")
+        except ValueError:
+            return self._send(400, b'{"error": "body must be JSON"}', "application/json")
+        code, data = mcpapi.trade_request(body)
+        return self._send(code, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json")
+
+    def _send(self, code, body, ctype="text/html", gz=None, translated=False, retry_after=None, cache_control=None):
         """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""
         if (body is not None and not translated and ctype == "text/html" and getattr(self, "lang", "hr") == "en"
                 and not getattr(self, "_public", False)):
-            body = i18n.translate(body.decode("utf-8")).encode("utf-8")
+            # a whole page may wait a few seconds for new text (13.11.); the 1-s fragments and pop-ups never wait
+            html = body.decode("utf-8")
+            body = i18n.translate(html, wait=i18n.SYNC_S if html[:15].lower().startswith("<!doctype") else 0).encode("utf-8")
         accepts = "gzip" in (self.headers.get("Accept-Encoding") or "")
         if body is None:            # cached page: only the gzipped copy is kept
             zipped = accepts
@@ -697,12 +1052,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(out)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache_control or "no-store")
         if code == 503:   # 9.11. (audit P33, review): _last_copy's "try again in a minute" says so to the browser too
-            self.send_header("Retry-After", "60")
+            self.send_header("Retry-After", str(retry_after or 60))
         self.send_header("Vary", "Accept-Encoding")
-        if not getattr(self, "_index", False):
-            self.send_header("X-Robots-Tag", "noindex, nofollow")
+        if not getattr(self, "_index", False) and not retry_after:   # a gate 503 is "come back", not "never index"
+            self.send_header("X-Robots-Tag", getattr(self, "_robots", None) or "noindex, nofollow")
         if zipped:
             self.send_header("Content-Encoding", "gzip")
         if ctype == "text/html" and not getattr(self, "_public", False):
@@ -769,7 +1124,7 @@ class Handler(BaseHTTPRequestHandler):
         elif has and not ok:
             self.send_header("Set-Cookie", "cb_pt=; Path=/; Max-Age=0; SameSite=Lax")
 
-    def do_POST(self):
+    def _do_post(self):
         """/run/<job>: start an on-demand run (button on the page), then back to the page.
         /hook/kol?key=$KOL_HOOK_KEY: webhook for the KOL tracker on X (hype/sources.kol_monitor), its own key."""
         u = urlsplit(self.path)
@@ -784,6 +1139,10 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/hook/chain":
             self._chain_hook(u)
             return
+        if u.path == "/api/mcp/trade":   # 10.11.: a trade REQUEST from the MCP server; waits for the owner's tap
+            return self._mcp_post()
+        if u.path == "/mcp":   # 10.11.: the MCP endpoint for Grok, hosted in the app (ui/mcpapi.rpc), Bearer key
+            return self._mcp_rpc()
         if u.path == "/prijava":
             return self._login_post()
         if u.path == "/registracija":
@@ -800,6 +1159,10 @@ class Handler(BaseHTTPRequestHandler):
         if need:   # e.g. a basic user posting /run/wallets by hand: refused before anything starts
             print(f"uloge: odbijeno {self.who or '-'} ({self.role}) POST {path}", flush=True)
             return self._forbidden(path, need)
+        if path.startswith("/autopilot/"):   # 10.11.: chat of the public Autopilot page (no cached page changes)
+            return self._autopilot_post(path)
+        if path.startswith("/tokenstranica/"):   # 15.11.: comments and votes of a token page (same rules as the chat)
+            return self._tokenstranica_post(path)
         pagecache.clear()   # a run or a trade changes what the pages show
         origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
         same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
@@ -826,14 +1189,35 @@ class Handler(BaseHTTPRequestHandler):
             multi = parse_qs(self._read_body(100_000).decode("utf-8", "replace"))
             form = {k: v[-1] for k, v in multi.items()}
             form["u_list"] = multi.get("u", [])
-            return self._redirect(pravitrade.post(path, form, self.user))
-        if same_site and path.startswith(("/natjecanje/", "/prijedlozi/")):
+            to = pravitrade.post(path, form, self.user)
+            if path in ("/pravi-trade/switch", "/pravi-trade/sellall"):
+                # 10.11. (pregled): pagecache was cleared above BEFORE the switch was saved, and the public page keeps
+                # "live" 30 s: forget both after it, so no page keeps saying "tradamo pravim novcem" once it is off
+                try:
+                    from ui import apjavno
+                    apjavno.reset_cache()
+                except Exception:  # noqa: BLE001
+                    pass
+                pagecache.clear()
+            from ui import apterm
+            apterm.forget_first()   # 11.11.: the terminal's next first view is built anew (a saved SL/TP shows at once)
+            if self.headers.get("X-Apx-Fetch") == "1":   # ap.js (Uredi SL-TP, Kupi, DCA): the answer in place
+                from json import dumps   # (do_POST imports json further down: the module name is local here)
+                # 11.11.: {"to"} and, for a buy over the owner's limits, {"warn": [reasons], "title", "what"}
+                return self._send(200, dumps(pravitrade.fetch_answer(to), ensure_ascii=False).encode("utf-8"),
+                                  "application/json")
+            return self._redirect(to)
+        from ui import maknuto   # 19.11.: forms of the removed pages do nothing (invite links still work)
+        g = maknuto.gone(path)
+        if g:
+            if g[0] == 303:
+                return self._redirect(g[1])
+            return self._send(410, b"", "text/plain")
+        if same_site and path.startswith("/natjecanje/pozivnica/"):   # invite links (ui/register.post_invite)
             n = int(self.headers.get("Content-Length") or 0)
             form = dict(parse_qsl(self.rfile.read(min(n, 100_000)).decode("utf-8", "replace")))
             self.send_response(303)
-            from ui import copytrade
-            handler = copytrade.post if path.startswith("/natjecanje/copy/") else league.post
-            self.send_header("Location", handler(path, form, self.user))
+            self.send_header("Location", league.post(path, form, self.user))
             self.end_headers()
             return
         if same_site and (path == "/nas-token/rpc" or path.endswith("/pump-tx")) and path.startswith("/nas-token/"):
@@ -857,12 +1241,6 @@ class Handler(BaseHTTPRequestHandler):
             from ui import landing
             form = dict(parse_qsl(self._read_body(10_000).decode("utf-8", "replace")))
             return self._redirect(landing.admin_post(path, self.user, form))
-        if same_site and path == "/whatsapp/poslano":   # the update was copied or shared to the group
-            from ui import whatsapp
-            whatsapp.post_shared()
-            self.send_response(204)
-            self.end_headers()
-            return
         if same_site and path == "/paper/izlaz":  # sell an open demo position by hand
             n = int(self.headers.get("Content-Length") or 0)
             form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
@@ -954,9 +1332,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _login(self, qs):
-        """/prijava: login form. A logged-in player goes on to the competition unless switching (?kao=<name>)."""
+        """/prijava: login form. A logged-in player goes on to Pregled unless switching (?kao=<name>)."""
         if self.user and self.user != qs.get("kao") and not qs.get("next"):
-            return self._redirect("/natjecanje")
+            return self._redirect("/pregled")
         return self._send(200, login_page(qs).encode("utf-8"))
 
     def _login_post(self):
@@ -969,6 +1347,7 @@ class Handler(BaseHTTPRequestHandler):
                                               "Pogrešno ime ili lozinka.").encode("utf-8"))
         secure = _secure_flag(self.headers)
         viewer = VIEWER if not player and VIEWER_PASS and form.get("name", "").strip().lower() == VIEWER.lower() else ""
+        _note_visit(player or viewer, "/prijava")   # 19.11.: a login is a visit
         cookie = (f"{COOKIE}={make_cookie(player or viewer)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                   f"SameSite=Lax{secure}")
         cookies = [cookie]
@@ -1033,7 +1412,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._redirect(loc)
 
     def _register_post(self):
-        """Invite link form: makes the player, logs them in and opens the competition."""
+        """Invite link form: makes the player, logs them in and opens Pregled (19.11.: no competition page)."""
         from ui import register
         n = int(self.headers.get("Content-Length") or 0)
         form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
@@ -1044,12 +1423,12 @@ class Handler(BaseHTTPRequestHandler):
                                                           "email": form.get("email", "")}, err)
                               .encode("utf-8"))
         pagecache.clear()
+        _note_visit(name, "/registracija")   # 19.11.: registering is a visit
         secure = _secure_flag(self.headers)
         cookie = (f"{COOKIE}={make_cookie(name)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                   f"SameSite=Lax{secure}")
         from urllib.parse import quote
-        msg = f"Dobrodošao, {name}! Tvoj demo račun od ${league_store.START_USD:,.0f} je spreman. Kupi prvi token ispod."
-        return self._redirect(f"/natjecanje?ok={quote(msg)}#kupi", cookie=cookie)
+        return self._redirect("/pregled", cookie=cookie)
 
     def _request_post(self):
         """'Zatraži pristup' on the public page: stored for the organiser (/zahtjevi)."""
@@ -1063,6 +1442,118 @@ class Handler(BaseHTTPRequestHandler):
             err = landing.ERR_EN.get(err, err) if lang == "en" else err
             return self._send(400, landing.page_html({}, err=err, form=form, lang=lang).encode("utf-8"))
         return self._redirect(("/" if lang == "en" else "/hr") + "?poslano=1#forma")
+
+    def _autopilot(self, path, qs, ok):
+        """10.11. (Jure): /autopilot is readable without a login on every host. A visitor gets it in a light public
+        frame (English at /autopilot through ui/i18n, Croatian at /hr/autopilot); a logged-in player gets it inside the app, where the chat
+        form and +1 work. /autopilot/chat is the message list alone, re-fetched by the page every 15 s."""
+        from ui import apjavno
+        if ok and path in (apjavno.PATH_EN, apjavno.PATH_HR):   # inside the app the language is the player's own setting
+            return self._redirect(apjavno.PATH)
+        if not ok and qs.get("prijava") == "1":   # "Prijavi se" on the public copy: only a visitor needs the form
+            return self._redirect("/prijava?next=" + apjavno.PATH)
+        # 19.11. (vlasnik 13.11.: every public page in Croatian and English; he shows the site to foreigners): the public
+        # site's scheme, "/autopilot" = English (canonical, x-default), "/hr/autopilot" = Croatian; the old English
+        # address moves for good, and a visitor whose cookie says hr is sent from the English address to the Croatian one
+        if not ok and path == apjavno.PATH_EN:
+            return self._redirect(apjavno.PATH + (f"?{urlencode(qs)}" if qs else ""), code=301)
+        if not ok and path == apjavno.PATH and self.lang == "hr" and _has_lang_cookie(self.headers.get("Cookie")):
+            return self._redirect(apjavno.PATH_HR + (f"?{urlencode(qs)}" if qs else ""), code=302)
+        user = self.user if ok else None
+        if ok:
+            lang = self.lang
+        elif path in (apjavno.CHAT_PATH, apjavno.LIVE_PATH):
+            lang = "hr" if qs.get("l") == "hr" else "en"
+        else:
+            lang = "hr" if path == apjavno.PATH_HR else "en"
+        self._public = not ok   # a visitor gets no app cookies; a player's copy carries the form token cookie
+        # 10.11. (Jure: "da", u Google): the visitor's copy of the page is indexable; the chat fragment and the in-app copy are not
+        from ui import seoindex
+        self._index = not ok and path in (apjavno.PATH, apjavno.PATH_HR) and seoindex.indexable(path)
+        try:
+            if path == apjavno.CHAT_PATH:
+                html = apjavno.chat_fragment(user, qs)
+            elif path == apjavno.LIVE_PATH:   # 10.11.: the live parts, re-fetched every 15 s by the page (not indexed)
+                self._index = False
+                html = apjavno.live_fragment(lang)
+            elif ok:
+                html = page(*apjavno.page(qs, user, lang, logged_in=True), path)
+            else:
+                html = apjavno.guest_html(qs, lang)
+        except Exception:
+            err = _error_html()   # the traceback goes to the server log, never to the page
+            html = page("Greška", err, path) if ok else f"<!doctype html><meta charset=utf-8><title>Greška</title>{err}"
+            return self._send(500, html.encode("utf-8"))
+        i18n.LANG.set(lang)
+        wait = i18n.SYNC_S if html[:15].lower().startswith("<!doctype") else 0   # 13.11.: whole pages only
+        return self._send(200, i18n.translate(html, wait=wait).encode("utf-8"), translated=True)
+
+    def _autopilot_post(self, path):
+        """Chat of /autopilot (message, +1, hide a message): logged-in players only, with a same-site Origin and the
+        form token, as strict as the money forms (CSRF_STRICT). It sits before pagecache.clear() because a chat line
+        changes no cached page. ajax=1 (the page script): the answer is the refreshed message list, not a redirect."""
+        from ui import apjavno
+        form = dict(parse_qsl(self._read_body(20_000).decode("utf-8", "replace")))
+        origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        same_site = urlsplit(origin).netloc == self.headers.get("Host") if origin else not AUTH
+        want = csrf_token(self._session_value())
+        token_ok = not AUTH or bool(want) and hmac.compare_digest(form.get("_csrf", "").encode(), want.encode())
+        if not same_site or not token_ok:
+            print(f"csrf: odbijeno {self.who or '-'} POST {path} (origin={'da' if origin else 'prazan'})", flush=True)
+            self.send_response(403)
+            self.end_headers()
+            return
+        if form.get("ajax") != "1":
+            return self._redirect(apjavno.post(path, form, self.user))
+        ok, code = apjavno.act(path, form, self.user)
+        frag = apjavno.chat_fragment(self.user, {}, err="" if ok else code)
+        return self._send(200, i18n.translate(frag).encode("utf-8"), translated=True)
+
+    def _tokenstranica_post(self, path):
+        """Comments and votes of a token page (ui/tokenstranica.fb_post): logged-in players only, a same-site Origin and
+        the form token, like the Autopilot chat. ajax=1: the refreshed box; else back to the token page."""
+        from ui import tokenstranica
+        form = dict(parse_qsl(self._read_body(20_000).decode("utf-8", "replace")))
+        origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        same_site = urlsplit(origin).netloc == self.headers.get("Host") if origin else not AUTH
+        want = csrf_token(self._session_value())
+        token_ok = not AUTH or bool(want) and hmac.compare_digest(form.get("_csrf", "").encode(), want.encode())
+        if not same_site or not token_ok:
+            print(f"csrf: odbijeno {self.who or '-'} POST {path} (origin={'da' if origin else 'prazan'})", flush=True)
+            self.send_response(403)
+            self.end_headers()
+            return
+        ok, code, mint = tokenstranica.fb_post(path, form, self.user)
+        mint = mint if re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", mint or "") else ""
+        if form.get("ajax") != "1":
+            return self._redirect((f"/token/{mint}" if mint else "/tokens") + ("" if ok else f"?e={quote(code)}")
+                                  + "#povratne")
+        frag = tokenstranica.fb_fragment(self.user, mint, "" if ok else code)
+        return self._send(200, i18n.translate(frag).encode("utf-8"), translated=True)
+
+    def _token_icon(self, path):
+        """GET /img/t/<mint>.webp: the token's icon, small and from our own address (fetched once, kept on disk), or
+        the initials placeholder; never an empty hole (ui/tokenicons.get)."""
+        from ui import tokenicons
+        m = tokenicons.ROUTE.match(path)
+        if not m:
+            return self._send(404, b"", "text/plain")
+        try:
+            code, headers, body = tokenicons.get(m.group(1))
+        except Exception:  # noqa: BLE001 - the initials, briefly, instead of a broken image
+            _error_html()
+            code, headers, body = 200, {"Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=60"}, \
+                tokenicons.placeholder(m.group(1))
+        self.send_response(code)
+        for k, v in headers.items():
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            return None
+        return None
 
     def _static(self, name):
         """Screenshots of the public page: only plain file names from ui/static/landing."""
@@ -1081,6 +1572,94 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "public, max-age=86400")
         self.end_headers()
         self.wfile.write(body)
+
+    def _apterm(self, path, qs):
+        """GET /pravi-trade/api/{first,tick,candles,pnl-days,portfelj,stream}, /pravi-trade/l/<part>, /pravi-trade/static/<file>
+        (ui/apterm.py). Same access as the page (403 for anybody else); nothing here writes or trades."""
+        from ui import apterm
+        user = getattr(self, "user", None)
+        if path.startswith("/pravi-trade/static/"):
+            asset = apterm.static_asset(path[len("/pravi-trade/static/"):])
+            if not asset:
+                return self._send(404, b"", "text/plain")
+            raw, gz, ctype, ver = asset
+            zipped = "gzip" in (self.headers.get("Accept-Encoding") or "")
+            out = gz if zipped else raw
+            self.send_response(200)
+            self.send_header("Content-Type", f"{ctype}; charset=utf-8")
+            self.send_header("Content-Length", str(len(out)))
+            # the page links the file with ?v=<hash of its content>: a new deploy is a new address, so a year is safe
+            self.send_header("Cache-Control", "private, max-age=31536000, immutable" if qs.get("v") == ver else "no-cache")
+            self.send_header("ETag", f'"{ver}"')
+            self.send_header("Vary", "Accept-Encoding")
+            self.send_header("X-Robots-Tag", "noindex, nofollow")
+            if zipped:
+                self.send_header("Content-Encoding", "gzip")
+            self.end_headers()
+            try:
+                return self.wfile.write(out)
+            except (BrokenPipeError, ConnectionResetError):
+                return None
+        if path == "/pravi-trade/api/stream":
+            return self._ap_stream(qs)
+        try:
+            if path == "/pravi-trade/api/first":
+                body, ctype = (apterm.first_json(user, qs.get("m", ""), with_html=qs.get("html") == "1",
+                                                 sym=qs.get("s", ""), fresh=qs.get("fresh") == "1"), "application/json")
+                if body and self.lang == "en" and qs.get("html") == "1":   # 13.11.: its tables are HTML inside JSON
+                    body = english_json_html(body)
+            elif path == "/pravi-trade/api/tick":
+                body, ctype = apterm.tick_json(user, qs.get("m", "")), "application/json"
+            elif path == "/pravi-trade/api/token":   # 11.11.: the name of the address in the buy panel's Token field
+                d = apterm.token_info(user, qs.get("q", ""))
+                body, ctype = (None if d is None else json.dumps(d, ensure_ascii=False)), "application/json"
+            elif path == "/pravi-trade/api/candles":
+                d = apterm.candles_data(user, qs.get("m", ""), qs.get("tf", "5m"), qs.get("u", "mc"))
+                body, ctype = (None if d is None else json.dumps(d, separators=(",", ":"))), "application/json"
+            elif path in ("/pravi-trade/api/pnl-days", "/pravi-trade/api/portfelj"):   # 11.11.: read-only, cached
+                fn = apterm.pnl_days if path.endswith("pnl-days") else apterm.portfelj
+                d = fn(user, qs.get("m", "live"), qs.get("d", "30"))
+                body, ctype = (None if d is None else json.dumps(d, ensure_ascii=False, separators=(",", ":"))), "application/json"
+            elif path.startswith("/pravi-trade/l/"):
+                name = path[len("/pravi-trade/l/"):]
+                body, ctype = apterm.lazy(name, user, qs), "text/html"
+                if body == "" and name not in apterm.LAZY:   # 11.11.: "" of a known part = nothing to show now (200)
+                    return self._send(404, b"", "text/plain")
+            else:
+                return self._send(404, b"", "text/plain")
+        except Exception:  # noqa: BLE001
+            _error_html()   # the traceback to the log under a reference; the block only greys out
+            return self._send(500, b"", "text/plain")
+        if body is None:
+            return self._send(403, b"", "text/plain")
+        return self._send(200, body.encode("utf-8"), ctype)
+
+    def _ap_stream(self, qs):
+        """GET /pravi-trade/api/stream: Server-Sent Events of the shared live tick (ui/apterm.stream). At most
+        apterm.STREAM_MAX at once (each holds one thread of this server); one more gets 503 and the browser polls
+        /pravi-trade/api/tick every 5 s instead. A stream ends after apterm.STREAM_MAX_S (the browser reconnects)."""
+        from ui import apterm
+        if not apterm.can_view(getattr(self, "user", None)):
+            return self._send(403, b"", "text/plain")
+        if not apterm.stream_slot():
+            self.send_response(503)
+            self.send_header("Retry-After", str(apterm.POLL_S))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        try:
+            self.send_response(200)
+            for k, v in apterm.STREAM_HEADERS:
+                self.send_header(k, v)
+            self.end_headers()
+            for chunk in apterm.stream(qs.get("m", ""), alive=lambda: not _peer_gone(self.connection)):
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass   # the viewer left: the slot is freed below
+        finally:
+            apterm.stream_release()
+        return None
 
     def _redirect(self, location, cookie=None, code=303):
         self.send_response(code)
@@ -1102,6 +1681,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.user = player
                     self.who = player or _cookie_name(v)
                     self.role = role_of(self.who)
+                    _note_visit(self.who, getattr(self, "path", ""))
                     return True
         h = self.headers.get("Authorization", "")   # old browser password box still works
         if not h.startswith("Basic "):
@@ -1114,11 +1694,24 @@ class Handler(BaseHTTPRequestHandler):
         if ok:
             self.who = self.user or (VIEWER if VIEWER_PASS and name.strip().lower() == VIEWER.lower() else None)
             self.role = role_of(self.who)
+            _note_visit(self.who, getattr(self, "path", ""))
         return ok
 
     def log_message(self, fmt, *args):
         if self.server.verbose:
             super().log_message(fmt, *args)
+
+
+def _peer_gone(sock):
+    """True when the browser has closed an SSE connection: it never sends anything after its GET, so a readable socket
+    that peeks 0 bytes is a closed one (ui/apterm.stream asks this before every tick)."""
+    import select
+    import socket
+    try:
+        r, _w, _x = select.select([sock], [], [], 0)
+        return bool(r) and sock.recv(1, socket.MSG_PEEK) == b""
+    except (OSError, ValueError, TypeError):
+        return True
 
 
 def _bind(host, port):
@@ -1140,6 +1733,11 @@ def _bind(host, port):
 
 
 def main(argv=None):
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("ui")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8050)
@@ -1162,6 +1760,18 @@ def main(argv=None):
         from league import auto
         from ui.paper import market
         threading.Thread(target=auto.loop, args=(market,), daemon=True, name="auto-sell").start()
+        # 10.11. (Jure: TP +40 % dotaknut, a prodaja se nije dogodila): the Autopilot's TP/SL every second, apart
+        # from the 20-s pass over every player's positions
+        threading.Thread(target=auto.fast_loop, args=(market,), daemon=True, name="autopilot-izlazi").start()
+        # 10.11. (Jure: MC u trenutku poziva i pomak u 5/10/15 min bez čekanja na svijeće): live samples of the skips
+        from ui import pravitrade as _pt
+        threading.Thread(target=_pt.skip_sampler_loop, daemon=True, name="preskoceni-uzivo").start()
+        # 10.11. (Jure: "DCA ide ručno, granice postavljam ručno"): the owner's dokup orders, watched every second
+        threading.Thread(target=_pt.dca_loop, daemon=True, name="dca-nalozi").start()
+    # 20.11. (2): the memory sampler names the page (and the stacks) while the memory is rising, not after
+    import threading as _th
+    from ops import mem as _mem
+    _th.Thread(target=_mem.sampler_loop, daemon=True, name="ui-memorija").start()
     # heaviest pages rendered in the background right away and every 5 min, so a visit never waits for them
     from ui import landing
     landing.start()   # live numbers of the public page, counted in the background
@@ -1172,6 +1782,8 @@ def main(argv=None):
         print(f"marketpub: {e}", flush=True)
     from ui import coins
     coins.start()     # public top-100 Solana meme coins (Jupiter list every 3 h) -> public.db
+    from ui import seoindex
+    seoindex.start()  # 23.11. (SEO): the indexed core (sitemap, noindex) recomputed every 6 h -> public.db seo_core
     try:
         from analytics import gsc
         gsc.start()   # Google Search Console every 6 h -> analytics.db (only with GSC_SERVICE_ACCOUNT_JSON)
@@ -1179,7 +1791,9 @@ def main(argv=None):
         ga4.start()   # GA4 Data API, same key, only with GA4_PROPERTY_ID
     except Exception as e:  # noqa: BLE001
         print(f"gsc: {e}", flush=True)
-    pagecache.warm(list(WARM), build_in_child, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
+    pagecache.warm(list(WARM), warm_build, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")),
+                   skip_fresh_s=WARM_SKIP_FRESH_S)   # 9.11. (audit): the skip lives in warm(), so a kept page keeps its age
+    pagecache.snapshot(SNAPSHOT_ONLY)   # 9.11.: /ekipe and /kol keep their last good build on disk (served while rebuilt)
     if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
         import threading
         # English version: every known text of the app is translated in the background a few minutes after start

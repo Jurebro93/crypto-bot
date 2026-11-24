@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS pair_tests (a TEXT, b TEXT, together INTEGER, expecte
 # columns added after the first release (ALTER on old files; CREATE above stays as it was for seed imports)
 MIGRATE = [("kols", "bot", "INTEGER DEFAULT 0"), ("kols", "bot_why", "TEXT"),
            ("calls", "bad", "TEXT"), ("calls", "mver", "INTEGER"), ("calls", "mtry", "INTEGER"),
-           ("calls", "msrc", "TEXT"), ("calls", "checked_ts", "INTEGER"), ("calls", "deleted_ts", "INTEGER")]
+           ("calls", "msrc", "TEXT"), ("calls", "checked_ts", "INTEGER"), ("calls", "deleted_ts", "INTEGER"),
+           ("calls", "flash_n", "INTEGER")]   # 11.11.: quick checks of a fresh X call (kol/deleted.flash_check)
 
 
 def connect(path=None):

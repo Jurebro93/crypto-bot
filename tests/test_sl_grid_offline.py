@@ -25,7 +25,8 @@ class Delay(unittest.TestCase):
         self.base = sim.load_config(learned=False)
 
     def test_stop_waits_for_delay(self):
-        cfg = {**self.base, "sl": -0.2, "sl_delay_min": 0}
+        # panic off: the -26% tick inside the delay would be an emergency exit (learned separately, grid panic_liq)
+        cfg = {**self.base, "sl": -0.2, "sl_delay_min": 0, "panic": None}
         r0 = sim.replay(1.0, 5e4, T0, dip_then_run(), cfg)
         self.assertEqual(r0["exit_reason"], "stop_loss")
         r15 = sim.replay(1.0, 5e4, T0, dip_then_run(), {**cfg, "sl_delay_min": 15})

@@ -31,6 +31,29 @@ def can_sign():
     return bool(os.environ.get("SOLANA_PRIVATE_KEY", "").strip())
 
 
+def addresses(con=None):
+    """10.11. (Jure: graf vrijednosti walleta): (address to show and measure, address of the key or None, address the
+    owner saved on /pravi-trade or the env one, or None). The key comes first when it can sign, then what the owner
+    saved on the page (settings wallet_pub), then SOLANA_PUBLIC_KEY: the same order ui/pravitrade._addr has, kept
+    here so the trade process (trade/equity.py) can find the wallet without importing the whole ui package.
+    con: a trade.db connection (None = only the key and the env are looked at). Never raises."""
+    key = None
+    if can_sign():
+        try:
+            key = address()
+        except Exception:  # noqa: BLE001 - a key that cannot be parsed signs nothing: fall back to the saved address
+            key = None
+    saved = None
+    if con is not None:
+        try:
+            row = con.execute("SELECT v FROM settings WHERE k='wallet_pub'").fetchone()
+            saved = (json.loads(row[0]) if row and row[0] else None) or None
+        except Exception:  # noqa: BLE001 - no settings table yet
+            saved = None
+    env = os.environ.get("SOLANA_PUBLIC_KEY") or None
+    return key or saved or env, key, saved or env
+
+
 def sign(tx_b64, keypair=None):
     """Sign a base64 VersionedTransaction from Jupiter as its fee payer; returns base64."""
     from solders.transaction import VersionedTransaction
@@ -38,7 +61,23 @@ def sign(tx_b64, keypair=None):
     if kp is None:
         raise RuntimeError("SOLANA_PRIVATE_KEY nije postavljen")
     tx = VersionedTransaction.from_bytes(base64.b64decode(tx_b64))
-    return base64.b64encode(bytes(VersionedTransaction(tx.message, [kp]))).decode()
+    n = tx.message.header.num_required_signatures
+    if n <= 1:
+        return base64.b64encode(bytes(VersionedTransaction(tx.message, [kp]))).decode()
+    # 18.11. (audit): an order that needs a second signer (a market maker co-signs, or somebody else pays the fee) made
+    # VersionedTransaction(message, [kp]) raise "SignerError: not enough signers": 3 of 13 real midcap buys were lost
+    # and two real sales waited 103 s and 221 s (15.-16.11.). We sign OUR slot and leave the others as received; the
+    # other party adds its own (Jupiter's execute endpoint for its own orders).
+    from solders.message import to_bytes_versioned
+    keys = list(tx.message.account_keys)[:n]
+    me = kp.pubkey()
+    if me not in keys:
+        raise RuntimeError("naš ključ nije među potpisnicima naloga")
+    sigs = list(tx.signatures)
+    if len(sigs) != n:
+        raise RuntimeError(f"nalog traži {n} potpisa, a nosi {len(sigs)} mjesta")
+    sigs[keys.index(me)] = kp.sign_message(to_bytes_versioned(tx.message))
+    return base64.b64encode(bytes(VersionedTransaction.populate(tx.message, sigs))).decode()
 
 
 def _rpc_url():
@@ -64,21 +103,43 @@ def rpc(method, params):
     return data["result"]
 
 
+# 10.11. (review novac, pravi novac): the balances the books and the sell decision are written from are read at
+# 'confirmed'. Without it the RPC answers at 'finalized', ~13 s behind a swap Jupiter or PumpPortal just confirmed:
+# PumpPortal's before/after amounts came out 0 (an open position with no quantity, never sold), and a sale right
+# after a buy saw an empty wallet and closed the position without selling (executor.sell, close=True).
+# A confirmed block is voted by a supermajority; none has ever been rolled back.
+READ_COMMITMENT = "confirmed"
+
+
 def sol_balance(addr):
-    return rpc("getBalance", [addr])["value"] / 1e9
+    return rpc("getBalance", [addr, {"commitment": READ_COMMITMENT}])["value"] / 1e9
 
 
 def token_raw_balance(owner, mint):
-    res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed"}])
+    res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": READ_COMMITMENT}])
     return sum(int(a["account"]["data"]["parsed"]["info"]["tokenAmount"]["amount"]) for a in res["value"])
 
 
-TOKEN_PROGRAMS = {"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PQnx5ujeXu69C1"}
+def token_decimals(mint):
+    """Decimals of a mint (getTokenSupply, one standard RPC call); trade/equity.py asks once per mint per process to
+    turn a raw quantity into whole tokens for the price."""
+    return int(rpc("getTokenSupply", [mint])["value"]["decimals"])
+
+
+# 18.11. (audit + the refund step's own log line "račun je prazan, ali zatvaranje nije poslano"): the second id here was
+# a typo of the Token-2022 program, so an empty Token-2022 token account was never closed and its deposit (~0.002 SOL,
+# 2 % of a 0.1 SOL stake) never came back: 0 refunds in 11 full closes on 14.-15.11.
+TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+TOKEN_PROGRAMS = {TOKEN_PROGRAM, TOKEN_2022_PROGRAM}
 
 
 def token_accounts(owner, mint):
     """[(account address, raw amount, decimals, token program)] of this wallet for one mint."""
-    res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed"}])
+    # 10.11. (pregled): 'confirmed' like the balances above; at 'finalized' the account still showed the sold amount
+    # right after a full sale, so the rent (~0.002 SOL per token) was never reclaimed. Closing an account that still
+    # holds tokens fails on-chain, so the fresher read cannot close a wrong one.
+    res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": READ_COMMITMENT}])
     out = []
     for a in res["value"]:
         ta = a["account"]["data"]["parsed"]["info"]["tokenAmount"]
@@ -108,7 +169,7 @@ def sign_raw(tx_bytes, keypair=None):
     return sign(base64.b64encode(tx_bytes).decode(), keypair)
 
 
-def close_empty(owner_kp, mint):
+def close_empty(owner_kp, mint, wait_s=30, info=None):
     """Close this wallet's empty token accounts for `mint`, giving the ~0.002 SOL rent of each back.
     Returns lamports reclaimed (0 when nothing was empty or the RPC failed)."""
     from solders.hash import Hash
@@ -128,4 +189,6 @@ def close_empty(owner_kp, mint):
     bh = Hash.from_string(rpc("getLatestBlockhash", [{"commitment": "confirmed"}])["value"]["blockhash"])
     tx = VersionedTransaction(MessageV0.try_compile(owner, ixs, [], bh), [owner_kp])
     sig = send(base64.b64encode(bytes(tx)).decode())
-    return lamports if confirmed(sig, wait_s=30) else 0
+    if info is not None:     # 18.11.: what was sent, for a caller that books the refund when it is confirmed later
+        info.update(lamports=lamports, sig=sig)
+    return lamports if confirmed(sig, wait_s=wait_s) else 0

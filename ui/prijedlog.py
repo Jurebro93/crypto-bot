@@ -1,9 +1,13 @@
-"""The "Prijedlog za danas" box on top of Tokeni, Influenceri and Novčanici (Jure 7.11.): the first thing a user
-sees is what the tool concluded from everything it analysed and, concretely, where to put money today and why.
-The tables come after. Each pick carries the market cap at the moment of the analysis; the page asks
-/api/prijedlog every minute for the live market cap and says "OK" / "pričekaj povlačenje" (the user may read the
-page minutes later, when a $50k entry is already $70k)."""
+"""The "Prijedlog za danas" box (Jure 7.11.): the first thing a user sees is what the tool concluded from everything
+it analysed and, concretely, where to put money today and why. Each pick carries the market cap at the moment of the
+analysis; the page asks /api/prijedlog every minute for the live market cap and says "OK" / "pričekaj povlačenje"
+(the user may read the page minutes later, when a $50k entry is already $70k).
+
+10.11. (Jure, prijedlog 3.1 i 5.1): the box lives only on Pregled, as the compact variant box("pregled") (compact():
+one answer, rows, the whole old text in a pop-up). The tokeni / influenceri / novcanici variants stay working for any
+caller left (and /api/prijedlog?box=...)."""
 import json
+import re
 import sqlite3
 import time
 
@@ -32,11 +36,23 @@ def _band_lo_hi(b):
             "1–10M": (1e6, 1e7), "10M+": (1e7, 1e99)}[b]
 
 
+CHANCES_TTL_S = 600   # 10.11. (audit sekundni S1): max24 changes only when the KOL round measures, so 10 min is fresh
+_CHANCES = {}         # (days, kol.db path) -> (wall time, result); only non-empty results are kept
+
+
 def chances(days=14):
-    """{band: (share of calls with max24 >= TARGET, n)} from kol.db measured calls (the retro of 7.11.)."""
+    """{band: (share of calls with max24 >= TARGET, n)} from kol.db measured calls (the retro of 7.11.).
+    10.11. (audit sekundni S1): kept 10 min. It used to read every measured call of 14 days on every call: the live
+    box asked every 2 s and every open token pop-up every second (166 ms each on a production-sized copy)."""
+    key = (days, _kol_db())
+    hit = _CHANCES.get(key)
+    if hit and time.time() - hit[0] < CHANCES_TTL_S:
+        return dict(hit[1])
     out = {}
     try:
-        rows = data.q(_kol_db(), "SELECT mcap0, max24 FROM calls WHERE max24 IS NOT NULL AND kind IN ('call','bot') "
+        # 9.11. (audit P81): KOL calls only, as kol/together and kol/converge count them: no alert bots (they post
+        # every fresh pool) and no 'bad' rows (dust market cap) in the band's denominator
+        rows = data.q(_kol_db(), "SELECT mcap0, max24 FROM calls WHERE max24 IS NOT NULL AND kind = 'call' AND bad IS NULL "
                                    "AND ts >= ? AND source NOT IN ('kol_win')", (int(time.time() - days * 86400),))
     except Exception:  # noqa: BLE001
         rows = []
@@ -46,6 +62,8 @@ def chances(days=14):
     for b, xs in by.items():
         if len(xs) >= 30:
             out[b] = (sum(1 for x in xs if x >= TARGET) / len(xs), len(xs))
+    if out:   # an empty answer (no file yet, a locked read) is asked again next time
+        _CHANCES[key] = (time.time(), dict(out))
     return out
 
 
@@ -93,7 +111,8 @@ def live_market(tokens, fetch=None):
         return {}
     try:
         from dexscreener import client
-        pairs = (fetch or (lambda t: client.tokens("solana", t)))(tokens)
+        # 9.11. (audit P2): the live cache (DEX_LIVE_TTL, 3 s), not the scanners' 60 s; `fetch` stays the test seam
+        pairs = (fetch or (lambda t: client.tokens_live("solana", t)))(tokens)
     except Exception:  # noqa: BLE001
         return None
     out = {}
@@ -110,19 +129,35 @@ def live_market(tokens, fetch=None):
                   "txns_h24": int((h24.get("buys") or 0) + (h24.get("sells") or 0)),
                   "vol_m5": float(vol.get("m5") or 0), "txns_m5": int(((tx.get("m5") or {}).get("buys") or 0) + ((tx.get("m5") or {}).get("sells") or 0)),
                   "ch_m5": ch.get("m5"), "ch_h1": ch.get("h1"), "ch_h24": ch.get("h24")}
+        # 10.11. (Jure: "stavi to u tablicu kao na DexScreeneru"): every window the pair has, buys and sells apart
+        out[t]["w"] = {w: {"ch": ch.get(w), "vol": float(vol.get(w) or 0), "buys": int((tx.get(w) or {}).get("buys") or 0),
+                           "sells": int((tx.get(w) or {}).get("sells") or 0)} for w in ("m5", "h1", "h6", "h24")}
+        # 11.11. (Jure: "da nisam krivo pastao adresu"): the name the buy panel shows for an address (ui/apterm.token_info)
+        bt = pr.get("baseToken") or {}
+        out[t].update(symbol=bt.get("symbol"), name=bt.get("name"), created_ms=pr.get("pairCreatedAt"))
+        # 16.11. (owner: "piše da je Umbra 7 miliona, na DexScreeneru 13 milijuna"): DexScreener's page shows the
+        # FDV (the whole supply) where we count the supply in circulation; both are in the answer we already read
+        try:
+            out[t]["fdv"] = float(pr.get("fdv") or 0) or None
+        except (TypeError, ValueError):
+            out[t]["fdv"] = None
+        # 14.11. (ui/apgraf.py): the pair = GeckoTerminal's pool, for the chart's history without another lookup
+        out[t]["pair"] = pr.get("pairAddress")
     return out
 
 
-def alive(lv):
-    """None when the token trades right now; otherwise the plain reason it is not a pick."""
+def alive(lv, min_liq=None):
+    """None when the token trades right now; otherwise the plain reason it is not a pick. min_liq: the liquidity
+    floor (default LIVE_MIN["liq"], the lists'); 0 = no floor (10.11. Jure: the owner's own manual buy)."""
     if lv is None:
         return "nema živog para na DexScreeneru"
     if lv["txns_h1"] < LIVE_MIN["txns_h1"]:
         return f"samo {lv['txns_h1']} transakcija u zadnjem satu (treba {LIVE_MIN['txns_h1']}+)"
     if lv["vol_h1"] < LIVE_MIN["vol_h1"]:
         return f"volumen u zadnjem satu ${lv['vol_h1']:,.0f} (treba ${LIVE_MIN['vol_h1']:,.0f}+)"
-    if lv["liq"] < LIVE_MIN["liq"]:
-        return f"likvidnost ${lv['liq']:,.0f} (treba ${LIVE_MIN['liq']:,.0f}+)"
+    floor = LIVE_MIN["liq"] if min_liq is None else min_liq
+    if lv["liq"] < floor:
+        return f"likvidnost ${lv['liq']:,.0f} (treba ${floor:,.0f}+)"
     if lv.get("ch_h1") is not None and float(lv["ch_h1"]) <= LIVE_MIN["max_drop_h1"]:
         return f"pada: {float(lv['ch_h1']):+.0f} % u zadnjem satu, ne ulazi dok se ne okrene"
     return None
@@ -165,13 +200,16 @@ def thesis(p):
     """The case for the pick in plain words, from the measured data only: thesis, live market, history, against."""
     lv, h = p.get("live") or {}, p.get("history") or {}
     za = [w for w in (p.get("why") or []) if w]
-    parts = ["Teza: " + (za[0].rstrip(".") if za else "ocjena alata i Šansa iznad praga") + "."]
+    parts = ["Teza: " + (smart_fix(za[0].rstrip(".")) if za else "ocjena alata i Šansa iznad praga") + "."]
     if lv:
+        # 10.11. (prijedlog, pravilo 8): Croatian numbers ("5,0k $", "0,1×", "+6 %"); the thesis is read in the Pregled
+        # pop-up next to rows that already write them so
+        from ui import redak as R
         turn = lv["vol_h1"] / lv["liq"] if lv.get("liq") else 0
-        ch1 = f"{lv['ch_h1']:+.0f} %" if lv.get("ch_h1") is not None else "?"
-        ch24 = f"{lv['ch_h24']:+.0f} %" if lv.get("ch_h24") is not None else "?"
-        parts.append(f"Uživo: {lv['txns_h1']} transakcija i ${lv['vol_h1']:,.0f} volumena u zadnjem satu ({turn:.1f}× likvidnosti), "
-                     f"cijena 1 h {ch1}, 24 h {ch24}.")
+        ch1 = R.pct(lv["ch_h1"]) if lv.get("ch_h1") is not None else "?"
+        ch24 = R.pct(lv["ch_h24"]) if lv.get("ch_h24") is not None else "?"
+        parts.append(f"Uživo: {R.num(lv['txns_h1'])} transakcija i {R.usd(lv['vol_h1'])} volumena u zadnjem satu "
+                     f"({R.num(turn, 1)}× likvidnosti), cijena 1 h {ch1}, 24 h {ch24}.")
     hist = []
     hist.append(f"zvalo ga {h['callers']} računa" if h.get("callers") else "nitko ga od praćenih računa nije zvao")
     if h.get("minute_n"):
@@ -204,8 +242,12 @@ def token_picks_ex(now=None, n=3, rows=None, status=None, ch=None, live=None, ma
     ch = ch if ch is not None else chances()
     cands = []
     ranked = sorted(rows, key=overview._rank, reverse=True)
-    for razina, ok in (("visoka", lambda r: overview.relevant(r) and now - (r["last_seen"] or 0) <= MAX_AGE_S),
-                       ("srednja", lambda r: overview.relevant(r) and now - (r["last_seen"] or 0) <= 24 * 3600)):
+    # 9.11. (audit P79): freshness from the last real signal when overview gives it (signal_ts); last_seen also moves
+    # with a rug re-check (every 12 h), which is not a new signal
+    def _fresh(r):
+        return r.get("signal_ts") or r["last_seen"] or 0
+    for razina, ok in (("visoka", lambda r: overview.relevant(r) and now - _fresh(r) <= MAX_AGE_S),
+                       ("srednja", lambda r: overview.relevant(r) and now - _fresh(r) <= 24 * 3600)):
         for r in ranked:
             if len(cands) >= max_candidates:
                 break
@@ -375,8 +417,45 @@ def _tl(token, sym=None):
     return f'<a href="/token/{quote(token)}" translate=no>{esc(sym) if sym else "<code>" + esc(short(token)) + "</code>"}</a>'
 
 
-def group_pick():
-    """The best crew of KOLs that call together (kol/together): follow them, enter when they post."""
+CREW_MIN_N = 5          # 9.11. (audit P80): minute measurements before a crew's minute check decides (DNEVNIK 9.11.)
+CREW_MIN_HIT10 = 0.5
+CREW_MAX_SL = 0.3
+
+
+def crew_minute_ok(members, crews):
+    """None when the minute check (kol/minute.crew_stats 'crews': [(handles, stats, n_tokens, potential)]) has no
+    CREW_MIN_N+ measured first calls by 2+ of these members; else whether they gave +10 % before the stop in
+    CREW_MIN_HIT10+ with the stop first in at most CREW_MAX_SL (pooled over the matching crews)."""
+    mem = set(members or ())
+    rows = [(st["n"], st["hit10"], st["sl"]) for hs, st, *_ in crews or []
+            if st and len(set(hs)) >= 2 and set(hs) <= mem]
+    n = sum(r[0] for r in rows)
+    if n < CREW_MIN_N:
+        return None
+    hit10 = sum(r[0] * r[1] for r in rows) / n
+    sl = sum(r[0] * r[2] for r in rows) / n
+    return hit10 >= CREW_MIN_HIT10 and sl <= CREW_MAX_SL
+
+
+def _minute_crews(now=None):
+    try:
+        from kol import minute, store as _ks
+        mcon, kcon = minute.ro(), _ks.ro()
+        if mcon is None or kcon is None:
+            return []
+        try:
+            return minute.crew_stats(mcon, kcon, 14, int(now or time.time()), min_n=1).get("crews") or []
+        finally:
+            mcon.close()
+            kcon.close()
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def group_pick(crews=None):
+    """The best crew of KOLs that call together (kol/together): follow them, enter when they post.
+    9.11. (audit P80): a crew needs together.MIN_N joint calls (the module's own bar for a verdict, not 3) and, where
+    the minute check has measured it, +10 % before the stop in half of them; crews: injected for tests."""
     try:
         from kol import shillers, store as _ks, together
         con = _ks.ro() if hasattr(_ks, "ro") else None
@@ -390,19 +469,29 @@ def group_pick():
             con.close()
     except Exception:  # noqa: BLE001
         return None
-    good = [c for c in tog.get("clusters") or [] if c["stats"]["n"] >= 3 and (c["stats"]["hit"] or 0) >= 0.5
+    return pick_crew(tog.get("clusters") or [], crews if crews is not None else _minute_crews())
+
+
+def pick_crew(clusters, crews):
+    from kol import together
+    min_n = getattr(together, "MIN_N", 8)
+    good = [c for c in clusters if c["stats"]["n"] >= min_n and (c["stats"]["hit"] or 0) >= 0.5
             and (c["stats"]["rug"] or 0) < 0.4 and not c.get("shill")]
-    if not good:
-        return None
-    c = good[0]
-    return {"members": c["members"][:5], "n": c["stats"]["n"], "hit": c["stats"]["hit"], "rug": c["stats"]["rug"],
-            "tokens": c["tokens"]}
+    for c in good:
+        ok = crew_minute_ok(c["members"], crews)
+        if ok is False:   # known bad minute data: not recommended; None (no data yet) keeps the old measure
+            continue
+        return {"members": c["members"][:5], "n": c["stats"]["n"], "hit": c["stats"]["hit"], "rug": c["stats"]["rug"],
+                "tokens": c["tokens"], "minute": ok}
+    return None
 
 
 def _chance_txt(c):
     if not c:
         return "povijest još nema dovoljno sličnih poziva"
-    return f"{c[0]:.0%} sličnih tokena (po market capu) napravilo je +30 % u 24 h ({c[1]} izmjerenih poziva)"
+    from ui import redak as R
+    return (f"{R.pct(c[0], sign=False, frac=True)} sličnih tokena (po market capu) napravilo je +30 % u 24 h "
+            f"({R.num(c[1])} izmjerenih poziva)")
 
 
 def _makro_line():
@@ -468,12 +557,15 @@ def wallet_thesis(w):
 
 def _item(p, status=None):
     raz = p.get("razina") or "visoka"
-    cls = {"visoka": "good", "srednja": "warn", "niska": "bad"}[raz]
-    stake = {"visoka": "25–50 $", "srednja": "20–25 $", "niska": "10 $ ili samo gledaj"}[raz]
+    # 9.11. (audit P50/P51/P79): 'uživo' = the Autopilot's live list (fresh reason now); the grade is freshness, not a
+    # probability, so the badge says so
+    cls = {"uživo": "good", "visoka": "good", "srednja": "warn", "niska": "bad"}.get(raz, "warn")
+    stake = {"uživo": "25 $", "visoka": "25–50 $", "srednja": "20–25 $", "niska": "10 $ ili samo gledaj"}.get(raz, "20–25 $")
     text = p.get("thesis") or ("Zašto: " + ("; ".join(p["why"]) or "ocjena alata i Šansa") + ".")
     conf_txt = f' · pouzdanost {p["conf"]:.0f}' if p.get("conf") is not None else ""
+    grade = "uživo (Autopilot)" if raz == "uživo" else f"svježina {raz}"
     return (f'<li data-p="{esc(p["token"])}" data-m0="{p["mcap0"]:.0f}"><b>{_tl(p["token"], p["symbol"])}</b> '
-            f'<span class="b {cls}">vjerojatnost {raz}</span> ulog {stake} · '
+            f'<span class="b {cls}">{grade}</span> ulog {stake} · '
             f'na <b>{usd(p["mcap0"])[0]}</b> sada{conf_txt}'
             f'<span class=why><br>{esc(text)} {esc(_chance_txt(p["chance"]))}.</span>'
             f'<span class="pnow mut">provjeravam trenutnu cijenu…</span></li>')
@@ -491,8 +583,10 @@ def _near_html(near, note=""):
     return "".join(out)
 
 
-def box(kind, now=None, rows=None, live=None):
-    """kind: tokeni | influenceri | novcanici. HTML of the box (with the live-price script)."""
+def _base(kind, now=None, rows=None, live=None):
+    """What every box shares: what was analysed in 24 h, the token picks (the Autopilot's live list first when it has
+    rows), the market line and the box's own 7-day record. The picks are written to the decision log here, once per
+    box (ui/prijedlog_log)."""
     now = now or time.time()
     an = analysed(now)
     try:
@@ -501,27 +595,44 @@ def box(kind, now=None, rows=None, live=None):
     except Exception:  # noqa: BLE001
         status = {}
     picks, near, note = token_picks_ex(now, rows=rows, status=status, live=live)
+    log_kind = kind
     if live is None:   # 9.11. (Jure): the Autopilot's live engine is the source; Pregled follows it
         try:
             from ui import zivo
-            zr = zivo.rows(now)
+            # 11.11. (Grok #92): a row 4x+ over its first call is shown on the live list but is not a pick
+            zr = [r for r in zivo.rows(now, sync=True) if r.get("pick", True)]
             if zr:
+                # 9.11. (audit P50/P51): these are the live list's rows, graded 'uživo' and logged under kind 'zivo',
+                # so the box's 7-day record keeps the two methods (freshness + confidence vs. live reasons) apart
                 picks = [{"token": r["token"], "symbol": r.get("symbol") or (r["live"].get("symbol") if r.get("live") else None),
                           "mcap0": r["live"]["mcap"], "ts0": int(r.get("ts0") or now), "conf": r.get("conf"), "why": r["reasons"],
-                          "protiv": [], "band": _band(r["live"]["mcap"]), "chance": None, "razina": "visoka", "live": r["live"],
+                          "protiv": [], "band": _band(r["live"]["mcap"]), "chance": None, "razina": "uživo", "live": r["live"],
                           "history": history(r["token"]), "thesis": "Zašto sada: " + "; ".join(r["reasons"]) + ". " + r["expect"] + "."}
                          for r in zr[:3]]
                 near, note = [], ""
+                log_kind = "zivo"
         except Exception:  # noqa: BLE001
             pass
     mak = _makro_line()
     rec = ""
     try:   # dnevnik odluka: write the picks down, show the box's own 7-day record (ui/prijedlog_log)
         from ui import prijedlog_log
-        prijedlog_log.log(data.HYPE_DB, picks, kind, now)
+        prijedlog_log.log(data.HYPE_DB, picks, log_kind, now)
         rec = prijedlog_log.sentence(prijedlog_log.summary(data.HYPE_DB, now=now))
     except Exception:  # noqa: BLE001
         pass
+    return {"now": now, "an": an, "status": status, "picks": picks, "near": near, "note": note, "mak": mak, "rec": rec}
+
+
+def box(kind, now=None, rows=None, live=None, parts=None):
+    """kind: tokeni | influenceri | novcanici | pregled. HTML of the box (with the live-price script).
+    10.11. (Jure, prijedlog 3.1): "pregled" is the compact variant (compact(): one answer, two rows, the full text in
+    a pop-up); parts: pregled_parts(...) already computed by the caller, so Pregled reads everything once."""
+    if kind == "pregled":
+        return compact(parts if parts is not None else pregled_parts(now, rows, live))
+    p = _base(kind, now, rows, live)
+    now, an, status, picks, near, note, mak, rec = (p["now"], p["an"], p["status"], p["picks"], p["near"], p["note"],
+                                                    p["mak"], p["rec"])
     head = (f"Analizirao sam u zadnja 24 h: {an.get('tokena', 0)} tokena, {an.get('poziva', 0)} poziva od "
             f"{an.get('kolova', 0)} računa, {an.get('novcanika', 0)} ocijenjenih novčanika i {an.get('tradeova', 0)} "
             "demo tradeova strategija.")
@@ -531,7 +642,8 @@ def box(kind, now=None, rows=None, live=None):
     if kind == "tokeni":
         if picks:
             b.append("<p>Ako želiš zaraditi danas, ovo bih ušao sada; svaki je prošao sve provjere i trguje se upravo sada "
-                     "(visoka = svjež do 6 h, srednja = do 24 h):</p><ol>"
+                     "(uživo = živa lista <a href=/pravi-trade#ideje>Autopilota</a> sa svježim razlogom, visoka = svjež do 6 h, "
+                     "srednja = do 24 h):</p><ol>"
                      + "".join(_item(p, status) for p in picks) + "</ol>")
             b.append("<p class=why>Pravilo: cijena ispod označava je li token još u zoni ulaza. Ako je otišao više od 25 % "
                      "od analize, ne juri ga; pričekaj povlačenje ili sljedeći prijedlog. Izlaz: pola na +15 %, ostatak "
@@ -576,39 +688,304 @@ def box(kind, now=None, rows=None, live=None):
                      "vjerojatnosti. Tablice ispod su za one koji žele kopati sami.</p>")
         if picks:
             b.append("<p>Tokeni koje bih uzeo sada:</p><ol>" + "".join(_item(p, status) for p in picks[:2]) + "</ol>")
-    elif kind == "pregled":
-        parts = []
-        if picks:
-            parts.append("<p><b>U ovom trenutku bih uložio</b> u ove tokene (demo 25–50 $ po tokenu):</p><ol>"
-                         + "".join(_item(p, status) for p in picks) + "</ol>")
-        else:
-            parts.append(_near_html(near, note))
-        ws = wallet_picks(now, n=1)
-        if ws:
-            w, st_ = ws[0], ws[0]["stats"]
-            parts.append(f"<p><b>Pratio bih novčanik</b> {wlink(w['wallet'])} (pouzdanost {esc(w['tier'])}, "
-                         f"{st_.get('closed', 0)} zatvorenih, {(st_.get('win_rate') or 0):.0%} dobitnih) i kopirao njegove kupnje "
-                         "unutar 2 minute, 20–50 $ po tradeu.</p>")
-        else:
-            parts.append("<p><b>Novčanici:</b> još nijedan nema ni 3 zatvorena tradea u plusu; čim ga ima, piše ovdje.</p>")
-        g = group_pick()
-        if g:
-            mem = ", ".join(f'<a href="/kol/{esc(h)}">@{esc(h)}</a>' for h in g["members"])
-            parts.append(f"<p><b>Čekao bih da ova ekipa objavi token</b>: {mem}. Kad su zvali zajedno ({g['n']} puta), "
-                         f"token se udvostručio u {g['hit']:.0%} slučajeva, rug {(g['rug'] or 0):.0%} (stara mjera: najviši "
-                         f"fitilj u 24 h, na {g['n']} zajednička poziva; što su stvarno dali +5–30 % prije stopa po minutama "
-                         "piše na <a href=/ekipe>/ekipe</a>). Ulaz čim objave, ako je token ispod 1 M $ i još nije +25 % od "
-                         "poziva: na Autopilotu upiši račune odvojene zarezom.</p>")
-        ch = chances()
-        mid = ch.get("100–300k") or ch.get("300k–1M")
-        parts.append("<p><b>Očekivanje i izlaz:</b> "
-                     + (f"u zadnja 2 tjedna {mid[0]:.0%} sličnih tokena (100k–1M) napravilo je +30 % u 24 h ({mid[1]} poziva); "
-                        if mid else "")
-                     + "ciljam +15 % na pola pozicije, ostatak vodim s pratećim stopom 15 %, stop −25 %; kod tokena 1 M+ "
-                     "ljestvica +15 %/+30 % i stop −20 %. Ako BTC pada, stop se širi na −50 % i držim do oporavka.</p>")
-        b += parts
     b.append("</div>" + JS)
     return "".join(b)
+
+
+# ---------- Pregled: the compact box (10.11., Jure: "Ostalo mi se sviđa"; prijedlog 3.1) ----------------------------
+# The box used to open Pregled with four lines of intro, three tokens with ~50-word theses, a wallet, a crew and an
+# exit paragraph (5,1 screens on a phone, one token visible). Now: one answer ("Najbolji ulaz sada"), the other picks
+# as rows, one line of the exit rule; the whole old text is one tap away in a pop-up (full_text) with the same
+# live zone check. Nothing is computed that the old box did not compute.
+
+STAKE = {"uživo": "25 $", "visoka": "25–50 $", "srednja": "20–25 $", "niska": "10 $ ili samo gledaj"}
+EXIT_LINE = "Izlaz: pola na +15\u00a0%, ostatak s pratećim stopom 15\u00a0%, stop −25\u00a0%."
+# 10.11. 19:18 (Jure: "Ne razumijem što znače ovi podatci. Piši najjednostavnije moguće: kupi zbog toga i toga ili
+# nemoj kupiti zbog toga i toga"): the box says one verb and one sentence why, in everyday words
+EXIT_PLAIN = "Kad kupiš: pola prodaj na +15\u00a0%, ostatak kad padne 15\u00a0% od vrha, sve ako padne 25\u00a0%."
+
+
+def pregled_parts(now=None, rows=None, live=None):
+    """Everything the Pregled box shows, read once per build (Pregled also uses the wallet pick for "Vrijedi pratiti"):
+    _base(...) plus wallets (wallet_picks n=1), crew (group_pick) and chances. A part that fails is empty."""
+    p = _base("pregled", now, rows, live)
+    for key, fn in (("wallets", lambda: wallet_picks(p["now"], n=1)), ("crew", group_pick), ("chances", chances)):
+        try:
+            p[key] = fn()
+        except Exception:  # noqa: BLE001 - the box works without any of them
+            p[key] = [] if key == "wallets" else {} if key == "chances" else None
+    return p
+
+
+_SMART = re.compile(r"^(\d+) provjerenih smart walleta je među prvim kupcima\.?$")
+_SMART_OK = re.compile(r"^\d+ (provjeren\w* )?smart wallet")
+
+
+def smart_fix(s, short=False):
+    """ui/radar writes "3 provjerenih smart walleta je među prvim kupcima" for every count: the right Croatian form
+    ("1 provjereni smart wallet je", "3 provjerena smart walleta su", "5 provjerenih smart walleta je"); short=True the
+    maketa's row text ("3 smart walleta među prvim kupcima"). Any other text comes back as it was."""
+    from ui.pocetna import plural
+    m = _SMART.match(s or "")
+    if not m:
+        return s
+    n = int(m.group(1))
+    if short:
+        return f"{n} smart {plural(n, 'wallet', 'walleta', 'walleta')} među prvim kupcima"
+    return (f"{n} {plural(n, 'provjereni smart wallet je', 'provjerena smart walleta su', 'provjerenih smart walleta je')}"
+            " među prvim kupcima" + ("." if s.endswith(".") else ""))
+
+
+def _why1(p, short=False):
+    """One sentence why: the first measured reason (radar reasons or the live list's), not the whole thesis.
+    short=True for a row (one line, 15 px, the maketa's "3 smart walleta među prvim kupcima"): the part before ":"
+    ("Novac ulazi brzo"); the number of smart wallets in the right Croatian form either way (ui/radar writes
+    "3 provjerenih ... je" for every count)."""
+    za = [w for w in (p.get("why") or []) if w]
+    s = smart_fix((za[0] if za else "ocjena alata i Šansa iznad praga").strip().rstrip("."), short)
+    if short and not _SMART_OK.match(s) and ":" in s and 2 <= len(s.split(":", 1)[0].split()) <= 5:
+        s = s.split(":", 1)[0]
+    s = s[:1].upper() + s[1:]
+    return s if short else s + "."
+
+
+def _facts(p):
+    """"vrijedi 412k $ · zadnji sat +18 %": what the token is worth and how it moved, no tool jargon (pouzdanost and
+    the live list are in the pop-up)."""
+    from ui import redak as R
+    lv = p.get("live") or {}
+    out = R.cat("vrijedi ", R.usd(p.get("mcap0")))
+    if lv.get("ch_h1") is not None:
+        t = R.tone(lv["ch_h1"])
+        out = R.cat(out, " · zadnji sat ", R.raw(f'<span class="{t}">' if t else "<span>"), R.pct(lv["ch_h1"]), R.raw("</span>"))
+    return out
+
+
+_P_CALLERS = re.compile(r"^novi pozivatelji? u 10 min: (.+)$", re.I)
+_P_SMART10 = re.compile(r"^(\d+) pametnih novčanika kupilo u 10 min$", re.I)
+_P_MOVE = re.compile(r"^\+(\d+) % u 5 min na", re.I)
+_P_TURN = re.compile(r"^novac ulazi brzo", re.I)
+_P_SMART = re.compile(r"^(\d+) (provjeren\w* )?smart wallet\w* (je |su )?među prvim kupcima", re.I)
+
+
+def plain(reason):
+    """One measured reason in everyday words, as a clause after "Kupi jer ...":
+    "novi pozivatelji u 10 min: @a, @b" -> "@a i @b su ga upravo objavili"; "3 pametnih novčanika kupilo u 10 min" ->
+    "3 dobra novčanika su ga upravo kupila"; "+66 % u 5 min na $55,430 (850 tx)" -> "cijena brzo raste (+66 % u 5 min)";
+    "novac ulazi brzo: ..." -> "puno novca ulazi"; radar's smart wallets -> "dobri novčanici su ga kupili među prvima".
+    Anything else: the text itself, first letter small, without the full stop."""
+    r = (reason or "").strip().rstrip(".")
+    m = _P_CALLERS.match(r)
+    if m:
+        names = [x.strip() for x in m.group(1).split(",") if x.strip()]
+        if len(names) == 1:
+            return f"{names[0]} ga je upravo objavio"
+        return f"{', '.join(names[:-1])} i {names[-1]} su ga upravo objavili"
+    m = _P_SMART10.match(r) or _P_SMART.match(r)
+    if m:
+        n = int(m.group(1))
+        if not _P_SMART10.match(r):
+            from ui.pocetna import plural
+            return f"među prvim kupcima ima {n} {plural(n, 'dobar novčanik', 'dobra novčanika', 'dobrih novčanika')}"
+        when = "upravo"
+        if n % 10 == 1 and n % 100 != 11:
+            return f"{n} dobar novčanik ga je {when} kupio"
+        if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+            return f"{n} dobra novčanika su ga {when} kupila"
+        return f"{n} dobrih novčanika ga je {when} kupilo"
+    m = _P_MOVE.match(r)
+    if m:
+        return f"cijena brzo raste (+{m.group(1)}\u00a0% u 5 min)"
+    if _P_TURN.match(r):
+        return "puno novca ulazi"
+    return r[:1].lower() + r[1:] if r[:2] != r[:2].upper() else r
+
+
+def because(p, n=2):
+    """Up to n reasons in everyday words joined with " i ": the measured reasons first; with only one, the last hour's
+    rise (5 %+) as the second ("cijena mu raste (+61 % u zadnjem satu)")."""
+    out = []
+    for w in p.get("why") or []:
+        c = plain(w)
+        if c and c not in out:
+            out.append(c)
+    ch = (p.get("live") or {}).get("ch_h1")
+    if len(out) < n and ch is not None and ch >= 5 and not any(c.startswith("cijena") for c in out):
+        out.append(f"cijena mu raste (+{ch:.0f}\u00a0% u zadnjem satu)")
+    out = out[:n] or ["alat mu daje visoku ocjenu"]
+    return out[0] if len(out) == 1 else ", ".join(out[:-1]) + " i " + out[-1]
+
+
+def verdict_html(p):
+    """"<b class=pverb>Kupi</b> <span class=preason>jer ... .</span>": the live zone check (COMPACT_JS) turns it into
+    "Nemoj kupiti sada jer je već narastao ..." when the price ran away or falls."""
+    from ui import redak as R
+    return R.cat(R.raw("<b class=pverb>"), "Kupi", R.raw("</b> <span class=preason>"), "jer " + because(p) + ".",
+                 R.raw("</span>"))
+
+
+def _pdata(p, z):
+    """data-* the live zone check reads: the token, the market cap at analysis and which text to write."""
+    return f'data-p="{esc(p["token"])}" data-m0="{float(p.get("mcap0") or 0):.0f}" data-z="{z}"'
+
+
+def _tok_href(token):
+    from urllib.parse import quote
+    return f"/token/{quote(token)}"
+
+
+def _full_item(p):
+    """One pick in the pop-up: the old box's line and its whole thesis, without badges or emojis."""
+    from ui import redak as R
+    raz = p.get("razina") or "visoka"
+    grade = "živa lista Autopilota" if raz == "uživo" else f"svježina {raz}"
+    conf = f' · pouzdanost {p["conf"]:.0f}' if p.get("conf") is not None else ""
+    text = p.get("thesis") or ("Zašto: " + ("; ".join(p.get("why") or []) or "ocjena alata i Šansa") + ".")
+    chance = f" {_chance_txt(p['chance'])}." if raz != "uživo" else ""
+    return (f'<li {_pdata(p, "full")}><b>{_tl(p["token"], p["symbol"])}</b> · {esc(grade)} · ulog {esc(STAKE.get(raz, "20–25 $"))}'
+            f' · na {esc(R.usd(p.get("mcap0")))} kod analize{esc(conf)}<span class=why><br>{esc(text)}{esc(chance)}</span>'
+            '<span class=pnow>provjeravam trenutnu cijenu</span></li>')
+
+
+def full_text(p):
+    """The whole old Pregled box (what was analysed, every pick with its thesis, the wallet, the crew, expectation and
+    exit), for the pop-up behind "Cijeli prijedlog za danas". HTML."""
+    from ui import redak as R
+    an, picks = p.get("an") or {}, p.get("picks") or []
+    head = (f"Analizirao sam u zadnja 24 h: {an.get('tokena', 0)} tokena, {an.get('poziva', 0)} poziva od "
+            f"{an.get('kolova', 0)} računa, {an.get('novcanika', 0)} ocijenjenih novčanika i {an.get('tradeova', 0)} "
+            "demo tradeova strategija.")
+    b = [f"<p class=why>{esc(head)}" + (f" Tržište: {esc(p['mak'])}" if p.get("mak") else "")
+         + (f" {esc(p['rec'])}" if p.get("rec") else "") + "</p>"]
+    if picks:
+        b.append("<h3>Tokeni</h3><p>U ovom trenutku bih uložio u ove tokene (demo, ulog po tokenu piše uz svaki; živa "
+                 "lista = Autopilot ga vidi sa svježim razlogom, svježina visoka = signal do 6 h, srednja = do 24 h). Ako "
+                 f"je token otišao više od {round((PULL_X - 1) * 100)} % iznad cijene analize, ne juri ga; pričekaj "
+                 "povlačenje ili sljedeći prijedlog.</p><ol>" + "".join(_full_item(x) for x in picks) + "</ol>")
+    else:
+        b.append("<h3>Tokeni</h3>" + _near_html(p.get("near") or [], p.get("note") or ""))
+    ws = p.get("wallets") or []
+    b.append("<h3>Novčanik</h3>")
+    if ws:
+        w, st_ = ws[0], ws[0]["stats"]
+        b.append(f"<p>Pratio bih novčanik {wlink(w['wallet'])} (pouzdanost {esc(w['tier'])}, {st_.get('closed', 0)} "
+                 f"zatvorenih, {esc(R.pct(st_.get('win_rate') or 0, sign=False, frac=True))} dobitnih) i kopirao njegove kupnje unutar 2 minute, "
+                 f"20–50 $ po tradeu. {esc(wallet_thesis(w))}</p>")
+    else:
+        b.append("<p>Još nijedan novčanik nema ni 3 zatvorena tradea u plusu; čim ga ima, piše ovdje.</p>")
+    g = p.get("crew")
+    if g:
+        mem = ", ".join(f'<a href="/kol/{esc(h)}">@{esc(h)}</a>' for h in g["members"])
+        b.append(f"<h3>Ekipa</h3><p>Čekao bih da ova ekipa objavi token: {mem}. Kad su zvali zajedno ({g['n']} puta), "
+                 f"token se udvostručio u {esc(R.pct(g['hit'], sign=False, frac=True))} slučajeva, rug "
+                 f"{esc(R.pct(g['rug'] or 0, sign=False, frac=True))} (stara mjera: najviši "
+                 f"fitilj u 24 h, na {g['n']} zajednička poziva; što su stvarno dali +5–30 % prije stopa po minutama "
+                 "piše na <a href=/ekipe>/ekipe</a>). Ulaz čim objave, ako je token ispod 1 M $ i još nije +25 % od "
+                 "poziva: na Autopilotu upiši račune odvojene zarezom.</p>")
+    ch = p.get("chances") or {}
+    mid = ch.get("100–300k") or ch.get("300k–1M")
+    b.append("<h3>Očekivanje i izlaz</h3><p>"
+             + (f"U zadnja 2 tjedna {esc(R.pct(mid[0], sign=False, frac=True))} sličnih tokena (100k–1M) napravilo je "
+                f"+30 % u 24 h ({esc(R.num(mid[1]))} poziva). " if mid else "")
+             + "Ciljam +15 % na pola pozicije, ostatak vodim s pratećim stopom 15 %, stop −25 %; kod tokena 1 M+ "
+             "ljestvica +15 %/+30 % i stop −20 %. Ako BTC pada, stop se širi na −50 % i držim do oporavka.</p>")
+    return "".join(b)
+
+
+def dialog(did, title, body_html):
+    """A calm pop-up (ms- look): title, "Zatvori", the body. Opened by any element with data-dlg="<did>" (DLG_JS)."""
+    return (f'<dialog id="{esc(did)}" class=ms-dlg aria-label="{esc(title)}"><div class=ms-dlg-bar><b>{esc(title)}</b>'
+            f'<button type=button data-close>Zatvori</button></div><div class=ms-dlg-body>{body_html}</div></dialog>')
+
+
+# 10.11. (pregled): the pop-up and its opener; window.__msdlg so a second copy on the page binds nothing twice
+DLG_CSS = ("<style>dialog.ms-dlg{max-width:640px;width:calc(100% - 24px);max-height:86vh;border:1px solid var(--line);"
+           "border-radius:22px;background:var(--bg);color:var(--fg);padding:0;box-shadow:0 40px 80px -30px rgba(11,18,32,.35)}"
+           "dialog.ms-dlg::backdrop{background:rgba(11,18,32,.45)}"
+           ".ms-dlg-bar{position:sticky;top:0;z-index:1;display:flex;justify-content:space-between;align-items:center;gap:12px;"
+           "padding:14px 18px 12px;background:var(--bg);border-bottom:1px solid var(--line)}.ms-dlg-bar b{font-size:17px;font-weight:600}"
+           ".ms-dlg-bar button{font:inherit;font-size:15px;color:var(--acc);background:none;border:0;padding:4px 0;cursor:pointer}"
+           ".ms-dlg-body{padding:2px 18px 20px;font-size:15px;line-height:1.45}.ms-dlg-body h3{font-size:17px;font-weight:600;margin:20px 0 4px}"
+           ".ms-dlg-body p{margin:8px 0}.ms-dlg-body ol{margin:6px 0;padding-left:20px}.ms-dlg-body li{margin:0 0 12px}"
+           ".ms-dlg-body .why{color:var(--mut)}.ms-dlg-body .pnow{display:block;color:var(--mut)}.ms-dlg-body .pnow.warn{color:var(--warn)}"
+           ".ms-dlg-body a:not(.ms-row){color:var(--acc)}.ms-dlg-body .ms-list{margin-top:4px}"
+           ".ms-dlg-body .ms-row .ms-t{white-space:normal}</style>")
+DLG_JS = ("<script>(()=>{if(window.__msdlg)return;window.__msdlg=1;document.addEventListener('click',e=>{"
+          "const o=e.target.closest('[data-dlg]');if(o){const d=document.getElementById(o.dataset.dlg);"
+          "if(d&&d.showModal){e.preventDefault();d.showModal();d.scrollTop=0}return}"
+          "if(e.target.matches&&e.target.matches('dialog.ms-dlg'))e.target.close();"
+          "const c=e.target.closest('dialog.ms-dlg [data-close]');if(c)c.closest('dialog').close()})})()</script>")
+
+COMPACT_CSS = ("<style>.pdj-c .pnow.warn{color:var(--warn)}.pdj-rows{margin-top:6px}.pdj-r .pnow{color:var(--warn)}"
+               ".pdj-r.out .pwhy{display:none}.pdj-c .ms-hint a{color:var(--acc);text-decoration:none;white-space:nowrap}"
+               ".pdj-rows .ms-s{white-space:normal;overflow:visible;text-overflow:clip}.pdj-h .pverb{color:var(--pos,#0a7d33)}.pdj-h.out .pverb{color:var(--warn)}.pdj-h.out .pstake{display:none}.pdj-h .ms-panel p{font-size:17px}</style>")
+
+# the live zone check of the compact box: the same rule as the other boxes (PULL_X / DROP_X of the analysed market
+# cap), words instead of emojis; rows say something only when the token left the zone
+COMPACT_JS = r"""
+<script>(()=>{let b=document.getElementById('pdj');if(!b)return;
+async function reload(){if(document.hidden||b.querySelector('dialog[open]'))return;
+ try{const r=await fetch('/api/prijedlog?box='+encodeURIComponent(b.dataset.kind),{cache:'no-store'});if(!r.ok)return;
+ const t=document.createElement('div');t.innerHTML=await r.text();const nb=t.querySelector('#pdj');if(!nb)return;b.replaceWith(nb);b=nb;prices()}catch(e){}}
+setInterval(reload,60000);
+const N=' ',fmt=v=>v>=1e6?(v/1e6).toFixed(1).replace('.',',')+'M'+N+'$':v>=1e4?Math.round(v/1e3)+'k'+N+'$':v>=1e3?(v/1e3).toFixed(1).replace('.',',')+'k'+N+'$':Math.round(v)+N+'$';
+function zone(x){return x>=__PULL__?['nemoj kupiti sada: već je narastao, pričekaj da padne',1]:x<=__DROP__?['nemoj kupiti sada: pada, pričekaj da se okrene',1]:['cijena je još blizu prijedloga',0]}
+async function prices(){const items=[...b.querySelectorAll('[data-p]')];if(!items.length)return;
+ try{const q=[...new Set(items.map(e=>e.dataset.p))].join(',');const r=await fetch('/api/prijedlog?t='+q,{cache:'no-store'});if(!r.ok)return;const j=await r.json();
+ items.forEach(e=>{const s=e.querySelector('.pnow');if(!s)return;const m=j[e.dataset.p],z=e.dataset.z;
+  if(!m||!m.mcap){if(z!=='row')s.textContent='cijena trenutno nedostupna';return}
+  const x=m.mcap/(+e.dataset.m0||m.mcap),[t,out]=zone(x),d=Math.round((x-1)*100),dd=(d>0?'+':d<0?'−':'')+Math.abs(d)+N+'%';
+  s.textContent=z==='full'?'sada '+fmt(m.mcap)+' ('+dd+' od analize): '+t:z==='row'?(out?t+' ('+dd+')':''):(out?t+' ('+dd+' od analize)':t);
+  if(z==='hero'){const v=e.querySelector('.pverb'),w=e.querySelector('.preason');if(v&&w){if(!w.dataset.o)w.dataset.o=w.textContent;
+   if(out){v.textContent='Nemoj kupiti sada';w.textContent=x>=1?'jer je već narastao '+dd+' otkad je predložen. Pričekaj da padne.':'jer pada ('+dd+' otkad je predložen). Pričekaj da se okrene.';s.textContent='sada vrijedi '+fmt(m.mcap)}
+   else{v.textContent='Kupi';w.textContent=w.dataset.o}}}
+  if(z==='row'&&out)s.textContent=(x>=1?'Nemoj kupiti sada: već '+dd+', pričekaj pad':'Nemoj kupiti sada: pada ('+dd+')');
+  s.classList.toggle('warn',!!out);e.classList.toggle('out',!!out)})}catch(e){}}
+prices();setInterval(()=>{if(!document.hidden)prices()},60000)})()</script>""".replace("__PULL__", str(PULL_X)).replace("__DROP__", str(DROP_X))
+
+
+def compact(p):
+    """The Pregled box: hero "Najbolji ulaz sada" (tap: the token page), the other picks as rows, one line of the exit
+    rule with "Cijeli prijedlog za danas" (pop-up with full_text). With no pick: "Danas ništa" and the nearest tokens
+    as grey rows that say why not. id=pdj, data-kind=pregled: the minute reload and /api/prijedlog?box=pregled
+    keep working. HTML (the script last, as api() expects)."""
+    from ui import redak as R
+    picks = p.get("picks") or []
+    out = [COMPACT_CSS, DLG_CSS, f'<div class=pdj-c id=pdj data-kind=pregled data-ts="{int(p.get("now") or time.time())}">']
+    if picks:
+        t = picks[0]
+        stake = STAKE.get(t.get("razina") or "visoka", "20–25 $")
+        foot = R.cat(R.raw("<span><span class=pstake>"), f"Uloži {stake} u demu · ", R.raw("</span>"),
+                     R.raw('<span class=pnow>provjeravam cijenu</span></span>'))
+        out.append(f'<div class=pdj-h {_pdata(t, "hero")}>'
+                   + R.hero(t.get("symbol") or R.raw(f"<code>{esc(short_addr(t['token']))}</code>"), why=verdict_html(t),
+                            label="Najbolji ulaz sada", facts=_facts(t), href=_tok_href(t["token"]), foot=foot) + "</div>")
+        lis = []
+        for x in picks[1:3]:
+            reason = R.cat(R.raw("<span class=pwhy>"), "Kupi jer " + because(x, n=1), R.raw("</span><span class=pnow></span>"))
+            lis.append(f'<li class=pdj-r {_pdata(x, "row")}>'
+                       + R.row(x.get("symbol") or short_addr(x["token"]), reason=reason, value=R.usd(x.get("mcap0")),
+                               href=_tok_href(x["token"]), title="koliko vrijedi kad je predložen") + "</li>")
+        if lis:
+            out.append('<ul class="ms-list pdj-rows">' + "".join(lis) + "</ul>")
+    else:
+        note, near = p.get("note") or "", p.get("near") or []
+        why = ("Jer " + note[:1].lower() + note[1:] + "." if note else
+               "Jer nijedan token ne prolazi sve provjere (nije prevara, vrijedi barem 30k $ i ljudi njime trguju u "
+               "zadnjem satu). Bolje ništa nego najmanje loš.")
+        out.append(R.hero("Nemoj kupiti ništa sada", why=why, label="Najbolji ulaz sada"))
+        out.append(R.rows([R.row(x.get("symbol") or short_addr(x["token"]), reason=f"nemoj kupiti jer {r}", reason_tone="warn",
+                                 href=_tok_href(x["token"]), muted=True) for x, r in near[:2]], cls="pdj-rows"))
+    link = '<a href="#pdj-full" data-dlg="pdj-full">Cijeli prijedlog za danas</a>'
+    out.append(f'<p class="ms-hint">{esc(EXIT_PLAIN) if picks else ""}{" " if picks else ""}{link}</p>')
+    out.append(dialog("pdj-full", "Prijedlog za danas", full_text(p)))
+    out.append("</div>" + DLG_JS + COMPACT_JS)
+    return "".join(out)
+
+
+def short_addr(a):
+    from ui.html import short
+    return short(a or "")
 
 
 def api(qs):

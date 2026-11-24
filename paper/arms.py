@@ -104,6 +104,8 @@ def loss_reason(exit_reason, max_ret, min_ret, ret):
         return "rug (likvidnost nestala)"
     if r == "rucno":
         return "prodano ručno"
+    if r == "hitni_izlaz":
+        return "hitni izlaz (pool se praznio ili nagli pad)"
     if r == "kol_prodaje":
         return "KOL novčanik prodao"
     if r == "zivi_dump":

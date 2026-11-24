@@ -91,5 +91,7 @@
   15,
   0.5
  ],
- "_boom": "Smart sell, eksplozija: ako cijena u 15 min naraste 3x od najniže točke, a trade je u plusu, odmah se prodaje pola ostatka (prije TP ljestvice). Iduća takva prodaja traži novih 3x."
+ "_boom": "Smart sell, eksplozija: ako cijena u 15 min naraste 3x od najniže točke, a trade je u plusu, odmah se prodaje pola ostatka (prije TP ljestvice). Iduća takva prodaja traži novih 3x.",
+ "panic": {"liq_drop": 0.3, "gap_s": 120},
+ "_panic": "Hitni izlaz (6.11., FRIES/STARBUCKS/SpaceX zatvoreni na -52 do -56% iako je stop bio postavljen): prije stop lossa, prodaj sve ako je likvidnost poola od prošlog koraka pala za liq_drop ili više, ili ako je cijena u jednom koraku pala za |sl| ili više, a koraci su razmaknuti više od gap_s sekundi. Radi i dok stop još nije uključen i nakon take profita. Učenje izlaza bira liq_drop iz [isključeno, 0.2, 0.3, 0.5] (exits/config.json grid panic_liq)."
 }

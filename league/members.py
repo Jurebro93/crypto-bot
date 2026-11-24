@@ -28,6 +28,25 @@ CREATE TABLE IF NOT EXISTS invites (token TEXT PRIMARY KEY, kind TEXT, created I
 ITER = 120_000
 NAME = re.compile(r"[A-Za-zČčĆćĐđŠšŽž0-9_\-]{2,20}")
 RESERVED = {"bot", "admin", "svi", "gost"}
+# 18.11. (audit, sigurnost): the names of the accounts the TOOL itself trades with. A player registered under one of
+# them would log in as that account: "pravi-trade" is the account whose league.db trades run_trade.py mirrors with REAL
+# swaps, the autopilot-* accounts are the demo accounts every proof and report reads. Nobody registers or logs in as
+# them (register and verify below, run_ui.cookie_user); compared without case, with or without trade/ importable.
+BOT_NAMES = {"pravi-trade", "autopilot-paper", "autopilot-istrazivac", "autopilot-nauceno",
+             "autopilot-novcanici"}
+BOT_PREFIXES = ("autopilot-", "pravi-")
+
+
+def reserved(name):
+    """True for a name no player may hold: the fixed words, the tool's own accounts and anything that looks like one."""
+    low = (name or "").strip().lower()
+    names = set(BOT_NAMES)
+    try:
+        from trade import settings as ts
+        names |= {str(ts.LEAGUE_USER).lower(), str(ts.PAPER_USER).lower()}
+    except Exception:  # noqa: BLE001 - league/ without trade/
+        pass
+    return low in RESERVED or low in names or low.startswith(BOT_PREFIXES)
 
 
 def connect():
@@ -70,7 +89,10 @@ def names(con=None):
 
 
 def verify(name, pw):
-    """The registered player's name as stored, if name + password match; else None."""
+    """The registered player's name as stored, if name + password match; else None. Never one of the tool's own
+    accounts (reserved(): a member row under such a name, registered before 18.11., cannot log in)."""
+    if reserved(name):
+        return None
     try:
         con = store.connect()
     except sqlite3.OperationalError:
@@ -185,7 +207,7 @@ def register(con, token, name, pw, pw2, taken=()):
     if not NAME.fullmatch(name):
         raise ValueError("ime mora imati 2 do 20 slova ili brojki, bez razmaka (dopušteni su - i _).")
     low = name.lower()
-    if low in RESERVED or low in {t.lower() for t in taken} or exists(name, with_deleted=True):
+    if reserved(name) or low in {t.lower() for t in taken} or exists(name, with_deleted=True):
         raise ValueError(f"ime {name} je već zauzeto, odaberi drugo.")
     if len(pw or "") < MIN_PW:
         raise ValueError("lozinka mora imati barem 12 znakova.")

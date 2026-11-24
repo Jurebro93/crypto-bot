@@ -107,6 +107,16 @@ def pick(tokens):
     return out[:TOP]
 
 
+def _token_slugs():
+    """({mint: slug}, every slug given) of the token pages (tokenstranice/store.py), so a slug never points to two
+    mints; ({}, set()) without them."""
+    try:
+        from tokenstranice import store as ts
+        return ts.slugs_by_mint(), set(ts.all_slugs())
+    except Exception:  # noqa: BLE001
+        return {}, set()
+
+
 def store(tokens, con=None, now=None):
     """Write the picked tokens; slugs stay stable once given."""
     now = int(now or time.time())
@@ -114,11 +124,12 @@ def store(tokens, con=None, now=None):
     con = con or connect()
     try:
         old = {r["mint"]: r["slug"] for r in con.execute("SELECT mint, slug FROM coins")}
-        taken = set(old.values())
+        pages = _token_slugs()   # 15.11.: a coin that already has a token page keeps that page's slug
+        taken = set(old.values()) | pages[1]
         con.execute("UPDATE coins SET rank = NULL")
         for i, t in enumerate(tokens, 1):
             mint = t["id"]
-            slug = old.get(mint) or _slug(t.get("symbol"), mint, taken)
+            slug = old.get(mint) or pages[0].get(mint) or _slug(t.get("symbol"), mint, taken)
             taken.add(slug)
             s24 = t.get("stats24h") or {}
             s1 = t.get("stats1h") or {}
@@ -160,6 +171,21 @@ def refresh():
     return n
 
 
+def age_s(now=None):
+    """Seconds since the list was last stored; None when it never was (10.11.: the daily 02:00 job reads the list
+    again only when it is older than an hour, run_web.py)."""
+    con = _ro(DB)
+    if con is None:
+        return None
+    try:
+        r = con.execute("SELECT MAX(updated) FROM coins").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        con.close()
+    return (now or time.time()) - r[0] if r and r[0] else None
+
+
 def start():
     def loop():
         time.sleep(int(os.environ.get("COINS_DELAY_S", "90")))
@@ -168,6 +194,13 @@ def start():
                 refresh()
             except Exception as e:  # noqa: BLE001
                 print(f"javni tokeni: osvježavanje nije uspjelo: {e}", flush=True)
+            try:   # 15.11.: icons of new coins fetched now (ui/tokenicons), so the first visitor does not wait for them
+                from ui import tokenicons
+                n = tokenicons.warm([r["mint"] for r in top()])
+                if n:
+                    print(f"javni tokeni: {n} novih ikona spremljeno", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"javni tokeni: ikone nisu spremljene: {type(e).__name__}: {e}", flush=True)
             time.sleep(REFRESH_S)
     threading.Thread(target=loop, daemon=True, name="coins-refresh").start()
 

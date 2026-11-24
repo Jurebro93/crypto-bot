@@ -3,6 +3,7 @@
 Brojke su MemeSonarova mjerenja iz kopije baze od 8. 11. 2026. i tekst to kaže. Nijedan račun ni kanal se ne
 imenuje kao profitabilan: 8. 11. nijedan nije prošao testove opisane u tekstovima; žive stranice nose aktualne brojke.
 """
+from ui import blogsources as S
 from ui.blogposts_hr import post
 from ui.blogviz import bars, stats
 
@@ -15,7 +16,7 @@ def B(*a, **k):
 post(
     "best-crypto-telegram-channels", "najbolji-kripto-telegram-kanali", "Telegram",
     "Najbolji kripto Telegram kanali 2026.: rangirani po tome što su im pozivi napravili, ne po broju članova",
-    "Najbolji kripto Telegram kanali 2026., rangirani po izmjerenom pogotku | MemeSonar",
+    "Najbolji kripto Telegram kanali 2026. po pogotku",
     "Mjerimo svaki poziv tokena objavljen u 1.900 kripto Telegram kanala: cijena sat i 24 sata kasnije, rugovi. Kako "
     "ranking radi i zašto većina popisa 'najboljih kanala' nema veze s rezultatom.", 7,
     "Kripto Telegram kanal vrijedi onoliko koliko je cijena napravila nakon njegovih poziva. Pratimo 1.916 call "
@@ -37,7 +38,7 @@ pala 90 % ili više (<a href=/hr/rjecnik/rug>rug</a>). Isto mjerenje koje radimo
     ("Objave s adresom ugovora", 40772, "iz 1.916 kanala"),
     ("Objave alert botova (predlošci)", 36600, "isti tekst za svaki novi token, izbačene iz svake ocjene"),
     ("Pozivi s izmjerenim ishodom", 2194, "mjerenje su do 8. 11. gušili drugi poslovi"),
-], sub="broj", fmt="num", hl=(2,), source="MemeSonar kol.db, kopija 8. 11. 2026.")}
+], sub="broj", fmt="num", hl=(2,), source="MemeSonar mjerenja poziva, stanje 8. 11. 2026.")}
 <p>Dvije stvari upadaju u oči. Prvo, gotovo polovica svega objavljenog s adresom dolazi od
 <a href=/hr/rjecnik/bot-racun>alert botova</a>: skenerskih predložaka koji se pale na svaki novi token. To nisu
 pozivi i izbacujemo ih prije nego što se ijedan kanal ocijeni. Drugo, samo 5 % pravih Telegram poziva imalo je 8.
@@ -71,7 +72,7 @@ uživo, 24 sata prije ove javne stranice.</p>
 post(
     "top-crypto-twitter-accounts-by-call-accuracy", "najbolji-kripto-x-racuni-po-tocnosti-poziva", "Influenceri",
     "Najbolji kripto Twitter (X) računi 2026.: po točnosti poziva, ne po pratiteljima",
-    "Najbolji kripto Twitter računi 2026., rangirani po točnosti poziva | MemeSonar",
+    "Najbolji kripto Twitter računi 2026. po točnosti",
     "Izmjerili smo 5.092 čista poziva tokena s kripto X računa: cijena viša sat kasnije u 29 % slučajeva, medijan "
     "nakon 24 h −55 %. Što 'točnost' mora značiti prije nego ikoga zapratiš.", 8,
     "Broj pratitelja ne govori ništa o tome zarađuju li pozivi nekog računa. Izmjerili smo 5.092 čista poziva Solana "
@@ -97,7 +98,7 @@ konstrukciji. Ostaje ono što je pratitelj stvarno mogao trgovati.</p>
     ("50k – 200k $", 30, "−18 %"),
     ("200k – 1M $", 38, "−6 %"),
     ("Iznad 1M $", 26, "−4 %"),
-], sub="udio čistih poziva, %", fmt="pct", hl=(2,), source="MemeSonar kol.db, 3.929 čistih poziva s cijenom nakon 1 h")}
+], sub="udio čistih poziva, %", fmt="pct", hl=(2,), source="MemeSonar mjerenja poziva, 3.929 čistih poziva s cijenom nakon 1 h")}
 <p>Najmanje loše mjesto za praćenje poziva je token koji već vrijedi 200k do 1M $: dovoljno
 <a href=/hr/rjecnik/likvidnost>likvidnosti</a> da ga pratitelji callera ne pomaknu, a ne tako velik da se ništa ne
 dogodi. Ispod 50k $ poziv je uglavnom sniperov izlaz.</p>
@@ -131,7 +132,7 @@ stranica to kaže.</li>
 post(
     "memecoin-telegram-groups-explained", "memecoin-telegram-grupe-signal-whale-sniper", "Telegram",
     "Memecoin Telegram grupe: signal, whale i sniper kanali objašnjeni, s brojkama",
-    "Memecoin Telegram grupe: signal, whale i sniper kanali objašnjeni | MemeSonar",
+    "Memecoin Telegram grupe: signal, whale i sniper kanali",
     "Tri vrste memecoin Telegram grupa, kako ih razlikovati u pet minuta i što naše mjerenje 40.772 objave poziva kaže "
     "o svakoj.", 6,
     "Memecoin Telegram grupe dolaze u tri vrste: signal kanali (osoba objavi token s razlogom), whale ili wallet kanali "
@@ -156,7 +157,7 @@ je feed, a njihovi "pozivi" imaju pogodak nasumičnog tokena.</p>
     ("Predlošci alert botova", 36600, "skenerski botovi, isti tekst za svaki token"),
     ("Pravi pozivi", 40772, "objave koje je napisala osoba"),
     ("Reposti / proslijeđeno", 3286, "proslijeđeno iz drugog kanala"),
-], sub="broj objava", fmt="num", hl=(0,), source="MemeSonar kol.db, 1.916 kanala")}
+], sub="broj objava", fmt="num", hl=(0,), source="MemeSonar mjerenja poziva, 1.916 kanala")}
 <p>Četrdeset sedam posto svega s adresom je predložak. Prepoznajemo ih po obliku: isti tekst s drugom adresom, "AI
 signal", "migration spotted", blokovi "Liq / Holders / Top10", deseci različitih tokena dnevno. Te su objave izbačene
 iz svake ocjene na našim stranicama.</p>
@@ -212,6 +213,11 @@ objava opisuje, kupnja u prvoj minuti i prodaja u prvih deset, pobjeđuje u 22 d
 ocjenom za kopiranje 2 i 12 od 100. Novčanik koji trguje nekoliko stotina puta dnevno i drži tri minute ne može
 kopirati čovjek dvije minute iza njega; dok tvoja kupnja sjedne, on ti prodaje. Više u našem
 <a href=/hr/blog/sto-je-pracenje-novcanika>vodiču o praćenju novčanika</a>.</p>
+<p>Novo, 23. studenoga 2026.: veći test pokazuje isto. Kopiranje novčanika koji kupuju prije pumpe, odabranih samo iz
+prošlosti i kopiranih 2 sekunde nakon njih uz 1 % slippagea, u prosjeku je −7,6 % po kopiji (1.202 kopije); na 60
+sekundi prosjek je bio pozitivan, ali nije dokazan. Neovisno istraživanje 200.443 pump.fun lansiranja pokazalo je da
+praćenje prvog signala grupe {S.a("arxiv_earlybuyers", "gubi novac izvan uzorka u sve 32 postavke")}. Detalji:
+<a href=/hr/blog/isplati-li-se-kopirati-pametne-novcanike>isplati li se kopirati pametne novčanike?</a></p>
 
 <h2>Što podaci podržavaju</h2>
 {B("Gdje je kupnja tokena nakon poziva prošla najmanje loše (čisti pozivi, sat kasnije)", [
@@ -219,7 +225,7 @@ kopirati čovjek dvije minute iza njega; dok tvoja kupnja sjedne, on ti prodaje.
     ("50k – 200k $", 30, ""),
     ("200k – 1M $", 38, "najbolji razred u našim podacima"),
     ("Iznad 1M $", 26, ""),
-], sub="udio poziva s višom cijenom sat kasnije, %", fmt="pct", hl=(2,), source="MemeSonar kol.db, 3.929 poziva, 8. 11. 2026.")}
+], sub="udio poziva s višom cijenom sat kasnije, %", fmt="pct", hl=(2,), source="MemeSonar mjerenja poziva, 3.929 poziva, 8. 11. 2026.")}
 <ol>
 <li>Preskoči bonding curve. Tokene ispod 30k $ naš alat uopće ne analizira; prve minute pripadaju
 <a href=/hr/rjecnik/sniper>sniper botovima</a> i bundleovima.</li>
@@ -256,7 +262,7 @@ natjeraju druge da kupe. Riječ ne govori ništa o tome jesu li ti kupci zaradil
     ("Nula izmjerenih poziva", 5192, "nema što ocijeniti"),
     ("1 do 9 izmjerenih", 1655, "stranica postoji, presude nema"),
     ("10 ili više čistih poziva", 148, "presuda moguća"),
-], sub="računa", fmt="num", hl=(2,), source="MemeSonar kol.db, 6.995 računa")}
+], sub="računa", fmt="num", hl=(2,), source="MemeSonar mjerenja poziva, 6.995 računa")}
 <p>Većini računa koje ljudi zovu KOL-ovima nitko nikad nije izmjerio nijedan poziv. Screenshot nije mjerenje. Nama
 treba 10 čistih izmjerenih poziva prije nego stranica išta kaže, i stranica pokazuje taj broj.</p>
 

@@ -1,0 +1,290 @@
+{
+ "runs": {
+  "after-desktop-1": {
+   "perf": 100,
+   "lcp_ms": 365,
+   "fcp_ms": 217,
+   "tbt_ms": 0,
+   "cls": 0,
+   "si_ms": 351,
+   "bytes": 73909,
+   "lcp_element": "div.apx-grid > div.apx-main > div#apx-chartbox > p.apx-attr",
+   "throttling": "simulate",
+   "form_factor": "desktop",
+   "warnings": []
+  },
+  "after-desktop-2": {
+   "perf": 100,
+   "lcp_ms": 368,
+   "fcp_ms": 240,
+   "tbt_ms": 0,
+   "cls": 0,
+   "si_ms": 317,
+   "bytes": 73917,
+   "lcp_element": "div.apx-grid > div.apx-main > div#apx-chartbox > p.apx-attr",
+   "throttling": "simulate",
+   "form_factor": "desktop",
+   "warnings": []
+  },
+  "after-desktop-3": {
+   "perf": 100,
+   "lcp_ms": 361,
+   "fcp_ms": 236,
+   "tbt_ms": 0,
+   "cls": 0,
+   "si_ms": 303,
+   "bytes": 73908,
+   "lcp_element": "div.apx-grid > div.apx-main > div#apx-chartbox > p.apx-attr",
+   "throttling": "simulate",
+   "form_factor": "desktop",
+   "warnings": []
+  },
+  "after-mobile-1": {
+   "perf": 100,
+   "lcp_ms": 1110,
+   "fcp_ms": 796,
+   "tbt_ms": 66,
+   "cls": 0,
+   "si_ms": 829,
+   "bytes": 73920,
+   "lcp_element": "div.apx-grid > div.apx-main > div#apx-chartbox > p.apx-attr",
+   "throttling": "simulate",
+   "form_factor": "mobile",
+   "warnings": []
+  },
+  "after-mobile-2": {
+   "perf": 99,
+   "lcp_ms": 1111,
+   "fcp_ms": 797,
+   "tbt_ms": 93,
+   "cls": 0,
+   "si_ms": 880,
+   "bytes": 73920,
+   "lcp_element": "div.apx-grid > div.apx-main > div#apx-chartbox > p.apx-attr",
+   "throttling": "simulate",
+   "form_factor": "mobile",
+   "warnings": []
+  },
+  "after-mobile-3": {
+   "perf": 99,
+   "lcp_ms": 1352,
+   "fcp_ms": 795,
+   "tbt_ms": 113,
+   "cls": 0,
+   "si_ms": 890,
+   "bytes": 73918,
+   "lcp_element": "div.apx-grid > div.apx-main > div#apx-chartbox > p.apx-attr",
+   "throttling": "simulate",
+   "form_factor": "mobile",
+   "warnings": []
+  },
+  "after-mobile4g-1": {
+   "perf": 100,
+   "lcp_ms": 841,
+   "fcp_ms": 735,
+   "tbt_ms": 62,
+   "cls": 0,
+   "si_ms": 1777,
+   "bytes": 73912,
+   "lcp_element": "div.apx-grid > div.apx-main > div#apx-chartbox > p.apx-attr",
+   "throttling": "devtools",
+   "form_factor": "mobile",
+   "warnings": []
+  },
+  "after-mobile4g-2": {
+   "perf": 99,
+   "lcp_ms": 959,
+   "fcp_ms": 779,
+   "tbt_ms": 104,
+   "cls": 0,
+   "si_ms": 2104,
+   "bytes": 73915,
+   "lcp_element": "div.apx-grid > div.apx-main > div#apx-chartbox > p.apx-attr",
+   "throttling": "devtools",
+   "form_factor": "mobile",
+   "warnings": []
+  },
+  "before-desktop-1": {
+   "perf": 100,
+   "lcp_ms": 315,
+   "fcp_ms": 273,
+   "tbt_ms": 12,
+   "cls": 0.046,
+   "si_ms": 290,
+   "bytes": 136201,
+   "lcp_element": "main > div.ap > section#kupi-odmah > p.mut",
+   "throttling": "simulate",
+   "form_factor": "desktop",
+   "warnings": [
+    "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+   ]
+  },
+  "before-desktop-2": {
+   "perf": 100,
+   "lcp_ms": 309,
+   "fcp_ms": 271,
+   "tbt_ms": 8,
+   "cls": 0.046,
+   "si_ms": 271,
+   "bytes": 139710,
+   "lcp_element": "main > div.ap > section#kupi-odmah > p.mut",
+   "throttling": "simulate",
+   "form_factor": "desktop",
+   "warnings": [
+    "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+   ]
+  },
+  "before-desktop-3": {
+   "perf": 100,
+   "lcp_ms": 307,
+   "fcp_ms": 266,
+   "tbt_ms": 8,
+   "cls": 0.046,
+   "si_ms": 266,
+   "bytes": 139709,
+   "lcp_element": "main > div.ap > section#kupi-odmah > p.mut",
+   "throttling": "simulate",
+   "form_factor": "desktop",
+   "warnings": [
+    "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+   ]
+  },
+  "before-mobile-1": {
+   "perf": 88,
+   "lcp_ms": 999,
+   "fcp_ms": 945,
+   "tbt_ms": 342,
+   "cls": 0.128,
+   "si_ms": 945,
+   "bytes": 139709,
+   "lcp_element": "main > div.ap > section#ap-head > p.mut",
+   "throttling": "simulate",
+   "form_factor": "mobile",
+   "warnings": [
+    "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+   ]
+  },
+  "before-mobile-2": {
+   "perf": 93,
+   "lcp_ms": 1178,
+   "fcp_ms": 945,
+   "tbt_ms": 200,
+   "cls": 0.128,
+   "si_ms": 945,
+   "bytes": 136201,
+   "lcp_element": "main > div.ap > section#ap-head > p.mut",
+   "throttling": "simulate",
+   "form_factor": "mobile",
+   "warnings": [
+    "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+   ]
+  },
+  "before-mobile-3": {
+   "perf": 90,
+   "lcp_ms": 1186,
+   "fcp_ms": 954,
+   "tbt_ms": 272,
+   "cls": 0.128,
+   "si_ms": 954,
+   "bytes": 139708,
+   "lcp_element": "main > div.ap > section#ap-head > p.mut",
+   "throttling": "simulate",
+   "form_factor": "mobile",
+   "warnings": [
+    "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+   ]
+  },
+  "before-mobile4g-1": {
+   "perf": 90,
+   "lcp_ms": 833,
+   "fcp_ms": 833,
+   "tbt_ms": 421,
+   "cls": 0,
+   "si_ms": 868,
+   "bytes": 139709,
+   "lcp_element": "main > div.ap > section#ap-head > p.mut",
+   "throttling": "devtools",
+   "form_factor": "mobile",
+   "warnings": [
+    "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+   ]
+  },
+  "before-mobile4g-2": {
+   "perf": 88,
+   "lcp_ms": 776,
+   "fcp_ms": 776,
+   "tbt_ms": 487,
+   "cls": 0,
+   "si_ms": 814,
+   "bytes": 136200,
+   "lcp_element": "main > div.ap > section#ap-head > p.mut",
+   "throttling": "devtools",
+   "form_factor": "mobile",
+   "warnings": [
+    "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+   ]
+  }
+ },
+ "median": {
+  "after-desktop": {
+   "perf": 100,
+   "lcp_ms": 365,
+   "fcp_ms": 236,
+   "tbt_ms": 0,
+   "cls": 0,
+   "si_ms": 317,
+   "bytes": 73909,
+   "n": 3
+  },
+  "after-mobile": {
+   "perf": 99,
+   "lcp_ms": 1111,
+   "fcp_ms": 796,
+   "tbt_ms": 93,
+   "cls": 0,
+   "si_ms": 880,
+   "bytes": 73920,
+   "n": 3
+  },
+  "after-mobile4g": {
+   "perf": 99.5,
+   "lcp_ms": 900.0,
+   "fcp_ms": 757.0,
+   "tbt_ms": 83.0,
+   "cls": 0.0,
+   "si_ms": 1940.5,
+   "bytes": 73913.5,
+   "n": 2
+  },
+  "before-desktop": {
+   "perf": 100,
+   "lcp_ms": 309,
+   "fcp_ms": 271,
+   "tbt_ms": 8,
+   "cls": 0.046,
+   "si_ms": 271,
+   "bytes": 139709,
+   "n": 3
+  },
+  "before-mobile": {
+   "perf": 90,
+   "lcp_ms": 1178,
+   "fcp_ms": 945,
+   "tbt_ms": 272,
+   "cls": 0.128,
+   "si_ms": 945,
+   "bytes": 139708,
+   "n": 3
+  },
+  "before-mobile4g": {
+   "perf": 89.0,
+   "lcp_ms": 804.5,
+   "fcp_ms": 804.5,
+   "tbt_ms": 454.0,
+   "cls": 0.0,
+   "si_ms": 841.0,
+   "bytes": 137954.5,
+   "n": 2
+  }
+ }
+}

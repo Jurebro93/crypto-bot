@@ -54,8 +54,19 @@ def shadow_rows(cfg=None, now=None, path=None):
     since = now - cfg["skok_window_d"] * 86400
     from learn import champion
     hl = (cfg.get("model") or {}).get("half_life_d", champion.DEFAULT["half_life_d"])
-    return [{**r, "hit": bool(r["hit"]), "max_ret": r["max2_ret"], "w": 0.5 ** (max(0.0, now - r["ts"]) / 86400 / hl)}
-            for r in shadow.rows(path, since=since) if r["features"] and not champion.in_holdout(r["ts"])]
+    longs = shadow.long_targets(cfg)
+    out = []
+    for r in shadow.rows(path, since=since):
+        if not r["features"] or champion.in_holdout(r["ts"]):
+            continue
+        w = 0.5 ** (max(0.0, now - r["ts"]) / 86400 / hl)
+        if (r.get("klasa") or "default") in longs:   # 9.11.: long target (+30% in 72 h), see shadow.long_targets
+            if r.get("hit_dug") not in (0, 1):
+                continue   # not labelled yet, or no prices for the window: no verdict
+            out.append({**r, "hit": bool(r["hit_dug"]), "max_ret": r["max_dug"], "w": w, "cilj_dug": True})
+        else:
+            out.append({**r, "hit": bool(r["hit"]), "max_ret": r["max2_ret"], "w": w})
+    return out
 
 
 def event_rows(con, point="B100000", cfg=None, now=None):
@@ -91,8 +102,12 @@ def skok_thresholds(rows, cfg=None, now=None):
     return thr
 
 
-def missed(con, thr, cfg=None, now=None, hours=7 * 24):
-    """Tokens that never got a paid check (razina 0, or outside the scan) and still made their class's pump."""
+def missed(con, thr, cfg=None, now=None, hours=7 * 24, excluded=None):
+    """Tokens that never got a paid check (razina 0, or outside the scan) and still made their class's pump.
+    12.11. (Jure, točka 4: "kad token ima manje od 3 točke cijene u prozoru, označi rezultat kao 'nepouzdano' i ne
+    računaj ga u statistiku propuštenih"): a pump read from fewer than 3 snapshots is nepouzdano: not in the list;
+    excluded (a list) gets those rows ("quality" nepouzdano, "n_points") for the count."""
+    from rangedca import missed as rmissed
     cfg = cfg or config()
     now = now or time.time()
     out = []
@@ -106,7 +121,12 @@ def missed(con, thr, cfg=None, now=None, hours=7 * 24):
         max_ret = max(p / p0 - 1 for _, p in snaps)
         klasa = klasa or classify.klasa(mcap, None)
         if max_ret >= thr.get(klasa, 1.0):
-            out.append({"token": token, "symbol": sym, "klasa": klasa, "razina": razina, "t0": t0,
-                        "reason": why or t0_why or "nije stigao do plaćene provjere", "mcap": mcap,
-                        "max_ret": round(max_ret, 2), "first_ts": first_ts or snaps[0][0]})
+            row = {"token": token, "symbol": sym, "klasa": klasa, "razina": razina, "t0": t0,
+                   "reason": why or t0_why or "nije stigao do plaćene provjere", "mcap": mcap,
+                   "max_ret": round(max_ret, 2), "first_ts": first_ts or snaps[0][0]}
+            if rmissed.unreliable(len(snaps)):   # 12.11.: two snapshots are no measured pump
+                if excluded is not None:
+                    excluded.append({**row, "max_ret": None, "quality": rmissed.UNRELIABLE, "n_points": len(snaps)})
+                continue
+            out.append(row)
     return sorted(out, key=lambda x: -x["max_ret"])

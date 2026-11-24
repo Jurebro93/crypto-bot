@@ -60,8 +60,13 @@ class States(unittest.TestCase):
         with mock.patch.object(store, "DB", path), mock.patch.object(makro.time, "time", return_value=NOW + 3600 + 60):
             self.assertTrue(makro.falling())
             from paper import rules
+            # 15.11. (owner: "Želim da demo trguje cijelo vrijeme"): no refusal any more; the stake x 0.5 and the state
+            # on the trade (tests/test_demo15_offline.py)
             why = rules.gate("T", 0.001, 50000, 200000, None, None, None)
-            self.assertIn("BTC pada", why or "")
+            self.assertNotIn("BTC pada", why or "")
+            size, note, snap = rules.makro_size(20.0, None)
+            self.assertEqual((size, snap["btc"], snap["falling"]), (10.0, "pada", True))
+            self.assertIn("BTC pada", note)
 
 
 if __name__ == "__main__":

@@ -162,6 +162,47 @@ def token_box(mint, symbol, locked=None):
             '🔄 Pokreni DCA</button></a>' + copy_btn(mint) + '</div>')
 
 
+def _manual_label():
+    """19.11.: the owner's manual buy stays while automatic real-money buying is paused (ui/pauza); the row says so."""
+    try:
+        from ui import pauza
+        paused = pauza.on()
+    except Exception:  # noqa: BLE001
+        paused = False
+    return ("Autopilot, ručno (pravi novac; automatske kupnje su pauzirane)" if paused
+            else "Autopilot, ručno (pravi novac)")
+
+
+def buy_sheet(mint, symbol, locked=None, stake=50):  # noqa: ARG001 - stake: callers' old argument
+    """The token page's "Kupi" sheet. 19.11. (vlasnik: "Makni natjecanje"): only the owner's manual buy on the Autopilot
+    is left (a link: real money is bought only on that page, with its confirmation; class adm-only, removed for
+    everyone else by ui/admstrip). Needs tokens.SHEET_CSS."""
+    if not MINT.fullmatch(mint or ""):
+        return ""
+    sym = symbol or mint[:6]
+    head = (f'<dialog class="tk-sheet qb-sheet" id="qb-sheet" aria-label="Kupi {esc(sym)}"><div class="tk-grab"></div>'
+            f'<div class="tk-sh">Kupi {esc(sym)}</div>')
+    if locked:
+        return (head + f'<p class="qb-note">Kupnja je zaključana: {esc(locked)}.</p>'
+                '<button type="button" class="tk-done" data-close>Zatvori</button></dialog>')
+    # 19.11. (vlasnik: "Makni natjecanje"): no personal demo buy and no DCA any more; the owner's manual buy on the
+    # Autopilot (a link: real money is bought only on that page, with its confirmation) is what remains
+    return (head + '<div class="tk-grp2">'
+            f'<a class="tk-o adm-only" href="/pravi-trade#kupi-odmah">{esc(_manual_label())}<span class="ms-chev"></span></a>'
+            '</div><p class="qb-note">Adresu možeš kopirati i zalijepiti u svoj wallet.</p>'
+            '<button type="button" class="tk-done qb-x" data-close>Zatvori</button></dialog>')
+
+
+SHEET_CSS = """
+.qb-sheet .qb-form{padding:0 0 12px}.qb-sheet .qb-form .tk-done{width:calc(100% - 28px);margin:4px 14px 0}
+.qb-amt{display:flex;align-items:center;gap:6px;color:var(--mut)}
+.qb-amt input{width:84px;text-align:right;font-size:17px;padding:6px 10px;border-radius:10px}
+.qb-note{font-size:15px;color:var(--mut);margin:0 4px 12px;line-height:1.4}
+.qb-x{background:#fff;color:var(--fg)}
+html.adm .qb-sheet .tk-o.adm-only{display:flex!important}
+"""
+
+
 def dugo_info(mint):
     """(symbol, list label) when the token is on today's Dugoročni lists, else (None, None)."""
     try:

@@ -128,6 +128,12 @@ class ReportTest(unittest.TestCase):
             self.assertEqual(mail.recipients(), ["a@b.c", "d@e.f"])
             self.assertEqual(mail.method(), "smtp")
             self.assertIn("Naslov", mail.plain("<div>Naslov</div><p>tekst</p>"))
+            # 20.11.: č, š, ž of the HTML part travel as character references; tags and ASCII stay as they are
+            out = mail.ascii_html("<p>Što čeka: žuto, đak, ćup – 5 %</p>")
+            out.encode("ascii")
+            self.assertEqual(out, "<p>&#352;to &#269;eka: &#382;uto, &#273;ak, &#263;up &#8211; 5 %</p>")
+            import html as _h
+            self.assertEqual(_h.unescape(out), "<p>Što čeka: žuto, đak, ćup – 5 %</p>")
         finally:
             for k in ("REPORT_EMAIL_TO", "SMTP_USER", "SMTP_PASSWORD"):
                 os.environ.pop(k, None)
@@ -139,7 +145,7 @@ class ReportTest(unittest.TestCase):
         d = collect.collect(NOW)
         out, src = ai.interpret(d)
         self.assertEqual(src, "pravila")
-        self.assertTrue(out["naucio"])
+        self.assertTrue(out["trgovanje"])   # 16.11.: the rule-based lines are about the midcap trading now
 
 
 class DumpTest(unittest.TestCase):
