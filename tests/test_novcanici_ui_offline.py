@@ -35,7 +35,8 @@ HOSTILE = re.compile(r"<script>alert|<img src=x|\"><img")
 SECTIONS = ("Koga smo izbacili i zašto", "Stanje pretraživanja", "Koliko smo duboko gledali", "Sve skupine u tablici",
             "Skupine koje kupuju zajedno", "Test kopiranja na prošlim podacima", "Mjerenje uživo, kupnja po kupnja",
             "Povijest trgovanja novčanika", "Veliki dugoročni vlasnici tokena", "Druga provjera (Birdeye)")
-ADMIN_ONLY = ("Ostvareno", "Test kopiranja", "Isključeni", "95 % interval", "SOL", "PnL", "insajder", "Insajder")
+# 24.11. (Jure: "Želim da običan korisnik vidi zaradu u novčaniku"): the SOL amounts and the result are for everyone now
+ADMIN_ONLY = ("Test kopiranja", "Isključeni", "95 % interval", "PnL", "insajder", "Insajder")
 
 
 class Base(unittest.TestCase):
@@ -248,8 +249,17 @@ class UserCard(Base):
         self.assertIn("Skupina od 70 povezanih novčanika kupila je prije skoka na", card)
         self.assertRegex(card, r"Skupina od 3 povezanih novčanika koja je u \d+ skok\w* kupila zajedno prije rasta")
         self.assertIn(novkartice.CARD_FOOT, card)
+        # 24.11. (vlasnik: "raširiti i dobiti konkretnije podatke"): a fold per wallet with the jumps and the history;
+        # amounts and the SOL result are adm-only, so the copy a non-admin gets (admstrip) carries none of the words
+        from ui import admstrip
+        self.assertEqual(card.count("<details class=nk-more>"), n)
+        self.assertRegex(card, r"Više podataka · \d+ skok")
+        self.assertRegex(card, r"kupio \d+ min prije skoka · prodao u rastu: (da|ne)")
+        self.assertRegex(card, r"uloženo [\d,]+\xa0SOL, izašlo [\d,]+\xa0SOL")   # the amounts, for everyone
+        plain = admstrip.strip(card)
         for w in ADMIN_ONLY:
-            self.assertNotIn(w, re.sub(r"<style>.*?</style>|<script>.*?</script>", "", card, flags=re.S), w)
+            self.assertNotIn(w, re.sub(r"<style>.*?</style>|<script>.*?</script>", "", plain, flags=re.S), w)
+
         self.assertIsNone(HOSTILE.search(card))
         self.assertIn('target=_blank rel="noopener noreferrer">Solscan ↗', card)
         self.assertIn("data-cp=", card)

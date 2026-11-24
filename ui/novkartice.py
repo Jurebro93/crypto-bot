@@ -39,6 +39,9 @@ CSS = """<style>
 .nk-foot{font-size:12.5px;color:var(--mut);margin:10px 0 0;line-height:1.4}
 .nk-empty{font-size:14.5px;color:var(--mut);margin:8px 0 6px;line-height:1.45}
 .nk-tag{font-size:12px;color:var(--mut)}
+.nk-more{margin:4px 0 0}.nk-more summary{cursor:pointer;font-size:13px;color:var(--acc)}
+.nk-more ul.nk-l{margin:6px 0 4px 18px;padding:0;font-size:13.5px;line-height:1.5}.nk-more li{margin:2px 0}
+.nk-more a{color:var(--acc);text-decoration:none}
 </style>"""
 # capture phase + stopPropagation: a copy button inside a table row never also opens / closes the row (rangtable.JS)
 COPY_JS = ("<script>if(!window.__nkcp){window.__nkcp=1;document.addEventListener('click',e=>{const b=e.target.closest"
@@ -101,16 +104,78 @@ def _bundle_by_owner(con):
     return out
 
 
+TIER_HR = {"pumpa15": "15 M $ i više", "pumpa2": "2–15 M $"}
+PUMPS_SHOWN = 8
+
+
+def _skok_n(n):
+    n = int(n or 0)
+    return "skok" if n % 10 == 1 and n % 100 != 11 else "skoka" if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14) else "skokova"
+
+
+def _lead_txt(p):
+    lead = p.get("lead_s")
+    if lead is None and p.get("buy_ts") and p.get("t0"):
+        lead = p["t0"] - p["buy_ts"]
+    if lead is None:
+        return "vrijeme kupnje nepoznato"
+    return f"kupio {rd.num(lead / 60)} min prije skoka" if lead >= 0 else f"kupio {rd.num(-lead / 60)} min nakon skoka"
+
+
+def _pump_li(p):
+    """One jump of a wallet: the facts and the SOL amounts, for everyone (24.11., Jure: "Želim da običan korisnik vidi
+    zaradu u novčaniku")."""
+    sym = rd.h(p.get("symbol") or short(p.get("token")))
+    when = time.strftime("%d.%m. %H:%M", time.gmtime(int(p["t0"]))) if p.get("t0") else rd.DASH
+    tok = str(p.get("token") or "")
+    name = f'<a href="/token/{quote(tok)}" translate=no>{sym}</a>' if tok else sym
+    money = ""
+    if p.get("sol_in") is not None or p.get("sol_out") is not None:
+        money = f' · uloženo {rd.h(rd.sol(p.get("sol_in"), 2))}, izašlo {rd.h(rd.sol(p.get("sol_out"), 2))}'
+    return (f'<li>{name} · {rd.h(TIER_HR.get(p.get("tier"), "skok"))} · {rd.h(when)} · {rd.h(_lead_txt(p))} · '
+            f'prodao u rastu: {"da" if p.get("sold_into") else "ne"}{money}</li>')
+
+
+def _hist_short(h, n_members):
+    """The members' own scored history, with the SOL result (24.11.: for every user)."""
+    if not h or not h.get("n_scored"):
+        return "Povijest tih novčanika još se računa."
+    txt = (f"Povijest novčanika: izračunata za {rd.num(h['n_scored'])} od {rd.num(h.get('n_members') or n_members)}, "
+           f"u plusu {rd.pct(h.get('profitable_share'), sign=False, frac=True)} njih")
+    agree = {1: "; slaže se s rezultatom na skokovima.", 0: "; ne slaže se s rezultatom na skokovima."}.get(h.get("agrees"), ".")
+    sol = (f' (zaradili {rd.h(rd.sol(h.get("realized_sol"), 2, sign=True))})' if h.get("realized_sol") is not None else "")
+    return rd.h(txt) + sol + rd.h(agree)
+
+
+def more_html(g, pumps, h, now=None):
+    """24.11. (vlasnik: "Zašto se to ne može raširiti i dobiti konkretnije podatke?"): under the one sentence, a fold
+    with every jump the group bought before (token, level, when, how long before, sold into the rise) and the members'
+    history. Closed by default, so the card stays one line per wallet."""
+    n = len(pumps)
+    last = g.get("last_seen")
+    head = (f'Više podataka · {rd.num(n)} {_skok_n(n)}' + (f' · zadnja aktivnost {rd.h(rd.ago(last, now))}' if last else ""))
+    inner = ("<ul class=nk-l>" + "".join(_pump_li(p) for p in pumps[:PUMPS_SHOWN]) + "</ul>"
+             + (f'<p class=nk-tag>Prikazano {PUMPS_SHOWN} od {rd.num(n)} skokova.</p>' if n > PUMPS_SHOWN else "")
+             if pumps else '<p class=nk-tag>Pojedinačni skokovi još nisu spremljeni za ovaj novčanik.</p>')
+    inner += f'<p class=nk-s>{_hist_short(h, len(g.get("members") or []) or 1)}</p>'
+    return f'<details class=nk-more><summary>{head}</summary>{inner}</details>'
+
+
 def card_html(con=None, n=CARD_N):
-    """The card (HTML). Only confirmed groups; the honest empty card before the first one."""
+    """The card (HTML). Only confirmed groups; the honest empty card before the first one. 24.11. (vlasnik): sorted by
+    the last activity (the fresh ones first), every row with a fold of concrete data (more_html)."""
     own = con is None
     con = con if con is not None else P.ins_con()
     try:
         gs = P.confirmed_groups(con, n) if con is not None else []
         bun = _bundle_by_owner(con) if gs else {}
+        pumps = P.pumps_of(con, [g["owner"] for g in gs]) if gs else {}
+        hist = P.hist_of(con, [g["owner"] for g in gs]) if gs else {}
     finally:
         if own and con is not None:
             con.close()
+    gs = sorted(gs, key=lambda g: -(g.get("last_seen") or 0))
+    now = time.time()
     rows = []
     for g in gs:
         lead = (g["members"] or [g["owner"]])[0]
@@ -118,7 +183,8 @@ def card_html(con=None, n=CARD_N):
         rows.append('<div class=nk-row><div class=nk-a>' + addr_html(lead)
                     + (f'<span class=nk-tag>+{more} povezan{"" if more == 1 else "ih" if more >= 5 else "a"}</span>'
                        if more > 0 else "")
-                    + f'</div><div class=nk-s>{rd.h(reason(g, bun.get(g["owner"])))}</div></div>')
+                    + f'</div><div class=nk-s>{rd.h(reason(g, bun.get(g["owner"])))}</div>'
+                    + more_html(g, pumps.get(g["owner"], []), hist.get(g["owner"]), now) + '</div>')
     body = "".join(rows) if rows else f'<p class=nk-empty>{rd.h(CARD_EMPTY)}</p>'
     return (f'{CSS}<section class=nk-card id=vrijedi-pratiti><h2>{rd.h(CARD_TITLE)}</h2>{body}'
             f'<p class=nk-foot>{rd.h(CARD_FOOT)}</p></section>{COPY_JS}')

@@ -124,3 +124,20 @@ def measurement(limit=100, path=None):
     finally:
         con.close()
     return {"by_source": by, "rows": [dict(zip(MKEYS, r)) for r in rows]}
+
+
+PKEYS = ("eid", "token", "symbol", "t0", "peak_ts", "peak_x", "tier", "peak_mc", "mcap0", "n_part", "src", "fetched")
+
+
+def pumps(limit=80, path=None):
+    """[{eid, token, symbol, t0, peak_ts, peak_x, tier, peak_mc, mcap0, n_part, src, fetched}] of the pumps found
+    (bnb_events with a tier), newest first. 24.11. (vlasnik: "želim to sve prikazano u frontendu"): the /bnb page."""
+    con = _con(path)
+    if con is None:
+        return []
+    try:
+        rows = store.q(con, f"SELECT {', '.join(PKEYS)} FROM bnb_events WHERE tier IS NOT NULL ORDER BY t0 DESC LIMIT ?",
+                       (int(limit),))
+    finally:
+        con.close()
+    return [dict(zip(PKEYS, r)) for r in rows]
