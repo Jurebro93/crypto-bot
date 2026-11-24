@@ -86,9 +86,10 @@ class Page(unittest.TestCase):
         self.assertIn("37 min prije skoka", wal)
         self.assertIn("3 tokena", wal)
         self.assertIn("zadnji put prije 50 min", wal)
-        self.assertIn('class=adm-only>· uloženo 1,2k\xa0$, izašlo 3,1k\xa0$', wal)   # amounts only for the owner
+        self.assertIn('· uloženo 1,2k\xa0$, izašlo 3,1k\xa0$', wal)        # 24.11. (Jure): amounts for every user
         self.assertIn("Ostvareno na tim skokovima", wal)
-        self.assertIn("adm-only", wal)
+        self.assertIn("+2,6k\xa0$", wal)
+        self.assertNotIn("adm-only", wal)
         # measurement: by source and the rows
         mj = html.split("<h2 id=mjerenje>")[1].split("<h2 id=metoda>")[0]
         self.assertIn("novčanici prije pumpe", mj)

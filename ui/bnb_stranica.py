@@ -4,8 +4,8 @@ ne bi prikazali? Želim to sve prikazano u frontendu, raspoređeno po tabovima, 
 The page reads bnb.db only through bnb/pogled.py (read-only, never raises, "nothing yet" when the database or the job
 is not there) and shows four sections; their <h2> headings become the chips under the title (ui/secnav), so every
 section is one tap away: Sažetak · Pumpe · Novčanici prije pumpe · Mjerenje praćenja. BNB is analysis only (bnb/):
-nothing here trades. Amounts in money and the realized result are adm-only (the owner sees them, an ordinary user
-gets the neutral facts: which token, how long before the jump, sold into the rise or not).
+nothing here trades. 24.11. (Jure: "Želim da običan korisnik vidi zaradu u novčaniku"): the amounts and the realized
+result are shown to every user, next to the neutral facts (which token, how long before the jump).
 
 Neutral wording: a wallet on the list bought before and sold into pumps more often than the rules let pass; nothing
 says who it is or why.
@@ -141,7 +141,7 @@ def _pump_li(p):
     usd_in, usd_out = p.get("usd_in"), p.get("usd_out")
     money = ""
     if usd_in is not None or usd_out is not None:
-        money = (f' <span class=adm-only>· uloženo {esc(rd.usd(usd_in))}, izašlo {esc(rd.usd(usd_out))}</span>')
+        money = f' · uloženo {esc(rd.usd(usd_in))}, izašlo {esc(rd.usd(usd_out))}'
     return (f'<li>{_tok(p.get("token"), p.get("symbol"))} · {esc(TIER.get(p.get("tier"), rd.DASH))} · {t} · '
             f'{esc(_lead_txt(p.get("lead_min")))}{money}</li>')
 
@@ -158,7 +158,7 @@ def _group_html(g, now):
     pumps = g.get("pumps") or []
     inner = (f'<p>{esc(g.get("why") or "")}</p>' if g.get("why") else "")
     if g.get("pnl_usd") is not None:
-        inner += f'<p class=adm-only>Ostvareno na tim skokovima: <b class="{rd.tone(g["pnl_usd"])}">{esc(rd.usd(g["pnl_usd"], sign=True))}</b></p>'
+        inner += f'<p>Ostvareno na tim skokovima: <b class="{rd.tone(g["pnl_usd"])}">{esc(rd.usd(g["pnl_usd"], sign=True))}</b></p>'
     inner += (f'<p><b>Skokovi</b> ({rd.num(len(pumps))})</p><ul>' + "".join(_pump_li(p) for p in pumps[:30]) + '</ul>'
               + (f'<p class=bnb-note>Prikazano 30 od {rd.num(len(pumps))}.</p>' if len(pumps) > 30 else "")
               if pumps else '<p class=bnb-note>Pojedinačni skokovi još nisu spremljeni za ovaj novčanik.</p>')

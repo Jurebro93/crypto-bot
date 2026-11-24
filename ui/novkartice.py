@@ -123,28 +123,27 @@ def _lead_txt(p):
 
 
 def _pump_li(p):
-    """One jump of a wallet, the neutral facts for everyone; the SOL amounts only for the owner (adm-only)."""
+    """One jump of a wallet: the facts and the SOL amounts, for everyone (24.11., Jure: "Želim da običan korisnik vidi
+    zaradu u novčaniku")."""
     sym = rd.h(p.get("symbol") or short(p.get("token")))
     when = time.strftime("%d.%m. %H:%M", time.gmtime(int(p["t0"]))) if p.get("t0") else rd.DASH
     tok = str(p.get("token") or "")
     name = f'<a href="/token/{quote(tok)}" translate=no>{sym}</a>' if tok else sym
     money = ""
     if p.get("sol_in") is not None or p.get("sol_out") is not None:
-        money = (f' <span class=adm-only>· uloženo {rd.h(rd.sol(p.get("sol_in"), 2))}, izašlo '
-                 f'{rd.h(rd.sol(p.get("sol_out"), 2))}</span>')
+        money = f' · uloženo {rd.h(rd.sol(p.get("sol_in"), 2))}, izašlo {rd.h(rd.sol(p.get("sol_out"), 2))}'
     return (f'<li>{name} · {rd.h(TIER_HR.get(p.get("tier"), "skok"))} · {rd.h(when)} · {rd.h(_lead_txt(p))} · '
             f'prodao u rastu: {"da" if p.get("sold_into") else "ne"}{money}</li>')
 
 
 def _hist_short(h, n_members):
-    """The members' own scored history in neutral words (no amounts; the SOL result is adm-only)."""
+    """The members' own scored history, with the SOL result (24.11.: for every user)."""
     if not h or not h.get("n_scored"):
         return "Povijest tih novčanika još se računa."
     txt = (f"Povijest novčanika: izračunata za {rd.num(h['n_scored'])} od {rd.num(h.get('n_members') or n_members)}, "
            f"u plusu {rd.pct(h.get('profitable_share'), sign=False, frac=True)} njih")
     agree = {1: "; slaže se s rezultatom na skokovima.", 0: "; ne slaže se s rezultatom na skokovima."}.get(h.get("agrees"), ".")
-    sol = (f' <span class=adm-only>(zaradili {rd.h(rd.sol(h.get("realized_sol"), 2, sign=True))})</span>'
-           if h.get("realized_sol") is not None else "")
+    sol = (f' (zaradili {rd.h(rd.sol(h.get("realized_sol"), 2, sign=True))})' if h.get("realized_sol") is not None else "")
     return rd.h(txt) + sol + rd.h(agree)
 
 
