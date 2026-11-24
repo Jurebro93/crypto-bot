@@ -65,6 +65,16 @@ Piše ga alat svaki dan u 18:00 CET i šalje Juri; stariji dani ostaju ovdje da 
 ### Bot u 5 brojki
 - Bez novih mjerenja (noć je otišla na popravke, ništa od ovoga još nije na serveru); vrijede brojke iz zapisa "9.11.2026. (večer)" dolje.
 
+## 24.11.2026. (BNB u sučelju, kartica novčanika)
+
+### Odlučeno i napravljeno (na grani, čeka Jurin „da” za deploy)
+- Jure: „Ne vidim dodane BNB tokene”: posao bnb (PR #224/#225) radio je samo u pozadini (bnb.db, jedan redak loga), stranice nije bilo. Nova stranica /bnb s tabovima: Sažetak (brojke i lijevak) · Pumpe (token, razina, vrh, mcap, sudionici) · Novčanici prije pumpe (potvrđeni prvi, pa po zadnjoj aktivnosti; svaki red otvara sve skokove) · Mjerenje praćenja (po izvoru i kupnja po kupnja). Iznosi i ostvareno samo za vlasnika (adm-only). U izborniku pod „Novčanici i tokeni”.
+- Kartica „Novčanici koje vrijedi pratiti” na /wallets: sortirana po zadnjoj aktivnosti, ispod rečenice rastezljivo „Više podataka”: svaki skok (token, razina, kad, koliko minuta prije, prodao u rastu), povijest novčanika; SOL iznosi adm-only.
+- Spojen main (PR #216–#230); noćni raspored iz PR #73 zamijenjen mainovim `--night`.
+
+### Odgovor na „zašto nijedna strategija nije profitabilna, a novčanici jesu”
+- Brojke novčanika su njihov rezultat (27 od 50 u plusu i nakon reza, +115 SOL na 203 tradea). Naše kopiranje: +0,88 % po tradeu, n=67, interval −17,6…+22,7 % (vijeće #1203) = nula sa šumom. Zarađuju oni koji su prvi; mi kupujemo 5–60 s kasnije i izlazimo na +15 % pa režemo velike dobitke. Zato fokus na „prije pumpe” novčanike i konkretne podatke po novčaniku.
+
 ## 9.11.2026. (večer)
 
 ### Odlučeno i napravljeno (spojeno, radi)

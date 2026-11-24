@@ -37,6 +37,9 @@ SECTIONS = [
         # 20.11. (vlasnik: BTC i Fear & Greed uz skokove i padove tokena; market/trziste.py)
         _p("/trziste", "🌦", "Tržište i tokeni", "BTC, strah i pohlepa i volumen meme platformi uz skokove i padove "
            "tokena.", "btc bitcoin fear greed strah pohlepa režim tržište korelacija skokovi padovi manipulacija"),
+        # 24.11. (vlasnik: "želim to sve prikazano u frontendu, raspoređeno po tabovima"): the BNB Smart Chain job (bnb/)
+        _p("/bnb", "🟡", "BNB Chain", "Pumpe na BNB Smart Chainu, novčanici koji kupuju prije njih i mjerenje praćenja.",
+           "bnb bsc binance smart chain pumpe novčanici prije pumpe pancakeswap"),
     ]),
     ("Alati", [
         _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak, gotov prije 8 h.", "email mail report sažetak"),

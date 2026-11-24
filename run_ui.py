@@ -323,6 +323,9 @@ def route(path, qs):
     if path == "/trziste":   # 20.11. market/trziste.py: BTC, Fear & Greed, meme volume vs the tokens (analysis only)
         from ui import trziste
         return trziste.page(qs)
+    if path == "/bnb":   # 24.11. (vlasnik: "želim to sve prikazano u frontendu"): BNB pumps, wallets, measurement (bnb/)
+        from ui import bnb_stranica
+        return bnb_stranica.page(qs)
     if path == "/analitika":
         from ui import analitika
         return analitika.page(qs)
