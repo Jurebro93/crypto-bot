@@ -5,6 +5,7 @@
                          account's own address until a domain is verified), SMTP default SMTP_USER
     SMTP_HOST / SMTP_PORT default smtp.gmail.com / 465 (SSL); 587 uses STARTTLS
 """
+import html as _html
 import json
 import os
 import re
@@ -57,13 +58,15 @@ def plain(html):
     txt = re.sub(r"<(br|/tr|/div|/li|/p)[^>]*>", "\n", html)
     txt = re.sub(r"<[^>]+>", " ", txt)
     txt = re.sub(r"[ \t]+", " ", txt)
-    return re.sub(r"\n\s*\n+", "\n\n", txt).strip()
+    # 25.11.: the built report is ASCII with numeric references (run_report.build): the plain-text part is UTF-8 text
+    return _html.unescape(re.sub(r"\n\s*\n+", "\n\n", txt).strip())
 
 
 def ascii_html(html):
     """20.11. (vlasnik: the HTML report does not show č, š, ž in his mail app): every non-ASCII letter of the HTML part
     as a numeric character reference (č -> &#269;), which every client renders whatever it does with the charset.
-    The plain-text part stays UTF-8."""
+    The plain-text part stays UTF-8. 25.11.: also every other way the report leaves the service (render.render's
+    output = the saved file, report/dump, ui/reportpage.raw). Idempotent: ASCII in, the same ASCII out."""
     return (html or "").encode("ascii", "xmlcharrefreplace").decode("ascii")
 
 
