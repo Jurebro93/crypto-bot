@@ -359,7 +359,8 @@ class LiveGate(TradeBase):
                                                                  "arhiva_mikrokapova", "insajderi2",
                                                                  "makroinf_indeks", "makroinf_javno",
                                                                  "insajderi_kol", "kopija_dokazani", "pravi_novac_nauceno",
-                                                             "pravi_novac_risk_off"])
+                                                             "pravi_novac_risk_off",
+                                                                 "pump_tokeni_trgovacki"])   # 25.11.: /pump-tokeni, owner tap only
         self.assertEqual(settings.flag("range_flip", con=self.con), "off")
         self.assertNotIn("range_flip", settings.DATA_FLAGS)
         self.assertNotIn("range_flip", settings.NEVER_LIVE)

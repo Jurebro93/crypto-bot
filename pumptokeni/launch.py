@@ -109,7 +109,7 @@ def set_wallet(con, choice, user, tap=False, tcon=None):
         if choice == TRADING:
             if tap is not True:
                 raise ValueError("trgovački novčanik samo uz potvrdu (kvačica i potvrda u okviru)")
-            settings.set_flag(tcon, settings.PUMP_TRGOVACKI, "live", user, tap=True)
+            settings.set_flag(tcon, settings.PUMP_TRGOVACKI, "live", user, tap=tap)   # the owner's own tap, passed through
         elif settings.flag_state(tcon)[settings.PUMP_TRGOVACKI]["mode"] != "off":
             settings.set_flag(tcon, settings.PUMP_TRGOVACKI, "off", user)
     finally:

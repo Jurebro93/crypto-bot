@@ -186,6 +186,10 @@ class Classes(Base):
         self.assertTrue(r[pm.SPECIAL]["premalo"])
         self.assertEqual(r[pm.SPECIAL + " (puna 24 h povijest)"]["n"], 1)   # samo A3
         self.assertEqual(r["tokena deva u 24 h: 2–9"]["n"], 1)
+        # 25.11.: sva imena su "N" (nije sezonska); Mayhem Mode nije uključen ni na jednom
+        self.assertEqual(r[pm.NIJE_SEZONSKA]["n"], 4)
+        self.assertNotIn(pm.SEZONSKA, r)
+        self.assertEqual(r["Mayhem Mode: ne"]["n"], 4)
         o = r[pm.OSTAVLJEN]                                       # A1, A3: bez kupnje i nisu bondani (B1 je bondan,
         self.assertEqual(o["n"], 2)                               # A2 ima vlastitu kupnju)
         self.assertAlmostEqual(o["prosjek_sol"], 1000 * 0.003 / 100 / 2)
@@ -329,3 +333,53 @@ class Isolation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Teme(Base):
+    """25.11.: ime i simbol lansiranja, sezonska tema iz ključnih riječi, usporedba sa svim ostalima."""
+
+    def test_keywords(self):
+        self.assertEqual(pm.tema("Turkey Day Coin", "TDAY"), "Dan zahvalnosti")
+        self.assertEqual(pm.tema("Deal Hunter", "BLACKFRIDAY"), "Black Friday / Cyber Monday")
+        self.assertEqual(pm.tema("Santa Rally", "SRALLY"), "Božić")
+        self.assertEqual(pm.tema("Twenty Seven", "Y2027"), "Nova godina")
+        self.assertEqual(pm.tema("Sleepy Otter", "SOTTER"), "")
+        self.assertEqual(pm.tema(None, None), "")
+
+    def test_names_are_stored_and_grouped(self):
+        b = pm.Biljeznik(NOW + 48 * 3600, path=self.db, log=self.log)
+        for mint, nm, mayhem in (("T1", "Gobble Gobble", False), ("T2", "Sleepy Otter", True), ("T3", "Xmas Elf", False)):
+            m = create(mint, "DEV" + mint)
+            m.update(name=nm, symbol=mint, is_mayhem_mode=mayhem)
+            b.take(m, NOW)
+        b.take(create("T4", "DEVT4"), NOW)
+        b.flush(force=True)
+        con = sqlite3.connect(self.db)
+        self.assertEqual(dict(con.execute("SELECT mint, tema FROM imena")),
+                         {"T1": "Dan zahvalnosti", "T2": "", "T3": "Božić", "T4": ""})
+        con.execute("DELETE FROM imena WHERE mint = 'T4'")       # zabilježen prije nego što je mjerenje pamtilo imena
+        con.executemany("INSERT INTO ishod VALUES (?,?,?,?,?,?,?,?,?,?)", [
+            (m, 12, NOW, 1, v, 5, 4000.0, 4000.0, 0, 100.0) for m, v in
+            (("T1", 2000.0), ("T2", 500.0), ("T3", 1000.0), ("T4", 700.0))])
+        con.commit()
+        r = {x["razred"]: x for x in pm.sazetak(con, NOW + 200000, final=True)["razredi"]}
+        self.assertEqual(r[pm.SEZONSKA]["n"], 2)                               # T1, T3
+        self.assertAlmostEqual(r[pm.SEZONSKA]["prosjek_sol"], 1500 * 0.003 / 100)
+        self.assertEqual(r[pm.NIJE_SEZONSKA]["n"], 1)                          # T2; T4 nema ime: izvan usporedbe
+        self.assertEqual(r["tema imena: Dan zahvalnosti"]["n"], 1)
+        self.assertEqual(r[f"{pm.OSTAVLJEN}, {pm.SEZONSKA}"]["n"], 2)
+        self.assertEqual(r["Mayhem Mode: da"]["n"], 1)
+        self.assertEqual(r["Mayhem Mode: ne"]["n"], 3)
+        self.assertIn(pm.SEZONSKA, pm.line(pm.sazetak(con, NOW + 200000, final=True)))
+
+    def test_names_backfilled_from_dexscreener(self):
+        b = pm.Biljeznik(NOW + 48 * 3600, path=self.db, log=self.log)
+        b.take(create("OLD", "DEVOLD"), NOW)
+        b.flush(force=True)
+        con = sqlite3.connect(self.db)
+        con.execute("DELETE FROM imena")
+        con.commit()
+        p = pair("OLD", vol=100.0)
+        p["baseToken"].update(name="Black Friday Doge", symbol="BFD")
+        self.assertEqual(pm._names_of([p], ["OLD"]), [("OLD", "Black Friday Doge", "BFD", "Black Friday / Cyber Monday")])
+        self.assertEqual(pm._names_of([pair("X")], ["OLD"]), [])
