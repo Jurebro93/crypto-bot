@@ -601,6 +601,28 @@ def midcap_sections(data, ai):
     return out
 
 
+def pump_mjerenje_section(s):
+    """25.11. (live/pumpmjerenje.py): jednokratno mjerenje naknade kreatoru na pump.fun, po razredima deva. Bez adresa."""
+    from live import pumpmjerenje as pm
+    when = time.strftime("%d.%m. %H:%M UTC", time.gmtime(s["rok"])) if s.get("rok") else "?"
+    body = para(("Završni rezultat" if s.get("final") else f"Privremeno (mjerenje traje do {when})")
+                + f": {s['lansiranja']} lansiranja zabilježeno, uzorak {pm._pct(s['udio'])}, ishod za "
+                f"{s['s_ishodom']} tokena" + (" (samo provjera nakon 12 h)." if s.get("final") else
+                                              " (zadnja dostupna provjera: 1 h ili 12 h)."))
+    body += ctable(["Razred deva", "Tokena", "Medijan SOL", "Prosjek SOL", "≥5k $", "≥10k $", "≥30k $", "≥100k $",
+                    "Migrirao", "Gornjih 1 %", "Nepoznat", "Bez USD"], [[e(c) for c in r] for r in pm.table_rows(s)], nowrap=True)
+    body += small(
+        "Naknada = promet tokena (DexScreener, od lansiranja do provjere) × 0,30 % — prema objavi, NEPROVJERENO: "
+        f"službena stranica pump.funa ({e(s.get('izvor'))}) nije bila dostupna; nakon prelaska na PumpSwap stopa "
+        "vjerojatno ovisi o vrijednosti tokena. Pragovi = najviša viđena vrijednost na provjerama (donja granica "
+        "vrha). „Prvi token” = dev nije lansirao drugi token u 24 h prije, koliko je mjerenje vidjelo. „Nepoznat” = "
+        "DexScreener ne zna token (računa se s 0 prometa). „Bez USD” = par u drugoj valuti bez prometa u dolarima: "
+        "izvan svih brojki u retku (samo prebrojen). Razred ispod 30 tokena: premalo. Gornjih 1 % = udio "
+        f"ukupne naknade koji nose najbolji tokeni. DexScreener ~{s.get('dex_dnevno')} zahtjeva dnevno (besplatno); "
+        f"baza {s.get('mb')} MB. Statistika, ne optužba.")
+    return section("Mjerenje: naknada devu na pump.fun", body)
+
+
 def render(data, ai, source):
     now = data["ts"]
     day = time.strftime("%d.%m.%Y.", time.localtime(now))
@@ -610,6 +632,8 @@ def render(data, ai, source):
         out.append(section(f'<span style="color:{BAD}">Hitno: potrošnja</span>',
                            "".join(para(f"{a['title']}: {a['detail']}") for a in sp), ("/usage", "Potrošnja")))
     out += midcap_sections(data, ai)
+    if data.get("pump_mjerenje"):
+        out.append(pump_mjerenje_section(data["pump_mjerenje"]))
     if not data.get("fokus") and data.get("paper") is not None:   # the switch off: the microcap sections as before
         out += mikrokap_sections(data, ai)
     sg = ai.get("prijedlozi") or []

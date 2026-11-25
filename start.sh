@@ -516,6 +516,10 @@ keep paper python3 run_paper.py run --scan --hype-args "--deep 20"   # hype scan
 # 10.11.: every new pump.fun token is captured by default (free event; run_live.new_tokens_on): only LIVE_NEW_TOKENS=0
 # or "--no-new" in LIVE_ARGS switch it off, so LIVE_ARGS without "--new" no longer does
 if [ -z "${LIVE_OFF:-}" ]; then keep live python3 run_live.py loop ${LIVE_ARGS:-}; fi
+# 25.11. (vlasnik: „mjerenje da”, jednokratno 48 h, besplatno; live/pumpmjerenje.py): only with PUMP_MJERENJE_DO=<unix ts
+# kraja>. Every 10 min: DexScreener outcome of the recorded launches (+1 h, +12 h), a log line every 6 h, the final
+# summary at the deadline, the database deleted 7 days after it. Without the variable and the database it exits at once.
+( sleep 900; while true; do low python3 -m live.pumpmjerenje tick || echo "pump mjerenje nije uspjelo"; sleep 600; done ) &
 # (keep trade: started right after the UI above, 9.11.)
 
 wait   # every loop has its own supervisor; the worker itself only ends when Render stops it
