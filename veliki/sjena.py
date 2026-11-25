@@ -30,6 +30,14 @@ token-days. The hour's log line "veliki sjena: ..." and the MCP tool get_shadow_
 
 Nothing here decides anything: no rule, cap or real-money gate reads this table. A cell that looks good is a
 candidate for the walk-forward test and the owner, not a switch. VEL_SJENA=0 turns the book off.
+
+23.11. (vlasnik: "Nećemo čekati danima da se napravi range"): the pullback after a jump (veliki/povlacenje, entry
+kind "povlacenje") has its OWN table veliki_sjena_pov, never veliki_sjena: nauceno / ucenik (which can reach real money
+through the owner's switch) and market/trziste read veliki_sjena only, so these rows reach nothing that decides. When
+the signal fires on a candidate's completed bar, one shadow opens in each of the five profiles and in a sixth, POV_OWN
+("vlastiti": the signal's own target = the leg's top, stop = 2 % under the leg's low, at most -12 %), with the same
+facts, cost, fills and closes as the book's rows. Market gates do not stop it (the row keeps btc / makro). Read in the
+hour's line ("povlačenje nakon skoka: ...") per profile, over token-days.
 """
 import os
 import time
@@ -52,7 +60,16 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS veliki_sjena (
     btc TEXT, makro TEXT, dip TEXT, oprez INTEGER, grok TEXT, mcap REAL, liq REAL, status TEXT, closed_ts INTEGER,
     exit_px REAL, reason TEXT, ret REAL);
 CREATE INDEX IF NOT EXISTS veliki_sjena_st ON veliki_sjena (status, token);
-CREATE INDEX IF NOT EXISTS veliki_sjena_cl ON veliki_sjena (closed_ts);"""
+CREATE INDEX IF NOT EXISTS veliki_sjena_cl ON veliki_sjena (closed_ts);
+CREATE TABLE IF NOT EXISTS veliki_sjena_pov (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ulaz TEXT, token TEXT, symbol TEXT, opened_ts INTEGER, entry_px REAL,
+    profil TEXT, tp_px REAL, stop_px REAL, rt REAL, leg REAL, povrat REAL, pos REAL, band TEXT, zone_ok INTEGER,
+    btc TEXT, makro TEXT, dip TEXT, oprez INTEGER, grok TEXT, mcap REAL, liq REAL, status TEXT, closed_ts INTEGER,
+    exit_px REAL, reason TEXT, ret REAL);
+CREATE INDEX IF NOT EXISTS veliki_sjena_pov_st ON veliki_sjena_pov (status, token);"""
+POV_TABLE = "veliki_sjena_pov"
+POV_OWN = "vlastiti"
+POV_PREFIX = "pov:"        # the in-memory key of a pullback shadow (never one of PROFILES)
 _ST = {"ready": False, "open": {}, "day": None, "n_day": 0, "clean": 0.0, "err": 0.0}
 
 
@@ -74,6 +91,10 @@ def _load(con, now):
             "SELECT id, token, profil, entry_px, tp_px, stop_px, rt, opened_ts FROM veliki_sjena WHERE status='open'"):
         _ST["open"].setdefault(tok, {})[prof] = {"id": rid, "entry": entry, "tp": tp, "stop": stop, "rt": rt, "ts": ts,
                                                  "pend": None}
+    for rid, tok, prof, entry, tp, stop, rt, ts in con.execute(
+            f"SELECT id, token, profil, entry_px, tp_px, stop_px, rt, opened_ts FROM {POV_TABLE} WHERE status='open'"):
+        _ST["open"].setdefault(tok, {})[POV_PREFIX + prof] = {"id": rid, "entry": entry, "tp": tp, "stop": stop,
+                                                              "rt": rt, "ts": ts, "pend": None, "tbl": POV_TABLE}
     _ST["ready"] = True
 
 
@@ -125,7 +146,7 @@ def known(tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None, size_sol
     band, pos = band_of(px, z)
     if band is None or not liq or liq <= 0:
         return None
-    from veliki import intra, live, replay, rule
+    from veliki import live, replay, rule
     sol = sol or live._sol()
     c = rule.cost_at(size_sol, liq, sol, rule.fee_side_of(url=url), rule.tx_sol()[0])
     # 18.11.: the real account's cost, never under the measured 3 % (replay.RT_FLOOR): a plus at an imagined cost
@@ -133,12 +154,18 @@ def known(tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None, size_sol
     rt = max(c["rt"], rule.demo_rt(size_sol * sol, liq), replay.RT_FLOOR)
     if rt >= 0.5:
         return None
+    return _facts(tok, q, now, z, b15, prow, btc, cfg, px, liq, url, mcap, rt, band, pos)
+
+
+def _facts(tok, q, now, z, b15, prow, btc, cfg, px, liq, url, mcap, rt, band, pos):
+    from veliki import intra, live
     prow = prow or {}
     g = prow.get("grok") or {}
     grok = None
     if g.get("verdict") and now - float(g.get("ts") or 0) <= 6 * 3600:
         grok = str(g["verdict"]).strip().lower()[:12]
-    return {"px": px, "liq": liq, "url": url, "mcap": mcap, "rt": rt, "pos": round(pos, 4), "band": band,
+    return {"px": px, "liq": liq, "url": url, "mcap": mcap, "rt": rt, "pos": None if pos is None else round(pos, 4),
+            "band": band,
             "symbol": (q[4] if len(q) > 4 else None) or live._sym(tok, q),
             "calm": 1 if intra.calm(b15 or [], cfg)[0] else 0, "zone_ok": 1 if (z or {}).get("ok") else 0,
             "zone_why": why_class((z or {}).get("why")), "width": (z or {}).get("width"),
@@ -154,6 +181,11 @@ def consider(con, tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None):
         return 0
     try:
         _load(con, now)
+    except Exception as e:  # noqa: BLE001
+        _said(f"veliki sjena: ulaz nije zapisan ({type(e).__name__}: {str(e)[:100]})", now)
+        return 0
+    consider_pov(con, tok, q, now, z, b15, prow, btc, cfg, sol)   # 23.11.: its own table, its own count
+    try:
         px, liq = (list(q[:2]) + [None] * 2)[:2]
         if band_of(px, z)[0] is None or not liq or liq <= 0:
             return 0
@@ -193,6 +225,56 @@ def consider(con, tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None):
         return 0
 
 
+def consider_pov(con, tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None):
+    """23.11.: the pullback after a jump (veliki/povlacenje) on this candidate's completed bars: when it fires, one
+    shadow in veliki_sjena_pov per profile (PROFILES + POV_OWN) that has none open in this token. Needs no zone; no
+    market gate is asked (demo never stops). How many were opened. Never raises."""
+    if not on():
+        return 0
+    try:
+        from veliki import povlacenje, replay, rule
+        _load(con, now)
+        px, liq, url, mcap = (list(q[:4]) + [None] * 4)[:4]
+        if not px or not liq or liq <= 0:
+            return 0
+        p = povlacenje.plan(b15, px)
+        if p is None:
+            return 0
+        held = _ST["open"].setdefault(tok, {})
+        free = [x for x in (*PROFILES, POV_OWN) if POV_PREFIX + x not in held]
+        if not free or sum(len(v) for v in _ST["open"].values()) >= MAX_OPEN:
+            return 0
+        from veliki import live
+        sol = sol or live._sol()
+        c = rule.cost_at(SIZE_SOL, liq, sol, rule.fee_side_of(url=url), rule.tx_sol()[0])
+        rt = max(c["rt"], rule.demo_rt(SIZE_SOL * sol, liq), replay.RT_FLOOR)
+        if rt >= 0.5:
+            return 0
+        band, pos = band_of(px, z)
+        k = _facts(tok, q, now, z, b15, prow, btc, cfg, px, liq, url, mcap, rt, band, pos)
+        day = _day(now)
+        done = dict(con.execute(f"SELECT profil, COUNT(*) FROM {POV_TABLE} WHERE token=? AND opened_ts>=? GROUP BY profil",
+                                (tok, day)).fetchall())
+        n = 0
+        for prof in free:
+            if done.get(prof, 0) >= ROUNDS:
+                continue
+            tp_px, stop_px = (p["tp_px"], p["stop_px"]) if prof == POV_OWN else levels(px, prof, rt)
+            cur = con.execute(
+                f"INSERT INTO {POV_TABLE} (ulaz, token, symbol, opened_ts, entry_px, profil, tp_px, stop_px, rt, leg, "
+                "povrat, pos, band, zone_ok, btc, makro, dip, oprez, grok, mcap, liq, status) VALUES (?,?,?,?,?,?,?,?,?,"
+                "?,?,?,?,?,?,?,?,?,?,?,?,'open')",
+                (povlacenje.TAG, tok, k["symbol"], int(now), px, prof, tp_px, stop_px, rt, p["leg"], p["povrat"],
+                 k["pos"], band, k["zone_ok"], k["btc"], k["makro"], k["dip"], k["oprez"], k["grok"], mcap, liq))
+            held[POV_PREFIX + prof] = {"id": cur.lastrowid, "entry": px, "tp": tp_px, "stop": stop_px, "rt": rt,
+                                       "ts": int(now), "pend": None, "tbl": POV_TABLE}
+            n += 1
+        return n
+    except Exception as e:  # noqa: BLE001 - the book never costs the rule's pass
+        _said(f"veliki sjena: povlačenje nije zapisano ({type(e).__name__}: {str(e)[:100]})", now)
+        return 0
+
+
 def _said(text, now):
     if now - _ST["err"] > 3600:
         _ST["err"] = now
@@ -202,8 +284,8 @@ def _said(text, now):
 def _close(con, tok, prof, row, px, reason, now):
     from veliki import rule
     ret = rule.net_ret(row["entry"], px, row["rt"]) if px else None
-    con.execute("UPDATE veliki_sjena SET status='closed', closed_ts=?, exit_px=?, reason=?, ret=? WHERE id=? AND "
-                "status='open'", (int(now), px, reason, ret, row["id"]))
+    con.execute(f"UPDATE {row.get('tbl') or 'veliki_sjena'} SET status='closed', closed_ts=?, exit_px=?, reason=?, "
+                "ret=? WHERE id=? AND status='open'", (int(now), px, reason, ret, row["id"]))
     _ST["open"].get(tok, {}).pop(prof, None)
 
 
@@ -250,6 +332,12 @@ def cleanup(con, now):
         con.execute("UPDATE veliki_sjena SET status='closed', closed_ts=?, reason='bez_cijene' WHERE id=?", (int(now), rid))
         _ST["open"].get(tok, {}).pop(prof, None)
     con.execute("DELETE FROM veliki_sjena WHERE status='closed' AND closed_ts<?", (int(now) - KEEP_D * 86400,))
+    for rid, tok, prof in con.execute(f"SELECT id, token, profil FROM {POV_TABLE} WHERE status='open' AND opened_ts<?",
+                                      (old,)).fetchall():
+        con.execute(f"UPDATE {POV_TABLE} SET status='closed', closed_ts=?, reason='bez_cijene' WHERE id=?",
+                    (int(now), rid))
+        _ST["open"].get(tok, {}).pop(POV_PREFIX + prof, None)
+    con.execute(f"DELETE FROM {POV_TABLE} WHERE status='closed' AND closed_ts<?", (int(now) - KEEP_D * 86400,))
 
 
 def _group(row, by):
@@ -295,6 +383,56 @@ def table(con, now, days=7, by="band", profil=None):
     return sorted(out, key=lambda x: -x["n"])
 
 
+def pov_table(con, now, days=7):
+    """23.11.: the pullback shadows (veliki_sjena_pov) closed in the last `days`, per exit profile: [{"profil", "n",
+    "clusters", "ev", "hit", "lo", "hi", "tp", "stop"}] (ev over trades; lo / hi the 90 % interval over token-days)."""
+    con.executescript(SCHEMA)
+    cells = {}
+    for tok, ts, prof, ret, reason in con.execute(
+            f"SELECT token, opened_ts, profil, ret, reason FROM {POV_TABLE} WHERE status='closed' AND ret IS NOT NULL "
+            "AND closed_ts>=?", (int(now) - days * 86400,)):
+        c = cells.setdefault(prof, {"rets": [], "cl": {}, "tp": 0, "stop": 0})
+        c["rets"].append(ret)
+        c["cl"].setdefault((tok, ts // 86400), []).append(ret)
+        if reason in ("tp", "stop"):
+            c[reason] += 1
+    out = []
+    for prof in (*PROFILES, POV_OWN):
+        c = cells.get(prof)
+        if not c:
+            continue
+        means = [sum(v) / len(v) for v in c["cl"].values()]
+        k, n = len(means), len(c["rets"])
+        lo = hi = None
+        if k >= 2:
+            m = sum(means) / k
+            sd = (sum((x - m) ** 2 for x in means) / (k - 1)) ** 0.5
+            lo, hi = m - 1.645 * sd / k ** 0.5, m + 1.645 * sd / k ** 0.5
+        out.append({"profil": prof, "n": n, "clusters": k, "ev": sum(c["rets"]) / n,
+                    "hit": sum(1 for x in c["rets"] if x > 0) / n, "lo": lo, "hi": hi, "tp": c["tp"], "stop": c["stop"]})
+    return out
+
+
+def pov_text(con, now, days=7):
+    """The pullback shadows' part of the hour's line."""
+    con.executescript(SCHEMA)
+    d0 = _day(now)
+    opened = con.execute(f"SELECT COUNT(DISTINCT token || ':' || opened_ts) FROM {POV_TABLE} WHERE opened_ts>=?",
+                         (d0,)).fetchone()[0]
+    n_open = con.execute(f"SELECT COUNT(*) FROM {POV_TABLE} WHERE status='open'").fetchone()[0]
+    rows = pov_table(con, now, days)
+    head = f"povlačenje nakon skoka (vlastita tablica, samo sjena): danas signala {opened}, sada otvorenih {n_open}"
+    if not rows:
+        return head + "; još nema zatvorenih"
+    parts = []
+    for c in rows:
+        iv = (f", 90 % [{c['lo']:+.1%}; {c['hi']:+.1%}]" if c["lo"] is not None else "")
+        parts.append(f"{c['profil']} n={c['n']} ({c['clusters']} token-dana) prosjek {c['ev']:+.1%} cilj/stop "
+                     f"{c['tp']}/{c['stop']}{iv}")
+    return head + f"; zadnjih {days} d: " + "; ".join(parts) + (
+        f" (ocjena tek od {MIN_CLUSTERS} token-dana)" if max(c["clusters"] for c in rows) < MIN_CLUSTERS else "")
+
+
 def counts(con, now):
     con.executescript(SCHEMA)
     d0 = _day(now)
@@ -332,14 +470,19 @@ def line(con, now, days=7):
     head = (f"veliki sjena (zamišljeni tradeovi, 5 izlaza po ulazu): danas otvoreno {n['opened']} u {n['tokens']} tokena"
             + (f" (od toga {g} u filtru tržišta: risk-off / BTC slobodan pad, pravi novac bi stajao)" if g else "")
             + f", zatvoreno {n['closed']}, sada otvorenih {n['open']}")
+    try:   # 23.11.: the pullback's own shadows (never part of the cells above)
+        pv = " | " + pov_text(con, now, days)
+    except Exception:  # noqa: BLE001 - the line never fails for it
+        pv = ""
     cells = [c for c in table(con, now, days) if c["clusters"] >= MIN_CLUSTERS and c["lo"] is not None]
     if not cells:
-        return head + f"; ocjena po mjestu u zoni i izlazu: premalo podataka (treba {MIN_CLUSTERS} token-dana po ćeliji)"
+        return (head + f"; ocjena po mjestu u zoni i izlazu: premalo podataka (treba {MIN_CLUSTERS} token-dana po "
+                f"ćeliji)" + pv)
     best = max(cells, key=lambda c: c["lo"])
     worst = min(cells, key=lambda c: c["hi"])
     pos = sum(1 for c in cells if c["lo"] > 0)
     return (head + f"; zadnjih {days} d, {len(cells)} ćelija s dovoljno podataka, s donjom granicom iznad nule: {pos}; "
-            f"najbolja {_cell(best)}; najgora {_cell(worst)}")
+            f"najbolja {_cell(best)}; najgora {_cell(worst)}" + pv)
 
 
 def mcp(args=None):

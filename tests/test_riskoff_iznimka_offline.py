@@ -369,6 +369,10 @@ class Switch(Base):
 class Order2311(Base):
     """The owner's one-time order of 23.11. (trade/settings.riskoff_order_2311)."""
 
+    def setUp(self):
+        super().setUp()
+        self.now = settings.RISKOFF_ORDER_UNTIL - 3600   # the order expired 24.11. 12:00 UTC: test it inside its window
+
     def stop(self):
         return os.path.join(self.tmp.name, "STOP")
 

@@ -24,6 +24,15 @@ only, the hourly "veliki demo" line and the morning report leave it out (report/
 an hour, "veliki istraživač: ...", per variant next to the rule's own demo trades of the same days.
 VEL_ISTRAZIVAC=0 switches it off.
 
+  povlacenje  (23.11., vlasnik: "Nećemo čekati danima da se napravi range") the pullback after a jump
+         (veliki/povlacenje, V6 of ops/brzi_raspon_bt.py: a 24 h leg of 12 %+, 30-60 % of it given back, the bars
+         stopped falling). The history test (30 d, 23 tokens, 4 % cost) was NOT positive, so it is measured here out
+         of sample only. Its own levels: the target is the leg's top, the stop 2 % under the leg's low (at most -12 %),
+         booked through live.enter's plan (the same checks, guards and cost as every demo entry; the exits: break-even
+         at +5 % net and BTC's tight stop as for every intraday row, no time stop). It is asked first: a pullback is
+         often also in the zone's lower half, and a "sire" tag there would hide it. It needs no valid zone. The bars
+         are the ones live.intra_entries already holds for this candidate: no extra call.
+
 23.11. (vlasnik: "Demo tradanje nikad ne treba prestati ... Ne vrijede ista pravila za demo"): the market gates (the
 macro regime risk_off, BTC's free fall) no longer stop it; such an entry stores the gate (veliki_trades.gate, set by
 live.enter) and its result is reported apart ("u filtru tržišta"), never in the per-variant numbers that are compared
@@ -40,7 +49,8 @@ GROK_H = 6
 DAYS = 7
 VARIANTS = {"sire": "donja polovica zone (pravilo traži donjih 25 %)",
             "pada": "u zoni pravila, ali svijeće još padaju",
-            "grok": "Grok na X-u kaže kupi, pravilo ne bi ušlo"}
+            "grok": "Grok na X-u kaže kupi, pravilo ne bi ušlo",
+            "povlacenje": "povlačenje nakon skoka (30-60 % skoka u 24 h, svijeće stale; cilj vrh skoka)"}
 
 
 def on():
@@ -83,10 +93,11 @@ def try_enter(con, out, held, tok, q, now, sol, z, b15, icfg, btc, pr=None, prio
     if not on() or (USER, tok) in held:
         return None
     try:
-        from veliki import intra, live
+        from veliki import intra, live, povlacenje
         st = (btc or {}).get("state")   # 23.11.: BTC's free fall is a market gate (real money only): not asked
-        tag = variant(q[0], z, b15, icfg, None if st == "slobodan_pad" else st,
-                      ((pr or {}).get(tok) or {}).get("grok"), now)
+        pv = povlacenje.plan(b15, q[0])   # 23.11.: demo only; no market gate is asked (demo never stops)
+        tag = povlacenje.TAG if pv else variant(q[0], z, b15, icfg, None if st == "slobodan_pad" else st,
+                                                ((pr or {}).get(tok) or {}).get("grok"), now)
         if not tag:
             return None
         last = con.execute("SELECT MAX(closed_ts) FROM veliki_trades WHERE token=? AND user=?", (tok, USER)).fetchone()[0]
@@ -96,14 +107,23 @@ def try_enter(con, out, held, tok, q, now, sol, z, b15, icfg, btc, pr=None, prio
                           (USER, tok, live._day_start(now))).fetchone()[0]
         if n_r >= intra.MAX_ROUNDS:
             return None
+        plan = None
+        if pv:   # its own target and stop (live.enter's plan: every check and guard of a demo entry stays)
+            plan = {"src": f"istraživač [{tag}] {povlacenje.text(pv, q[0])}", "tp_px": pv["tp_px"],
+                    "stop_px": pv["stop_px"], "time_h": float(icfg["time_h"]), "key": povlacenje.KEY, "varijanta": tag}
         text, _no, vid = live.enter(con, USER, tok, q, now, sol, z, icfg, live._regime(now), btc, None,
-                                    meta=prioritet.meta(tok, pr) if prioritet else None, kind="intra")
+                                    meta=prioritet.meta(tok, pr) if prioritet else None, kind="intra", plan=plan)
         if not vid:
             return None
         con.execute("UPDATE veliki_trades SET varijanta=? WHERE id=?", (tag, vid))
         con.commit()
         held.add((USER, tok))
-        if text:
+        if plan:
+            g = con.execute("SELECT gate, size_sol, mcap, rt FROM veliki_trades WHERE id=?", (vid,)).fetchone()
+            out.append(f"veliki istraživač ulaz [{tag}] {live._sym(tok, q)} {g[1]:g} SOL na MC ${(g[2] or 0) / 1e6:,.1f}M"
+                       f": {povlacenje.text(pv, q[0])}; BTC {st or '?'}; pravi trošak runde {(g[3] or 0):.2%}"
+                       + (f" [{g[0]}: pravi novac bi stajao]" if g[0] else "") + "; samo demo, ne ulazi u dokaz")
+        elif text:
             out.append(text.replace("veliki demo ulaz", f"veliki istraživač ulaz [{tag}]", 1))
         return vid
     except Exception as e:  # noqa: BLE001

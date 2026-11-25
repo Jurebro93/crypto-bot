@@ -209,7 +209,9 @@ MACHINES = [
     M("explorer_variant", "Demo istraživač: zašto je ušao u ono što je pravilo odbilo", "strategije",
       "league.db veliki_trades.varijanta (račun autopilot-istrazivac)",
       {"sire": "donja polovica zone (pravilo traži donjih 25 %)", "pada": "u zoni pravila, ali svijeće još padaju",
-       "grok": "Grok na X-u kaže kupi, pravilo ne bi ušlo"}, also=("veliki/istrazivac.py",),
+       "grok": "Grok na X-u kaže kupi, pravilo ne bi ušlo",
+       "povlacenje": "povlačenje nakon skoka (30-60 % skoka u 24 h, svijeće stale; cilj vrh skoka)"},
+      also=("veliki/istrazivac.py", "veliki/povlacenje.py"),
       caveats=("Samo demo, na vlastitom računu: ne ulazi u dokaz za pravi novac ni u red „veliki demo”.",)),
     M("learner_trade", "Naučeno pravilo: demo račun i njegov pravi blizanac", "strategije",
       "league.db veliki_trades.varijanta 'nauceno:<profil>' (račun autopilot-nauceno; pravi blizanac na pravom računu) "
