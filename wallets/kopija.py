@@ -975,12 +975,14 @@ def compute(con, now, p=None, budget_s=BUDGET_S, fee=None, size=SIZE_SOL, floor=
                       if any(t["src"] == k for t in prim)}
     res["cost_med_pct"] = round(statistics.median(t["cost"] for t in prim) * 100, 2) if prim else None
     res["lag_med_s"] = statistics.median(t["lag"] for t in prim) if prim else None   # his buy -> the print we priced at
-    # 25.11.: the demo copies (wallets/kopija_demo.exit_rule) read "demo_exit". It stays the pick made the way it was
-    # made before the price check (legacy rows), so this measurement fix does not silently change what the demo does;
-    # "demo_exit_cisti" is the pick on the clean rows, and the report says when the two differ (the owner decides).
-    res["demo_exit"] = demo_exit(legacy)
+    # 25.11.: the demo copies (wallets/kopija_demo.exit_rule) read "demo_exit". Vlasnik 25.11. ("Demo izlaz čisti"):
+    # it is the pick on the CLEAN rows (after the price check); "demo_exit_staro" is the pick the way it was made
+    # before the check (legacy rows), kept so the report can say when the two differ. Demo only: real money never
+    # reads this.
+    res["demo_exit"] = demo_exit(rows)
     res["prije_provjere"] = legacy   # the primary rule and delay as counted before the price check (the diagnosis)
-    res["demo_exit_cisti"] = demo_exit(rows)
+    res["demo_exit_cisti"] = res["demo_exit"]
+    res["demo_exit_staro"] = demo_exit(legacy)
     res["verdict"] = verdict(res)
     res["secs"] = round(time.time() - t_start, 1)
     return res
@@ -1292,10 +1294,10 @@ def summary(res, now=None):
                      f"{MC_MAX / 1e9:.0f} mlrd $ (druga jedinica ili drugi pool) ili naš ulaz više od {SLIP_X:.0f}× od "
                      "njegove cijene. Velik dobitak sam po sebi nije razlog za izbacivanje. Prosjek je prosjek čistih "
                      "tradeova; medijan je u dnevniku i na /strategije.")
-    if res.get("demo_exit_cisti") and res.get("demo_exit_cisti") != res.get("demo_exit"):
-        notes.append(f"Demo kopije i dalje koriste izlaz „{EXIT_HR.get(res.get('demo_exit'), '?')}”, izabran kao prije "
-                     "provjere cijena; na čistim podacima najbolji bi bio "
-                     f"„{EXIT_HR.get(res['demo_exit_cisti'], '?')}”. Promjenu izlaza demo kopija odobrava vlasnik.")
+    if res.get("demo_exit_staro") and res.get("demo_exit_staro") != res.get("demo_exit"):
+        notes.append(f"Demo kopije koriste izlaz „{EXIT_HR.get(res.get('demo_exit'), '?')}”, izabran na očišćenim "
+                     "podacima (vlasnik 25.11.); prije provjere cijena bio bi izabran "
+                     f"„{EXIT_HR.get(res['demo_exit_staro'], '?')}”.")
     own = (res.get("own") or {}).get(PRIMARY[0]) or {}
     if own.get("prosjek_pct") is not None and _sumnja({"ev_pct": own["prosjek_pct"], "med_pct": own.get("medijan_pct")}):
         notes.append("Vlastiti rezultat odabranih novčanika ima nemoguće brojke (sumnjivi podaci), pa nije prikazan.")

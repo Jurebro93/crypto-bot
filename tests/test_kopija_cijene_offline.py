@@ -148,17 +148,18 @@ class Reproduced(Base):
         self.assertEqual(ex["izbaceno"], n)
         self.assertIsNotNone(ex["medijan_pct"])
 
-    def test_the_demo_exit_is_not_changed_silently(self):
+    def test_the_demo_exit_is_picked_on_clean_rows(self):
+        """Vlasnik 25.11. ("Demo izlaz čisti"): the demo copies read the pick made after the price check."""
         self.inject()
         res = self.run_()
-        legacy = kopija.demo_exit(res["prije_provjere"])
-        self.assertEqual(res["demo_exit"], legacy)                       # what kopija_demo reads: the pre-check pick
-        self.assertGreater(max(x["ev_pct"] for x in res["prije_provjere"]), 1e8)   # picked on the broken numbers
-        self.assertEqual(res["demo_exit_cisti"], kopija.demo_exit(res["grid"]))
-        # when the clean pick differs, the report says so and leaves the change to the owner
-        res["demo_exit_cisti"] = "on_stop_24h"
+        self.assertGreater(max(x["ev_pct"] for x in res["prije_provjere"]), 1e8)   # the old pick saw broken numbers
+        self.assertEqual(res["demo_exit"], kopija.demo_exit(res["grid"]))          # what kopija_demo reads: clean
+        self.assertEqual(res["demo_exit_cisti"], res["demo_exit"])
+        self.assertEqual(res["demo_exit_staro"], kopija.demo_exit(res["prije_provjere"]))
+        # when the old pick differs, the report says which exit the demo uses and what it would have been
+        res["demo_exit"], res["demo_exit_staro"] = "on_stop_24h", "on"
         s = kopija.summary(res, NOW)
-        self.assertTrue(any("odobrava vlasnik" in x and "njegov izlaz, stop" in x for x in s["napomene"]))
+        self.assertTrue(any("očišćenim" in x and "njegov izlaz, stop" in x for x in s["napomene"]))
 
 
 def stored_broken():
