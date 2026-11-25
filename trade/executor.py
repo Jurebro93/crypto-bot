@@ -602,6 +602,18 @@ HARD, SOFT = "hard", "soft"
 HARD_RULES = frozenset({"rug"})
 
 
+OWN_REASON = "vlastiti token pokusa (naš pump.fun token): samotrgovanje je zabranjeno"
+
+
+def own_token(token):
+    """25.11. (vlasnik, /pump-tokeni): True for a mint we launched ourselves (pumptokeni/own.py). Never raises."""
+    try:
+        from pumptokeni import own
+        return own.is_own(token)
+    except Exception:  # noqa: BLE001 - an unreadable list never blocks a sale or a buy of anything else
+        return False
+
+
 def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, izvori=False,
                mcap=None, veliki=False, auto=None):
     """Every reason this buy is refused, in gate_buy's order, as (kind, key, text): kind HARD or SOFT (above), key a
@@ -612,6 +624,8 @@ def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=Fals
     manual stake passes auto=True, is_auto): the global cap AUTO_HARD_CAPS, HARD, after the path's own caps."""
     if os.path.exists(STOP_FILE):   # always the first check: no flag, path or override comes before it
         yield HARD, "stop", "kill switch (trade/STOP)"
+    if token is not None and own_token(token):   # 25.11.: never our own pump.fun launch (pumptokeni/own.py), any path
+        yield HARD, "vlastiti", OWN_REASON
     auto = (not manual) if auto is None else bool(auto)
     # 15.11. (vlasnik: "inače sada tradamo samo mid-capove: 5M-150M $"; trade/capgate): an AUTOMATIC real buy under
     # MIN_MC is a HARD reason (no override, no moonshot: the exception is demo only); the owner's own buy is not held
@@ -1258,6 +1272,11 @@ def sell(con, cfg, position_id, frac=1.0, close=False, now=None, reason="", slip
     token, mode, qty, left, sol_back = con.execute(
         "SELECT token, mode, qty_raw, qty_left, sol_back FROM positions WHERE id=?", (position_id,)).fetchone()
     live = mode == "live"
+    if own_token(token):   # 25.11.: our own pump.fun launch is never sold by any path of the tool (no self-trading)
+        res = {"status": "blocked", "error": OWN_REASON, "amount_in": 0}
+        _log(con, now, position_id, token, "sell", mode, res, reason)
+        con.commit()
+        return res
     if live and not armed():  # never "dry-sell" a real position and mark it closed
         res = {"status": "failed", "error": "prava pozicija, ali ključ ili TRADE_LIVE nisu postavljeni", "amount_in": 0}
         _log(con, now, position_id, token, "sell", mode, res, reason)

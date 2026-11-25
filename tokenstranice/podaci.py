@@ -221,13 +221,18 @@ def universe(ctx):
                                "src": "top"})
         e["top"], e["name"] = rank, name
     arch = ctx.archived()
+    try:   # 25.11. (pumptokeni/own.py): our own pump.fun launches never get a public page
+        from pumptokeni import own
+        mine = own.mints()
+    except Exception:  # noqa: BLE001
+        mine = frozenset()
     nm = names(ctx, set(out))
     keep = {}
     for m, e in out.items():
         e.setdefault("name", None)
         e["name"] = e["name"] or nm.get(m)
         mc = e.get("mcap") or 0
-        if m in arch or _non_meme(e.get("symbol"), e.get("name")):
+        if m in arch or m in mine or _non_meme(e.get("symbol"), e.get("name")):   # 25.11.: never our own launch
             continue
         if mc < MIN_MCAP or (mc > MAX_MCAP and not e.get("top")):   # no microcaps; above 200M only the top 100
             continue

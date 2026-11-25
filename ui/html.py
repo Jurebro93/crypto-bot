@@ -329,12 +329,19 @@ def _ap_paused():
         return False
 
 
+# 25.11. (vlasnik: "novu stavku izbornika koju vidi SAMO on"): "Pump Fun tokeni" (ui/pumptokeni.py). Not in SECTIONS
+# (so not in the search list or the map every user gets); _owner_row(): class adm-only (stripped for non-admins) AND own-only
+# (run_ui._no_owner strips it for an admin who is not the owner); the page itself checks is_owner on the server
+def _owner_row():
+    return _vrow("/pump-tokeni", "Pump Fun tokeni", "", "adm-only own-only")
+
+
 def vise_page(qs=None, sub=None):
     """/vise (and /vise/sustav): the "Više" page. Rows the role cannot open carry r-pri / r-adm like the old menu;
     Sustav is adm-only (stripped from the copy a non-admin gets). Same for everyone, so it is cached like /mapa."""
     sustav = next(items for s, items in SECTIONS if s == "Sustav")
     if sub == "sustav":
-        rows = "".join(_vrow(p["href"], p["name"]) for p in sustav)
+        rows = "".join(_vrow(p["href"], p["name"]) for p in sustav) + _owner_row()
         body = ('<div class=ms-vise><div class=ms-top><h1 class=ms-h1>Sustav</h1></div>'
                 '<p class=ms-sub><a href="/vise">Više</a></p>'
                 f'<nav class="ms-grp adm-only" style="margin-top:22px">{rows}</nav>'
@@ -352,6 +359,7 @@ def vise_page(qs=None, sub=None):
                       + f'</div><nav class=ms-grp>{rows}</nav>')
     last = ('<div class="ms-gt adm-only">Sustav</div><nav class=ms-grp>'
             + _vrow("/vise/sustav", "Sustav", str(len(sustav)), "adm-only")
+            + _owner_row()
             + _vrow("/postavke", "Postavke", "", "m-only")
             + '<a href="/odjava"><span class=out>Odjava</span></a></nav>')
     half = 2   # left: novčanici i tokeni, influenceri; right: autopilot, alati, sustav

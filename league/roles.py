@@ -38,6 +38,7 @@ PAGES = {
     "/stanje": "admin",          # 17.11.: and of the admins only the OWNER (run_ui.py): the real account's switches
     "/kol-insajderi": "admin",   # 16.11.: and of the admins only the OWNER (run_ui.py): inferences about named people
     "/novcanici-admin": "admin",   # 19.11.: and of the admins only the OWNER (run_ui.py): the wallet dashboard
+    "/pump-tokeni": "admin",     # 25.11.: and of the admins only the OWNER (run_ui.py): our own pump.fun launches
     "/learn": "prijatelj", "/criteria": "prijatelj", "/izvjestaj": "prijatelj", "/nas-token": "prijatelj",
 }   # 19.11.: /whatsapp removed (the page is gone; ui/maknuto redirects it)
 # forms (path prefix) and the lowest role that may send them; anything not listed needs only a login
@@ -47,7 +48,8 @@ POSTS = (
     ("/zahtjevi/", "admin"),
     ("/natjecanje/pozivnica/", "admin"),   # invite links: who gets into the app is the admin's call
     ("/paper/izlaz", "admin"),             # sells the bot's own demo position
-    ("/nas-token/", "prijatelj"),          # includes /nas-token/rpc, which goes through our paid Helius key
+    ("/nas-token/", "prijatelj"),
+    ("/pump-tokeni/", "admin"),            # 25.11.: and of the admins only the OWNER (run_ui.py)          # includes /nas-token/rpc, which goes through our paid Helius key
 )
 
 SCHEMA = "CREATE TABLE IF NOT EXISTS roles (name TEXT PRIMARY KEY COLLATE NOCASE, role TEXT, by TEXT, ts INTEGER);"

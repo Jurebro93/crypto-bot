@@ -6,14 +6,18 @@ copy without them; the admin's copy is unchanged."""
 import re
 
 _OPEN = re.compile(r"<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\badm-only\b[^>]*>")
+_OPENS = {"adm-only": _OPEN}
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 
 
-def strip(html):
-    """html without every element whose start tag carries class adm-only (with all it contains)."""
+def strip(html, cls="adm-only"):
+    """html without every element whose start tag carries class `cls` (adm-only; 25.11.: own-only, the owner's)."""
+    rx = _OPENS.get(cls)
+    if rx is None:
+        rx = _OPENS[cls] = re.compile(rf"<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\b{re.escape(cls)}\b[^>]*>")
     out, i = [], 0
     while True:
-        m = _OPEN.search(html, i)
+        m = rx.search(html, i)
         if not m:
             out.append(html[i:])
             return "".join(out)

@@ -174,10 +174,19 @@ def _facts(tok, q, now, z, b15, prow, btc, cfg, px, liq, url, mcap, rt, band, po
             "oprez": 1 if (prow.get("block") or prow.get("risk")) else 0, "grok": grok}
 
 
+def _own_token(tok):
+    """25.11. (pumptokeni/own.py): True for a mint we launched ourselves. Never raises."""
+    try:
+        from pumptokeni import own
+        return own.is_own(tok)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def consider(con, tok, q, now, z, b15, prow=None, btc=None, cfg=None, sol=None):
     """Called once per token per completed 15m bar (live.intra_entries): open a shadow in every profile that has none
     in this token. How many were opened. Never raises."""
-    if not on():
+    if not on() or _own_token(tok):   # 25.11.: our own pump.fun launch never enters the shadow book
         return 0
     try:
         _load(con, now)

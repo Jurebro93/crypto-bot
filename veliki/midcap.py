@@ -125,6 +125,13 @@ def members(path=None, max_age_s=60):
             rows = []
         finally:
             con.close()
+    try:   # 25.11.: our own pump.fun launches never leave as candidates (pumptokeni/own.py)
+        from pumptokeni import own
+        mine = own.mints()
+        if mine:
+            rows = [r for r in rows if r["mint"] not in mine]
+    except Exception:  # noqa: BLE001
+        pass
     if path is None:
         _MEM.update(ts=time.monotonic(), rows=rows)
     return list(rows)

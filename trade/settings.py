@@ -505,6 +505,14 @@ OWNER_SWITCH_NOTES[RISKOFF_SWITCH] = ("Tvoj prekidač (samo dodirom na stranici 
                                       "neto (stopovi uvijek). " + RISKOFF_CONFIRM + " Isključivanje ne dira otvorene "
                                       "pozicije.")
 REAL_SWITCHES = (VEL_SWITCH, NAUCENO_SWITCH, SWITCH_ALL, IZVORI, OSC_SWITCH, RISKOFF_SWITCH)
+# 25.11. (vlasnik, /pump-tokeni, pumptokeni/launch.py): lansiranje vlastitih pump.fun tokena (bez kupnje) iz TRGOVAČKOG
+# novčanika (SOLANA_PRIVATE_KEY). Zadano isključeno; „uživo” samo vlasnikov potvrđeni dodir na /pump-tokeni (set_flag
+# traži njegovo ime I tap=True: nikakav nalog iz chata, prijedlog ni start). Ne kupuje i ne prodaje ništa; nije prekidač
+# pravog novca strategija (nije u REAL_SWITCHES, ne skida pauzu). Preporučeno je zaseban novčanik (PUMP_DEV_PRIVATE_KEY).
+PUMP_TRGOVACKI = "pump_tokeni_trgovacki"
+FLAGS[PUMP_TRGOVACKI] = ("PT1", "Pump Fun tokeni iz trgovačkog novčanika: lansiranja pokusa (bez vlastite kupnje) plaća "
+                                "novčanik pravog novca; trošak i naknada miješaju se s rezultatom pravog novca, a "
+                                "novčanik ostaje javno označen kao dev. Uključuje samo vlasnik na /pump-tokeni, uz potvrdu.")
 PAUZA_1911_SWITCHES = REAL_SWITCHES[:5]
 PAUZA_TEXT = ("pravi novac je pauziran (vlasnik 19.11.: promjena strategije): automatske prave kupnje stoje dok vlasnik "
               "ne uključi svoj prekidač; otvorene pozicije zadržavaju izlaze")
@@ -841,7 +849,7 @@ def live_refusal(con, name, paper=None, now=None):
     now = int(now or time.time())
     if name in NEVER_LIVE:
         return NEVER_LIVE[name]
-    if name in DATA_FLAGS or name in OWNER_SWITCHES:
+    if name in DATA_FLAGS or name in OWNER_SWITCHES or name == PUMP_TRGOVACKI:   # PT1: set_flag checks owner + tap
         return None
     bt = raw(con).get(f"backtest:{name}") or {}
     if not (isinstance(bt, dict) and bt.get("pass") is True):
@@ -917,6 +925,9 @@ def set_flag(con, name, mode, who="", paper=None, now=None, tap=False):
         # 14.11.: real money for every strategy only by the owner's own tap (the page passes his user name), never by a
         # chat order, an applied suggestion or any other code path
         raise ValueError(f"{name}: uključuje samo vlasnik, svojim dodirom na /pravi-trade")
+    if mode == "live" and name == PUMP_TRGOVACKI and (not is_owner(who) or tap is not True):
+        # 25.11.: the trading wallet pays for the pump.fun launches only by the owner's own confirmed tap on /pump-tokeni
+        raise ValueError(f"{name}: uključuje samo vlasnik dodirom na /pump-tokeni, uz potvrdu")
     if mode == "live" and name == RISKOFF_SWITCH and tap is not True:
         # 23.11.: never in his name from code (a chat order, a seed, a start): only his confirmed tap on the page
         raise ValueError(f"{name}: uključuje samo vlasnik dodirom na prekidač na stranici Autopilot, uz potvrdu")
