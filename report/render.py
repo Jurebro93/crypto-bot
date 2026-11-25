@@ -616,7 +616,7 @@ def pump_mjerenje_section(s):
         f"službena stranica pump.funa ({e(s.get('izvor'))}) nije bila dostupna; nakon prelaska na PumpSwap stopa "
         "vjerojatno ovisi o vrijednosti tokena. Pragovi = najviša viđena vrijednost na provjerama (donja granica "
         "vrha). „Prvi token” = dev nije lansirao drugi token u 24 h prije, koliko je mjerenje vidjelo. „Nepoznat” = "
-        "DexScreener ne zna token (računa se s 0 prometa). „Bez USD” = par u drugoj valuti bez prometa u dolarima: "
+        "DexScreener ne zna token (računa se s 0 prometa). „Bez USD” = DexScreener zna token, ali za njega još ne daje promet u dolarima: "
         "izvan svih brojki u retku (samo prebrojen). Razred ispod 30 tokena: premalo. Gornjih 1 % = udio "
         f"ukupne naknade koji nose najbolji tokeni. DexScreener ~{s.get('dex_dnevno')} zahtjeva dnevno (besplatno); "
         f"baza {s.get('mb')} MB. Statistika, ne optužba.")

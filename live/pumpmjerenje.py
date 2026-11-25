@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS ishod (
 CREATE TABLE IF NOT EXISTS stanje (key TEXT PRIMARY KEY, value TEXT);
 """
 # found: 1 DexScreener zna token (promet u USD), 0 ne zna (bez prometa / nepoznat), 2 zna ali bez USD cijene
-# (par u drugoj valuti), -1 kontrolna točka propuštena (posao nije radio na vrijeme)
+# (DexScreener ga zna, ali ne daje promet; uzrok nije utvrđen), -1 kontrolna točka propuštena (posao nije radio na vrijeme)
 
 
 def connect(path=None):
@@ -459,7 +459,7 @@ def line(s):
         out += (f"; naknada kreatoru po tokenu medijan {_sol(a['medijan_sol'])} SOL, prosjek {_sol(a['prosjek_sol'])} "
                 f"SOL (n={a['n']}); iznad 10k $ {_pct(a['iznad'][10_000])}, iznad 30k $ {_pct(a['iznad'][30_000])}; "
                 f"gornjih 1 % tokena nosi {_pct(a['gornjih_1_posto'])} naknade; DexScreener ne zna {a['nepoznato']}"
-                f"; bez USD prometa (par u drugoj valuti, izvan brojki) {a['bez_usd']}")
+                f"; bez USD prometa (DexScreener ne daje promet, izvan brojki) {a['bez_usd']}")
     if sp and sp["n"]:
         out += (f"; {SPECIAL}: n={sp['n']}{' (premalo)' if sp['premalo'] else ''}, medijan {_sol(sp['medijan_sol'])} "
                 f"SOL, prosjek {_sol(sp['prosjek_sol'])} SOL")
