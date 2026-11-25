@@ -29,6 +29,12 @@ def enter(con, token, source, stage, tradeable, now, price, mcap=None, symbol=No
     """A shadow entry (the first one per token, source and stage wins). False when there is no price."""
     if not price or price <= 0:
         return False
+    try:   # 25.11.: our own pump.fun launch (pumptokeni/own.py) is never a shadow entry
+        from pumptokeni import own
+        if own.is_own(token):
+            return False
+    except Exception:  # noqa: BLE001
+        pass
     cur = con.execute("INSERT OR IGNORE INTO shadow (token, source, stage, found_ts, tradeable, symbol, entry, mcap0, "
                       "hi, lo, last, last_ts, n_obs, hi1h, hi4h) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)",
                       (token, source, stage, int(now), int(bool(tradeable)), symbol, price, mcap, price, price, price,

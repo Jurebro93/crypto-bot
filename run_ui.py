@@ -371,6 +371,18 @@ def route(path, qs):
     return None
 
 
+def _owner(user):
+    from trade import settings as tsettings
+    return tsettings.is_owner(user)
+
+
+def _no_owner(code, raw, gz):
+    """25.11.: (code, html bytes) of a cached page without its own-only elements (the owner's menu items)."""
+    from ui import admstrip
+    body = raw if raw is not None else gzip.decompress(gz)
+    return code, admstrip.strip(body.decode("utf-8"), "own-only").encode("utf-8")
+
+
 def _no_admin(code, raw, gz):
     """(code, html bytes) of a cached page without its adm-only elements."""
     from ui import admstrip
@@ -402,7 +414,8 @@ def csrf_token(session_value):
 
 
 # POSTs that change money, roles or settings: need a non-empty same-site Origin/Referer AND the form token
-CSRF_STRICT = ("/pravi-trade/", "/korisnici/", "/postavke/", "/zahtjevi/", "/run/")
+CSRF_STRICT = ("/pravi-trade/", "/korisnici/", "/postavke/", "/zahtjevi/", "/run/", "/pump-tokeni/")
+PUMPT = "/pump-tokeni"   # 25.11.: owner-only page (ui/pumptokeni.py)
 
 
 def build(path, qs, lang="hr"):
@@ -774,6 +787,32 @@ class Handler(BaseHTTPRequestHandler):
                 return 200, html.encode("utf-8")
             code, raw, gz = pagecache.get(("/novcanici-admin", u.query, "vlasnik", self.lang), build_admin)
             return self._send(code, raw, gz=gz, translated=True)
+        if path == PUMPT or path.startswith(PUMPT + "/"):
+            # 25.11. (vlasnik, ui/pumptokeni.py): launches of our own pump.fun tokens. The OWNER only, checked here on the
+            # server before anything is read (other admins and users 403, visitors the login); never cached, noindex
+            from trade import settings as tsettings
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/>← Na početnu</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+            from ui import pumptokeni
+            if path.startswith(PUMPT + "/slika/"):
+                try:
+                    png = pumptokeni.image_png(int(path.rsplit("/", 1)[-1]))
+                except ValueError:
+                    png = None
+                if not png:
+                    return self._send(404, b"", "text/plain")
+                return self._send(200, png, "image/png")
+            if path == PUMPT + "/csv":
+                return self._send(200, pumptokeni.csv_bytes(), "text/csv")
+            if path != PUMPT:
+                return self._send(404, b"", "text/plain")
+            try:
+                html = page(*pumptokeni.page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
         if path == "/stanje":
             # 17.11. (vlasnik: "Find all of the implicit state machines in my app", stanja/): what is switched on, who
             # set it and since when + the dictionary of every status word. The OWNER only (the switches of the real
@@ -937,6 +976,8 @@ class Handler(BaseHTTPRequestHandler):
                 code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang), light=True)
         if AUTH and self.role != "admin":   # non-admins get a copy without the adm-only parts (audit 4.11. §4.2)
             code, raw, gz = pagecache.get(key + (self.lang, "noadm"), lambda c=code, r=raw, g=gz: _no_admin(c, r, g))
+        elif AUTH and not _owner(self.user):   # 25.11.: an admin who is not the owner: without the own-only parts
+            code, raw, gz = pagecache.get(key + (self.lang, "noown"), lambda c=code, r=raw, g=gz: _no_owner(c, r, g))
         self._send(code, raw, gz=gz, translated=True)
 
     EXPORTABLE = ("kol.db", "strat.db", "shadow.db", "paper.db", "hype.db", "league.db", "wallets.db", "tg.db", "market.db",
@@ -1182,6 +1223,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(403)
                 self.end_headers()
                 return
+        if path.startswith(PUMPT + "/"):   # 25.11.: owner only, same site + form token (CSRF_STRICT) when AUTH
+            from trade import settings as tsettings
+            if not tsettings.is_owner(self.user):
+                return self._forbidden(path, "admin")
+            if not same_site:
+                self.send_response(403)
+                self.end_headers()
+                return
+            from urllib.parse import parse_qs
+            from ui import pumptokeni
+            multi = parse_qs(self._read_body(600_000).decode("utf-8", "replace"))
+            form = {k: v[-1] for k, v in multi.items()}
+            form["id_list"] = multi.get("id", [])
+            return self._redirect(pumptokeni.post(path, form, self.user))
         if same_site and path.startswith("/korisnici/"):
             from ui import userroles
             form = dict(parse_qsl(self._read_body(10_000).decode("utf-8", "replace")))

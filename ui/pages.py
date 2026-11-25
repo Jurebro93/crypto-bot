@@ -1289,6 +1289,14 @@ def buy_line(paused=None):
 
 def token(mint, qs):
     from ui import redak as R
+    try:   # 25.11. (pumptokeni/own.py): our own pump.fun launch is never shown as a token to follow or buy
+        from pumptokeni import own
+        if own.is_own(mint):
+            return "Vlastiti token pokusa", ("<h1>Vlastiti token pokusa</h1><div class=card><p>Ovaj token je lansirao naš "
+                                             "pokus. Alat ga ne prikazuje, ne kupuje i ne prodaje (samotrgovanje je "
+                                             "zabranjeno).</p></div>")
+    except Exception:  # noqa: BLE001
+        pass
     now = time.time()
     ev = data.event_tokens(mint)
     sigs = data.hype_signals("token=?", (mint,), "ts DESC")

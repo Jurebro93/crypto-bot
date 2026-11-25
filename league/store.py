@@ -231,12 +231,23 @@ def account(con, user):
             "since": since}
 
 
+def _own_token(token):
+    """25.11. (vlasnik, /pump-tokeni): True for a mint we launched ourselves. Never raises."""
+    try:
+        from pumptokeni import own
+        return own.is_own(token)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None, mcap=None, allow_open=False,
         runup=AUTO, call_mcap=None):
     """allow_open (10.11., Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): the
     Autopilot's manual buy opens one more lot of a token already held; everyone else keeps one position per token.
     runup / call_mcap (10.11. (Grok MCP audit 1)): the data columns of the new trade; league/copy passes them, and an
     Autopilot account's trade opened by anybody else (manual buy, SimianX, DCA) gets its run-up from kol.db here."""
+    if _own_token(token):   # 25.11.: our own pump.fun launch (pumptokeni/own.py): no demo account ever buys it
+        raise ValueError("vlastiti token pokusa: samotrgovanje je zabranjeno")
     if not price or price <= 0:
         raise ValueError("nema cijene za token")
     if not liq or liq < 1000:

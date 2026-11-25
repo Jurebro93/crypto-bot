@@ -189,6 +189,10 @@ PROCESSES = (
     # PUMP_MJERENJE_DO; nitko ga ne čeka (pauza samo kasni ishod)
     ("pumpmjerenje", "-m live.pumpmjerenje", (), JOBS,
      "jednokratno mjerenje naknade devu na pump.fun (DexScreener, besplatno; samo uz PUMP_MJERENJE_DO)"),
+    # 25.11. (vlasnik, /pump-tokeni): red lansiranja vlastitih tokena (jedan po jedan, nakon vlasnikova odobrenja) i
+    # knjiga ishoda; svake minute, bez baze odmah izlazi; nitko ga ne čeka po sekundu (pauza samo kasni red)
+    ("pumptokeni", "-m pumptokeni.posao", (), JOBS,
+     "Pump Fun tokeni: red lansiranja nakon vlasnikova odobrenja, ishodi s DexScreenera, dnevni red u logu"),
     # 15.11. (owner switch arhiva_mikrokapova, ops/arhiva.py): night only, copy -> verify -> gzip -> delete in short
     # batches; nobody waits for it (a pause only stretches the night's move)
     ("arhiva", "run_arhiva.py", (), JOBS,

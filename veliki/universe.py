@@ -193,6 +193,18 @@ def vol_of(g):
     return max(g.get("vol24") or 0.0, _f((g.get("jup") or {}).get("vol24")) or 0.0)
 
 
+OWN_REASON = "vlastiti token pokusa"
+
+
+def _own_token(mint):
+    """25.11. (vlasnik, /pump-tokeni; pumptokeni/own.py): our own pump.fun launch is never a candidate. Never raises."""
+    try:
+        from pumptokeni import own
+        return own.is_own(mint)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def judge(g, now, archived=frozenset(), curve_dex=()):
     """Why this candidate is not on the list (Croatian), else None."""
     deep = g.get("deep") or {}
@@ -201,6 +213,8 @@ def judge(g, now, archived=frozenset(), curve_dex=()):
     tags = set((g.get("jup") or {}).get("tags") or ())
     if g["mint"] in archived:
         return "u arhivi rugova"
+    if _own_token(g["mint"]):
+        return OWN_REASON
     if (g.get("symbol") or "").upper().strip() in SKIP_SYMBOLS:
         return "vlasnik: preskoči (Good Guy)"
     if non_meme(g.get("symbol"), g.get("name")) or tags & JUP_NOT_MEME:
@@ -263,6 +277,8 @@ def data_judge(g, archived=frozenset(), curve_dex=(), lo=None, hi=None, min_liq=
     dex = (deep.get("dexId") or "").lower()
     if g["mint"] in archived:
         return "u arhivi rugova"
+    if _own_token(g["mint"]):
+        return OWN_REASON
     if (g.get("symbol") or "").upper().strip() in SKIP_SYMBOLS:
         return "vlasnik: preskoči"
     if non_meme(g.get("symbol"), g.get("name")) or set((g.get("jup") or {}).get("tags") or ()) & JUP_NOT_MEME:

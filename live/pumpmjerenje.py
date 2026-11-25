@@ -95,7 +95,26 @@ CREATE TABLE IF NOT EXISTS ishod (
     mint TEXT, k INTEGER, ts INTEGER, found INTEGER, vol_usd REAL, txns INTEGER, mcap_usd REAL, max_mcap_usd REAL,
     migrated INTEGER, sol_usd REAL, PRIMARY KEY (mint, k)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS stanje (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS imena (mint TEXT PRIMARY KEY, name TEXT, symbol TEXT, tema TEXT) WITHOUT ROWID;
 """
+# 25.11. (vlasnik: teza da se tokeni kupuju zbog sezone i nadolazećih tema): ime i simbol svakog lansiranja i tema
+# iz ključnih riječi, da se sezonska imena usporede s ostalima na tisućama TUĐIH lansiranja (bez ikakve promocije).
+TEME = (("Dan zahvalnosti", ("thanksgiving", "turkey", "gobble", "pilgrim", "stuffing", "thankful")),
+        ("Black Friday / Cyber Monday", ("black friday", "blackfriday", "cyber monday", "cybermonday", "doorbuster")),
+        ("Božić", ("christmas", "xmas", "santa", "reindeer", "rudolph", "grinch", "noel", "navidad", "snowman",
+                   "jingle", "mistletoe")),
+        ("Nova godina", ("new year", "newyear", "2027")))
+SEZONSKA, NIJE_SEZONSKA = "tema imena: sezonska (sve)", "tema imena: nije sezonska"
+
+
+def tema(name, symbol=""):
+    """Sezonska tema imena ili simbola (prva koja pogodi) ili "". Samo ključne riječi; bez mreže."""
+    t = f"{name or ''} {symbol or ''}".lower()
+    for naziv, rijeci in TEME:
+        if any(w in t for w in rijeci):
+            return naziv
+    return ""
+
 # found: 1 DexScreener zna token (promet u USD), 0 ne zna (bez prometa / nepoznat), 2 zna ali bez USD cijene
 # (DexScreener ga zna, ali ne daje promet; uzrok nije utvrđen), -1 kontrolna točka propuštena (posao nije radio na vrijeme)
 
@@ -130,6 +149,7 @@ class Biljeznik:
     def __init__(self, dl, path=None, log=print):
         self.dl, self.path, self.log = int(dl), path or db_path(), log
         self.rows, self.con, self.n, self.full, self.last = [], None, None, False, 0.0
+        self.names = []   # (mint, ime, simbol, tema) uz self.rows
         self.n_new = 0
 
     @classmethod
@@ -157,8 +177,10 @@ class Biljeznik:
         self.rows.append((mint, now, msg.get("traderPublicKey"), round(f("solAmount"), 6), f("initialBuy"),
                           round(f("marketCapSol"), 4), (msg.get("pool") or "pump")[:20],
                           1 if msg.get("is_mayhem_mode") else 0))
+        nm, sy = str(msg.get("name") or "")[:60], str(msg.get("symbol") or "")[:20]
+        self.names.append((mint, nm, sy, tema(nm, sy)))
         if len(self.rows) > 20000:   # baza dugo zauzeta: ne rasti u memoriji
-            self.rows = self.rows[-20000:]
+            self.rows, self.names = self.rows[-20000:], self.names[-20000:]
         return True
 
     def _open(self):
@@ -176,11 +198,12 @@ class Biljeznik:
         try:
             con = self._open()
             if self.n >= MAX_ROWS or size_mb(self.path) >= MAX_MB:
-                self.full, self.rows = True, []
+                self.full, self.rows, self.names = True, [], []
                 self.log(f"pump mjerenje: strop dosegnut ({self.n} lansiranja, {size_mb(self.path):.0f} MB); "
                          "nova lansiranja se više ne bilježe, ishod i sažetak rade dalje")
                 return 0
             rows, self.rows = self.rows[:MAX_ROWS - self.n], []
+            names, self.names = self.names, []
             con.execute("BEGIN IMMEDIATE")
             start = int(get(con, "start") or rows[0][1])
             put(con, "start", start)
@@ -194,6 +217,8 @@ class Biljeznik:
                         c = con.execute("SELECT COUNT(*) FROM launches WHERE creator=? AND ts BETWEEN ? AND ?",
                                         (r[2], r[1] - 86400, r[1])).fetchone()[0]
                         con.execute("UPDATE launches SET dev_24h=? WHERE mint=?", (c, r[0]))
+            taken = {r[0] for r in rows}
+            con.executemany("INSERT OR IGNORE INTO imena VALUES (?,?,?,?)", [x for x in names if x[0] in taken])
             con.commit()
             self.n += n
             self.n_new += n
@@ -338,6 +363,7 @@ def check_pass(con, now, fetch=None, log=print):
                 break
             n_req += 1
             res, sol_usd = aggregate(pairs, mints)
+            con.executemany("INSERT OR IGNORE INTO imena VALUES (?,?,?,?)", _names_of(pairs, mints))
             sol_usd = sol_usd or _fallback_sol_usd()
             con.executemany("INSERT OR REPLACE INTO ishod VALUES (?,?,?,?,?,?,?,?,?,?)",
                             [(m, k, int(now), *res[m][:3], res[m][3], res[m][4], res[m][5], sol_usd) for m in mints])
@@ -346,6 +372,18 @@ def check_pass(con, now, fetch=None, log=print):
     tot[_day(now)] = tot.get(_day(now), 0) + n_req
     put(con, "dex_ukupno", json.dumps(tot))
     return n_req
+
+
+def _names_of(pairs, mints):
+    """Ime i simbol iz DexScreener parova, za lansiranja zabilježena prije nego što je mjerenje pamtilo imena."""
+    want, out = set(mints), {}
+    for p in pairs or []:
+        b = (p or {}).get("baseToken") or {}
+        m = b.get("address")
+        if m in want and m not in out and (b.get("name") or b.get("symbol")):
+            nm, sy = str(b.get("name") or "")[:60], str(b.get("symbol") or "")[:20]
+            out[m] = (m, nm, sy, tema(nm, sy))
+    return list(out.values())
 
 
 # ---------- sažetak -----------------------------------------------------------------------------------------------------
@@ -378,7 +416,7 @@ def sazetak(con, now=None, final=False):
     groups = {}
     missed = con.execute("SELECT COUNT(*) FROM ishod WHERE found = -1 AND k = 12").fetchone()[0]
     seen = 0
-    for ini, dev, hist, mcap_sol, k, found, vol, peak, mig, sol_usd in _rows(con, ks, rate):
+    for ini, dev, hist, mcap_sol, k, found, vol, peak, mig, sol_usd, tm, mayhem in _rows(con, ks, rate):
         seen += 1
         if sol_usd is None:
             sol_fb = sol_fb or _fallback_sol_usd() or 0
@@ -392,6 +430,11 @@ def sazetak(con, now=None, final=False):
             names.append(SPECIAL)
             if (hist or 0) >= 86400:
                 names.append(SPECIAL + " (puna 24 h povijest)")
+        if tm is not None:   # ime poznato (iz toka ili s DexScreenera)
+            names += [SEZONSKA, f"tema imena: {tm}"] if tm else [NIJE_SEZONSKA]
+            if (ini or 0) < NO_BUY_SOL and not mig:
+                names.append(f"{OSTAVLJEN}, {SEZONSKA if tm else NIJE_SEZONSKA}")
+        names.append("Mayhem Mode: da" if mayhem else "Mayhem Mode: ne")
         if (ini or 0) < NO_BUY_SOL and not mig:
             # 25.11. (vlasnik: "nemoj mjeriti bondane ... token launcham besplatno iz nule i ako ga se ostavi")
             names += [OSTAVLJEN, f"{OSTAVLJEN}, tokena deva u 24 h: {cnt}"]
@@ -408,6 +451,8 @@ def sazetak(con, now=None, final=False):
             g["mig"].append(mig or 0)
     order = ["svi", OSTAVLJEN, f"{OSTAVLJEN}, tokena deva u 24 h: 1 (prvi u 24 h)",
              f"{OSTAVLJEN}, tokena deva u 24 h: 2–9", f"{OSTAVLJEN}, tokena deva u 24 h: 10+",
+             SEZONSKA, NIJE_SEZONSKA, *[f"tema imena: {t[0]}" for t in TEME],
+             f"{OSTAVLJEN}, {SEZONSKA}", f"{OSTAVLJEN}, {NIJE_SEZONSKA}", "Mayhem Mode: da", "Mayhem Mode: ne",
              SPECIAL, SPECIAL + " (puna 24 h povijest)",
              "tokena deva u 24 h: 1 (prvi u 24 h)", "tokena deva u 24 h: 2–9", "tokena deva u 24 h: 10+",
              "vlastita kupnja: bez kupnje", "vlastita kupnja: do 0,5 SOL", "vlastita kupnja: 0,5–2 SOL",
@@ -434,8 +479,9 @@ def _con_mb(con):
 def _rows(con, ks, rate):
     """Po tokenu jedan red: najkasniji dostupni ishod (k silazno)."""
     sql = f"""SELECT l.mint, l.initial_sol, l.dev_24h, l.hist_s, l.mcap_sol, i.k, i.found, i.vol_usd, i.max_mcap_usd,
-                     i.migrated, i.sol_usd
+                     i.migrated, i.sol_usd, n.tema, l.mayhem
               FROM launches l JOIN ishod i ON i.mint = l.mint AND i.k IN ({",".join("?" * len(ks))}) AND i.found >= 0
+              LEFT JOIN imena n ON n.mint = l.mint
               WHERE l.u < ? ORDER BY l.mint, i.k DESC"""
     last = None
     for r in con.execute(sql, (*ks, rate)):
@@ -469,6 +515,11 @@ def line(s):
     if sp and sp["n"]:
         out += (f"; {SPECIAL}: n={sp['n']}{' (premalo)' if sp['premalo'] else ''}, medijan {_sol(sp['medijan_sol'])} "
                 f"SOL, prosjek {_sol(sp['prosjek_sol'])} SOL")
+    for nm in (SEZONSKA, NIJE_SEZONSKA, "Mayhem Mode: da", "Mayhem Mode: ne"):
+        o = rs.get(nm)
+        if o and o["n"]:
+            out += (f"; {nm}: n={o['n']}{' (premalo)' if o['premalo'] else ''}, medijan {_sol(o['medijan_sol'])} SOL, "
+                    f"prosjek {_sol(o['prosjek_sol'])} SOL, iznad 10k $ {_pct(o['iznad'][10_000])}")
     for nm in (OSTAVLJEN, f"{OSTAVLJEN}, tokena deva u 24 h: 10+"):
         o = rs.get(nm)
         if o and o["n"]:
