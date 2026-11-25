@@ -281,7 +281,7 @@ def collect(now=None, fokus=None):
     fk = fokus_on() if fokus is None else bool(fokus)
     from report import midcap
     data = {"ts": now, "fokus": fk, "midcap": midcap.collect(now), "spend": spend(now),
-            "kriticar": kriticar(now), "makroinf": makroinf(now)}
+            "kriticar": kriticar(now), "makroinf": makroinf(now), "pump_mjerenje": pump_mjerenje(now)}
     if fk:
         return data
     data.update(microcap(now))
@@ -306,6 +306,16 @@ def microcap(now):
     data["momentum"] = momentum(now)     # 11.11. (flags momentum_scalp, grok_ev_gate; momentum/)
     data["arhiva"] = arhiva(now)         # 15.11. (ops/arhiva.py: microcap / rug rows moved to .gz archives last night)
     return data
+
+
+def pump_mjerenje(now):
+    """25.11. (vlasnik: „mjerenje da”; live/pumpmjerenje.py): naknada kreatoru po razredima deva; None bez baze mjerenja.
+    Samo čita vlastitu malu bazu; bez adresa."""
+    try:
+        from live import pumpmjerenje
+        return pumpmjerenje.report(now)
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
 
 
 def makroinf(now):

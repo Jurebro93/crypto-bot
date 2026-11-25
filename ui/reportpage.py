@@ -14,9 +14,13 @@ def raw(day):
         return None
     try:
         with open(os.path.join(OUT, f"report-{day}.html"), "rb") as f:
-            return f.read()
+            body = f.read()
     except OSError:
         return None
+    # 25.11.: ASCII with numeric references (report/mail.ascii_html) also for a file saved before the builder did it,
+    # so a download / share from this page never turns č into "?"
+    from report import mail
+    return mail.ascii_html(body.decode("utf-8", "replace")).encode("ascii")
 
 
 def page(qs):

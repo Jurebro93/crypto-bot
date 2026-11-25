@@ -56,6 +56,7 @@ of the tokens and says "djelomično") and never raises.
 """
 import bisect
 import json
+import math
 import os
 import random
 import sqlite3
@@ -94,6 +95,24 @@ MIN_MC = 30_000              # the owner's rule: nothing under 30k $ market cap 
 MIN_SOL = 0.02               # wallets/rang.MIN_SOL: a smaller buy is dust, not a signal
 MIN_PRINT_SOL = 0.01         # a swap smaller than this is no price (rounding)
 CLOSED_FRAC = 0.98           # wallets/pnl.CLOSED_FRAC
+# 25.11. (vlasnik, jutarnji izvještaj: „Prvih 20 po ocjeni: prosjek +48693144406 %, zbroj +88864988541 SOL"): a copied
+# trade whose PRICE cannot be real is dropped and counted ("sumnjiva_cijena"), never clipped and never kept. The rules
+# judge the quality of the price, not the size of the result (a real +800 % passes):
+#   - the entry or exit print is <= 0 / not a number
+#   - the entry or exit print sits more than SPIKE_X times away from the median of the SPIKE_K prints before it AND of
+#     the SPIKE_K after it (an isolated print; a real jump agrees with one side); at the edge of a series, with one side
+#     only, SPIKE_X ** 2
+#   - the market cap at entry or exit (price x supply) above MC_MAX: no memecoin was ever worth that, so the price is in
+#     another unit or of another pool (e.g. GeckoTerminal candles of a pool whose base token is SOL: SOL's price)
+#   - our entry more than SLIP_X times away from his own fill `delay` seconds earlier (two prints of one token that
+#     cannot both be right)
+# and the exit is capped by the pool: no more can come out than the pool's whole SOL side (half its USD liquidity), so
+# a trade's gross return is at most liquidity / 2 / stake - 1 (row "ograniceno", counted).
+SPIKE_X = 10.0
+SPIKE_K = 3
+MC_MAX = 1e11
+SLIP_X = 50.0
+DIAG_N = 5                   # the log's diagnostic line: the most extreme trades of each table row
 EXIT_HR = {"on": "njegov izlaz", "on_stop": "njegov izlaz ili stop −20 %",
            "on_stop_24h": "njegov izlaz, stop −20 % ili 24 h"}
 RULE_HR = {"app": "Dokazan dvaput i kopirljiv (kao u aplikaciji)",
@@ -488,7 +507,8 @@ def simulate(ep, delay, rule, ser, hi):
         return None
     ts, px = ser.ts, ser.px
     e_px = px[i]
-    out = {"ts": et, "e_px": e_px, "src": ser.src[i], "lag": ts[i] - ep["t0"], "open": False, "stale": False, "x_px": None}
+    out = {"ts": et, "e_px": e_px, "src": ser.src[i], "lag": ts[i] - ep["t0"], "open": False, "stale": False, "x_px": None,
+           "_i": i, "_j": None}
     sell_t = ep["sell_ts"] + delay if ep.get("sell_ts") else None
     limit = et + HOLD_S if rule == "on_stop_24h" else None
     plan = min((x for x in (sell_t, limit) if x is not None), default=None)
@@ -499,26 +519,59 @@ def simulate(ep, delay, rule, ser, hi):
             if ts[j] > horizon:
                 break
             if px[j] <= stop_px:
-                out.update(out_ts=ts[j], x_px=px[j], why="stop")
+                out.update(out_ts=ts[j], x_px=px[j], why="stop", _j=j)
                 return out
     if plan is None or plan > hi:
         j = bisect.bisect_right(ts, hi) - 1
-        out.update(out_ts=hi, why="otvoreno", open=True, x_px=px[j] if j > i else None)
+        out.update(out_ts=hi, why="otvoreno", open=True, x_px=px[j] if j > i else None, _j=j if j > i else None)
         return out
     why = "prodao" if plan == sell_t else "vrijeme"
     out.update(out_ts=plan, why=why)
     j = ser.first_from(plan, EXIT_GAP_S)
     if j is not None and j > i:
-        out["x_px"] = px[j]
+        out.update(x_px=px[j], _j=j)
     elif why == "vrijeme":   # nobody traded around the limit: the last print we saw while holding
         j = bisect.bisect_right(ts, plan) - 1
         if j > i:
-            out.update(x_px=px[j], stale=True)
+            out.update(x_px=px[j], stale=True, _j=j)
     return out
 
 
+def isolated(px, k, x=SPIKE_X, w=SPIKE_K):
+    """None, or why print k of a series cannot be a real price: not a positive number, or more than x times away from
+    the median of the w prints before it AND of the w after it (x ** 2 when only one side exists)."""
+    p = px[k]
+    if not (isinstance(p, (int, float)) and math.isfinite(p) and p > 0):
+        return "cijena ≤ 0 ili nepoznata"
+    sides = [statistics.median(s) for s in (px[max(0, k - w):k], px[k + 1:k + 1 + w]) if s]
+    if not sides:
+        return None
+    far = min(max(p / m, m / p) for m in sides)
+    return f"ispis ×{far:.3g} od susjednih" if far > (x if len(sides) == 2 else x * x) else None
+
+
+def price_flag(t, ser, ep, supply, sol_usd):
+    """None, or why the copied trade `t` (simulate's dict) has a price that cannot be real (see SPIKE_X above)."""
+    for k, what in ((t.get("_i"), "ulaz"), (t.get("_j"), "izlaz")):
+        if k is not None:
+            why = isolated(ser.px, k)
+            if why:
+                return f"{what}: {why}"
+    to_usd = (sol_usd or 0) if t["kind"] == "sol" else 1.0
+    if supply and to_usd:
+        for px, what in ((t["e_px"], "ulaz"), (t.get("x_px"), "izlaz")):
+            if px is not None and px * supply * to_usd > MC_MAX:
+                return f"{what}: tržišna vrijednost {px * supply * to_usd:.3g} $ (druga jedinica ili drugi pool)"
+    his = ep.get("px0")
+    if his and his > 0:
+        mine = t["e_px"] if t["kind"] == "sol" else (t["e_px"] / sol_usd if sol_usd else None)
+        if mine and max(mine / his, his / mine) > SLIP_X:
+            return f"ulaz: ×{max(mine / his, his / mine):.3g} od njegove cijene"
+    return None
+
+
 FIELDS = ("wallet", "token", "t0", "ts", "out_ts", "e_px", "x_px", "why", "open", "stale", "kind", "src", "liq", "mc",
-          "cost", "his", "gross", "ret", "mirror", "at_his", "slip", "lag")
+          "cost", "his", "gross", "ret", "mirror", "at_his", "slip", "lag", "xsrc", "sumnja", "cap", "ret0", "xliq")
 
 
 class Trade:
@@ -568,11 +621,29 @@ def copy_trade(wallet, ep, delay, rule, tok, sol_usd, fee=None, size=SIZE_SOL, f
             liq = rang.pool_liq_usd(t["e_px"] * rang.PUMP_SUPPLY / sol_usd, sol_usd)
         mc = t["e_px"] * supply if supply else None
     rt = max(floor, cost.round_trip(size * sol_usd, liq, fee))
+    ser = tok[t["kind"]]
     t.update(wallet=wallet, token=ep["mint"], t0=ep["t0"], liq=liq, mc=mc, cost=rt, his=ep.get("ret"), gross=None,
-             ret=None, mirror=None, at_his=None, slip=None)
-    if t["x_px"] is not None:
+             ret=None, mirror=None, at_his=None, slip=None, ret0=None, cap=False, xliq=None,
+             xsrc=ser.src[t["_j"]] if t.get("_j") is not None else None,
+             sumnja=price_flag(t, ser, ep, supply, sol_usd))
+    if t["x_px"] is not None and not t["sumnja"]:
         t["gross"] = t["x_px"] / t["e_px"] - 1
-        t["ret"] = t["gross"] - rt
+        t["ret"] = t["ret0"] = t["gross"] - rt
+        # the pool caps the exit: never more out than its whole SOL side (half the USD liquidity)
+        xl = liq_near(tok["liq"], t["out_ts"])
+        if xl is None and rang.is_pump(ep["mint"]) and sol_usd:
+            xl = rang.pool_liq_usd((t["x_px"] if t["kind"] == "sol" else t["x_px"] / sol_usd) * rang.PUMP_SUPPLY,
+                                   sol_usd)
+        xl = xl or liq
+        t["xliq"] = xl
+        if xl and sol_usd and size:
+            top = xl / 2 / (size * sol_usd) - 1
+            if t["gross"] > top:
+                t["gross"], t["ret"], t["cap"] = top, top - rt, True
+    elif t["x_px"] is not None:   # a price that cannot be real: kept for the diagnosis, out of every number
+        if t["e_px"] and t["e_px"] > 0 and math.isfinite(t["x_px"] / t["e_px"]):
+            t["gross"] = t["x_px"] / t["e_px"] - 1
+            t["ret0"] = t["gross"] - rt   # what the copier counted before 25.11. (demo_exit's legacy pick only)
     if t["kind"] == "sol" and ep.get("px0"):
         t["slip"] = t["e_px"] / ep["px0"] - 1
         if ep.get("sell_px"):
@@ -581,12 +652,16 @@ def copy_trade(wallet, ep, delay, rule, tok, sol_usd, fee=None, size=SIZE_SOL, f
     return Trade(t)
 
 
-def portfolio(cands, floor=LIQ_FLOOR, need_liq=False, max_open=MAX_OPEN, min_mc=MIN_MC):
+def portfolio(cands, floor=LIQ_FLOOR, need_liq=False, max_open=MAX_OPEN, min_mc=MIN_MC, bad=None, legacy=False):
     """The account's constraints over the candidates of one combination [(position, trade or None)], oldest entry
     first: no token known to be under min_mc, no pool known to be under floor (need_liq: nor an unknown one), one
-    position a token, at most max_open open. -> (the copied trades with a result, {reason: count})."""
+    position a token, at most max_open open. -> (the copied trades with a result, {reason: count}). A trade whose
+    price cannot be real (Trade.sumnja: its result, market cap and pool are all unknown) is counted "sumnjiva_cijena"
+    first and is in no number; `bad` (a list) receives those trades (the diagnosis).
+    legacy: the rule before 25.11. (no price check, no cap; the result in "ret0"),
+    only for the demo exit the demo copies use (demo_exit_legacy)."""
     why = {"kupnji": 0, "kopirano": 0, "bez_cijene_ulaza": 0, "bez_cijene_izlaza": 0, "ispod_30k": 0, "likvidnost": 0,
-           "vec_drzimo": 0, "strop": 0}
+           "vec_drzimo": 0, "strop": 0, "sumnjiva_cijena": 0}
     held, out = [], []
     for ep, t in sorted(cands, key=lambda c: c[0]["t0"]):
         why["kupnji"] += 1
@@ -594,7 +669,12 @@ def portfolio(cands, floor=LIQ_FLOOR, need_liq=False, max_open=MAX_OPEN, min_mc=
             why["bez_cijene_ulaza"] += 1
             continue
         held = [h for h in held if h[0] > t["ts"]]
-        if t.get("mc") is not None and t.get("mc") < min_mc:
+        if t.get("sumnja") and not legacy:
+            # its price cannot be real, so neither its result nor its market cap / pool is known: dropped, counted
+            why["sumnjiva_cijena"] += 1
+            if bad is not None:
+                bad.append(t)
+        elif t.get("mc") is not None and t.get("mc") < min_mc:
             why["ispod_30k"] += 1
         elif (t["liq"] is not None and t["liq"] < floor) or (need_liq and t["liq"] is None):
             why["likvidnost"] += 1
@@ -604,7 +684,7 @@ def portfolio(cands, floor=LIQ_FLOOR, need_liq=False, max_open=MAX_OPEN, min_mc=
             why["strop"] += 1
         else:
             held.append((t["out_ts"], t["token"]))
-            if t["ret"] is None:
+            if t["ret0" if legacy else "ret"] is None:
                 why["bez_cijene_izlaza"] += 1   # we would have been in; what it returned is not known
             else:
                 why["kopirano"] += 1
@@ -668,13 +748,14 @@ def brief(trs, min_n=MIN_N, size=SIZE_SOL, full=True):
         return {"n": n, "malo": True}
     rets = [x["ret"] for x in trs]
     s = {"n": n, "ev_pct": round(sum(rets) / n * 100, 2), "ci90": boot_ci(trs),
-         "hit": round(sum(1 for r in rets if r > 0) / n, 3), "sum_sol": round(sum(rets) * size, 4)}
+         "hit": round(sum(1 for r in rets if r > 0) / n, 3), "sum_sol": round(sum(rets) * size, 4),
+         "med_pct": round(statistics.median(rets) * 100, 2)}
     if full:
         soft = sum(1 for x in trs if x["open"] or x["stale"])
         pess = [(-1.0 if (x["open"] or x["stale"]) else x["ret"]) for x in trs]
         s.update(hold_med_min=round(statistics.median((x["out_ts"] - x["ts"]) / 60 for x in trs), 1),
                  max_dd_sol=max_dd(trs, size), bez_tokena_pct=_without_best(trs, "token"),
-                 bez_novcanika_pct=_without_best(trs, "wallet"), med_pct=round(statistics.median(rets) * 100, 2),
+                 bez_novcanika_pct=_without_best(trs, "wallet"),
                  zadnja_cijena=soft, ev_pes_pct=round(sum(pess) / n * 100, 2),
                  izlazi={k: sum(1 for x in trs if x["why"] == k) for k in ("prodao", "stop", "vrijeme", "otvoreno")})
     return s
@@ -722,6 +803,75 @@ def groups(trs, hold_of, min_n=MIN_N):
         order = [b[1] for b in {"mc": MC_B, "likvidnost": LIQ_B, "drzanje": HOLD_B}[name]] + ["nepoznato"]
         out[name] = [{"naziv": k, **brief(per[k], min_n, full=False)} for k in order if k in per]
     return out
+
+
+# ---------- the diagnosis (25.11.) ----------------------------------------------------------------------------------------
+
+SRC_SHORT = ("trgovina", "svijeća 1 min", "snimka poola", "svijeća 15 min")
+
+
+def table_combos():
+    """The combinations of the report's small table (summary rows), in its order (the strict row apart)."""
+    out = [PRIMARY]
+    out += [(PRIMARY[0], d, PRIMARY[2]) for d in DELAYS if d != PRIMARY[1]]
+    out += [(PRIMARY[0], PRIMARY[1], x) for x in EXITS if x != PRIMARY[2]]
+    out += [(r, PRIMARY[1], PRIMARY[2]) for r in RULES if r != PRIMARY[0]]
+    return out
+
+
+def _ratio(t):
+    try:
+        return abs(math.log(t["x_px"] / t["e_px"]))
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return float("inf")
+
+
+def extremes(trs, k=DIAG_N):
+    """The k trades with the largest move between our entry and exit price (either way), dropped ones included."""
+    return sorted((t for t in trs if t["x_px"] is not None), key=_ratio, reverse=True)[:k]
+
+
+def symbols(p, mints):
+    """{mint: symbol} from the token tables we keep (midcap, veliki, kol); a mint without one is shown shortened.
+    Read-only, at most a few dozen mints (the diagnosis only)."""
+    out, mints = {}, [m for m in mints if m][:200]
+    if not mints:
+        return out
+    marks = ",".join("?" * len(mints))
+    for key, sql in (("midcap", f"SELECT mint, symbol FROM tokens WHERE mint IN ({marks})"),
+                     ("veliki", f"SELECT mint, symbol FROM tokens WHERE mint IN ({marks})"),
+                     ("kol", f"SELECT token, symbol FROM tokens WHERE token IN ({marks})")):
+        con = _ro((p or {}).get(key))
+        try:
+            for m, sym in _q(con, sql, mints):
+                if sym and m not in out:
+                    out[m] = str(sym)[:16]
+        finally:
+            if con is not None:
+                con.close()
+    return out
+
+
+def _trade_txt(t, sym):
+    unit = "SOL" if t["kind"] == "sol" else "$"
+    src = SRC_SHORT[t["src"]] if t["src"] is not None else "?"
+    xsrc = SRC_SHORT[t["xsrc"]] if t.get("xsrc") is not None else "?"
+    liq = f", likv. {t['liq']:,.0f} $" if t.get("liq") else ", likv. nepoznata"
+    tail = (f" IZBAČEN ({t['sumnja']})" if t.get("sumnja") else
+            f" {t['gross'] * 100:+.0f} % (ograničeno likvidnošću)" if t.get("cap") else
+            f" {t['gross'] * 100:+.0f} %" if t.get("gross") is not None else "")
+    return (f"{sym.get(t['token']) or (t['token'] or '?')[:6] + '…'} ulaz {t['e_px']:.4g} {unit} ({src}), izlaz "
+            f"{t['x_px']:.4g} {unit} ({xsrc}){liq}{tail}")
+
+
+def diag_line(diag, sym):
+    """One log line: per table row the number of trades dropped for their price and its most extreme trades (token
+    symbol, entry and exit price, the price source of each, the pool liquidity; never a wallet address)."""
+    parts = []
+    for combo, dropped, trs in diag:
+        body = "; ".join(_trade_txt(t, sym) for t in trs) or "bez tradeova"
+        parts.append(f"[{combo}: izbačeno {dropped} zbog sumnjive cijene; najekstremniji: {body}]")
+    return "novčanici kopija dijagnostika: " + " ".join(parts)
 
 
 # ---------- the run --------------------------------------------------------------------------------------------------
@@ -788,24 +938,36 @@ def compute(con, now, p=None, budget_s=BUDGET_S, fee=None, size=SIZE_SOL, floor=
         res["tokens"], res["tokens_all"] = done, len(by_mint)
     finally:
         pr.close()
-    rows, per = [], {}
+    rows, per, legacy, diag = [], {}, [], []
+    shown = set(table_combos())
     for r in RULES:
         ws = set(sel["rules"][r])
         strict = r == "likvidnost"
         for d in DELAYS:
             for x in EXITS:
-                trs, why = portfolio([(e, t) for w, e, t in cands[(d, x)] if w in ws],
-                                     LIQ_STRICT if strict else LIQ_FLOOR, strict)
+                mine = [(e, t) for w, e, t in cands[(d, x)] if w in ws]
+                bad = []
+                trs, why = portfolio(mine, LIQ_STRICT if strict else LIQ_FLOOR, strict, bad=bad)
                 per[_combo(r, d, x)] = trs
                 st = brief(trs)
                 rows.append({"rule": r, "delay": d, "exit": x, **st, "kupnji": why["kupnji"],
                              "nekopirano": round(1 - why["kopirano"] / why["kupnji"], 3) if why["kupnji"] else None,
-                             "razlozi": why})
+                             "razlozi": why, "ograniceno": sum(1 for t in trs if t["cap"])})
+                if (r, d, x) in shown:
+                    diag.append((_combo(r, d, x), why["sumnjiva_cijena"], extremes(trs + bad)))
+                if (r, d) == PRIMARY[:2]:   # the demo exit as picked before 25.11. (see demo_exit_legacy)
+                    old, _w = portfolio(mine, LIQ_FLOOR, False, legacy=True)
+                    legacy.append({"rule": r, "delay": d, "exit": x, "n": len(old), "malo": len(old) < MIN_N,
+                                   "ev_pct": round(sum(t["ret0"] for t in old) / len(old) * 100, 2) if old else None})
     res["grid"] = rows
     prim = per[_combo(*PRIMARY)]
     early = {w for w in sel["rules"][PRIMARY[0]] if sel["info"][w].get("rano")}
-    strict, _why = portfolio([(e, t) for w, e, t in cands[PRIMARY[1:]] if w in early])
-    res["strict"] = {"wallets": len(early), **brief(strict)}
+    bad = []
+    strict, why_s = portfolio([(e, t) for w, e, t in cands[PRIMARY[1:]] if w in early], bad=bad)
+    res["strict"] = {"wallets": len(early), **brief(strict), "razlozi": why_s,
+                     "ograniceno": sum(1 for t in strict if t["cap"])}
+    diag.append(("strict", why_s["sumnjiva_cijena"], extremes(strict + bad)))
+    res["dijagnostika"] = diag_line(diag, symbols(p, {t["token"] for _c, _n, ts in diag for t in ts}))
     res["gap"] = gap(prim)
     res["gap_delay"] = {str(d): gap(per[_combo(PRIMARY[0], d, PRIMARY[2])]) for d in DELAYS}
     res["groups"] = groups(prim, hold_of)
@@ -813,7 +975,14 @@ def compute(con, now, p=None, budget_s=BUDGET_S, fee=None, size=SIZE_SOL, floor=
                       if any(t["src"] == k for t in prim)}
     res["cost_med_pct"] = round(statistics.median(t["cost"] for t in prim) * 100, 2) if prim else None
     res["lag_med_s"] = statistics.median(t["lag"] for t in prim) if prim else None   # his buy -> the print we priced at
+    # 25.11.: the demo copies (wallets/kopija_demo.exit_rule) read "demo_exit". Vlasnik 25.11. ("Demo izlaz čisti"):
+    # it is the pick on the CLEAN rows (after the price check); "demo_exit_staro" is the pick the way it was made
+    # before the check (legacy rows), kept so the report can say when the two differ. Demo only: real money never
+    # reads this.
     res["demo_exit"] = demo_exit(rows)
+    res["prije_provjere"] = legacy   # the primary rule and delay as counted before the price check (the diagnosis)
+    res["demo_exit_cisti"] = res["demo_exit"]
+    res["demo_exit_staro"] = demo_exit(legacy)
     res["verdict"] = verdict(res)
     res["secs"] = round(time.time() - t_start, 1)
     return res
@@ -836,10 +1005,27 @@ def demo_exit(rows):
     return max(ok, key=lambda r: r["ev_pct"])["exit"] if ok else PRIMARY[2]
 
 
+def _sumnja(r, res=None):
+    """report/razumno.sumnja of one grid row: None, or why its numbers cannot be real (25.11.)."""
+    from report import razumno
+    return razumno.sumnja(r, (res or {}).get("size_sol") or SIZE_SOL) if r else None
+
+
+def _dropped(r):
+    return ((r or {}).get("razlozi") or {}).get("sumnjiva_cijena") or 0
+
+
 def verdict(res):
-    """One sentence for a non-programmer."""
+    """One sentence for a non-programmer. 25.11.: never on a row whose numbers cannot be real."""
     r = row_of(res, *PRIMARY) or {}
     own = (res.get("own") or {}).get(PRIMARY[0]) or {}
+    if own.get("prosjek_pct") is not None and _sumnja({"ev_pct": own.get("prosjek_pct"),
+                                                       "med_pct": own.get("medijan_pct")}):
+        own = {}
+    bad = _sumnja(r, res) if not r.get("malo") else None
+    if bad:
+        return (f"Glavni red ima sumnjive podatke ({bad}), pa presude nema: red je izostavljen dok se izvor cijene ne "
+                "popravi.")
     picked = (res.get("odabir") or {}).get(PRIMARY[0]) or 0
     if not picked:
         return (f"Na starijem dijelu podataka ({res.get('train_days')} dana) nijedan novčanik ne prolazi „dokazan dvaput i "
@@ -855,6 +1041,8 @@ def verdict(res):
     if ci[0] is not None:
         num += f", interval 90 %: {_hr(ci[0])} do {_hr(ci[1])} %"
     num += ")"
+    if _dropped(r):
+        num += f"; izbačeno {_dropped(r)} tradeova zbog sumnjive cijene"
     if ci[0] is not None and ci[0] > 0:
         return f"Kopiranje dokazanih novčanika bilo bi u plusu: {num}.{his}"
     if r["ev_pct"] > 0:
@@ -965,12 +1153,14 @@ def line(res):
         ci = r.get("ci90") or ["—", "—"]
         body = (f"; kašnjenje 60 s, njegov izlaz ili stop −20 %: n={r['n']}, EV {r['ev_pct']:+.2f} % po tradeu, interval "
                 f"90 % [{ci[0]}; {ci[1]}], pogodak {r['hit']:.0%}, zbroj {r['sum_sol']:+.3f} SOL, nekopirano "
-                f"{(r.get('nekopirano') or 0):.0%} kupnji")
+                f"{(r.get('nekopirano') or 0):.0%} kupnji, izbačeno {_dropped(r)} zbog sumnjive cijene"
+                + (f" (SUMNJIVI PODACI: {_sumnja(r, res)})" if _sumnja(r, res) else ""))
     if g and not g.get("malo"):
         body += (f"; njegov rezultat na istim tradeovima {g['njegov_pct']:+.1f} %, naš {g['nase_pct']:+.1f} %: ulaz "
                  f"{g['ulaz_pp']:+.1f}, izlaz {g['izlaz_pp']:+.1f}, trošak {g['trosak_pp']:+.1f}, jedan ulaz i izlaz "
                  f"{g['skaliranje_pp']:+.1f} postotnih bodova")
-    good = sum(1 for x in res.get("grid") or [] if not x.get("malo") and (x.get("ci90") or [0])[0] > 0)
+    good = sum(1 for x in res.get("grid") or [] if not x.get("malo") and not _sumnja(x, res)
+               and (x.get("ci90") or [0])[0] > 0)
     return (head + body + f"; isprobano {res.get('grid_n')} kombinacija, s donjom granicom iznad nule: {good}"
             f" ({res.get('secs')} s)")
 
@@ -1002,6 +1192,8 @@ def run(now=None, log=print, path=None, p=None, budget_s=None, fee=None, save=Tr
                 wcon.commit()
             finally:
                 wcon.close()
+        if res.get("dijagnostika"):
+            log(res["dijagnostika"])
         log(line(res) + kept)
         return res
     except Exception as e:  # noqa: BLE001 - a measurement: it never takes its caller down
@@ -1014,11 +1206,23 @@ def run(now=None, log=print, path=None, p=None, budget_s=None, fee=None, save=Tr
 
 # ---------- the report's view ---------------------------------------------------------------------------------------------
 
-def _row(name, m):
-    if not m or m.get("malo") or not m.get("n"):
-        return {"naziv": name, "n": (m or {}).get("n", 0), "malo": True}
-    return {"naziv": name, "n": m["n"], "ev_pct": m.get("ev_pct"), "ci": m.get("ci90"), "pogodak": m.get("hit"),
-            "zbroj_sol": m.get("sum_sol"), "max_pad_sol": m.get("max_dd_sol"), "nekopirano": m.get("nekopirano")}
+def _row(name, m, size=SIZE_SOL):
+    """One table row. 25.11.: "izbaceno" (trades dropped for a price that cannot be real), "ograniceno" (exits capped
+    by the pool), "medijan_pct"; "sumnja" (report/razumno) when the row's numbers still cannot be real: the renderers
+    then print "sumnjivi podaci, red izostavljen" instead of them (also for a result stored before this check)."""
+    m = m or {}
+    why = m.get("razlozi") or {}
+    if m.get("malo") or not m.get("n"):
+        return {"naziv": name, "n": m.get("n", 0), "malo": True, "izbaceno": why.get("sumnjiva_cijena")}
+    out = {"naziv": name, "n": m["n"], "ev_pct": m.get("ev_pct"), "medijan_pct": m.get("med_pct"), "ci": m.get("ci90"),
+           "pogodak": m.get("hit"), "zbroj_sol": m.get("sum_sol"), "max_pad_sol": m.get("max_dd_sol"),
+           "nekopirano": m.get("nekopirano"), "izbaceno": why.get("sumnjiva_cijena"),
+           "ograniceno": m.get("ograniceno")}
+    from report import razumno
+    bad = razumno.sumnja(out, size)
+    if bad:
+        out["sumnja"] = bad
+    return out
 
 
 def gap_lines(g):
@@ -1041,22 +1245,20 @@ def summary(res, now=None):
     if not res or not res.get("ts"):
         return None
     now = int(now or time.time())
+    size = res.get("size_sol") or SIZE_SOL
     rows = []
     if res.get("grid"):
-        rows.append(_row("Glavno pravilo: dokazan dvaput i kopirljiv, 60 s, njegov izlaz ili stop −20 %",
-                         row_of(res, *PRIMARY)))
-        for d in DELAYS:
-            if d != PRIMARY[1]:
-                rows.append(_row(f"Isto, kašnjenje {d} s", row_of(res, PRIMARY[0], d, PRIMARY[2])))
-        for x in EXITS:
-            if x != PRIMARY[2]:
-                rows.append(_row(f"Isto, izlaz: {EXIT_HR[x]}", row_of(res, PRIMARY[0], PRIMARY[1], x)))
-        for r in RULES:
-            if r != PRIMARY[0]:
-                rows.append(_row(RULE_HR[r], row_of(res, r, PRIMARY[1], PRIMARY[2])))
+        for c in table_combos():
+            name = ("Glavno pravilo: dokazan dvaput i kopirljiv, 60 s, njegov izlaz ili stop −20 %" if c == PRIMARY else
+                    f"Isto, kašnjenje {c[1]} s" if c[1] != PRIMARY[1] else
+                    f"Isto, izlaz: {EXIT_HR[c[2]]}" if c[2] != PRIMARY[2] else RULE_HR[c[0]])
+            rows.append(_row(name, row_of(res, *c), size))
         st = res.get("strict") or {}
-        rows.append(_row(f"Glavno pravilo, samo novčanici koje je alat ocijenio prije reza ({st.get('wallets') or 0})", st))
+        rows.append(_row(f"Glavno pravilo, samo novčanici koje je alat ocijenio prije reza ({st.get('wallets') or 0})", st,
+                         size))
     grid = [x for x in res.get("grid") or [] if not x.get("malo")]
+    broken = [x for x in grid if _sumnja(x, res)]
+    grid = [x for x in grid if not _sumnja(x, res)]
     good = sum(1 for x in grid if (x.get("ci90") or [0])[0] > 0)
     prim = row_of(res, *PRIMARY) or {}
     why = prim.get("razlozi") or {}
@@ -1073,18 +1275,38 @@ def summary(res, now=None):
                      + (f" Pravilo „dokazan jednom” prolazi {pa.get('jednom')} novčanika; kopira se najviše {MAX_WALLETS} "
                         "najbolje ocijenjenih, koliko ih stane na praćenje u stvarnom vremenu."
                         if (pa.get("jednom") or 0) > MAX_WALLETS or (pa.get("app") or 0) > MAX_WALLETS else ""))
+    if broken:
+        notes.append(f"{len(broken)} od {len(broken) + len(grid)} kombinacija s dovoljno tradeova ima nemoguće brojke "
+                     "(prosjek, interval ili zbroj izvan onoga što ulog može dati): u tablicama piše „sumnjivi podaci, red "
+                     "izostavljen” i ne broje se ni u presudi ni u broju dobrih kombinacija.")
     if why.get("kupnji"):
         notes.append(f"Od {why['kupnji']} njihovih kupnji u mjerenom dijelu kopirano je {why['kopirano']}; bez cijene u "
                      f"trenutku našeg ulaza {why['bez_cijene_ulaza']}, bez cijene izlaza {why['bez_cijene_izlaza']}, "
-                     f"token ispod 30k $ {why.get('ispod_30k', 0)}, "
+                     + (f"izbačeno zbog sumnjive cijene {why['sumnjiva_cijena']}, " if "sumnjiva_cijena" in why else "")
+                     + f"token ispod 30k $ {why.get('ispod_30k', 0)}, "
                      f"likvidnost ispod praga {why['likvidnost']}, token već držimo {why['vec_drzimo']}, strop od "
-                     f"{res.get('max_open')} otvorenih {why['strop']}.")
+                     f"{res.get('max_open')} otvorenih {why['strop']}."
+                     + (f" Kod {prim['ograniceno']} kopiranih izlaz je ograničen likvidnošću poola (više od cijele SOL "
+                        "strane poola ne može se izvući)." if prim.get("ograniceno") else ""))
+    if "sumnjiva_cijena" in why:
+        notes.append("Sumnjiva cijena (izbačeno i brojeno, ne rezano): ulazni ili izlazni ispis ≤ 0, ispis više od "
+                     f"{SPIKE_X:.0f}× daleko od susjednih ispisa s obje strane, tržišna vrijednost iznad "
+                     f"{MC_MAX / 1e9:.0f} mlrd $ (druga jedinica ili drugi pool) ili naš ulaz više od {SLIP_X:.0f}× od "
+                     "njegove cijene. Velik dobitak sam po sebi nije razlog za izbacivanje. Prosjek je prosjek čistih "
+                     "tradeova; medijan je u dnevniku i na /strategije.")
+    if res.get("demo_exit_staro") and res.get("demo_exit_staro") != res.get("demo_exit"):
+        notes.append(f"Demo kopije koriste izlaz „{EXIT_HR.get(res.get('demo_exit'), '?')}”, izabran na očišćenim "
+                     "podacima (vlasnik 25.11.); prije provjere cijena bio bi izabran "
+                     f"„{EXIT_HR.get(res['demo_exit_staro'], '?')}”.")
     own = (res.get("own") or {}).get(PRIMARY[0]) or {}
+    if own.get("prosjek_pct") is not None and _sumnja({"ev_pct": own["prosjek_pct"], "med_pct": own.get("medijan_pct")}):
+        notes.append("Vlastiti rezultat odabranih novčanika ima nemoguće brojke (sumnjivi podaci), pa nije prikazan.")
+        own = {}
     if own.get("prosjek_pct") is not None:
         notes.append(f"Odabrani novčanici na vlastitim cijenama u mjerenom dijelu: {own['zatvoreno']} zatvorenih pozicija "
                      f"od {own['kupnji']} kupnji, prosjek {_hr(own['prosjek_pct'])} %, medijan {_hr(own['medijan_pct'])} %, "
                      f"u plusu {own['pogodak']:.0%}.")
-    if prim.get("zadnja_cijena"):
+    if prim.get("zadnja_cijena") and not _sumnja(prim, res) and not _sumnja({"ev_pct": prim.get("ev_pes_pct")}):
         notes.append(f"{prim['zadnja_cijena']} od {prim['n']} tradeova vrednovano je zadnjom poznatom cijenom (nije prodao "
                      f"do kraja podataka ili nitko nije trgovao oko izlaza); kad bi svi bili potpuni gubitak, prosjek bi "
                      f"bio {_hr(prim['ev_pes_pct'])} %.")
@@ -1106,10 +1328,12 @@ def summary(res, now=None):
     gr = []
     for key, name in (("mc", "Tržišna vrijednost"), ("likvidnost", "Likvidnost poola"), ("drzanje", "Koliko novčanik drži")):
         for g in (res.get("groups") or {}).get(key) or []:
-            gr.append(_row(f"{name}: {g['naziv']}", g))
+            gr.append(_row(f"{name}: {g['naziv']}", g, size))
     short = {"app": "dokazan dvaput", "top": f"prvih {TOP_N}", "jednom": "dokazan jednom", "likvidnost": "pool 15k+"}
-    full = [_row(f"{short[x['rule']]} · {x['delay']} s · {EXIT_HR[x['exit']]}", x) for x in res.get("grid") or []]
-    return {"ts": res["ts"], "presuda": res.get("verdict"), "redovi": rows, "skupine": gr, "mreza": full,
+    full = [_row(f"{short[x['rule']]} · {x['delay']} s · {EXIT_HR[x['exit']]}", x, size) for x in res.get("grid") or []]
+    # 25.11.: the verdict is recomputed from the rows (also for a result stored before the price check), so it never
+    # rests on a row whose numbers cannot be real
+    return {"ts": res["ts"], "presuda": verdict(res) if res.get("grid") else res.get("verdict"), "redovi": rows, "skupine": gr, "mreza": full,
             "razlika": gap_lines(res.get("gap")), "napomene": notes,
             "svjezina": freshness_lines(res.get("svjezina"), now), "pristranosti": res.get("biases") or [],
             "dana": res.get("days"), "dana_izvan": res.get("hold_days"), "ulog_sol": res.get("size_sol"),

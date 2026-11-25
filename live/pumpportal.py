@@ -101,6 +101,15 @@ def _fokus():
         return False
 
 
+def _mjera(log=print):
+    """25.11.: the pump measurement's recorder while PUMP_MJERENJE_DO is set and ahead, else None (live/pumpmjerenje)."""
+    try:
+        from live import pumpmjerenje
+        return pumpmjerenje.Biljeznik.iz_okoline(log=log)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def wanted(now=None, paper_db=None, strat_db=None, hype_db=None, kol_db=None, league_db=None, min_mcap=30000,
            fokus=None):
     """(tokens, wallets, open_tokens): what to subscribe to. Tokens: open demo and strategy positions first, then the
@@ -180,8 +189,12 @@ _LAST_BALANCE_LOG = [0.0]
 class Feed:
     """Collects parsed rows and writes them in batches (one commit a second, not one per trade)."""
 
-    def __init__(self, con, followed=frozenset(), log=print):
+    def __init__(self, con, followed=frozenset(), log=print, store_launches=True, mjera=None):
         self.con, self.followed, self.log = con, set(followed), log
+        # 25.11. (pump mjerenje, live/pumpmjerenje.py): while the launch subscription exists ONLY for the measurement
+        # (fokus midcap on), `create` rows never reach live_launches (scanner, precall, topics, learning read it);
+        # they go to the measurement's own database through `mjera`
+        self.store_launches, self.mjera = store_launches, mjera
         self.trades, self.launches = [], []
         self.n_trades = self.n_launches = self.n_other = 0
         self.per_token = {}   # mint -> trades since the last refresh (hot-token detection)
@@ -196,7 +209,13 @@ class Feed:
             if m:
                 self.per_token[m] = self.per_token.get(m, 0) + 1
         elif kind == "launch":
-            self.launches.append(row)
+            if self.mjera is not None:
+                try:
+                    self.mjera.take(msg if isinstance(msg, dict) else json.loads(msg), now)
+                except Exception:  # noqa: BLE001 - the measurement never stops the feed
+                    pass
+            if self.store_launches:
+                self.launches.append(row)
         else:
             text = str(msg)
             if "Minimum balance" in text or "only available when connecting with an API key" in text:
@@ -283,7 +302,10 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
     while not (stop and stop()):
         fk = _fokus()   # 15.11. (owner switch fokus_midcap): no launch firehose, no migrations, positions + follows only
         tokens, wallets, open_tokens = wanted(fokus=fk)
-        feed = Feed(con, followed=set(wallets), log=log)
+        mj = _mjera(log)   # 25.11. (vlasnik: „mjerenje da”): None unless PUMP_MJERENJE_DO is set and not yet past
+        new_sub = (new_tokens and not fk) or mj is not None
+        only_mj = mj is not None and not (new_tokens and not fk)   # the subscription exists only for the measurement
+        feed = Feed(con, followed=set(wallets), log=log, store_launches=not only_mj, mjera=mj)
         cur = (set(), set())
         try:
             async with websockets.connect(ws_url(), ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
@@ -291,7 +313,11 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
                 if fk and (new_tokens or migrations):
                     log("live: fokus midcap: bez novih pump.fun lansiranja i migracija; pratim samo otvorene pozicije "
                         "i novčanike koje igrači prate")
-                if new_tokens and not fk:   # every new pump.fun launch (free): on by default since 10.11. (run_live.new_tokens_on)
+                if mj is not None:
+                    log("pump mjerenje: uključeno do " + time.strftime("%d.%m.%Y. %H:%M UTC", time.gmtime(mj.dl))
+                        + ("; nova lansiranja samo u bazu mjerenja (ne u skenere ni kandidate)" if only_mj else
+                           "; nova lansiranja i u bazu mjerenja"))
+                if new_sub:   # every new pump.fun launch (free): on by default since 10.11. (run_live.new_tokens_on)
                     await ws.send(json.dumps({"method": "subscribeNewToken"}))
                 if migrations and not fk:   # tokens that bonded (graduated to PumpSwap): free, and these are the ones worth a look
                     await ws.send(json.dumps({"method": "subscribeMigration"}))
@@ -316,6 +342,17 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
                     except asyncio.TimeoutError:
                         pass
                     now = time.time()
+                    if mj is not None:
+                        try:
+                            mj.flush(now)
+                            if not mj.active(now):   # the deadline passed: stop recording, drop the extra subscription
+                                mj.close()
+                                feed.mjera, mj = None, None
+                                if only_mj:
+                                    await ws.send(json.dumps({"method": "unsubscribeNewToken"}))
+                                log("pump mjerenje: rok istekao; bilježenje i pretplata na nova lansiranja ugašeni")
+                        except Exception as e:  # noqa: BLE001 - never stops the feed
+                            log(f"pump mjerenje: {type(e).__name__}: {str(e)[:80]}")
                     try:
                         if feed.flush(now):
                             store.set_state(con, "last_trade_ts", int(now))
@@ -391,3 +428,6 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
             log(f"live: {type(e).__name__}: {str(e)[:120]}; ponovno za {backoff} s")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 300)
+        finally:
+            if mj is not None:   # what is buffered goes to the measurement's database before a reconnect
+                mj.close()

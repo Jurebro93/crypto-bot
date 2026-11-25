@@ -185,6 +185,10 @@ PROCESSES = (
     # deploy and at 06:30, and only with a switch on the night deletion (01-06, under the heavy-job lock); nobody waits
     ("retencija", "-m ops.retencija", (), JOBS,
      "retencija live_trades i tg teksta: satni agregat, mjerenje u log; brisanje samo uz prekidač vlasnika, noću"),
+    # 25.11. (vlasnik: „mjerenje da”, 48 h): pump.fun naknada kreatoru; DexScreener ishod svakih 10 min, samo uz
+    # PUMP_MJERENJE_DO; nitko ga ne čeka (pauza samo kasni ishod)
+    ("pumpmjerenje", "-m live.pumpmjerenje", (), JOBS,
+     "jednokratno mjerenje naknade devu na pump.fun (DexScreener, besplatno; samo uz PUMP_MJERENJE_DO)"),
     # 15.11. (owner switch arhiva_mikrokapova, ops/arhiva.py): night only, copy -> verify -> gzip -> delete in short
     # batches; nobody waits for it (a pause only stretches the night's move)
     ("arhiva", "run_arhiva.py", (), JOBS,

@@ -25,7 +25,10 @@ def compact(html):
 
 
 def encode(html):
-    return base64.b64encode(gzip.compress(compact(html).encode("utf-8"), 9)).decode("ascii")
+    """25.11.: ASCII with numeric references (mail.ascii_html) also for a file built before render.render did it
+    (the restart re-dump of today's file), so the sender's attachment never turns č into "?"."""
+    from .mail import ascii_html
+    return base64.b64encode(gzip.compress(compact(ascii_html(html)).encode("ascii"), 9)).decode("ascii")
 
 
 def decode(b64):

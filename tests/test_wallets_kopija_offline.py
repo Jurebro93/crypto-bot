@@ -168,8 +168,10 @@ class Pure(unittest.TestCase):
         return {"sol": self.series(pts), "usd": kopija.Series(), "liq": sorted(liq), "supply": None}
 
     def test_cost_is_the_model_at_that_liquidity_never_under_three_percent(self):
-        ep = {"mint": mint(1), "t0": 1000, "px0": 1.0, "sell_ts": 5000, "sell_px": 2.0, "ret": 1.0}
-        pts = [(1060, 1.1), (5060, 1.9)]
+        # 25.11.: SOL per token of a real pump.fun token (1.0 SOL a token x 1e9 tokens would be a 150 bn $ market cap:
+        # kopija.price_flag drops such a price as another unit)
+        ep = {"mint": mint(1), "t0": 1000, "px0": 1e-6, "sell_ts": 5000, "sell_px": 2e-6, "ret": 1.0}
+        pts = [(1060, 1.1e-6), (5060, 1.9e-6)]
         t = kopija.copy_trade("W", ep, 60, "on", self.tok(pts, [(1000, 500_000.0)]), 150.0, fee=0.01, hi=10 ** 6)
         self.assertAlmostEqual(t["cost"], 0.03)                                          # the model says 2.01 %: the floor
         self.assertAlmostEqual(t["ret"], 1.9 / 1.1 - 1 - 0.03)
@@ -177,7 +179,7 @@ class Pure(unittest.TestCase):
         self.assertAlmostEqual(thin["cost"], 2 * 0.01 + 2 * 15.0 / (1000 + 15.0))        # 2 x fee + 2 x impact of 0.1 SOL
         self.assertLess(thin["ret"], t["ret"])
         self.assertAlmostEqual(t["slip"], 0.1)                                           # our entry 10 % above his fill
-        self.assertIsNone(kopija.copy_trade("W", ep, 60, "on", self.tok([(5060, 1.9)]), 150.0, fee=0.01, hi=10 ** 6))
+        self.assertIsNone(kopija.copy_trade("W", ep, 60, "on", self.tok([(5060, 1.9e-6)]), 150.0, fee=0.01, hi=10 ** 6))
 
     def cand(self, k, ts, out_ts, token=None, liq=50_000.0, ret=0.1):
         t = {"ts": ts, "out_ts": out_ts, "token": token or f"T{k}", "liq": liq, "ret": ret, "wallet": "W"}
@@ -195,7 +197,7 @@ class Pure(unittest.TestCase):
         cands.append(small)
         trs, why = kopija.portfolio(cands)
         self.assertEqual(why, {"kupnji": 18, "kopirano": 11, "bez_cijene_ulaza": 1, "bez_cijene_izlaza": 1,
-                               "ispod_30k": 1, "likvidnost": 1, "vec_drzimo": 1, "strop": 2})
+                               "ispod_30k": 1, "likvidnost": 1, "vec_drzimo": 1, "strop": 2, "sumnjiva_cijena": 0})
         self.assertEqual(len(trs), 11)
         self.assertEqual(sum(v for k, v in why.items() if k != "kupnji"), why["kupnji"])  # every buy has one fate
         _trs, why = kopija.portfolio([self.cand(1, 100, 200, liq=None)], kopija.LIQ_STRICT, True)
@@ -338,7 +340,8 @@ class Pipeline(Base):
         self.assertIn("u plusu", res["verdict"])
         self.assertIn("novčanici kopija: ", self.lines[-1])
         self.assertIn("isprobano 36 kombinacija", self.lines[-1])
-        self.assertEqual(len(self.lines), 1)
+        self.assertEqual(len(self.lines), 2)                                             # 25.11.: + the diagnosis
+        self.assertIn("novčanici kopija dijagnostika: ", self.lines[0])
 
     def test_a_buy_without_a_stored_price_is_counted_not_guessed(self):
         for j in range(10):                                                              # 10 buys nobody else traded
