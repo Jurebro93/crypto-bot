@@ -5,6 +5,7 @@ import os
 import sys
 import time
 
+from . import razumno
 from .collect import NAMES, SESSIONS
 
 INK, MUT, LINE, BG = "#111827", "#6b7280", "#e5e7eb", "#f6f7f9"
@@ -152,13 +153,18 @@ def usd(x, signed=True):
     return "–" if x is None else (f"{x:+,.2f} $" if signed else f"{x:,.2f} $")
 
 
+def _mark(ok, txt):
+    """25.11.: a number beyond report/razumno's bounds is never printed without the mark."""
+    return txt if ok else f"{txt} ({razumno.MARK})"
+
+
 def sol(x, d=3, signed=True):
-    return "–" if x is None else (f"{x:+.{d}f} SOL" if signed else f"{x:.{d}f} SOL")
+    return "–" if x is None else _mark(razumno.sol_ok(x), f"{x:+.{d}f} SOL" if signed else f"{x:.{d}f} SOL")
 
 
 def pp(x, d=1):
-    """A percentage already in % (EV / the price move), signed."""
-    return "–" if x is None else f"{x:+.{d}f} %"
+    """A percentage already in % (EV / the price move), signed; marked when beyond razumno.PCT_MAX."""
+    return "–" if x is None else _mark(razumno.pct_ok(x), f"{x:+.{d}f} %")
 
 
 def hr(x):
@@ -167,7 +173,25 @@ def hr(x):
 
 
 def ci_txt(ci):
-    return "–" if not ci or ci[0] is None else f"{ci[0]:+.1f} … {ci[1]:+.1f} %"
+    return "–" if not ci or ci[0] is None else _mark(all(razumno.pct_ok(x) for x in ci),
+                                                     f"{ci[0]:+.1f} … {ci[1]:+.1f} %")
+
+
+def stat_row(r, ulog=0.1):
+    """One row of a table of trade statistics [name, n, average (and median), interval, hit, sum]. 25.11. (vlasnik:
+    „Prvih 20 po ocjeni ... +48693144406 %"): a row whose numbers cannot be real (razumno.sumnja, or the data module's
+    own "sumnja") shows „sumnjivi podaci, red izostavljen (n tradeova)" instead of them."""
+    n = str(r.get("n") or 0) + (small(f"<br>izbačeno {r['izbaceno']}") if r.get("izbaceno") else "")
+    if r.get("malo"):
+        return [e(r["naziv"]), n, small("premalo podataka"), "–", "–", "–"]
+    if r.get("sumnja") or razumno.sumnja(r, ulog):
+        return [e(r["naziv"]), n, small(e(razumno.omit_text(r))), "–", "–", "–"]
+    ev = colored(r.get("ev_pct"), pp(r.get("ev_pct"), 2))
+    if r.get("medijan_pct") is not None:
+        ev += small(f"<br>medijan {pp(r['medijan_pct'], 1)}")
+    return [e(r["naziv"]), n, ev, ci_txt(r.get("ci")), pct(r.get("pogodak")),
+            colored(r.get("zbroj_sol"), sol(r.get("zbroj_sol"), 2))
+            + (small(f"<br>{r['ograniceno']} ograničeno likvidnošću") if r.get("ograniceno") else "")]
 
 
 def ctable(headers, rows, nowrap=False):
@@ -266,13 +290,7 @@ def replay_block(rp):
     small table, what would be worth changing, the known biases. "" before its first run."""
     if not rp:
         return ""
-    rows = []
-    for r in rp.get("redovi") or []:
-        if r.get("malo"):
-            rows.append([e(r["naziv"]), str(r.get("n") or 0), small("premalo podataka"), "–", "–", "–"])
-            continue
-        rows.append([e(r["naziv"]), str(r["n"]), colored(r.get("ev_pct"), pp(r.get("ev_pct"), 2)), ci_txt(r.get("ci")),
-                     pct(r.get("pogodak")), colored(r.get("zbroj_sol"), sol(r.get("zbroj_sol"), 2))])
+    rows = [stat_row(r, rp.get("ulog_sol") or 0.1) for r in rp.get("redovi") or []]
     body = sub("Dnevni raspon: povijesni test na svim midcapovima") + para(rp.get("presuda"))
     body += ctable(["", "Tradeova", "Prosjek po tradeu", "90 % interval", "Pogodak", "Zbroj"], rows, nowrap=True)
     full = next((r for r in rp.get("redovi") or [] if not r.get("malo")), None)
@@ -299,15 +317,12 @@ def kopija_block(k):
         return ""
 
     def trow(r):
-        if r.get("malo"):
-            return [e(r["naziv"]), str(r.get("n") or 0), small("premalo podataka"), "–", "–", "–"]
-        return [e(r["naziv"]), str(r["n"]), colored(r.get("ev_pct"), pp(r.get("ev_pct"), 2)), ci_txt(r.get("ci")),
-                pct(r.get("pogodak")), colored(r.get("zbroj_sol"), sol(r.get("zbroj_sol"), 2))]
+        return stat_row(r, k.get("ulog_sol") or 0.1)
     body = sub("Kopiranje dokazanih novčanika: koliko bismo zaradili mi")
     if k.get("presuda"):
         body += para(k["presuda"])
         if k.get("redovi"):
-            body += ctable(["", "Kopija", "Prosjek po tradeu", "90 % interval", "Pogodak", "Zbroj"],
+            body += ctable(["", "Kopija", "Prosjek (medijan) po tradeu", "90 % interval", "Pogodak", "Zbroj"],
                            [trow(r) for r in k["redovi"]])
             body += small(f"Novčanici su odabrani na starijem dijelu podataka, a mjereno je samo na zadnjih "
                           f"{k.get('dana_izvan')} dana koje odabir nije vidio. Ulog {hr(k.get('ulog_sol'))} SOL, sve nakon "

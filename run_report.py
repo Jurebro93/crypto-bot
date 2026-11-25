@@ -77,11 +77,16 @@ def build(use_ai=True, now=None, weekly=None):
     if weekly:
         data["tjedni_trosak"] = tjedni.collect(now)
     interp, source = ai.interpret(data) if use_ai else (ai.fallback(data), "pravila")
-    html = render.render(data, interp, source)
+    # 25.11. (vlasnik: the attachment opened from the Gmail app on Android shows „nov?anika", „stop ?20 %"): what
+    # leaves the builder is plain ASCII, every other letter a numeric reference (č -> &#269;, − -> &#8722;), so
+    # whatever a carrier does with the charset reads the same: the saved file (and so /izvjestaj/raw and any attachment
+    # made from it), the REPORT-B64 dump, the e-mail. One place, so no way out can forget it; <meta charset="utf-8">
+    # stays. The plain-text part of the e-mail (mail.plain) stays UTF-8 (it unescapes the references).
+    html = mail.ascii_html(render.render(data, interp, source))
     day = local_now(now).strftime("%Y-%m-%d")
     os.makedirs(OUT, exist_ok=True)
     path = os.path.join(OUT, f"report-{day}.html")
-    with open(path, "w") as f:
+    with open(path, "w", encoding="ascii") as f:
         f.write(html)
     prune()
     return day, path, html, interp, source
@@ -104,7 +109,7 @@ def send_today(use_ai=True, now=None):
         st.update(sent=day, sent_ts=int(time.time()), error=None, how=how)
         # 19.11.: the weekly cost section and the deploy it was built under count only once the e-mail went out
         st["report_commit"] = tjedni.commit()
-        if weekly and "Tjedni trošak po izvoru" in html:
+        if weekly and mail.ascii_html("Tjedni trošak po izvoru") in mail.ascii_html(html):   # built HTML is ASCII (25.11.)
             st.update(tjedni_ts=int(now or time.time()), tjedni_zasto=why)
         print(f"izvještaj {day} poslan ({how}) na {', '.join(mail.recipients())}")
     except Exception as e:
@@ -158,7 +163,7 @@ def loop(every_min=5):
         st, day = load_state(), local_now().strftime("%Y-%m-%d")
         p = os.path.join(OUT, f"report-{day}.html")
         if not resent and st.get("sent") != day and os.path.exists(p):
-            with open(p) as f:
+            with open(p, encoding="utf-8") as f:   # a file from before 25.11. may be UTF-8; dump makes it ASCII
                 dump.emit(day, f.read())
     except Exception as e:
         print(f"report dump: {type(e).__name__}: {e}")

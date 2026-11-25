@@ -176,6 +176,7 @@ def _wcell(x, vrsta):
 
 
 def midcap_rows_html(rows):
+    from report import razumno
     out = []
     for r in rows:
         word, cls = VRSTA.get(r["vrsta"], (r["vrsta"], ""))
@@ -183,6 +184,8 @@ def midcap_rows_html(rows):
         evc = "pos" if (ev or 0) > 0 else "neg" if (ev or 0) < 0 else ""
         ev_html = ("–" if ev is None else f'<span class="{evc}">{ev:+.2f} %</span>') + (
             f'<br><small class=mut>CI {esc(r.get("ci_label"))}: {ci[0]:+.1f}…{ci[1]:+.1f}</small>' if ci else "")
+        if razumno.sumnja({"ev_pct": ev, "ci": ci}):   # 25.11.: an impossible average is never shown as a result
+            ev_html, ev = f'<small class=mut>{esc(razumno.omit_text(r))}</small>', None
         out.append([f'{badge(word, cls)} <b>{esc(r["naziv"])}</b>'
                     + (f'<br><small class=mut>{esc(r.get("opis") or "")}</small>' if r.get("opis") else ""),
                     num(r.get("n")), (ev_html, ev if ev is not None else -1e18, "n"),
@@ -224,13 +227,21 @@ def kopija_html(now):
     if not k or not (k.get("presuda") or k.get("demo")):
         return ""
 
+    from report import razumno
+
     def row(r):
+        n = (num(r.get("n")) if not r.get("izbaceno") else
+             (f'{num(r.get("n"))}<br><small class=mut>izbačeno {r["izbaceno"]}</small>', r.get("n") or 0, "n"))
         if r.get("malo"):
-            return [esc(r["naziv"]), num(r.get("n")), ("premalo podataka", -1e18, "n mut"), "–", "–"]
+            return [esc(r["naziv"]), n, ("premalo podataka", -1e18, "n mut"), "–", "–"]
+        if r.get("sumnja") or razumno.sumnja(r, k.get("ulog_sol") or 0.1):   # 25.11.: never an impossible number
+            return [esc(r["naziv"]), n, (esc(razumno.omit_text(r)), -1e18, "n mut"), "–", "–"]
         ev, ci = r.get("ev_pct"), r.get("ci")
         c = "pos" if (ev or 0) > 0 else "neg" if (ev or 0) < 0 else ""
-        return [esc(r["naziv"]), num(r.get("n")),
+        med = r.get("medijan_pct")
+        return [esc(r["naziv"]), n,
                 (f'<span class="{c}">{ev:+.2f} %</span>'
+                 + (f'<br><small class=mut>medijan {med:+.1f} %</small>' if med is not None else "")
                  + (f'<br><small class=mut>CI 90 %: {ci[0]:+.1f}…{ci[1]:+.1f}</small>' if ci else ""), ev, "n"),
                 (f'{r["pogodak"]:.0%}' if r.get("pogodak") is not None else "–", r.get("pogodak") or -1, "n"),
                 (f'{r["zbroj_sol"]:+.2f} SOL' if r.get("zbroj_sol") is not None else "–", r.get("zbroj_sol") or 0, "n")]

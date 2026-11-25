@@ -767,6 +767,9 @@ def strategies(now=None, p=None, rinfo=None, hd=None, rp=None, kp=None):
         if x.get("malo"):
             out.append(_row(f"{KOPIJA_NAME}: povijesni test", "backtest", x.get("n") or 0, None, None, None,
                             opis="premalo podataka (manje od 30 kopija s poznatom cijenom)"))
+        elif x.get("sumnja"):   # 25.11. (wallets/kopija._row, report/razumno): numbers that cannot be real are not shown
+            out.append(_row(f"{KOPIJA_NAME}: povijesni test", "backtest", x.get("n") or 0, None, None, None,
+                            opis=f"sumnjivi podaci, red izostavljen ({x['sumnja']})"))
         else:
             out.append(_row(f"{KOPIJA_NAME}: povijesni test", "backtest", x["n"], x.get("ev_pct"), x.get("ci"),
                             x.get("pogodak"), opis=f"izvan uzorka (zadnjih {kp.get('dana_izvan')} d): ulaz 60 s nakon "
