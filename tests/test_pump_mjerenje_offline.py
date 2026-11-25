@@ -186,6 +186,12 @@ class Classes(Base):
         self.assertTrue(r[pm.SPECIAL]["premalo"])
         self.assertEqual(r[pm.SPECIAL + " (puna 24 h povijest)"]["n"], 1)   # samo A3
         self.assertEqual(r["tokena deva u 24 h: 2–9"]["n"], 1)
+        o = r[pm.OSTAVLJEN]                                       # A1, A3: bez kupnje i nisu bondani (B1 je bondan,
+        self.assertEqual(o["n"], 2)                               # A2 ima vlastitu kupnju)
+        self.assertAlmostEqual(o["prosjek_sol"], 1000 * 0.003 / 100 / 2)
+        self.assertEqual(o["migrirao"], 0)
+        self.assertEqual(r[pm.OSTAVLJEN + ", tokena deva u 24 h: 1 (prvi u 24 h)"]["n"], 2)
+        self.assertIn(pm.OSTAVLJEN, pm.line(s))
         self.assertEqual(r["vlastita kupnja: iznad 2 SOL"]["n"], 1)
         line = pm.line(s)
         self.assertTrue(line.startswith("pump mjerenje (završno): 4 lansiranja"))

@@ -362,6 +362,7 @@ def _cls(name, fees, peaks, mig, unknown, nousd):
 
 
 SPECIAL = "nepoznat dev, bez kupnje, prvi token"
+OSTAVLJEN = "bez kupnje deva, nije bondan (ostavljen token)"
 
 
 def sazetak(con, now=None, final=False):
@@ -391,6 +392,9 @@ def sazetak(con, now=None, final=False):
             names.append(SPECIAL)
             if (hist or 0) >= 86400:
                 names.append(SPECIAL + " (puna 24 h povijest)")
+        if (ini or 0) < NO_BUY_SOL and not mig:
+            # 25.11. (vlasnik: "nemoj mjeriti bondane ... token launcham besplatno iz nule i ako ga se ostavi")
+            names += [OSTAVLJEN, f"{OSTAVLJEN}, tokena deva u 24 h: {cnt}"]
         for nm in names:
             g = groups.setdefault(nm, {"fees": [], "peaks": [], "mig": [], "unknown": 0, "nousd": 0})
             if found == 2:
@@ -402,7 +406,9 @@ def sazetak(con, now=None, final=False):
             g["fees"].append(fee)
             g["peaks"].append(max(peak or 0, (mcap_sol or 0) * (sol_usd or 0)))
             g["mig"].append(mig or 0)
-    order = ["svi", SPECIAL, SPECIAL + " (puna 24 h povijest)",
+    order = ["svi", OSTAVLJEN, f"{OSTAVLJEN}, tokena deva u 24 h: 1 (prvi u 24 h)",
+             f"{OSTAVLJEN}, tokena deva u 24 h: 2–9", f"{OSTAVLJEN}, tokena deva u 24 h: 10+",
+             SPECIAL, SPECIAL + " (puna 24 h povijest)",
              "tokena deva u 24 h: 1 (prvi u 24 h)", "tokena deva u 24 h: 2–9", "tokena deva u 24 h: 10+",
              "vlastita kupnja: bez kupnje", "vlastita kupnja: do 0,5 SOL", "vlastita kupnja: 0,5–2 SOL",
              "vlastita kupnja: iznad 2 SOL"]
@@ -463,6 +469,12 @@ def line(s):
     if sp and sp["n"]:
         out += (f"; {SPECIAL}: n={sp['n']}{' (premalo)' if sp['premalo'] else ''}, medijan {_sol(sp['medijan_sol'])} "
                 f"SOL, prosjek {_sol(sp['prosjek_sol'])} SOL")
+    for nm in (OSTAVLJEN, f"{OSTAVLJEN}, tokena deva u 24 h: 10+"):
+        o = rs.get(nm)
+        if o and o["n"]:
+            out += (f"; {nm}: n={o['n']}{' (premalo)' if o['premalo'] else ''}, medijan {_sol(o['medijan_sol'])} SOL, "
+                    f"prosjek {_sol(o['prosjek_sol'])} SOL po tokenu (na 100 tokena {_sol(o['prosjek_sol'] * 100)} SOL "
+                    "bruto, prije troška lansiranja)")
     out += f"; DexScreener ~{s['dex_dnevno']} zahtjeva dnevno; baza {str(s['mb']).replace('.', ',')} MB; {s['stopa']}"
     return out
 
