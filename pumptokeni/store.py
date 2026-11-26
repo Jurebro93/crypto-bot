@@ -259,6 +259,7 @@ def seed(con, now=None, image_fn=None, slike_dir=None):
     migrate_seed(). Broj dodanih."""
     if get(con, "seed_2511"):
         migrate_seed(con, now, image_fn, slike_dir)
+        migrate_stari_red(con, now)
         return 0
     now = int(now or time.time())
     for tema, datum, ime, simbol, opis, termin, kupnja, skupina in SEED:
@@ -266,7 +267,7 @@ def seed(con, now=None, image_fn=None, slike_dir=None):
                     "promijenjen_ts, termin_ts, kupnja_sol) VALUES (?,?,?,?,?,?,?,'nacrt',?,?,?,?)",
                     (tema, datum, ime, simbol, opis, seed_image(ime, simbol, image_fn, slike_dir), skupina, now, now,
                      parse_termin(termin), kupnja))
-    for k in ("seed_2511", "seed_2611", "seed_2611b"):
+    for k in ("seed_2511", "seed_2611", "seed_2611b", "seed_2611c"):
         put(con, k, now)
     migrate_seed(con, now, image_fn, slike_dir)
     return len(SEED)
@@ -324,6 +325,41 @@ def migrate_seed(con, now=None, image_fn=None, slike_dir=None):
         put(con, "seed_2611b", now)
     if files != before:
         put(con, "slike_datoteka", files)
+    return n
+
+
+NALOG_2611 = "nalog_vlasnika_2611"
+NALOG_2611_DO = 1795722300   # 2026-11-26 19:45 UTC (20:45 CET): nakon zadnjeg večerašnjeg termina nalog više ne vrijedi
+
+
+def migrate_stari_red(con, now=None):
+    """26.11., jednokratno (kv 'seed_2611c'): vlasnik je pritisnuo „Odobri pilot" na STAROJ verziji minutu prije nego
+    što je verzija s rasporedom postala živa, pa su sjemenski nacrti ostali 'u_redu' bez termina (takve red ne lansira,
+    a migrate_seed ih je zbog stanja preskočio). Vraćaju se u 'nacrt' i, ako termin i kupnja još nisu upisani, dobivaju
+    večerašnji termin, kupnju i skupinu iz SEED. Ništa se ne odobrava: raspored odobrava samo vlasnik. Broj nacrta."""
+    if get(con, "seed_2611c"):
+        return 0
+    now = int(now or time.time())
+    rows = {r[3]: r for r in SEED}
+    n = 0
+    for d in drafts(con):
+        row = rows.get(d["simbol"])
+        if not row or d["stanje"] != "u_redu" or d.get("termin_ts") is not None:
+            continue
+        sets = {"stanje": "nacrt"}
+        if d.get("kupnja_sol") is None and (d["skupina"] or SKUPINA_0) == SKUPINA_0:
+            sets.update(termin_ts=parse_termin(row[5]), kupnja_sol=row[6], skupina=row[7])
+        sql = ", ".join(f"{k}=?" for k in sets)
+        con.execute(f"UPDATE nacrti SET {sql}, provjera=NULL, provjera_ts=NULL, promijenjen_ts=? WHERE id=?",
+                    (*sets.values(), now, d["id"]))
+        n += 1
+    put(con, "seed_2611c", now)
+    if n:   # vlasnik u chatu 26.11. 13:50 CET: "pilot je već odobren ... smatraj da je odobren" (posao.owner_order)
+        put(con, NALOG_2611, {"ts": now, "do": NALOG_2611_DO, "gotovo": False})
+    con.commit()
+    if n:
+        print(f"pump tokeni: {n} nacrta vraćeno iz starog reda u nacrte s večerašnjim rasporedom; čeka novo odobrenje",
+              flush=True)
     return n
 
 

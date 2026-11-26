@@ -1379,6 +1379,52 @@ class SeedSchedule(unittest.TestCase):
         self.assertEqual([d["kupnja_sol"] for d in store.drafts(con)], [0.04, 0.04, 0, 0, 0])
         con.close()
 
+    def test_old_queue_without_termin_goes_back_to_drafts_with_tonights_plan(self):
+        """26.11.: „Odobri pilot" na staroj verziji ostavio je nacrte 'u_redu' bez termina."""
+        con = store.connect(self.p)
+        con.execute("UPDATE nacrti SET stanje='u_redu', termin_ts=NULL, kupnja_sol=NULL, skupina=?", (store.SKUPINA_0,))
+        con.execute("UPDATE nacrti SET stanje='lansiran' WHERE simbol='Y2027'")
+        con.execute("DELETE FROM kv WHERE k='seed_2611c'")
+        con.commit()
+        self.assertEqual(store.seed(con, NOW, slike_dir=self.tmp.name), 0)
+        ds = {d["simbol"]: d for d in store.drafts(con)}
+        self.assertEqual((ds["GOBBLE"]["stanje"], ds["GOBBLE"]["termin_ts"], ds["GOBBLE"]["kupnja_sol"]), ("nacrt", T19, 0.04))
+        self.assertEqual((ds["CARTGOB"]["stanje"], ds["CARTGOB"]["kupnja_sol"]), ("nacrt", 0.0))
+        self.assertEqual(ds["Y2027"]["stanje"], "lansiran")
+        self.assertEqual(launch.queue(con), [])                    # ništa nije odobreno
+        before = [dict(d) for d in store.drafts(con)]
+        store.seed(con, NOW + 60, slike_dir=self.tmp.name)         # jednokratno
+        self.assertEqual([dict(d) for d in store.drafts(con)], before)
+        con.close()
+
+    def test_owner_chat_order_approves_once_only_after_green_dry_run(self):
+        """26.11.: "smatraj da je odobren": jednom, samo za sjeme, samo uz zelenu suhu probu, samo do roka."""
+        from unittest import mock
+        from pumptokeni import posao
+        con = store.connect(self.p)
+        store.seed(con, NOW, slike_dir=self.tmp.name)
+        now = T19 - 3600
+        self.assertIsNone(posao.owner_order(con, now, log=lambda *_: None))            # nema naloga
+        store.put(con, store.NALOG_2611, {"ts": now, "do": T19 + 6300, "gotovo": False})
+        ids = provjera.scheduled_ids(con, now)
+        self.assertEqual(len(ids), 5)
+        with mock.patch.object(launch, "approve_pilot", return_value=(5, [])) as ap:
+            self.assertIsNone(posao.owner_order(con, now, log=lambda *_: None))        # provjera nije zelena
+            store.put(con, "provjera", {"ts": now, "ids": ids[:3], "zeleno": True})
+            self.assertIsNone(posao.owner_order(con, now, log=lambda *_: None))        # ne pokriva sve
+            store.put(con, "provjera", {"ts": now - 4000, "ids": ids, "zeleno": True})
+            self.assertIsNone(posao.owner_order(con, now, log=lambda *_: None))        # stara provjera
+            self.assertEqual(ap.call_count, 0)
+            store.put(con, "provjera", {"ts": now, "ids": ids, "zeleno": True})
+            self.assertIn("po nalogu vlasnika", posao.owner_order(con, now, log=lambda *_: None))
+            self.assertEqual(ap.call_args[0][1], ids)
+            self.assertIsNone(posao.owner_order(con, now + 60, log=lambda *_: None))   # samo jednom
+            self.assertEqual(ap.call_count, 1)
+            store.put(con, store.NALOG_2611, {"ts": now, "do": now - 1, "gotovo": False})
+            self.assertIsNone(posao.owner_order(con, now, log=lambda *_: None))        # istekao
+            self.assertEqual(ap.call_count, 1)
+        con.close()
+
     def test_job_after_migration_with_passed_termins_sends_nothing(self):
         env = {"DATA_DIR": self.tmp.name, "PUMP_TOKENI_DB": self.p}
         with mock.patch.dict(os.environ, env), mock.patch.object(executor, "STOP_FILE",
