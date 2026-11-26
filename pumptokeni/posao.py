@@ -54,6 +54,12 @@ def owner_order(con, now, log=print):
     kao njegov dodir (launch.approve_pilot: svi čuvari, termini, kupnje, rezerva). Bez zelene provjere se ne odobrava
     ništa. Tekst ili None."""
     o = store.get(con, store.NALOG_2611)
+    if o is None and not store.get(con, "nalog_2611_upisan") and now < store.NALOG_2611_DO:
+        # 26.11. 14:40 CET: nacrti su iz starog reda vraćeni već u 13:38 (prije jednokratnog ispravka), pa nalog nije bio
+        # upisan; vlasnikov nalog iz chata vrijedi svejedno. Upisuje se jednom.
+        o = {"ts": now, "do": store.NALOG_2611_DO, "gotovo": False}
+        store.put(con, store.NALOG_2611, o)
+        store.put(con, "nalog_2611_upisan", now)
     if not o or o.get("gotovo") or now >= int(o.get("do") or 0):
         return None
     seme = {r[3] for r in store.SEED}
