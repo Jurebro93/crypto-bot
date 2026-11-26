@@ -35,7 +35,9 @@ def dry_run_due(con, now, proc):
     if not provjera.scheduled_ids(con, now):
         return False
     st = store.get(con, "suha_proba") or {}
-    return st.get("proc") != proc or now - (st.get("ts") or 0) >= DRY_EVERY_S
+    o = store.get(con, store.NALOG_2611) or {}
+    every = 600 if (o and not o.get("gotovo") and now < int(o.get("do") or 0)) else DRY_EVERY_S   # nalog čeka zeleno
+    return st.get("proc") != proc or now - (st.get("ts") or 0) >= every
 
 
 def dry_run(con, now, proc, log=print, **kw):
@@ -43,6 +45,33 @@ def dry_run(con, now, proc, log=print, **kw):
     store.put(con, "suha_proba", {"ts": now, "proc": proc})
     return provjera.run(con, provjera.scheduled_ids(con, now), now=now, log=log, **kw)
 
+
+
+def owner_order(con, now, log=print):
+    """Vlasnikov nalog iz chata 26.11. ("pilot je već odobren i ne želim ga 100 puta odobravati, smatraj da je odobren"):
+    njegovo odobrenje od 13:31 palo je na staru verziju bez rasporeda. JEDNOM, samo za večerašnji raspored sjemenskih
+    nacrta i samo do store.NALOG_2611_DO: kad je suha proba cijelog rasporeda zelena, raspored se odobrava istim putem
+    kao njegov dodir (launch.approve_pilot: svi čuvari, termini, kupnje, rezerva). Bez zelene provjere se ne odobrava
+    ništa. Tekst ili None."""
+    o = store.get(con, store.NALOG_2611)
+    if not o or o.get("gotovo") or now >= int(o.get("do") or 0):
+        return None
+    seme = {r[3] for r in store.SEED}
+    ids = [i for i in provjera.scheduled_ids(con, now) if (store.draft(con, i) or {}).get("simbol") in seme]
+    pf = store.get(con, "provjera") or {}
+    if not ids or not pf.get("zeleno") or set(ids) - set(pf.get("ids") or []) or now - (pf.get("ts") or 0) > 1500:
+        return None
+    from trade import settings
+    try:
+        n, notes = launch.approve_pilot(con, ids, settings.owner(), True, now=now)
+    except ValueError as e:
+        log(f"pump tokeni: nalog vlasnika 26.11. nije izvršen ({str(e)[:160]})")
+        return None
+    store.put(con, store.NALOG_2611, {**o, "gotovo": True, "izvrseno_ts": now, "n": n})
+    txt = (f"pump tokeni: raspored odobren po nalogu vlasnika iz chata 26.11. ({n} nacrta)"
+           + (": " + "; ".join(notes) if notes else ""))
+    log(txt)
+    return txt
 
 
 def tick(now=None, log=print, path=None, proc=None, dry_kw=None):
@@ -63,6 +92,10 @@ def tick(now=None, log=print, path=None, proc=None, dry_kw=None):
                 dry_run(con, now, proc, log=log, **(dry_kw or {}))
         except Exception as e:  # noqa: BLE001
             log(f"pump tokeni provjera: suha proba nije uspjela ({type(e).__name__}: {str(e)[:120]})")
+        try:
+            owner_order(con, now, log=log)
+        except Exception as e:  # noqa: BLE001
+            log(f"pump tokeni: nalog vlasnika 26.11. nije obrađen ({type(e).__name__}: {str(e)[:120]})")
         try:
             res = launch.tick(con, now, log=log)
         except Exception as e:  # noqa: BLE001 - one bad pass never stops the next
