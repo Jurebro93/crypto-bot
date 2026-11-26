@@ -1404,7 +1404,9 @@ class SeedSchedule(unittest.TestCase):
         con = store.connect(self.p)
         store.seed(con, NOW, slike_dir=self.tmp.name)
         now = T19 - 3600
-        self.assertIsNone(posao.owner_order(con, now, log=lambda *_: None))            # nema naloga
+        self.assertIsNone(posao.owner_order(con, now, log=lambda *_: None))            # provjera još nije zelena
+        self.assertFalse(store.get(con, store.NALOG_2611)["gotovo"])                   # nalog upisan jednom
+        self.assertTrue(store.get(con, "nalog_2611_upisan"))
         store.put(con, store.NALOG_2611, {"ts": now, "do": T19 + 6300, "gotovo": False})
         ids = provjera.scheduled_ids(con, now)
         self.assertEqual(len(ids), 5)
@@ -1426,6 +1428,9 @@ class SeedSchedule(unittest.TestCase):
         con.close()
 
     def test_job_after_migration_with_passed_termins_sends_nothing(self):
+        c0 = store.connect(self.p)   # opće pravilo bez vlasnikova naloga od 26.11. (nalog ima svoj test)
+        store.put(c0, "nalog_2611_upisan", 1)
+        c0.close()
         env = {"DATA_DIR": self.tmp.name, "PUMP_TOKENI_DB": self.p}
         with mock.patch.dict(os.environ, env), mock.patch.object(executor, "STOP_FILE",
                                                                  os.path.join(self.tmp.name, "STOP")):
@@ -1465,6 +1470,9 @@ class DryRunJob(Base):
                                       "get": lambda u, h: gets.append(u) or 200})
 
     def test_once_per_process_then_every_30_min_never_sends(self):
+        c0 = store.connect()   # opće pravilo bez vlasnikova naloga od 26.11. (nalog ima svoj test)
+        store.put(c0, "nalog_2611_upisan", 1)
+        c0.close()
         rpc, post, gets = FakeRpc(), FakePost(), []
         from trade import wallet
         with mock.patch.dict(os.environ, {"PINATA_JWT": "j"}), mock.patch.object(wallet, "rpc", rpc):
