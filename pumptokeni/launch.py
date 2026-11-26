@@ -1,18 +1,28 @@
 """Lansiranje na vlasnikov dodir: red čekanja, stropovi, IPFS metapodaci, create zahtjev, potpis, simulacija, slanje.
 
-Tok jednog tokena (posao pumptokeni.posao, jedan po jedan, razmak RAZMAK):
+Raspored (26.11., vlasnik): svaki nacrt ima termin (CET). „Odobri pilot” odobrava RASPORED (okvir potvrde: termin,
+vlastita kupnja, poveznice, ukupni trošak); razmak RAZMAK je samo donja granica između dva lansiranja (bliži termin se
+pomiče i to se ispiše). Bez odobrenja se ništa ne lansira, ni kad termin prođe; termin koji je prošao više od
+MISSED_S (15 min) prije odobrenja ili obrade se ne nadoknađuje: nacrt dobiva stanje 'propusten' i čeka novo odobrenje.
+
+Tok jednog tokena (posao pumptokeni.posao, jedan po jedan, u terminu):
   1. kill switch (trade/STOP) → ništa; novčanik isključen / nema ključa → ništa (nacrt ostaje u redu)
-  2. dnevni strop (DNEVNO, tvrdi max 20) i razmak od zadnjeg poslanog → čeka
-  3. čuvari imena ponovno (DexScreener) → 'odbijen'
-  4. saldo platitelja ≥ MIN_SOL → inače čeka
-  5. slika + JSON na IPFS (Pinata uz PINATA_JWT, prema PumpPortal dokumentaciji 25.11.; inače stari pump.fun/api/ipfs)
+  2. termin još nije došao → čeka; dnevni strop (DNEVNO, tvrdi max 20) i razmak od zadnjeg poslanog → čeka
+  3. čuvari imena ponovno (DexScreener) i provjera poveznica → 'odbijen'
+  4. saldo platitelja ≥ MIN_SOL; rezerva: nakon lansiranja mora ostati REZERVA_SOL (0,03); ako bi vlastita kupnja to
+     prekršila, lansira se BEZ kupnje (upozorenje u pokušaju, logu i na stranici); ako ni bez kupnje ne ostaje → čeka
+  5. slika + JSON na IPFS (Pinata uz PINATA_JWT, prema PumpPortal dokumentaciji 25.11.; inače stari pump.fun/api/ipfs);
+     poveznice (twitter, telegram, website) idu u JSON metapodataka, jer ih pump.fun čita s URI-ja
   6. novi mint keypair; mint ZAPISAN u pokusaji prije ikakvog slanja (zabrana samotrgovanja ga vidi odmah)
-  7. PumpPortal trade-local: action create, amount 0, denominatedInSol "true", pool pump (bez vlastite kupnje)
+  7. PumpPortal trade-local: action create, amount = vlastita kupnja (0 ili do 0,1 SOL), denominatedInSol "true",
+     pool pump; kupnja je u istoj transakciji lansiranja (javno vidljiva kao devova)
   8. provjera naloga: platitelj prvi potpisnik, točno 2 potpisa (platitelj + mint), poziva pump.fun program,
      priority naknada ≤ PRIORITY_MAX_SOL
   9. potpis mint keypairom i novčanikom; simulateTransaction (sigVerify): mora uspjeti, promjena SOL salda
-     platitelja (+ osnovna naknada) ≤ MAX_SOL, nijedan token račun platitelja ne smije izgubiti ni jedan token
- 10. slanje kroz isti RPC (trade/wallet.send), potvrda, izmjereni trošak = saldo prije − saldo poslije
+     platitelja (+ osnovna naknada) ≤ MAX_SOL + kupnja × 1,03, nijedan token račun platitelja ne smije izgubiti ni
+     jedan token (smije ih primiti)
+ 10. slanje kroz isti RPC (trade/wallet.send), potvrda, izmjereni trošak = saldo prije − saldo poslije − kupnja (kupnja
+     je vezan kapital u tokenima, ne trošak). Kupljene tokene alat nikad ne prodaje (nema puta prodaje).
 
 Ključevi: PUMP_DEV_PRIVATE_KEY (zasebni novčanik pokusa, preporučeno) ili SOLANA_PRIVATE_KEY (trgovački, samo uz
 vlasnikov prekidač trade/settings PUMP_TRGOVACKI potvrđen dodirom). Ključ se nikad ne ispisuje ni ne logira.
@@ -45,7 +55,11 @@ EXPECTED = (0.0075, 0.0113)   # izmjereno s lanca 25.11. (13 lansiranja bez kupn
 OFF, TOOL, SEPARATE, TRADING = "iskljuceno", "alat", "zasebni", "trgovacki"
 CHOICES = {TOOL: "Novčanik pokusa stvoren u alatu (zadano)", SEPARATE: "Zasebni novčanik iz env PUMP_DEV_PRIVATE_KEY",
            TRADING: "Trgovački novčanik (SOLANA_PRIVATE_KEY)", OFF: "Isključeno"}
-RESERVE_SOL = 0.01          # rezerva povrh broj × strop u provjeri prije lansiranja
+RESERVE_SOL = 0.03          # zadana PUMP_TOKENI_REZERVA_SOL: novčanik mora nakon lansiranja zadržati barem ovoliko
+BUY_FEE = 0.0125            # naknada pump.funa na kupnju (protokol 0,95 % + kreator 0,30 %)
+BUY_CAP_MULT = 1.03         # čuvar simulacije: kupnja smije stajati najviše kupnja × 1,03 (naknada + proklizavanje)
+MISSED_S = 900              # termin prošao više od 15 min prije odobrenja ili obrade: ne nadoknađuje se
+BUY_SKIP_WARN = "vlastita kupnja preskočena: rezerva"
 PREFLIGHT_MAX_AGE_S = 1800  # pilot se odobrava samo uz zelenu provjeru mlađu od 30 min
 CONFIRM_WAIT_S = 90         # čekanje potvrde (getSignatureStatuses do 'confirmed'), zatim 'nepoznato'
 
@@ -67,6 +81,7 @@ def cfg(env=None):
             "razmak_s": _num(env, "PUMP_TOKENI_RAZMAK_MIN", 10, 1, 24 * 60) * 60,
             "min_sol": {TOOL: zas, SEPARATE: zas, TRADING: max(1.0, _num(env, "PUMP_TOKENI_MIN_SOL", 1.0, 1.0, 100.0))},
             "priority_sol": _num(env, "PUMP_TOKENI_PRIORITY_SOL", 0.00005, 0.0, PRIORITY_MAX_SOL),
+            "rezerva_sol": _num(env, "PUMP_TOKENI_REZERVA_SOL", RESERVE_SOL, 0.01, 10.0),
             "ipfs": (env.get("PUMP_TOKENI_IPFS") or ("pinata" if (env.get("PINATA_JWT") or "").strip() else "pumpfun"))
             .strip().lower()}
 
@@ -174,8 +189,11 @@ def http_post(url, body, headers, timeout=30):
         return e.code, e.read()[:500]
 
 
-def upload_metadata(name, symbol, desc, png, backend="pumpfun", post=None, env=None):
-    """URI JSON metapodataka na IPFS-u. Samo ime, simbol, opis, slika (bez weba, X-a, Telegrama, bez naše domene)."""
+def upload_metadata(name, symbol, desc, png, backend="pumpfun", post=None, env=None, links=None):
+    """URI JSON metapodataka na IPFS-u: ime, simbol, opis, slika i poveznice nacrta (links {twitter, telegram,
+    website}, samo neprazne i već provjerene). Poveznice su polja JSON-a metapodataka (pump.fun ih čita s URI-ja), kao u
+    primjeru PumpPortala za pump.fun/api/ipfs (form polja twitter/telegram/website); create zahtjev ih ne nosi."""
+    links = {k: v for k, v in (links or {}).items() if k in ("twitter", "telegram", "website") and v}
     env = os.environ if env is None else env
     post = post or http_post
     if backend == "pinata":
@@ -194,10 +212,11 @@ def upload_metadata(name, symbol, desc, png, backend="pumpfun", post=None, env=N
                 raise RuntimeError("IPFS (Pinata): odgovor bez cid")
             return cid
         img = pin(png, "image.png", "image/png")
-        meta = {"name": name, "symbol": symbol, "description": desc, "image": IPFS_GATEWAY + img, "showName": True}
+        meta = {"name": name, "symbol": symbol, "description": desc, "image": IPFS_GATEWAY + img, "showName": True,
+                **links}
         return IPFS_GATEWAY + pin(json.dumps(meta, ensure_ascii=False).encode("utf-8"), "metadata.json",
                                   "application/json")
-    body, ct = _multipart({"name": name, "symbol": symbol, "description": desc, "showName": "true"}, "file",
+    body, ct = _multipart({"name": name, "symbol": symbol, "description": desc, **links, "showName": "true"}, "file",
                           "image.png", png, "image/png")
     st, data = post(PUMP_IPFS, body, {"Content-Type": ct})
     if st != 200:
@@ -211,11 +230,30 @@ def upload_metadata(name, symbol, desc, png, backend="pumpfun", post=None, env=N
     return uri
 
 
-def create_request(payer, mint, name, symbol, uri, priority_sol):
-    """Tijelo create zahtjeva prema PumpPortal trade-local (pumpportal.fun/creation, 25.11.): amount 0 = bez kupnje."""
+def create_request(payer, mint, name, symbol, uri, priority_sol, kupnja=0):
+    """Tijelo create zahtjeva prema PumpPortal trade-local (pumpportal.fun/creation, 25.11.): amount = vlastita kupnja
+    u SOL-u (denominatedInSol), u istoj transakciji; 0 = bez kupnje. tokenMetadata nosi samo name, symbol, uri."""
+    k = float(kupnja or 0)
+    if not 0 <= k <= store.HARD_MAX_KUPNJA + 1e-12:
+        raise ValueError(f"vlastita kupnja {k:g} SOL izvan 0–{store.HARD_MAX_KUPNJA:g}")
     return {"publicKey": payer, "action": "create", "tokenMetadata": {"name": name, "symbol": symbol, "uri": uri},
-            "mint": mint, "denominatedInSol": "true", "amount": 0, "slippage": 10, "priorityFee": priority_sol,
-            "pool": "pump"}
+            "mint": mint, "denominatedInSol": "true", "amount": round(k, 6) if k else 0, "slippage": 10,
+            "priorityFee": priority_sol, "pool": "pump"}
+
+
+def sim_cap(c, kupnja):
+    """Dopuštena promjena SOL salda platitelja u simulaciji: trošak lansiranja + kupnja × 1,03."""
+    return c["max_sol"] + float(kupnja or 0) * BUY_CAP_MULT
+
+
+def plan_buy(pre, kupnja, c):
+    """(kupnja, upozorenje, rezerva_ok) prema saldu prije lansiranja: nakon lansiranja (strop) i kupnje mora ostati
+    rezerva; inače bez kupnje; ako ni bez kupnje ne ostaje, rezerva_ok=False (ne lansira se)."""
+    k = float(kupnja or 0)
+    warn = None
+    if k > 0 and pre - sim_cap(c, k) < c["rezerva_sol"] - 1e-12:
+        k, warn = 0.0, BUY_SKIP_WARN
+    return k, warn, pre - c["max_sol"] >= c["rezerva_sol"] - 1e-12
 
 
 def create_tx(body, post=None):
@@ -366,7 +404,7 @@ def last_sent(con):
 
 
 def queue(con):
-    return [dict(r) for r in con.execute("SELECT * FROM nacrti WHERE stanje='u_redu' ORDER BY u_red_ts, id")]
+    return [dict(r) for r in con.execute("SELECT * FROM nacrti WHERE stanje='u_redu' ORDER BY termin_ts, u_red_ts, id")]
 
 
 def stop_queue(con, why, now=None, log=print):
@@ -379,17 +417,20 @@ def stopped(con):
     return store.get(con, "red_stop")
 
 
-def approve_pilot(con, ids, user, confirmed, now=None):
-    """„Odobri pilot” (jedan dodir vlasnika): odabrani nacrti u red, red kreće (prvi odmah, zatim razmak). Samo uz
-    potvrdu iz okvira i uz cijelu zelenu provjeru prije lansiranja (mlađu od 30 min) koja je obuhvatila te nacrte.
-    (n, [preskočeni])."""
+def approve_pilot(con, ids, user, confirmed, now=None, env=None):
+    """„Odobri pilot” (jedan dodir vlasnika) odobrava RASPORED: odabrani nacrti u red, svaki u svom terminu. Samo uz
+    potvrdu iz okvira i uz cijelu zelenu provjeru prije lansiranja (mlađu od 30 min) koja je obuhvatila te nacrte s
+    istom kupnjom i terminom. Razmak RAZMAK je donja granica: bliži termin se pomiče (i to se vraća u popisu). Termin
+    koji je prošao više od 15 min → 'propusten', ne ide u red. Odobrenje zamjenjuje prethodni raspored (nacrti u redu
+    koji nisu odabrani vraćaju se u 'nacrt'). (n, [napomene])."""
     from trade import settings
     if not settings.is_owner(user):
         raise ValueError("pilot odobrava samo vlasnik")
     if not confirmed:
         raise ValueError("pilot samo uz potvrdu u okviru")
     now = int(now or time.time())
-    ids = [int(i) for i in ids]
+    c = cfg(env)
+    ids = list(dict.fromkeys(int(i) for i in ids))
     if not ids:
         raise ValueError("nijedan nacrt nije odabran")
     pf = store.get(con, "provjera") or {}
@@ -400,24 +441,56 @@ def approve_pilot(con, ids, user, confirmed, now=None):
     missing = [i for i in ids if i not in (pf.get("ids") or [])]
     if missing:
         raise ValueError(f"provjera nije obuhvatila nacrte {missing}: ponovi je s tim odabirom")
-    n, why = 0, []
+    pfd = {x.get("id"): x for x in pf.get("nacrti") or []}
+    items, why = [], []
     for did in ids:
         d = store.draft(con, did)
         if not d:
             continue
-        if d["stanje"] not in ("nacrt", "odbijen", "greska", "u_redu"):
+        sym = d["simbol"]
+        if d["stanje"] not in ("nacrt", "odbijen", "greska", "u_redu", "propusten"):
             why.append(f"#{did}: stanje {d['stanje']}")
             continue
         if not guards.fresh_ok(store.check_of(d), now):
-            why.append(f"#{did} {d['simbol']}: provjera imena ne prolazi")
+            why.append(f"#{did} {sym}: provjera imena ne prolazi")
             continue
+        lw = store.links_reasons(con, d)
+        if lw:
+            why.append(f"#{did} {sym}: {'; '.join(lw)}")
+            continue
+        t = d.get("termin_ts") or store.default_termin(now)
+        p = pfd.get(did) or {}
+        if (abs(float(p.get("kupnja") or 0) - float(d.get("kupnja_sol") or 0)) > 1e-9 or p.get("termin") != t
+                or p.get("ok") is not True):
+            why.append(f"#{did} {sym}: provjera je rađena s drugom kupnjom ili terminom, ili suha proba nije prošla: "
+                       "ponovi provjeru")
+            continue
+        if now - t > MISSED_S:
+            store.set_state(con, did, "propusten", now)
+            why.append(f"#{did} {sym}: termin {store.cet(t)} je prošao: propušten, ne ide u red")
+            continue
+        items.append((t, did, d))
+    items.sort(key=lambda x: (x[0], x[1]))
+    for d in queue(con):   # novi raspored zamjenjuje stari
+        if d["id"] not in {i for _t, i, _d in items}:
+            store.set_state(con, d["id"], "nacrt", now)
+    plan, last = [], (last_sent(con) or None)
+    for t, did, d in items:
+        nt = t if last is None else max(t, last + int(c["razmak_s"]))
+        if nt != t:
+            why.append(f"#{did} {d['simbol']}: termin pomaknut {store.cet(t)} → {store.cet(nt)} (razmak "
+                       f"{int(c['razmak_s'] // 60)} min)")
+            store.set_termin(con, did, nt)
         if d["stanje"] != "u_redu":
             store.set_state(con, did, "u_redu", now)
-        n += 1
-    if n:
-        store.put(con, "pilot", {"odobren_ts": now, "ids": ids, "who": user, "poslano": 0, "uzastopno_neuspjelih": 0})
+        plan.append({"id": did, "simbol": d["simbol"], "termin": nt, "izvorni": t,
+                     "kupnja": float(d.get("kupnja_sol") or 0), "poveznice": bool(store.link_urls(con, d))})
+        last = nt
+    if plan:
+        store.put(con, "pilot", {"odobren_ts": now, "ids": [x["id"] for x in plan], "who": user, "poslano": 0,
+                                 "uzastopno_neuspjelih": 0, "raspored": plan})
         store.put(con, "red_stop", None)
-    return n, why
+    return len(plan), why
 
 
 def dequeue(con, did, now=None):
@@ -456,16 +529,39 @@ def _note(con, text, now):
 
 
 def tick(con, now=None, env=None, rpc=None, post=None, search=None, tcon=None, log=print, wait=None):
-    """Jedan prolaz reda: najviše jedno lansiranje, pa pravilo sigurnosti pilota. Vraća tekst ishoda ili None."""
+    """Jedan prolaz reda: propušteni termini → 'propusten' (bez nadoknade), zatim najviše jedno lansiranje i to samo
+    kad je termin prvog nacrta u odobrenom rasporedu došao; pa pravilo sigurnosti pilota. Tekst ishoda ili None."""
     now = int(now or time.time())
     q = queue(con)
     if not q:
+        return None
+    plan = {x.get("id"): x for x in (store.get(con, "pilot") or {}).get("raspored") or []}
+    live = []
+    for d in q:
+        t, p = d.get("termin_ts"), plan.get(d["id"])
+        if t is None or p is None or p.get("termin") != t or \
+                abs(float(p.get("kupnja") or 0) - float(d.get("kupnja_sol") or 0)) > 1e-9:
+            store.set_state(con, d["id"], "propusten", now)
+            log(f"pump tokeni: {d['simbol']} nije u odobrenom rasporedu: ne lansira se, čeka novo odobrenje")
+            continue
+        if now - t > MISSED_S:
+            store.set_state(con, d["id"], "propusten", now)
+            log(f"pump tokeni: {d['simbol']} termin {store.cet(t)} propušten (više od 15 min): ne nadoknađuje se, "
+                "čeka novo odobrenje")
+            continue
+        live.append(d)
+    if not live:
         return None
     why = blocked_reason(con, now, env, tcon)
     if why:
         _note(con, why, now)
         return why
-    res = launch_one(con, q[0], now, env=env, rpc=rpc, post=post, search=search, tcon=tcon, log=log, wait=wait)
+    head = live[0]
+    if now < head["termin_ts"]:
+        txt = f"čeka termin: {head['simbol']} u {store.cet(head['termin_ts'])} CET"
+        _note(con, txt, now)
+        return txt
+    res = launch_one(con, head, now, env=env, rpc=rpc, post=post, search=search, tcon=tcon, log=log, wait=wait)
     _safety(con, res, now, env, log)
     return res["tekst"]
 
@@ -522,6 +618,14 @@ def launch_one(con, d, now, env=None, rpc=None, post=None, search=None, tcon=Non
         store.set_state(con, d["id"], "odbijen", now)
         log(f"pump tokeni: {sym} čuvar imena odbio: {txt}")
         return _res(d, "odbijen", f"odbijen ({txt})")
+    lw = store.links_reasons(con, d)
+    if lw:
+        txt = "; ".join(lw)
+        store.new_attempt(con, d, ch, payer, now, stanje="odbijeno", greska="poveznice: " + txt)
+        store.set_state(con, d["id"], "odbijen", now)
+        log(f"pump tokeni: {sym} poveznice odbijene: {txt}")
+        return _res(d, "odbijen", f"odbijen ({txt})")
+    links = store.link_urls(con, d)
     try:
         pre = rpc("getBalance", [payer, {"commitment": "confirmed"}])["value"] / 1e9
     except Exception as e:  # noqa: BLE001
@@ -533,10 +637,22 @@ def launch_one(con, d, now, env=None, rpc=None, post=None, search=None, tcon=Non
         _note(con, why, now)
         log(f"pump tokeni: {sym} čeka: {why}")
         return _res(d, "ceka", why)
+    want = float(d.get("kupnja_sol") or 0)
+    kupnja, warn, reserve_ok = plan_buy(pre, want, c)
+    if not reserve_ok:
+        why = (f"saldo {pre:.4f} SOL ne ostavlja rezervu {c['rezerva_sol']:g} SOL ni bez vlastite kupnje "
+               f"(lansiranje do {c['max_sol']:g} SOL)")
+        _note(con, why, now)
+        log(f"pump tokeni: {sym} čeka: {why}")
+        return _res(d, "ceka", why)
+    if warn:
+        log(f"pump tokeni: {sym} {warn} (saldo {pre:.4f} SOL, kupnja {want:g} SOL bi ostavila manje od "
+            f"{c['rezerva_sol']:g} SOL): lansira se bez kupnje")
     uri = d.get("meta_uri")
     if not uri:
         try:
-            uri = upload_metadata(d["ime"], d["simbol"], d["opis"], d["slika"], c["ipfs"], post=post, env=env)
+            uri = upload_metadata(d["ime"], d["simbol"], d["opis"], d["slika"], c["ipfs"], post=post, env=env,
+                                  links=links)
         except Exception as e:  # noqa: BLE001
             store.new_attempt(con, d, ch, payer, now, stanje="odbijeno", greska=f"IPFS: {str(e)[:200]}")
             store.set_state(con, d["id"], "greska", now)
@@ -549,7 +665,8 @@ def launch_one(con, d, now, env=None, rpc=None, post=None, search=None, tcon=Non
     mint = str(mint_kp.pubkey())
     aid = store.new_attempt(con, d, ch, payer, now, mint=mint)   # mint upisan prije bilo kakvog slanja
     own.reset()
-    store.update_attempt(con, aid, saldo_prije=pre)
+    store.update_attempt(con, aid, saldo_prije=pre, kupnja_trazena=want, kupnja_sol=kupnja, upozorenje=warn,
+                         ima_poveznice=1 if links else 0, termin_ts=d.get("termin_ts"))
 
     def refuse(text, state="odbijen", sim=None, phase=""):
         store.update_attempt(con, aid, stanje="odbijeno", greska=text[:400], **({"sim_sol": sim} if sim is not None else {}))
@@ -557,7 +674,7 @@ def launch_one(con, d, now, env=None, rpc=None, post=None, search=None, tcon=Non
         log(f"pump tokeni: {sym} {phase}greška: {text[:300]}")
         return _res(d, "odbijen" if state == "odbijen" else "neuspio", text)
     try:
-        raw = create_tx(create_request(payer, mint, d["ime"], d["simbol"], uri, c["priority_sol"]), post=post)
+        raw = create_tx(create_request(payer, mint, d["ime"], d["simbol"], uri, c["priority_sol"], kupnja), post=post)
         tx = VersionedTransaction.from_bytes(raw)
     except Exception as e:  # noqa: BLE001
         return refuse(f"create nalog nije dobiven: {str(e)[:200]}", "greska", phase="create ")
@@ -568,12 +685,13 @@ def launch_one(con, d, now, env=None, rpc=None, post=None, search=None, tcon=Non
     signed = VersionedTransaction(tx.message, [mint_kp, kp])
     b64 = base64.b64encode(bytes(signed)).decode()
     try:
-        sim = simulate(rpc, b64, payer, tx.message.header.num_required_signatures, c["max_sol"])
+        sim = simulate(rpc, b64, payer, tx.message.header.num_required_signatures, sim_cap(c, kupnja))
     except Exception as e:  # noqa: BLE001
         return refuse(f"simulacija nije uspjela ({type(e).__name__})", "greska", phase="simulacija ")
     if not sim["ok"]:
         return refuse(sim["why"], sim=sim["sol"], phase="simulacija ")
-    log(f"pump tokeni: {sym} simulacija ok (trošak {sim['sol']:.5f} SOL)")
+    log(f"pump tokeni: {sym} simulacija ok (trošak {sim['sol']:.5f} SOL" +
+        (f", od toga vlastita kupnja {kupnja:g} SOL)" if kupnja else ")"))
     if os.path.exists(executor.STOP_FILE):   # još jednom, odmah prije slanja
         store.update_attempt(con, aid, stanje="odbijeno", greska="kill switch (trade/STOP)")
         log(f"pump tokeni: {sym} nije poslan: kill switch")
@@ -601,21 +719,25 @@ def launch_one(con, d, now, env=None, rpc=None, post=None, search=None, tcon=Non
         post_bal = rpc("getBalance", [payer, {"commitment": "confirmed"}])["value"] / 1e9
     except Exception:  # noqa: BLE001
         post_bal = None
-    cost = round(pre - post_bal, 9) if post_bal is not None else None
+    total = round(pre - post_bal, 9) if post_bal is not None else None
+    cost = total   # palo na lancu: kupnja se nije dogodila, sve je trošak
     if ok is False:
-        store.update_attempt(con, aid, stanje="neuspio", saldo_poslije=post_bal, trosak_sol=cost,
+        store.update_attempt(con, aid, stanje="neuspio", saldo_poslije=post_bal, trosak_sol=cost, ukupno_sol=total,
                              greska="transakcija pala na lancu")
         store.set_state(con, d["id"], "greska", now)
         log(f"pump tokeni: {sym} greška: transakcija pala na lancu, trošak {cost if cost is not None else '?'} SOL")
         return _res(d, "neuspio", "palo na lancu", cost)
+    cost = round(total - kupnja, 9) if total is not None else None   # kupnja = vezan kapital u tokenima, ne trošak
     if not mint_exists(rpc, mint):
-        store.update_attempt(con, aid, stanje="nepoznato", saldo_poslije=post_bal, trosak_sol=cost,
+        store.update_attempt(con, aid, stanje="nepoznato", saldo_poslije=post_bal, trosak_sol=cost, ukupno_sol=total,
                              greska="potvrđeno, ali mint račun još nije vidljiv")
         log(f"pump tokeni: {sym} potvrđeno, ali mint račun nije vidljiv: stanje nepoznato")
         return _res(d, "nepoznato", "mint nije vidljiv", cost)
-    store.update_attempt(con, aid, stanje="lansiran", saldo_poslije=post_bal, trosak_sol=cost, greska=None)
+    store.update_attempt(con, aid, stanje="lansiran", saldo_poslije=post_bal, trosak_sol=cost, ukupno_sol=total,
+                         greska=None)
     store.set_state(con, d["id"], "lansiran", now)
-    log(f"pump tokeni: {sym} potvrđeno, mint {mint}, izmjereni trošak {cost if cost is not None else '?'} SOL")
+    log(f"pump tokeni: {sym} potvrđeno, mint {mint}, izmjereni trošak {cost if cost is not None else '?'} SOL"
+        + (f" (+ vlastita kupnja {kupnja:g} SOL u tokenima; alat ih ne prodaje)" if kupnja else ""))
     return _res(d, "lansiran", "lansiran", cost)
 
 
@@ -639,7 +761,9 @@ def reconcile(con, now=None, rpc=None, min_age_s=120, log=print):
             if a.get("trosak_sol") is None and a.get("saldo_prije") is not None:
                 try:
                     post_bal = rpc("getBalance", [a["platitelj"], {"commitment": "confirmed"}])["value"] / 1e9
-                    cols.update(saldo_poslije=post_bal, trosak_sol=round(a["saldo_prije"] - post_bal, 9))
+                    total = round(a["saldo_prije"] - post_bal, 9)
+                    cols.update(saldo_poslije=post_bal, ukupno_sol=total,
+                                trosak_sol=round(total - ((a.get("kupnja_sol") or 0) if ok else 0), 9))
                 except Exception:  # noqa: BLE001
                     pass
             store.update_attempt(con, a["id"], **cols)
