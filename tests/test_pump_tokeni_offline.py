@@ -1742,6 +1742,32 @@ class Access(unittest.TestCase):
             r = e
         return r.headers["Set-Cookie"].split(";")[0]
 
+    def test_viewer_reads_only(self):
+        """26.11.: gledatelj (zadano Panda) vidi ploču i raspored, bez obrazaca; ne može ništa pokrenuti."""
+        from ui import pumptokeni as pt
+        self.assertTrue(pt.is_viewer("panda") and pt.is_viewer("Panda") and not pt.is_viewer("Ana") and not pt.is_viewer(""))
+        ana, ivan = self.login("Ana", "anapw"), self.login("Ivan", "ivanpw")
+        with mock.patch.dict(os.environ, {"PUMP_TOKENI_GLEDATELJI": "ana"}):
+            code, html, _ = self.call("/pump-tokeni", ana)
+            self.assertEqual(code, 200, html[:300])
+            self.assertIn("samo za čitanje", html)
+            self.assertIn("GOBBLE", html)
+            self.assertNotIn("/pump-tokeni/lansiraj", html)
+            self.assertNotIn("Vrati ostatak", html)
+            self.assertNotIn("Odobri pilot", html)
+            self.assertEqual(self.call("/pump-tokeni/slika/1", ana)[0], 200)
+            self.assertEqual(self.call("/pump-tokeni/ploca", ana)[0], 200)
+            self.assertEqual(self.call("/pump-tokeni/csv", ana)[0], 403)
+            for path in ("/pump-tokeni/lansiraj", "/pump-tokeni/zaustavi", "/pump-tokeni/provjera"):
+                try:   # odbijeno (403) ili veza zatvorena bez odgovora: u oba slučaja ništa nije izvršeno
+                    self.assertNotEqual(self.call(path, ana, data=b"ids=1&potvrda=1")[0], 200, path)
+                except OSError:
+                    pass
+            self.assertEqual(self.call("/pump-tokeni", ivan)[0], 403)
+        con = store.connect()
+        self.assertEqual(launch.queue(con), [])
+        con.close()
+
     def test_owner_only_page_and_menu(self):
         jure, ana, ivan = self.login("Jure", "jurepw"), self.login("Ana", "anapw"), self.login("Ivan", "ivanpw")
         with mock.patch("ui.pumptokeni.balance", lambda a, max_age=60: None):
