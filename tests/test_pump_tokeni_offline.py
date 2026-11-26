@@ -1379,6 +1379,24 @@ class SeedSchedule(unittest.TestCase):
         self.assertEqual([d["kupnja_sol"] for d in store.drafts(con)], [0.04, 0.04, 0, 0, 0])
         con.close()
 
+    def test_old_queue_without_termin_goes_back_to_drafts_with_tonights_plan(self):
+        """26.11.: „Odobri pilot" na staroj verziji ostavio je nacrte 'u_redu' bez termina."""
+        con = store.connect(self.p)
+        con.execute("UPDATE nacrti SET stanje='u_redu', termin_ts=NULL, kupnja_sol=NULL, skupina=?", (store.SKUPINA_0,))
+        con.execute("UPDATE nacrti SET stanje='lansiran' WHERE simbol='Y2027'")
+        con.execute("DELETE FROM kv WHERE k='seed_2611c'")
+        con.commit()
+        self.assertEqual(store.seed(con, NOW, slike_dir=self.tmp.name), 0)
+        ds = {d["simbol"]: d for d in store.drafts(con)}
+        self.assertEqual((ds["GOBBLE"]["stanje"], ds["GOBBLE"]["termin_ts"], ds["GOBBLE"]["kupnja_sol"]), ("nacrt", T19, 0.04))
+        self.assertEqual((ds["CARTGOB"]["stanje"], ds["CARTGOB"]["kupnja_sol"]), ("nacrt", 0.0))
+        self.assertEqual(ds["Y2027"]["stanje"], "lansiran")
+        self.assertEqual(launch.queue(con), [])                    # ništa nije odobreno
+        before = [dict(d) for d in store.drafts(con)]
+        store.seed(con, NOW + 60, slike_dir=self.tmp.name)         # jednokratno
+        self.assertEqual([dict(d) for d in store.drafts(con)], before)
+        con.close()
+
     def test_job_after_migration_with_passed_termins_sends_nothing(self):
         env = {"DATA_DIR": self.tmp.name, "PUMP_TOKENI_DB": self.p}
         with mock.patch.dict(os.environ, env), mock.patch.object(executor, "STOP_FILE",
