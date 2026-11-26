@@ -59,6 +59,10 @@ class FakePost:
 
     def __init__(self, tx_fn=fake_tx, pp_status=200):
         self.calls, self.tx_fn, self.pp_status = [], tx_fn, pp_status
+        self.last_amount = 0
+
+    def creates(self):
+        return [json.loads(b) for u, b, h in self.calls if u == launch.PUMPPORTAL]
 
     def __call__(self, url, body, headers, timeout=30):
         self.calls.append((url, body, headers))
@@ -66,6 +70,7 @@ class FakePost:
             if self.pp_status != 200:
                 return self.pp_status, b'{"error":"bad"}'
             b = json.loads(body)
+            self.last_amount = float(b.get("amount") or 0)
             return 200, self.tx_fn(Pubkey.from_string(b["publicKey"]), Pubkey.from_string(b["mint"]))
         if url == launch.PUMP_IPFS:
             return 200, json.dumps({"metadataUri": "https://ipfs.io/ipfs/bafymeta"}).encode()
@@ -76,12 +81,16 @@ class FakePost:
 
 class FakeRpc:
     def __init__(self, sol=0.2, cost=0.009, sim_cost=None, status="confirmed", err=None, sim_err=None, toks=(),
-                 tok_post=None, mint_ok=True):
+                 tok_post=None, mint_ok=True, buy_from=None):
         self.bal = int(sol * 1e9)
         self.cost, self.sim_cost = int(cost * 1e9), int((cost if sim_cost is None else sim_cost) * 1e9)
         self.status, self.err, self.sim_err, self.toks, self.tok_post = status, err, sim_err, list(toks), tok_post
         self.mint_ok = mint_ok
+        self.buy_from = buy_from   # FakePost: kupnja iz zadnjeg create zahtjeva (× 1,0125) ide u simulaciju i slanje
         self.calls = []
+
+    def _buy(self):
+        return int((self.buy_from.last_amount if self.buy_from else 0) * (1 + launch.BUY_FEE) * 1e9)
 
     def methods(self):
         return [c[0] for c in self.calls]
@@ -100,14 +109,14 @@ class FakeRpc:
         if method == "simulateTransaction":
             if self.sim_err:
                 return {"value": {"err": self.sim_err, "logs": ["x"], "accounts": None}}
-            accs = [{"lamports": self.bal - self.sim_cost}]
+            accs = [{"lamports": self.bal - self.sim_cost - self._buy()}]
             for a, n in self.toks:
                 post = n if self.tok_post is None else self.tok_post
                 accs.append({"data": {"parsed": {"info": {"tokenAmount": {"amount": str(post)}}}}})
             return {"value": {"err": None, "logs": [], "accounts": accs}}
         if method == "sendTransaction":
             tx = VersionedTransaction.from_bytes(base64.b64decode(params[0]))
-            self.bal -= self.cost
+            self.bal -= self.cost + self._buy()
             return str(tx.signatures[0])
         if method == "getSignatureStatuses":
             if self.status is None:
@@ -137,7 +146,13 @@ class Base(unittest.TestCase):
         own.reset()
         self.con = store.connect()
         store.seed(self.con, NOW)
+        self.plain()
         self.logs = []
+
+    def plain(self, termin=NOW):
+        """Stari testovi: sjemenski nacrti bez kupnje, termin odmah (sjeme s večerašnjim rasporedom: SeedSchedule)."""
+        self.con.execute("UPDATE nacrti SET kupnja_sol=0, termin_ts=?", (termin,))
+        self.con.commit()
 
     def tearDown(self):
         self.con.close()
@@ -822,9 +837,13 @@ class Dashboard(Base):
 
 class SeedTextAndImages(Base):
     def test_new_descriptions_pass_guards_and_say_do_not_buy(self):
-        for tema, datum, ime, sym, opis in store.SEED:
-            self.assertIn("not buy", opis.lower())
-            self.assertLessEqual(len(opis), 500)
+        want = {"GOBBLE": "A Thanksgiving turkey. No roadmap, no promises, just vibes.",
+                "DOORB": "A Black Friday doorbuster with no discount and no pitch.",
+                "CARTGOB": "The goblin who lives in your abandoned cart.",
+                "SRALLY": "Named after the Santa rally. That is a seasonal story, not a promise.",
+                "Y2027": "A New Year 2027 token, launched early. No promises."}
+        for tema, datum, ime, sym, opis, *_rest in store.SEED:
+            self.assertEqual(opis, want[sym])
             r = guards.check({"ime": ime, "simbol": sym, "opis": opis, "slika": b"x"}, search=no_search, now=NOW)
             self.assertTrue(r["ok"], (sym, r))
         self.assertEqual([d["opis"] for d in store.drafts(self.con)], [x[4] for x in store.SEED])
@@ -832,7 +851,7 @@ class SeedTextAndImages(Base):
     def _old_db(self):
         p = os.path.join(self.tmp.name, "old.db")
         con = store.connect(p)
-        for tema, datum, ime, sym, _o in store.SEED:
+        for tema, datum, ime, sym, *_o in store.SEED:
             con.execute("INSERT INTO nacrti (tema, datum_teme, ime, simbol, opis, slika, skupina, stanje, napravljen_ts,"
                         " promijenjen_ts, provjera) VALUES (?,?,?,?,?,?,?,'nacrt',?,?,'{\"ok\":true}')",
                         (tema, datum, ime, sym, store.SEED_2511[sym], image.generate(ime, sym), store.SKUPINA_0, NOW, NOW))
@@ -854,6 +873,7 @@ class SeedTextAndImages(Base):
         self.assertIsNone(ds["GOBBLE"]["provjera"])                              # nova provjera imena
         self.assertEqual(ds["DOORB"]["opis"], "My own words.")
         self.assertEqual(ds["CARTGOB"]["opis"], store.SEED_2511["CARTGOB"])
+        self.assertIsNone(ds["CARTGOB"]["termin_ts"])                            # vlasnikova slika: ne dira se
         self.assertEqual(ds["SRALLY"]["opis"], store.SEED_2511["SRALLY"])
         before = [(d["opis"], d["promijenjen_ts"]) for d in store.drafts(con)]
         store.seed(con, NOW + 20)
@@ -1001,6 +1021,610 @@ class PilotButton(Base):
         self.assertIn("form=ptl disabled>✅ Odobri pilot", html)
         self.assertIn("PINATA_JWT", html)                           # samo u poruci što nedostaje
 
+
+
+# ---------- 26.11. večer: vlastita kupnja, poveznice, raspored, objava, kupci u 10 min, suha proba ---------------
+
+T19 = 1795716000   # 26.11.2026. 19:00 CET
+
+
+class OwnBuy(Base):
+    def setUp(self):
+        super().setUp()
+        self.tool_wallet()
+        self.con.execute("UPDATE nacrti SET kupnja_sol=0.04 WHERE id=1")
+        self.con.commit()
+
+    def test_parse_cap_and_request(self):
+        self.assertEqual(store.parse_kupnja("0,04"), 0.04)
+        self.assertEqual(store.parse_kupnja(""), 0.0)
+        self.assertEqual(store.parse_kupnja("0.1"), 0.1)
+        for bad in ("0.1001", "0,2", "-0.01", "abc", "nan", "inf"):
+            with self.assertRaises(ValueError, msg=bad):
+                store.parse_kupnja(bad)
+        b = launch.create_request("P", "M", "Gobble", "GOBBLE", "u", 0.00005, 0.04)
+        self.assertEqual((b["amount"], b["denominatedInSol"], b["action"]), (0.04, "true", "create"))
+        self.assertEqual(set(b["tokenMetadata"]), {"name", "symbol", "uri"})
+        with self.assertRaises(ValueError):
+            launch.create_request("P", "M", "G", "G", "u", 0, 0.11)
+        from ui import pumptokeni
+        r = pumptokeni.post("/pump-tokeni/uredi", {"id": "2", "kupnja_sol": "0,15"}, "Jure")
+        self.assertIn("err=", r)
+        self.assertIn("tvrdog", urllib.parse.unquote(r))
+        self.assertEqual(store.draft(self.con, 2)["kupnja_sol"], 0)
+        self.assertIn("ok=", pumptokeni.post("/pump-tokeni/uredi", {"id": "2", "kupnja_sol": "0,04"}, "Jure"))
+        self.assertEqual(store.draft(self.con, 2)["kupnja_sol"], 0.04)
+
+    def test_launch_with_buy_cost_split_and_sim_cap(self):
+        post = FakePost()
+        rpc = FakeRpc(sol=0.2, buy_from=post)
+        res = launch.launch_one(self.con, store.draft(self.con, 1), NOW, rpc=rpc, post=post, search=no_search,
+                                log=self.log, wait=lambda s: True)
+        self.assertEqual(res["ishod"], "lansiran", res)
+        self.assertEqual(post.creates()[0]["amount"], 0.04)              # u istom create zahtjevu
+        a = store.attempts(self.con)[0]
+        self.assertAlmostEqual(a["ukupno_sol"], 0.009 + 0.04 * 1.0125, places=9)
+        self.assertAlmostEqual(a["trosak_sol"], 0.009 + 0.04 * 0.0125, places=9)   # kupnja nije trošak
+        self.assertEqual((a["kupnja_sol"], a["kupnja_trazena"], a["upozorenje"]), (0.04, 0.04, None))
+        self.assertAlmostEqual(launch.sim_cap(launch.cfg(), 0.04), 0.02 + 0.04 * 1.03)
+        self.assertIn("vlastita kupnja 0.04 SOL", "\n".join(self.logs))
+        # simulacija iznad stropa trošak + kupnja × 1,03 → ne šalje
+        self.con.execute("UPDATE nacrti SET stanje='nacrt' WHERE id=2")
+        self.con.execute("UPDATE nacrti SET kupnja_sol=0.04 WHERE id=2")
+        self.con.commit()
+        post2 = FakePost()
+        rpc2 = FakeRpc(sim_cost=0.022, buy_from=post2)   # 0,022 + 0,0405 = 0,0625 > 0,0612
+        res = launch.launch_one(self.con, store.draft(self.con, 2), NOW, rpc=rpc2, post=post2, search=no_search,
+                                log=self.log, wait=lambda s: True)
+        self.assertEqual(res["ishod"], "odbijen")
+        self.assertNotIn("sendTransaction", rpc2.methods())
+
+    def test_token_account_may_receive_never_lose(self):
+        for post_amt, want in ((600, "lansiran"), (400, "odbijen")):
+            self.con.execute("UPDATE nacrti SET stanje='nacrt'")
+            self.con.commit()
+            post = FakePost()
+            rpc = FakeRpc(toks=[("TokAcc1111", 500)], tok_post=post_amt, buy_from=post)
+            res = launch.launch_one(self.con, store.draft(self.con, 1), NOW, rpc=rpc, post=post, search=no_search,
+                                    log=self.log, wait=lambda s: True)
+            self.assertEqual(res["ishod"], want)
+            if want == "odbijen":
+                self.assertNotIn("sendTransaction", rpc.methods())
+
+    def test_reserve_skips_buy_with_warning_then_waits(self):
+        post = FakePost()
+        rpc = FakeRpc(sol=0.08, buy_from=post)            # 0,08 − (0,02 + 0,0412) < 0,03 → bez kupnje
+        res = launch.launch_one(self.con, store.draft(self.con, 1), NOW, rpc=rpc, post=post, search=no_search,
+                                log=self.log, wait=lambda s: True)
+        self.assertEqual(res["ishod"], "lansiran")
+        self.assertEqual(post.creates()[0]["amount"], 0)
+        a = store.attempts(self.con)[0]
+        self.assertEqual((a["kupnja_sol"], a["kupnja_trazena"], a["upozorenje"]), (0.0, 0.04, launch.BUY_SKIP_WARN))
+        self.assertAlmostEqual(a["trosak_sol"], 0.009, places=9)
+        self.assertIn("vlastita kupnja preskočena: rezerva", "\n".join(self.logs))
+        from ui import pumptokeni
+        with mock.patch.object(pumptokeni, "balance", lambda a, max_age=60: 0.07):
+            _t, html = pumptokeni.page({}, "Jure", auto=False)
+        self.assertIn("vlastita kupnja preskočena: rezerva", html)
+        # ni bez kupnje ne ostaje rezerva → ne lansira (čeka), ništa ne ide PumpPortalu ni na lanac
+        post, rpc = FakePost(), FakeRpc(sol=0.045)
+        res = launch.launch_one(self.con, store.draft(self.con, 2), NOW, rpc=rpc, post=post, search=no_search,
+                                log=self.log, wait=lambda s: True)
+        self.assertEqual(res["ishod"], "ceka")
+        self.assertIn("rezervu", res["tekst"])
+        self.assertEqual(post.creates(), [])
+        self.assertNotIn("sendTransaction", rpc.methods())
+        self.assertEqual(launch.cfg({"PUMP_TOKENI_REZERVA_SOL": "0.05"})["rezerva_sol"], 0.05)
+        self.assertEqual(launch.cfg({})["rezerva_sol"], 0.03)
+
+    def test_preflight_cost_includes_buy(self):
+        post = FakePost()
+        steps, rpc, _ = self.green([1, 2], rpc=FakeRpc(buy_from=post), post=post)
+        self.assertTrue(store.get(self.con, "provjera")["zeleno"], steps)
+        self.assertIn("s vlastitim kupnjama", steps[0]["tekst"])
+        per = {r["simbol"]: r for r in store.get(self.con, "provjera")["nacrti"]}
+        fee = 2 * launch.BASE_FEE_LAMPORTS / 1e9                           # simulacija broji i osnovnu naknadu
+        self.assertAlmostEqual(per["GOBBLE"]["sol"], 0.009 + 0.0405 + fee, places=9)
+        self.assertAlmostEqual(per["DOORB"]["sol"], 0.009 + fee, places=9)
+        self.assertEqual([c["amount"] for c in post.creates()], [0.04, 0])
+        self.assertNotIn("sendTransaction", rpc.methods())
+
+    def test_no_sell_path_and_refund_only_sol(self):
+        import re
+        srcs = [os.path.join(ROOT, "pumptokeni", f) for f in os.listdir(os.path.join(ROOT, "pumptokeni"))
+                if f.endswith(".py")] + [os.path.join(ROOT, "ui", "pumptokeni.py")]
+        for f in srcs:
+            with open(f, encoding="utf-8") as fh:
+                src = fh.read()
+            self.assertIsNone(re.search(r"""["']action["']\s*:\s*["'](sell|buy)["']""", src), f)
+            self.assertIsNone(re.search(r"""["'](sell|swap)["']""", src), f)
+            for bad in ("executor.sell(", "executor.buy(", "jup.ag", "jupiter", "raydium", "/api/trade\"", "denominatedInSol\": \"false"):
+                self.assertNotIn(bad, src, f)
+        rpc = FakeRpc(sol=0.15)
+        devwallet.refund(str(Keypair().pubkey()), "Jure", True, rpc=rpc, confirm=lambda s: True, log=self.log)
+        tx = VersionedTransaction.from_bytes(base64.b64decode([p for m, p in rpc.calls if m == "sendTransaction"][0][0]))
+        self.assertEqual(launch.programs(tx.message), [devwallet.SYSTEM_PROGRAM])   # samo SOL prijenos
+        from ui import pumptokeni
+        with mock.patch.object(pumptokeni, "balance", lambda a, max_age=60: 0.2):
+            _t, html = pumptokeni.page({}, "Jure", auto=False)
+        self.assertIn("kupljeni tokeni ostaju u novčaniku; alat ih ne prodaje", html)
+
+
+class Links(Base):
+    def test_link_rules(self):
+        ok = [("twitter", "https://x.com/gobble"), ("twitter", "https://twitter.com/a_b"),
+              ("twitter", "https://www.x.com/a"), ("telegram", "https://t.me/gobble"),
+              ("website", "https://gobble.example.org/x?y=1")]
+        for k, u in ok:
+            self.assertIsNone(guards.link_reason(k, u), (k, u))
+        bad = [("twitter", "http://x.com/a"), ("twitter", "https://evil.com/x"), ("twitter", "https://x.com.evil.io/a"),
+               ("twitter", "https://x.com/"), ("telegram", "https://telegram.me/a"), ("telegram", "https://t.me"),
+               ("website", "https://a b.com"), ("website", "https://a.com/\x07"), ("website", "https://" + "a" * 95 + ".com"),
+               ("website", "https://user@evil.com/"), ("website", "https://a.com:8443/"), ("website", "ftp://a.com"),
+               ("website", "javascript:alert(1)"), ("website", "https://localhost/")]
+        for k, u in bad:
+            self.assertIsNotNone(guards.link_reason(k, u), (k, u))
+        for u in ("https://memesonar.app", "https://www.memesonar.app/x", "https://a.memesonar.app"):
+            self.assertIn("kvačicu", guards.link_reason("website", u))
+            self.assertIsNone(guards.link_reason("website", u, brand_ok=True))
+        self.assertIsNone(guards.link_reason("website", "https://notmemesonar.app"))
+
+    def test_defaults_inherit_and_description_still_without_url(self):
+        store.set_link_defaults(self.con, {"twitter": "https://x.com/ourmemes", "website": ""})
+        d1 = store.draft(self.con, 1)
+        self.assertEqual(store.link_urls(self.con, d1), {"twitter": "https://x.com/ourmemes"})
+        store.update_draft(self.con, 2, {"twitter": "-", "telegram": "https://t.me/doorb"})
+        self.assertEqual(store.link_urls(self.con, store.draft(self.con, 2)), {"telegram": "https://t.me/doorb"})
+        store.update_draft(self.con, 3, {"twitter": "https://x.com/cart"})
+        self.assertEqual(store.link_urls(self.con, store.draft(self.con, 3))["twitter"], "https://x.com/cart")
+        with self.assertRaises(ValueError):
+            store.set_link_defaults(self.con, {"telegram": "https://evil.com/x"})
+        with self.assertRaises(ValueError):
+            store.update_draft(self.con, 4, {"website": "https://memesonar.app"})          # bez kvačice
+        store.update_draft(self.con, 4, {"website": "https://memesonar.app", "brend_ok": "1"})
+        self.assertEqual(store.links_reasons(self.con, store.draft(self.con, 4)), [])
+        with self.assertRaises(ValueError):
+            store.set_link_defaults(self.con, {"website": "https://memesonar.app"})
+        store.set_link_defaults(self.con, {"website": "https://memesonar.app"}, brend_ok=True)
+        self.assertEqual(store.links_reasons(self.con, store.draft(self.con, 1)), [])
+        # opis i dalje bez poveznica, i kad nacrt ima polja poveznica
+        d = dict(store.draft(self.con, 3), opis="Visit https://x.com/cart")
+        self.assertFalse(guards.check(d, search=no_search, now=NOW)["ok"])
+
+    def test_links_in_metadata_not_in_create(self):
+        self.tool_wallet()
+        store.update_draft(self.con, 1, {"twitter": "https://x.com/gobble", "telegram": "https://t.me/gobble",
+                                         "website": "https://gobble.example.org"})
+        post, rpc = FakePost(), FakeRpc()
+        with mock.patch.dict(os.environ, {"PINATA_JWT": "j"}):
+            res = launch.launch_one(self.con, store.draft(self.con, 1), NOW, rpc=rpc, post=post, search=no_search,
+                                    log=self.log, wait=lambda s: True)
+        self.assertEqual(res["ishod"], "lansiran", res)
+        body = [b for u, b, h in post.calls if u == launch.PINATA_UPLOAD][-1]
+        meta = json.loads(body.split(b'filename="metadata.json"', 1)[1].split(b"\r\n\r\n", 1)[1]
+                          .rsplit(b"\r\n--", 1)[0])
+        self.assertEqual((meta["twitter"], meta["telegram"], meta["website"]),
+                         ("https://x.com/gobble", "https://t.me/gobble", "https://gobble.example.org"))
+        self.assertEqual(set(post.creates()[0]["tokenMetadata"]), {"name", "symbol", "uri"})
+        self.assertEqual(store.attempts(self.con)[0]["ima_poveznice"], 1)
+        # pump.fun/api/ipfs: ista polja u obrascu; bez poveznica ih nema
+        p2 = FakePost()
+        launch.upload_metadata("G", "G", "d", b"png", "pumpfun", post=p2, env={}, links={"twitter": "https://x.com/g"})
+        self.assertIn(b'name="twitter"\r\n\r\nhttps://x.com/g', p2.calls[0][1])
+        p3 = FakePost()
+        launch.upload_metadata("G", "G", "d", b"png", "pumpfun", post=p3, env={}, links={})
+        self.assertNotIn(b"twitter", p3.calls[0][1])
+
+    def test_bad_link_at_launch_refused(self):
+        self.tool_wallet()
+        self.con.execute("UPDATE nacrti SET website='https://memesonar.app', brend_ok=0 WHERE id=1")   # zaobiđen obrazac
+        self.con.commit()
+        rpc, post = FakeRpc(), FakePost()
+        res = launch.launch_one(self.con, store.draft(self.con, 1), NOW, rpc=rpc, post=post, search=no_search,
+                                log=self.log, wait=lambda s: True)
+        self.assertEqual(res["ishod"], "odbijen")
+        self.assertEqual(post.calls, [])
+
+    def test_page_notes(self):
+        from ui import pumptokeni
+        with mock.patch.object(pumptokeni, "balance", lambda a, max_age=60: None):
+            _t, html = pumptokeni.page({}, "Jure", auto=False)
+        for x in ("Poveznice moraju voditi na tvoje stranice ili profile.",
+                  "Ista poveznica na više tokena može pasti na filtre duplikata.",
+                  "želim javno povezati MemeSonar s ovim tokenom", "Lansiraj u (CET)", "Vlastita kupnja (SOL",
+                  "Zadane poveznice"):
+            self.assertIn(x, html)
+        self.assertNotIn("Mayhem", html)
+
+
+class Schedule(Base):
+    def setUp(self):
+        super().setUp()
+        self.tool_wallet()
+
+    def test_default_and_parse(self):
+        self.assertEqual(store.parse_termin("2026-11-26T19:00"), T19)
+        self.assertEqual(store.parse_termin("2026-11-26 19:00"), T19)
+        self.assertEqual(store.default_termin(T19 - 7 * 3600), T19)               # 12:00 → danas 19:00
+        self.assertEqual(store.default_termin(T19 + 3600), T19 + 86400)           # 20:00 → sutra 19:00
+        with self.assertRaises(ValueError):
+            store.parse_termin("sutra")
+        self.assertEqual(store.cet(T19), "26.11. 19:00")
+
+    def _go(self, ids, now):
+        self.green(ids, now=now)
+        return launch.approve_pilot(self.con, ids, "Jure", True, now)
+
+    def test_waits_for_termin_and_gap_shift(self):
+        now = T19 - 3600
+        self.con.execute("UPDATE nacrti SET termin_ts=? WHERE id=1", (T19,))
+        self.con.execute("UPDATE nacrti SET termin_ts=? WHERE id=2", (T19 + 180,))   # 3 min kasnije
+        self.con.commit()
+        n, why = self._go([2, 1], now)
+        self.assertEqual(n, 2)
+        self.assertTrue(any("pomaknut 26.11. 19:03 → 26.11. 19:10" in x for x in why), why)
+        self.assertEqual([x["termin"] for x in store.get(self.con, "pilot")["raspored"]], [T19, T19 + 600])
+        rpc = FakeRpc()
+        kw = dict(rpc=rpc, post=FakePost(), search=no_search, log=self.log)
+        with mock.patch.object(launch, "wait_confirmed", lambda r, s: True):
+            self.assertIn("čeka termin: GOBBLE u 26.11. 19:00", launch.tick(self.con, T19 - 60, **kw))
+            self.assertNotIn("sendTransaction", rpc.methods())
+            self.assertEqual(launch.tick(self.con, T19 + 5, **kw), "GOBBLE: lansiran")
+            self.assertIsNotNone(launch.tick(self.con, T19 + 300, **kw))
+            self.assertEqual(rpc.methods().count("sendTransaction"), 1)
+            self.assertEqual(launch.tick(self.con, T19 + 610, **kw), "DOORB: lansiran")
+
+    def test_missed_termin_not_caught_up(self):
+        now = T19 + 1000                                  # prošlo 16 min prije odobrenja
+        self.con.execute("UPDATE nacrti SET termin_ts=? WHERE id IN (1,2)", (T19,))
+        self.con.execute("UPDATE nacrti SET termin_ts=? WHERE id=2", (T19 + 1800,))
+        self.con.commit()
+        n, why = self._go([1, 2], now)
+        self.assertEqual(n, 1)
+        self.assertEqual(store.draft(self.con, 1)["stanje"], "propusten")
+        self.assertTrue(any("propušten" in x for x in why))
+        # obrada: termin 19:30 prođe za više od 15 min (npr. zastoj servisa) → propušten, bez slanja
+        rpc = FakeRpc()
+        self.assertIsNone(launch.tick(self.con, T19 + 1800 + 901, rpc=rpc, post=FakePost(), search=no_search,
+                                      log=self.log))
+        self.assertEqual(store.draft(self.con, 2)["stanje"], "propusten")
+        self.assertNotIn("sendTransaction", rpc.methods())
+        self.assertIn("ne nadoknađuje", "\n".join(self.logs))
+        # unutar 15 min: lansira se
+        self.con.execute("UPDATE nacrti SET termin_ts=? WHERE id=3", (T19 + 7200,))
+        self.con.commit()
+        self._go([3], T19 + 7200 + 300)
+        with mock.patch.object(launch, "wait_confirmed", lambda r, s: True):
+            self.assertEqual(launch.tick(self.con, T19 + 7200 + 400, rpc=rpc, post=FakePost(), search=no_search,
+                                         log=self.log), "CARTGOB: lansiran")
+
+    def test_edit_after_approval_leaves_queue_and_needs_new_preflight(self):
+        now = T19 - 3600
+        self.con.execute("UPDATE nacrti SET termin_ts=?", (T19,))
+        self.con.commit()
+        self._go([1], now)
+        store.update_draft(self.con, 1, {"kupnja_sol": "0,04"}, now)
+        self.assertEqual(store.draft(self.con, 1)["stanje"], "nacrt")
+        store.save_check(self.con, 1, guards.check(store.draft(self.con, 1), search=no_search, now=now), now)
+        rpc = FakeRpc()
+        self.assertIsNone(launch.tick(self.con, T19 + 10, rpc=rpc, post=FakePost(), search=no_search, log=self.log))
+        self.assertNotIn("sendTransaction", rpc.methods())
+        n, why = launch.approve_pilot(self.con, [1], "Jure", True, now + 60)        # provjera rađena bez kupnje
+        self.assertEqual(n, 0)
+        self.assertIn("ponovi provjeru", why[0])
+
+    def test_stale_queue_without_schedule_is_not_launched(self):
+        store.set_state(self.con, 1, "u_redu", NOW)
+        store.put(self.con, "pilot", {"odobren_ts": NOW - 86400, "ids": [1], "poslano": 0})   # stari pilot bez rasporeda
+        rpc = FakeRpc()
+        self.assertIsNone(launch.tick(self.con, NOW, rpc=rpc, post=FakePost(), search=no_search, log=self.log))
+        self.assertEqual(store.draft(self.con, 1)["stanje"], "propusten")
+        self.assertNotIn("sendTransaction", rpc.methods())
+
+    def test_approval_confirm_lists_schedule(self):
+        from ui import pumptokeni
+        with mock.patch.object(pumptokeni, "balance", lambda a, max_age=60: 0.2):
+            _t, html = pumptokeni.page({}, "Jure", auto=False)
+        self.assertIn("ODOBRI RASPORED", html)
+        pt = json.loads(html.split("var PT=", 1)[1].split(";</script>", 1)[0])
+        self.assertEqual(set(pt["d"]["1"]), {"s", "t", "tc", "k", "l"})
+        self.assertIn("poveznice", html)
+
+
+class SeedSchedule(unittest.TestCase):
+    """Sjeme za večeras na bazi kakva je na produkciji (25.11. sjeme + satirični opisi od jutra)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.p = os.path.join(self.tmp.name, "pump_tokeni.db")
+        con = sqlite3.connect(self.p)   # stara shema, bez novih kolona
+        con.executescript(store.SCHEMA)
+        for tema, datum, ime, sym, *_x in store.SEED:
+            con.execute("INSERT INTO nacrti (tema, datum_teme, ime, simbol, opis, slika, skupina, stanje, napravljen_ts, "
+                        "promijenjen_ts) VALUES (?,?,?,?,?,?,?,'nacrt',?,?)",
+                        (tema, datum, ime, sym, store.SEED_2611_SAT[sym], b"png", store.SKUPINA_0, NOW, NOW))
+        con.execute("INSERT INTO kv VALUES ('seed_2511', '1'), ('seed_2611', '1')")
+        con.commit()
+        con.close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_migration_tonight_untouched_only_and_never_approves(self):
+        con = store.connect(self.p)
+        con.execute("UPDATE nacrti SET opis='Mine.' WHERE simbol='SRALLY'")        # vlasnik dirao
+        con.execute("UPDATE nacrti SET stanje='lansiran' WHERE simbol='Y2027'")     # lansiran
+        con.commit()
+        store.seed(con, NOW, slike_dir=self.tmp.name)
+        ds = {d["simbol"]: d for d in store.drafts(con)}
+        exp = {"GOBBLE": (T19, 0.04, "tema-kupnja-0,04"), "DOORB": (T19 + 1500, 0.04, "tema-kupnja-0,04"),
+               "CARTGOB": (T19 + 3000, 0.0, "tema-bez-kupnje")}
+        for sym, (t, k, g) in exp.items():
+            self.assertEqual((ds[sym]["termin_ts"], ds[sym]["kupnja_sol"], ds[sym]["skupina"]), (t, k, g), sym)
+            self.assertEqual(ds[sym]["opis"], next(x[4] for x in store.SEED if x[3] == sym))
+            self.assertEqual(ds[sym]["stanje"], "nacrt")
+        self.assertEqual(ds["GOBBLE"]["opis"], "A Thanksgiving turkey. No roadmap, no promises, just vibes.")
+        self.assertEqual((ds["SRALLY"]["opis"], ds["SRALLY"]["termin_ts"]), ("Mine.", None))
+        self.assertEqual((ds["Y2027"]["opis"], ds["Y2027"]["termin_ts"]), (store.SEED_2611_SAT["Y2027"], None))
+        self.assertIsNone(store.get(con, "pilot"))
+        self.assertEqual(launch.queue(con), [])
+        before = [dict(d) for d in store.drafts(con)]
+        store.seed(con, NOW + 50, slike_dir=self.tmp.name)                          # idempotentno
+        self.assertEqual([dict(d) for d in store.drafts(con)], before)
+        con.close()
+        # svježa baza: sjeme odmah s rasporedom; termini 19:00, 19:25, 19:50, 20:15, 20:40
+        con = store.connect(os.path.join(self.tmp.name, "new.db"))
+        store.seed(con, NOW)
+        self.assertEqual([(d["termin_ts"] - T19) // 60 for d in store.drafts(con)], [0, 25, 50, 75, 100])
+        self.assertEqual([d["kupnja_sol"] for d in store.drafts(con)], [0.04, 0.04, 0, 0, 0])
+        con.close()
+
+    def test_job_after_migration_with_passed_termins_sends_nothing(self):
+        env = {"DATA_DIR": self.tmp.name, "PUMP_TOKENI_DB": self.p}
+        with mock.patch.dict(os.environ, env), mock.patch.object(executor, "STOP_FILE",
+                                                                 os.path.join(self.tmp.name, "STOP")):
+            old = settings.DB
+            settings.DB = os.path.join(self.tmp.name, "trade.db")
+            try:
+                devwallet.create()
+                con = store.connect(self.p)
+                store.seed(con, NOW)
+                con.close()
+                rpc, post = FakeRpc(), FakePost()
+                from trade import wallet
+                with mock.patch.object(wallet, "rpc", rpc), mock.patch.object(launch, "http_post", post), \
+                        mock.patch.object(guards, "_search", no_search), \
+                        mock.patch.object(provjera, "_get", lambda u, h, timeout=15: 200):
+                    for k in range(0, 4 * 3600, 60):                              # 19:00–23:00, svake minute
+                        posao.tick(T19 - 600 + k, log=lambda x: None, proc="p1")
+                self.assertNotIn("sendTransaction", rpc.methods())
+                self.assertFalse(any(u == launch.PINATA_UPLOAD or u == launch.PUMP_IPFS for u, _b, _h in post.calls))
+                con = store.connect(self.p)
+                self.assertTrue(all(d["stanje"] in ("nacrt", "propusten") for d in store.drafts(con)))
+                con.close()
+            finally:
+                settings.DB = old
+
+
+class DryRunJob(Base):
+    def setUp(self):
+        super().setUp()
+        self.tool_wallet()
+        self.plain(T19)
+
+    def _tick(self, now, proc, rpc, post, gets):
+        with mock.patch.object(launch, "http_post", post), mock.patch.object(guards, "_search", no_search):
+            return posao.tick(now, log=self.log, proc=proc,
+                              dry_kw={"rpc": rpc, "post": post, "search": no_search,
+                                      "get": lambda u, h: gets.append(u) or 200})
+
+    def test_once_per_process_then_every_30_min_never_sends(self):
+        rpc, post, gets = FakeRpc(), FakePost(), []
+        from trade import wallet
+        with mock.patch.dict(os.environ, {"PINATA_JWT": "j"}), mock.patch.object(wallet, "rpc", rpc):
+            t = T19 - 7200
+            self._tick(t, "A", rpc, post, gets)
+            n1 = rpc.methods().count("simulateTransaction")
+            self.assertEqual(n1, 5)                                              # svaki nacrt rasporeda
+            self._tick(t + 60, "A", rpc, post, gets)
+            self._tick(t + 1700, "A", rpc, post, gets)
+            self.assertEqual(rpc.methods().count("simulateTransaction"), 5)      # isti proces, < 30 min
+            self._tick(t + 1800, "A", rpc, post, gets)
+            self.assertEqual(rpc.methods().count("simulateTransaction"), 10)     # 30 min
+            self._tick(t + 1860, "B", rpc, post, gets)
+            self.assertEqual(rpc.methods().count("simulateTransaction"), 15)     # novi proces (restart)
+            self._tick(T19 + 7200, "C", rpc, post, gets)                          # nema zakazanih: ništa
+            self.assertEqual(rpc.methods().count("simulateTransaction"), 15)
+        self.assertNotIn("sendTransaction", rpc.methods())
+        self.assertFalse(any(u in (launch.PINATA_UPLOAD, launch.PUMP_IPFS) for u, _b, _h in post.calls))
+        self.assertEqual(set(gets), {provjera.PINATA_TEST})                      # Pinata samo autentifikacija
+        lines = [x for x in self.logs if x.startswith("pump tokeni suha proba: ")]
+        self.assertEqual(len(lines), 15)
+        self.assertIn("pump tokeni suha proba: GOBBLE termin 26.11. 19:00 CET, kupnja 0 SOL, simulacija ok, promjena "
+                      "salda −0.00901 SOL, rezerva ok", lines[0])
+        self.assertTrue(any(x.startswith("pump tokeni provjera: ZELENO") for x in self.logs))
+        self.assertIsNone(store.get(self.con, "pilot"))                           # suha proba ništa ne odobrava
+
+    def test_tonight_schedule_numbers(self):
+        """Večerašnji raspored (2 × 0,04 SOL kupnje): suha proba s lažnim RPC-om (lansiranje 0,009 SOL)."""
+        self.con.execute("DELETE FROM nacrti")
+        self.con.commit()
+        for tema, datum, ime, sym, opis, termin, k, g in store.SEED:
+            store.add_draft(self.con, {"tema": tema, "datum_teme": datum, "ime": ime, "simbol": sym, "opis": opis,
+                                       "skupina": g, "kupnja_sol": str(k), "termin": termin}, b"png")
+        post = FakePost()
+        rpc = FakeRpc(sol=0.2, buy_from=post)
+        provjera.run(self.con, None, now=T19 - 3600, rpc=rpc, post=post, search=no_search, log=self.log)
+        pf = store.get(self.con, "provjera")
+        self.assertTrue(pf["zeleno"], pf["koraci"])
+        self.assertAlmostEqual(pf["zbroj"]["sol"], 5 * (0.009 + 0.00001) + 2 * 0.04 * 1.0125, places=9)   # 0,12605
+        self.assertAlmostEqual(pf["zbroj"]["ostaje"], 0.2 - pf["zbroj"]["sol"], places=6)
+        self.assertEqual([r["simbol"] for r in pf["nacrti"]], ["GOBBLE", "DOORB", "CARTGOB", "SRALLY", "Y2027"])
+        # saldo 0,10: kupnja DOORB bi probila rezervu → bez kupnje; SRALLY ni bez kupnje ne ostavlja 0,03 → crveno
+        post = FakePost()
+        provjera.run(self.con, None, now=T19 - 3600, rpc=FakeRpc(sol=0.10, buy_from=post), post=post,
+                     search=no_search, log=self.log)
+        pf = store.get(self.con, "provjera")
+        per = {r["simbol"]: r for r in pf["nacrti"]}
+        self.assertEqual((per["GOBBLE"]["bez_kupnje"], per["DOORB"]["bez_kupnje"]), (False, True))
+        self.assertEqual((per["CARTGOB"]["rezerva_ok"], per["SRALLY"]["rezerva_ok"]), (True, False))
+        self.assertFalse(pf["zeleno"])
+        self.assertTrue(any("DOORB" in x and "rezerva ok (bez kupnje)" in x for x in self.logs))
+        self.assertTrue(any("SRALLY" in x and "rezerva ne" in x for x in self.logs))
+
+
+class PostBlock(Base):
+    def test_post_text_copy_download_and_no_autopost(self):
+        mint = "MintPost111111111111111111111111111111111111"
+        aid = store.new_attempt(self.con, store.draft(self.con, 1), launch.TOOL, "P", NOW, mint=mint)
+        store.update_attempt(self.con, aid, stanje="lansiran", potpis="s", trosak_sol=0.01)
+        store.set_state(self.con, 1, "lansiran", NOW)
+        from ui import pumptokeni
+        with mock.patch.object(pumptokeni, "balance", lambda a, max_age=60: 0.2), \
+                mock.patch("urllib.request.urlopen", side_effect=AssertionError("stranica ne zove mrežu")):
+            _t, html = pumptokeni.page({}, "Jure", auto=False)
+        d = store.draft(self.con, 1)
+        txt = f"Gobble ($GOBBLE)\n{d['opis']}\nCA: {mint}\nhttps://pump.fun/coin/{mint}"
+        self.assertEqual(pumptokeni.post_text("Gobble", "GOBBLE", d["opis"], mint), txt)
+        self.assertIn("Objava za kopiranje", html)
+        from ui.html import esc
+        self.assertIn(esc(txt), html)
+        self.assertIn("📋 Kopiraj", html)
+        self.assertIn("prompt('Kopiraj:'", html)                                  # zamjensko rješenje
+        self.assertIn("href='/pump-tokeni/slika/1' download='gobble.png'>⬇ Preuzmi sliku", html)
+
+    def test_module_calls_no_posting_service(self):
+        import re
+        srcs = [os.path.join(ROOT, "pumptokeni", f) for f in os.listdir(os.path.join(ROOT, "pumptokeni"))
+                if f.endswith(".py")] + [os.path.join(ROOT, "ui", "pumptokeni.py")]
+        for f in srcs:
+            with open(f, encoding="utf-8") as fh:
+                src = fh.read()
+            for host in ("api.twitter.com", "api.x.com", "upload.twitter", "buffer.com", "bufferapp", "api.telegram.org",
+                         "graph.facebook", "sendMessage", "create_post", "novosti.json"):
+                self.assertNotIn(host, src, (f, host))
+            self.assertIsNone(re.search(r"^\s*(from|import)\s+(ops|social|kol|makroinf|hype|share)\b", src, re.M), f)
+        hosts = set()
+        for f in srcs:
+            with open(f, encoding="utf-8") as fh:
+                hosts |= set(re.findall(r"https://([a-z0-9.-]+)/", fh.read()))
+        self.assertLessEqual(hosts - {"pumpportal.fun", "pump.fun", "uploads.pinata.cloud", "ipfs.io", "api.pinata.cloud",
+                                      "dexscreener.com", "solscan.io", "x.com", "t.me"}, set(), hosts)
+
+
+def sig(n, t, err=None):
+    return {"signature": f"S{n}", "blockTime": t, "err": err}
+
+
+def tok(owner, mint, amt):
+    return {"owner": owner, "mint": mint, "uiTokenAmount": {"amount": str(amt)}}
+
+
+class BuyersRpc:
+    def __init__(self, mint, t0, creator, fail=False):
+        self.calls, self.fail = [], fail
+        curve = outcomes.curve_pda(mint)
+        self.sigs = [sig(0, t0), sig(1, t0 + 30), sig(2, t0 + 60), sig(3, t0 + 90, err={"x": 1}), sig(4, t0 + 200),
+                     sig(5, t0 + 590), sig(6, t0 + 700)]
+        bal = lambda pre, post: {"meta": {"err": None, "preTokenBalances": pre, "postTokenBalances": post}}   # noqa: E731
+        self.txs = {
+            "S0": bal([], [tok(curve, mint, 10**15), tok(creator, mint, 0)]),                   # create
+            "S1": bal([tok(curve, mint, 1000)], [tok(curve, mint, 900), tok("A", mint, 100)]),
+            "S2": bal([tok("A", mint, 100)], [tok("A", mint, 150)]),                            # A drugi put
+            "S4": bal([tok("B", mint, 0), tok(creator, mint, 5)], [tok("B", mint, 7), tok(creator, mint, 9)]),
+            "S5": bal([tok("C", mint, 9), tok(curve, mint, 1)], [tok("C", mint, 1), tok(curve, mint, 9)]),   # prodaja
+            "S6": bal([], [tok("D", mint, 5)]),                                                 # nakon 10 min
+        }
+
+    def __call__(self, method, params):
+        self.calls.append(method)
+        if self.fail:
+            raise TimeoutError()
+        if method == "getSignaturesForAddress":
+            return list(reversed(self.sigs))
+        if method == "getTransaction":
+            return self.txs.get(params[0])
+        raise AssertionError(method)
+
+
+class BuyersTenMin(Base):
+    MINT = "So11111111111111111111111111111111111111112"   # bilo koja ispravna adresa za PDA
+
+    def _launched(self, ts=NOW):
+        aid = store.new_attempt(self.con, store.draft(self.con, 1), launch.TOOL, str(self.creator), ts, mint=self.MINT)
+        store.update_attempt(self.con, aid, stanje="lansiran", potpis="s", trosak_sol=0.01, kupnja_sol=0.04,
+                             ima_poveznice=1)
+        return aid
+
+    def setUp(self):
+        super().setUp()
+        self.creator = str(Keypair().pubkey())
+
+    def test_distinct_buyers_without_creator_and_cap(self):
+        rpc = BuyersRpc(self.MINT, NOW + 3, self.creator)
+        n, src, calls = outcomes.count_buyers(rpc, self.MINT, NOW, self.creator)
+        self.assertEqual((n, src), (2, "rpc"))                                     # A i B; ne kreator, krivulja, D
+        self.assertEqual(calls, 1 + 5)                                              # 1 + uspješne u 600 s
+        rpc = BuyersRpc(self.MINT, NOW + 3, self.creator)
+        n, src, calls = outcomes.count_buyers(rpc, self.MINT, NOW, self.creator, max_calls=3)
+        self.assertEqual((src, calls), ("rpc_strop", 3))
+        self.assertEqual(outcomes.buyers_text({"kupci_10m": n, "kupci_10m_izvor": src}), f"≥ {n}")
+
+    def test_measure_once_after_11_min_and_fallback(self):
+        self._launched()
+        rpc = BuyersRpc(self.MINT, NOW + 3, self.creator)
+        self.assertEqual(outcomes.measure_buyers(self.con, NOW + 600, rpc=rpc, log=self.log), 0)   # prerano
+        self.assertEqual(rpc.calls, [])
+        self.assertEqual(outcomes.measure_buyers(self.con, NOW + 700, rpc=rpc, log=self.log), 1)
+        self.assertEqual(outcomes.measure_buyers(self.con, NOW + 800, rpc=rpc, log=self.log), 0)   # jednom
+        a = store.attempts(self.con)[0]
+        self.assertEqual((a["kupci_10m"], a["kupci_10m_izvor"], a["kupci_10m_poziva"]), (2, "rpc", 6))
+        # RPC bez podataka: kupnje iz DexScreener snimka, označene kao kupnje
+        self.con.execute("UPDATE pokusaji SET kupci_10m=NULL, kupci_10m_izvor=NULL")
+        self.con.execute("INSERT INTO snimci (mint, ts, nadjen, kupnje_h1) VALUES (?,?,1,?)", (self.MINT, NOW + 650, 11))
+        self.con.commit()
+        outcomes.measure_buyers(self.con, NOW + 900, rpc=BuyersRpc(self.MINT, NOW, self.creator, fail=True),
+                                log=self.log)
+        a = store.attempts(self.con)[0]
+        self.assertEqual((a["kupci_10m"], a["kupci_10m_izvor"]), (11, "dex_kupnji"))
+        self.assertEqual(outcomes.buyers_text(a), "11 kupnji")
+
+    def test_book_csv_new_columns_and_fee_without_own_buy(self):
+        self._launched(T19)
+        store.update_attempt(self.con, 1, kupci_10m=7, kupci_10m_izvor="rpc")
+        pairs = [dex_pair(self.MINT)]
+        outcomes.check_pass(self.con, T19 + 25 * 3600, fetch=lambda m: pairs, log=self.log)
+        rows, groups = outcomes.book(self.con)
+        r = rows[0]
+        self.assertAlmostEqual(r["naknada_sol"], 0.6 - 0.003 * 0.04, places=9)     # bez naknade od vlastite kupnje
+        self.assertAlmostEqual(r["neto_sol"], 0.6 - 0.00012 - 0.01, places=9)       # kupnja nije gubitak
+        self.assertEqual(r["u_tokenima_sol"], 0.04)
+        csv = outcomes.csv_text(self.con)
+        head = csv.splitlines()[0].split(",")
+        for col in ("skupina", "vlastita_kupnja_sol", "ima_poveznice", "sat_lansiranja_cet", "kupaca_10min",
+                    "u_tokenima_sol", "naknada_bez_vlastite_kupnje_sol"):
+            self.assertIn(col, head)
+        import csv as csvmod
+        row = dict(zip(head, next(csvmod.reader(csv.splitlines()[1:]))))
+        self.assertEqual((row["vlastita_kupnja_sol"], row["ima_poveznice"], row["sat_lansiranja_cet"], row["kupaca_10min"]),
+                         ("0.040000", "da", "2026-11-26 19:00", "7"))
+        self.assertEqual(row["skupina"], "tema-kupnja-0,04")
+        from ui import pumptokeni
+        with mock.patch.object(pumptokeni, "balance", lambda a, max_age=60: 0.2):
+            _t, html = pumptokeni.page({}, "Jure", auto=False)
+        for x in ("Kupaca u 10 min", "Ima poveznice", "Sat (CET)", "Naknada bez vlastite kupnje SOL", "U tokenima SOL"):
+            self.assertIn(x, html)
+
+    def test_job_measures_through_rpc(self):
+        self._launched()
+        rpc = BuyersRpc(self.MINT, NOW + 3, self.creator)
+        from trade import wallet
+        with mock.patch.object(wallet, "rpc", rpc), \
+                mock.patch.object(outcomes, "refresh", lambda con, now, log=print: (0, 0)), \
+                mock.patch.object(outcomes, "read_vaults", lambda con, now, log=print: {}):
+            posao.tick(NOW + 700, log=self.log, proc="x")
+        self.assertEqual(store.attempts(self.con)[0]["kupci_10m"], 2)
+        self.assertIn("kupaca u prvih 10 min 2 (6 RPC poziva)", "\n".join(self.logs))
 
 
 # ---------- pristup i izbornik (HTTP) -----------------------------------------------------------------------------

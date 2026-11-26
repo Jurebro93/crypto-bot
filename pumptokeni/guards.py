@@ -118,5 +118,54 @@ def check(d, extra=(), search=None, now=None):
     return {"ok": not why, "razlozi": why, "dex": dex, "slicni": [list(x) for x in found[:5]], "ts": now}
 
 
+# ---------- poveznice nacrta (26.11., vlasnik) ----------------------------------------------------------------------
+# Zabrana URL-a gore vrijedi za ime, simbol i opis; polja poveznica (X, Telegram, web) imaju ovu vlastitu provjeru.
+
+LINK_MAX = 100
+LINK_HOSTS = {"twitter": ("x.com", "www.x.com", "twitter.com", "www.twitter.com"), "telegram": ("t.me",)}
+OUR_DOMAIN = "memesonar.app"
+_HOST = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+LINK_NAMES = {"twitter": "X/Twitter", "telegram": "Telegram", "website": "web stranica"}
+
+
+def is_our_domain(host):
+    h = (host or "").lower().rstrip(".")
+    return h == OUR_DOMAIN or h.endswith("." + OUR_DOMAIN)
+
+
+def link_reason(kind, url, brand_ok=False):
+    """Razlog odbijanja poveznice ili None. Samo https, X samo x.com/twitter.com, Telegram samo t.me, web bilo koja
+    https domena; do 100 znakova, bez razmaka i kontrolnih znakova, bez korisnika/lozinke i porta u adresi. Naša domena
+    (memesonar.app i poddomene) samo uz izričitu kvačicu brand_ok."""
+    from urllib.parse import urlsplit
+    name = LINK_NAMES.get(kind, kind)
+    u = url or ""
+    if kind not in LINK_NAMES:
+        return f"nepoznata vrsta poveznice {kind}"
+    if len(u) > LINK_MAX:
+        return f"{name}: poveznica je dulja od {LINK_MAX} znakova"
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 or 0x80 <= ord(ch) < 0xA0 for ch in u):
+        return f"{name}: poveznica ne smije imati razmake ni kontrolne znakove"
+    if not u.lower().startswith("https://"):
+        return f"{name}: samo https:// poveznice"
+    try:
+        p = urlsplit(u)
+        port = p.port
+    except ValueError:
+        return f"{name}: poveznica nije ispravna"
+    host = (p.hostname or "").lower()
+    if "@" in p.netloc or port is not None or not _HOST.match(host):
+        return f"{name}: poveznica nije ispravna (domena)"
+    allowed = LINK_HOSTS.get(kind)
+    if allowed and host not in allowed:
+        return f"{name}: dopuštena samo domena {' ili '.join(sorted({h.replace('www.', '') for h in allowed}))}"
+    if allowed and len((p.path or "").strip("/")) < 1:
+        return f"{name}: poveznica mora voditi na profil ili kanal"
+    if is_our_domain(host) and not brand_ok:
+        return (f"{name}: {OUR_DOMAIN} se smije povezati samo uz kvačicu „želim javno povezati MemeSonar s ovim "
+                "tokenom”")
+    return None
+
+
 def fresh_ok(res, now=None):
     return bool(res and res.get("ok") and (now or time.time()) - (res.get("ts") or 0) <= FRESH_S)

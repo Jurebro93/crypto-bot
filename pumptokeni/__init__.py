@@ -1,5 +1,7 @@
-"""Pump Fun tokeni (25.11., vlasnik): kontrolirani pokus lansiranja vlastitih tokena na pump.fun, BEZ vlastite kupnje
-(0 SOL), token se ostavlja. Vidi i radi samo vlasnik (/pump-tokeni, ui/pumptokeni.py).
+"""Pump Fun tokeni (25.11., vlasnik): kontrolirani pokus lansiranja vlastitih tokena na pump.fun, token se ostavlja.
+26.11. večer: vlastita kupnja po nacrtu (0–0,1 SOL, samo u transakciji lansiranja, nikad prodaja), poveznice u
+metapodacima, zakazana lansiranja (raspored koji odobrava vlasnik), suha proba rasporeda iz posla, kupci u prvih 10 min.
+Vidi i radi samo vlasnik (/pump-tokeni, ui/pumptokeni.py).
 
   store.py     pump_tokeni.db: nacrti, pokušaji lansiranja, ishodi, postavke (kv)
   own.py       is_own(mint): naši mintovi; zabrana samotrgovanja na uskim grlima (executor, demo, sjena, kandidati)
@@ -12,5 +14,6 @@
   naknada.py   „Podigni naknadu”: collectCreatorFee kroz PumpPortal, samo vlasnikov potvrđeni dodir, simulacija
   posao.py     python3 -m pumptokeni.posao tick   (start.sh, svake minute: red, ploča, ishodi, red u logu)
 
-Ništa ovdje ne kupuje ni ne prodaje nijedan token (ni naš): izričito izvan opsega.
+Ništa ovdje ne prodaje nijedan token (ni naš) i ne kupuje izvan transakcije lansiranja (vlastita kupnja, „amount” u
+create zahtjevu); ništa se ne objavljuje automatski (X, Buffer, Telegram).
 """

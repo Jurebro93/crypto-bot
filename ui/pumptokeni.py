@@ -7,6 +7,10 @@ Provjera → Nacrti → Pilot s jednim pozivom na akciju), skupljeni novčanik, 
 (tablica na širem zaslonu), „Odobri pilot” onemogućen s razlogom, „Podigni naknadu”, pokušaji i knjiga ishoda
 skupljeni. Ploča se čita iz baze (snimci posla pumptokeni.posao) i sama se osvježava (/pump-tokeni/ploca). Sve
 slanje radi posao pumptokeni.posao, jedno po jedno; podizanje naknade samo vlasnikov potvrđeni dodir.
+
+26.11. večer: po nacrtu vlastita kupnja (0–0,1 SOL), poveznice (X, Telegram, web; zadane u „Više”), termin (CET) u
+proširenju „Uredi”; kartica kratko: termin, kupnja, poveznice da/ne. „Odobri pilot” odobrava raspored. Uz lansiran
+token blok „Objava za kopiranje” (samo kopiranje; ništa se nigdje ne objavljuje automatski).
 """
 import base64
 import datetime as dt
@@ -19,7 +23,8 @@ from ui.html import badge, esc, table
 
 PATH = "/pump-tokeni"
 STATE_WORDS = {"nacrt": ("nacrt", ""), "u_redu": ("u redu za slanje", "warn"), "salje": ("šalje se", "warn"),
-               "lansiran": ("lansiran", "good"), "greska": ("greška", "bad"), "odbijen": ("odbijen", "bad")}
+               "lansiran": ("lansiran", "good"), "greska": ("greška", "bad"), "odbijen": ("odbijen", "bad"),
+               "propusten": ("termin propušten", "warn")}
 ATTEMPT_WORDS = {"priprema": "priprema", "poslano": "poslano, čeka potvrdu", "lansiran": "lansiran",
                  "neuspio": "nije uspio", "nepoznato": "nepoznato (potpis se provjerava)", "odbijeno": "odbijeno prije slanja"}
 _BAL = {}
@@ -92,7 +97,11 @@ def suggest(con, today=None, days=60, path=None):
 
 WLABEL = {launch.TOOL: "Novčanik pokusa (u alatu)", launch.SEPARATE: "Zasebni novčanik (ključ na Renderu)",
           launch.TRADING: "Trgovački novčanik", launch.OFF: "Isključeno"}
-CAN_LAUNCH = ("nacrt", "odbijen", "greska")
+CAN_LAUNCH = ("nacrt", "odbijen", "greska", "propusten")
+BUY_NOTE = "kupljeni tokeni ostaju u novčaniku; alat ih ne prodaje"
+LINK_NOTES = ("Poveznice moraju voditi na tvoje stranice ili profile.",
+              "Ista poveznica na više tokena može pasti na filtre duplikata.")
+BRAND_LABEL = "želim javno povezati MemeSonar s ovim tokenom"
 
 CSS = """<style>
 .pt{max-width:1100px;min-width:0}.pt *{min-width:0}
@@ -151,6 +160,13 @@ CSS = """<style>
 .pt ul.pt-pf{list-style:none;padding:0;margin:10px 0 0}.pt ul.pt-pf li{padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .pt ul.pt-pf li span{display:block;color:var(--mut);font-size:12.5px;word-break:break-word}
 .pt-note{color:var(--mut);font-size:12.5px;margin:8px 0 0}
+.pt-pl{display:block;margin:0 0 4px;color:var(--fg);font-size:12.5px;font-weight:600}.pt-warn{color:var(--warn,#b26b00)}
+.pt-post{display:grid;gap:8px}.pt-post pre{white-space:pre-wrap;word-break:break-word;margin:8px 0 0;padding:10px;
+ background:var(--soft);border-radius:10px;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace}
+.pt label.chk{display:flex;gap:8px;align-items:flex-start;margin:8px 0;font-size:13.5px}
+.pt label.chk input{width:20px;height:20px;flex:none;margin:1px 0 0}
+.pt fieldset{border:1px solid var(--line);border-radius:10px;padding:4px 12px 10px;margin:10px 0;max-width:584px}
+.pt fieldset legend{font-weight:600;font-size:13.5px;padding:0 4px}
 </style>"""
 
 
@@ -203,7 +219,7 @@ def wallet_state(con, c=None, ch=None, now=None):
     n_open = sum(1 for d in store.drafts(con) if d["stanje"] in CAN_LAUNCH + ("u_redu",))
     left = max(1, c["dnevno"] - launch.sent_today(con, int(now or time.time())))
     n = max(1, min(n_open, left))
-    need = max(c["min_sol"].get(ch, 0.03) if ch != launch.OFF else 0.03, n * c["max_sol"] + launch.RESERVE_SOL)
+    need = max(c["min_sol"].get(ch, 0.03) if ch != launch.OFF else 0.03, n * c["max_sol"] + c["rezerva_sol"])
     return {"ch": ch, "addr": addr, "bal": bal, "need": need, "ready": bool(addr) and bal is not None and bal >= need,
             "n": n}
 
@@ -317,9 +333,10 @@ def dash_html(con, now=None):
         tile("Lansirano", str(t["lansirano"]), f"s prometom {t['s_prometom']} · bondano {t['bondano']}"),
         tile("Promet", _usd(t["promet_usd"]), f"≈ {t['promet_sol']:.2f} SOL"),
         tile("Transakcije", _n(t["kupnje"] + t["prodaje"]), f"kupnje {_n(t['kupnje'])} · prodaje {_n(t['prodaje'])}"),
-        tile("Naknada (procjena)", _sol(t["naknada_sol"]), "SOL, 0,30 % prometa"),
+        tile("Naknada (procjena)", _sol(t["naknada_sol"]), "SOL, 0,30 % prometa, bez vlastite kupnje"),
         tile("Trošak lansiranja", _sol(t["trosak_sol"]), "SOL, izmjereno"),
-        tile("Neto", _net(t["neto_sol"]), "SOL, naknada − trošak"),
+        tile("Neto", _net(t["neto_sol"]), "SOL, naknada − trošak"
+             + (f" · u tokenima {t['u_tokenima_sol']:.3f}" if t.get("u_tokenima_sol") else "")),
         tile("Za podići", trez, ("SOL u trezoru" if t["za_podici_sol"] is not None else "samo procjena")
              + f" · podignuto {t['podignuto_sol']:.4f}"),
         tile("Osvježeno", _hm(t["osvjezeno_ts"], "%H:%M") if t["osvjezeno_ts"] else "–", f"svakih {every // 60} min"),
@@ -329,8 +346,9 @@ def dash_html(con, now=None):
              f"<input type=hidden name=iznos value='{(t['za_podici_sol'] or 0):.6f}'>"
              "<button class=pt-btn2>💰 Podigni naknadu</button>"
              "<span class=pt-note style=margin:0>Naknada čeka u trezoru novčanika; ne isplaćuje se sama.</span></form>")
-    cards, trs = [], []
+    cards, trs, posts = [], [], []
     for r in rows:
+        posts.append(post_block(con, r, open_=not posts))
         img = f"<img src='/pump-tokeni/slika/{r['nacrt_id']}' width=64 height=64 alt='' loading=lazy>"
         bond = badge("bondan", "good") if r["bondan"] else badge("na krivulji", "") if r["bondan"] == 0 else ""
         vol, tx = _sparks(r)
@@ -373,8 +391,31 @@ def dash_html(con, now=None):
             f"<div class=pt-tiles>{tiles}</div>{claim}"
             f"<div class='pt-narrow pt-tok' style='margin-top:10px'>{''.join(cards)}</div>"
             f"<div class=pt-wide style='margin-top:10px'>{table_html}</div>"
-            f"<p class=pt-note>Promet i transakcije: DexScreener, zbroj od lansiranja (za tokene starije od 24 h donja "
-            f"granica). Naknada: {esc(outcomes.RATE_NOTE)}. Neto = procjena naknade − izmjereni trošak.</p></section>")
+            + (f"<h2 style='margin:18px 0 8px'>Objava za kopiranje</h2><div class=pt-post>{''.join(posts)}</div>"
+               "<p class=pt-note>Samo za kopiranje: alat ništa ne objavljuje (ni X, ni Buffer, ni Telegram).</p>"
+               if posts else "")
+            + f"<p class=pt-note>Promet i transakcije: DexScreener, zbroj od lansiranja (za tokene starije od 24 h donja "
+            f"granica). Naknada: {esc(outcomes.RATE_NOTE)}; bez naknade od vlastite kupnje. Neto = procjena naknade − "
+            f"izmjereni trošak lansiranja; vlastita kupnja je vezan kapital u tokenima ({BUY_NOTE}).</p></section>")
+
+
+def post_text(ime, simbol, opis, mint):
+    """Tekst objave za kopiranje: ime ($SIMBOL), opis (isti kao na lancu), CA, poveznica na pump.fun."""
+    return f"{ime} (${simbol})\n{opis}\nCA: {mint}\nhttps://pump.fun/coin/{mint}"
+
+
+def post_block(con, r, open_=False):
+    """„Objava za kopiranje” uz lansiran token: tekst, gumb Kopiraj (clipboard, zamjena prompt), Preuzmi sliku. Ništa
+    se ne šalje nikamo."""
+    d = store.draft(con, r["nacrt_id"]) or {}
+    txt = post_text(d.get("ime") or r.get("ime") or "", d.get("simbol") or r.get("simbol") or "", d.get("opis") or "",
+                    r["mint"])
+    fn = f"{(d.get('simbol') or 'token').lower()}.png"
+    return (f"<details class=card{' open' if open_ else ''}><summary><span class=pt-t>{esc(r['simbol'] or '')}</span>"
+            "<span class=mut>objava za kopiranje</span></summary><div class=in>"
+            f"<pre>{esc(txt)}</pre><div class=pt-row>{_copy(txt, '📋 Kopiraj')}"
+            f"<a class=pt-btn2 href='/pump-tokeni/slika/{r['nacrt_id']}' download='{esc(fn)}'>⬇ Preuzmi sliku</a></div>"
+            "</div></details>")
 
 
 def dash_fragment():
@@ -487,6 +528,15 @@ def _preflight_html(con, now):
                 + esc(", ".join(x["naziv"] for x in bad)) + "</span>")
     lis = "".join(f"<li>{badge('radi', 'good') if x['ok'] else badge('ne radi', 'bad') if x['ok'] is False else badge('pri lansiranju', 'warn')} "
                   f"{esc(x['naziv'])}<span>{esc(x['tekst'])}</span></li>" for x in steps)
+    per = pf.get("nacrti") or []
+    if per:
+        lis += "<li><b>Suha proba po nacrtu</b>" + "".join(
+            f"<span>{'✓' if r.get('ok') else '✗'} {esc(r.get('simbol') or '')} · {esc(store.cet(r.get('termin')))} CET · "
+            f"{esc(_kupnja_txt(r.get('kupnja')))} · poveznice {'da' if r.get('poveznice') else 'ne'} · "
+            + (f"−{r['sol']:.5f} SOL" if r.get("sol") is not None else "–")
+            + f" · rezerva {({True: 'ok', False: 'ne', None: '?'})[r.get('rezerva_ok')]}"
+            + (" (bez kupnje)" if r.get("bez_kupnje") else "")
+            + (f" · {esc((r.get('why') or '')[:140])}" if not r.get("ok") else "") + "</span>" for r in per) + "</li>"
     q = launch.queue(con)
     red = (f"<span class=neg>zaustavljen: {esc(st.get('razlog'))}</span>" if st else
            f"radi, u redu {len(q)} (odobren {_hm(pil.get('odobren_ts'))})" if pil and q else
@@ -516,22 +566,64 @@ def _check_cell(d):
         "; ".join(esc(x) for x in r.get("razlozi") or []) + "</div>"
 
 
-def _edit_form(d):
+def _termin_of(d, now=None):
+    return d.get("termin_ts") or store.default_termin(now)
+
+
+def _kupnja_txt(k):
+    k = float(k or 0)
+    return "bez kupnje" if not k else f"kupnja {k:g} SOL".replace(".", ",")
+
+
+def _plan_line(con, d, defaults=None, now=None):
+    """Kratko na kartici: termin (CET), kupnja, poveznice da/ne."""
+    links = store.link_urls(con, d, defaults)
+    return (f"<span class=pt-pl>⏰ {esc(store.cet(_termin_of(d, now)))} CET"
+            + ("" if d.get("termin_ts") else " <span class=mut>(zadano)</span>")
+            + f" · {esc(_kupnja_txt(d.get('kupnja_sol')))} · poveznice {'da' if links else 'ne'}</span>")
+
+
+def _edit_form(d, defaults=None, now=None):
     did = d["id"]
     lock = d["stanje"] in ("salje", "lansiran")
     if lock:
         return "<details class=pt-ed><summary>Detalji</summary><p class=pt-note>Lansiran ili se šalje: ne mijenja se.</p></details>"
+    defaults = defaults or {}
 
-    def inp(name, label, maxlen):
-        return (f"<label class=blk><b>{label}</b><br><input name={name} maxlength={maxlen} "
+    def inp(name, label, maxlen, value=None, extra=""):
+        v = d.get(name) if value is None else value
+        return (f"<label class=blk><b>{label}</b><br><input name={name} maxlength={maxlen} {extra}"
+                f"value=\"{esc(v if v is not None else '')}\"></label>")
+
+    def link(name, label, ph):
+        dv = defaults.get(name) or ""
+        hint = f"prazno = zadana ({esc(dv)})" if dv else "prazno = bez poveznice"
+        return (f"<label class=blk><b>{label}</b> <span class=mut style='font-size:12px'>{hint}; „-” = bez</span><br>"
+                f"<input name={name} maxlength=100 inputmode=url autocomplete=off placeholder='{ph}' "
                 f"value=\"{esc(d.get(name) or '')}\"></label>")
+    termin = store.cet(_termin_of(d, now), "%Y-%m-%dT%H:%M")
+    k = float(d.get("kupnja_sol") or 0)
     return ("<details class=pt-ed><summary>Uredi</summary>"
             f"<form method=post action=/pump-tokeni/uredi><input type=hidden name=id value={did}>"
             + inp("ime", "Ime", 32) + inp("simbol", "Simbol (2-10 slova ili brojki)", 10)
             + inp("tema", "Tema", 80) + inp("datum_teme", "Datum teme (GGGG-MM-DD)", 10)
             + "<label class=blk><b>Opis</b> <span class=mut>(engleski, istinit, bez obećanja i poveznica)</span><br>"
               f"<textarea name=opis rows=4 maxlength=500>{esc(d['opis'] or '')}</textarea></label>"
-            + inp("skupina", "Skupina pokusa", 40) + "<button class=pt-btn2>💾 Spremi</button></form>"
+            + inp("skupina", "Skupina pokusa", 40)
+            + f"<fieldset><legend>Lansiranje</legend>"
+              f"<label class=blk><b>Lansiraj u (CET)</b><br><input type=datetime-local name=termin value='{termin}' "
+              "step=60></label>"
+            + inp("kupnja_sol", f"Vlastita kupnja (SOL, 0–{store.HARD_MAX_KUPNJA:g})", 8,
+                  value=(f"{k:g}" if k else "0"), extra=f"inputmode=decimal list=ptkup ")
+            + f"<p class=pt-note style='margin:0'>U istoj transakciji lansiranja, javno vidljiva kao devova; "
+              f"{BUY_NOTE}. Ako bi kupnja ostavila manje od rezerve, lansira se bez nje.</p></fieldset>"
+            + "<fieldset><legend>Poveznice (u metapodacima tokena)</legend>"
+            + link("twitter", "X / Twitter", "https://x.com/…") + link("telegram", "Telegram", "https://t.me/…")
+            + link("website", "Web stranica", "https://…")
+            + f"<label class=chk><input type=checkbox name=brend_ok value=1 {'checked' if d.get('brend_ok') else ''}>"
+              f"<span>{esc(BRAND_LABEL)} <span class=mut>(trajno i javno veže brend uz token)</span></span></label>"
+            + "".join(f"<p class=pt-note style='margin:2px 0'>{esc(x)}</p>" for x in LINK_NOTES) + "</fieldset>"
+            + "<button class=pt-btn2>💾 Spremi</button></form>"
             + f"<form method=post action=/pump-tokeni/slika class=pt-row><input type=hidden name=id value={did}>"
               "<input type=hidden name=data><label class=pt-btn2>🖼 Vlastita slika<input type=file accept='image/*' "
               "onchange=\"ptImg(this)\" style='display:none'></label></form>"
@@ -541,7 +633,7 @@ def _edit_form(d):
               "<button class=pt-btn2>🔎 Provjeri ime</button></form></div></details>")
 
 
-def _draft_card(d):
+def _draft_card(con, d, defaults=None, now=None):
     did = d["id"]
     w, k = STATE_WORDS.get(d["stanje"], (d["stanje"], ""))
     can = d["stanje"] in CAN_LAUNCH
@@ -553,22 +645,25 @@ def _draft_card(d):
             f"<div><div class=pt-t>{esc(d['ime'] or '(bez imena)')}</div><code>{esc(d['simbol'] or '')}</code>"
             f"<div class=pt-mst>{badge(w, k)}</div></div>"
             f"<div class=c-tm>{esc(d['tema'] or '')}{(' · ' + esc(d['datum_teme'])) if d['datum_teme'] else ''}</div>"
-            f"<div class=c-op>{esc(d['opis'] or '')}</div><div class=c-ck>{'' if done else _check_cell(d)}</div>"
-            f"{_edit_form(d)}</div>")
+            f"<div class=c-op>{'' if done else _plan_line(con, d, defaults, now)}{esc(d['opis'] or '')}</div><div class=c-ck>{'' if done else _check_cell(d)}</div>"
+            f"{_edit_form(d, defaults, now)}</div>")
 
 
 def _drafts_html(con):
     head = ("<div class=pt-dh><span></span><span>Slika</span><span>Ime</span><span>Tema</span>"
-            "<span>Opis</span><span>Provjera imena</span></div>")
+            "<span>Termin · opis</span><span>Provjera imena</span></div>")
     ds = store.drafts(con)
-    open_ = [d for d in ds if d["stanje"] not in ("salje", "lansiran")]
+    defaults = store.link_defaults(con)
+    now = int(time.time())
+    open_ = sorted([d for d in ds if d["stanje"] not in ("salje", "lansiran")], key=lambda d: (_termin_of(d, now), d["id"]))
     done = [d for d in ds if d["stanje"] in ("salje", "lansiran")]
-    out = "<div class=pt-dl>" + head + ("".join(_draft_card(d) for d in open_) or
-                                        "<div class=card>Nema nacrta koji čekaju. Dodaj novi pod „Više”.</div>") + "</div>"
+    out = ("<datalist id=ptkup><option value=0><option value=0.04></datalist><div class=pt-dl>" + head
+           + ("".join(_draft_card(con, d, defaults, now) for d in open_) or
+              "<div class=card>Nema nacrta koji čekaju. Dodaj novi pod „Više”.</div>") + "</div>")
     if done:
         out += (f"<details class=card style='margin-top:8px'><summary><span class=pt-t>Lansirani i u slanju</span>"
                 f"<span class=mut>{len(done)}</span></summary><div class=in><div class=pt-dl style='margin-top:10px'>"
-                + "".join(_draft_card(d) for d in done) + "</div></div></details>")
+                + "".join(_draft_card(con, d, defaults, now) for d in done) + "</div></div></details>")
     return out
 
 
@@ -581,12 +676,14 @@ def _pilot_html(gate):
             ".forEach(function(x){x.checked=true})\">Odaberi sve</button>"
             "<button class=pt-btn2 type=submit form=ptl formaction=/pump-tokeni/provjera>🩺 Provjera za odabrane</button>"
             "</div>" + (f"<p class=pt-note><b>Još nedostaje:</b></p>{why}" if gate else
-                        "<p class=pt-note>Okvir potvrde pokazuje novčanik, nacrte, razmak i trošak; zatim posao lansira "
-                        "jedan po jedan, bez vlastite kupnje.</p>") + "</div>")
+                        "<p class=pt-note>Odobravaš raspored: okvir potvrde pokazuje za svaki nacrt termin (CET), "
+                        "vlastitu kupnju, poveznice i ukupni trošak; posao lansira svaki u njegovom terminu. Termin koji "
+                        "prođe više od 15 min se ne nadoknađuje.</p>") + "</div>")
 
 
 def _more_html(con, c, now):
     why = launch.blocked_reason(con, now)
+    dflt = store.link_defaults(con)
     return ("<details class=card><summary><span class=pt-t>Više</span><span class=mut>novi nacrt, teme, zabranjene "
             "riječi, stropovi</span></summary><div class=in>"
             "<div class=pt-row><form method=post action=/pump-tokeni/provjeri><input type=hidden name=id value=sve>"
@@ -598,14 +695,28 @@ def _more_html(con, c, now):
                                         ("datum_teme", "Datum (GGGG-MM-DD)", 10), ("skupina", "Skupina", 40)))
             + "<label class=blk><b>Opis</b><br><textarea name=opis rows=3 maxlength=500></textarea></label>"
               "<button class=pt-btn2>➕ Dodaj</button></form>"
+              "<h3>Zadane poveznice</h3><p class=pt-note>Upišeš jednom; nacrt bez vlastite vrijednosti ih nasljeđuje, "
+              "prazno = bez poveznice. Idu u metapodatke tokena (pump.fun ih prikazuje).</p>"
+              "<form method=post action=/pump-tokeni/zadane>"
+            + "".join(f"<label class=blk><b>{lab}</b><br><input name={n} maxlength=100 inputmode=url autocomplete=off "
+                      f"placeholder='{ph}' value=\"{esc(dflt.get(n) or '')}\"></label>"
+                      for n, lab, ph in (("twitter", "X / Twitter", "https://x.com/…"),
+                                         ("telegram", "Telegram", "https://t.me/…"),
+                                         ("website", "Web stranica", "https://…")))
+            + f"<label class=chk><input type=checkbox name=brend_ok value=1 {'checked' if dflt.get('brend_ok') else ''}>"
+              f"<span>{esc(BRAND_LABEL)} <span class=mut>(trajno i javno veže brend uz token)</span></span></label>"
+            + "".join(f"<p class=pt-note style='margin:2px 0'>{esc(x)}</p>" for x in LINK_NOTES)
+            + "<button class=pt-btn2>Spremi zadane</button></form>"
               "<h3>Zabranjene riječi</h3>"
               f"<p class=pt-note>Uvijek: {esc(', '.join(guards.BANNED))}, „by &lt;ime&gt;”, poveznice. Tvoje (zarezom):</p>"
               "<form method=post action=/pump-tokeni/zabranjene class=pt-row><input name=rijeci style='flex:1 1 240px' "
             f"value=\"{esc(', '.join(store.get(con, 'zabranjene', []) or []))}\"><button class=pt-btn2>Spremi</button>"
             "</form><h3>Stropovi</h3>"
             f"<p class=pt-note>Danas poslano {launch.sent_today(con, now)} od {c['dnevno']} (tvrdi max "
-            f"{launch.HARD_MAX_DNEVNO}) · razmak {int(c['razmak_s'] // 60)} min · simulacija najviše {c['max_sol']:g} "
-            f"SOL po tokenu · očekivano {launch.EXPECTED[0]:g}–{launch.EXPECTED[1]:g} SOL po tokenu · red: "
+            f"{launch.HARD_MAX_DNEVNO}) · razmak najmanje {int(c['razmak_s'] // 60)} min · simulacija najviše "
+            f"{c['max_sol']:g} SOL po tokenu + kupnja × {launch.BUY_CAP_MULT:g} · vlastita kupnja najviše "
+            f"{store.HARD_MAX_KUPNJA:g} SOL · rezerva {c['rezerva_sol']:g} SOL · očekivano "
+            f"{launch.EXPECTED[0]:g}–{launch.EXPECTED[1]:g} SOL po tokenu bez kupnje · red: "
             f"{esc(why) if why else 'spreman'}</p></div></details>")
 
 
@@ -620,8 +731,10 @@ def _attempt_rows(con):
                      (f"<a href='https://solscan.io/tx/{esc(a['potpis'])}' target=_blank rel='noopener noreferrer'>"
                       f"{esc(_short(a['potpis']))} ↗</a>" if a["potpis"] else ""),
                      (_sol(a["trosak_sol"], 5), a["trosak_sol"] or 0, "n"), (_sol(a["sim_sol"], 5), a["sim_sol"] or 0, "n"),
+                     (_sol(a.get("kupnja_sol"), 3) if a.get("kupnja_sol") else "0", a.get("kupnja_sol") or 0, "n"),
                      esc(ATTEMPT_WORDS.get(a["stanje"], a["stanje"] or "")),
-                     f"<span class=neg>{esc(a['greska'])}</span>" if a["greska"] else ""])
+                     (f"<span class=neg>{esc(a['greska'])}</span>" if a["greska"] else "")
+                     + (f" <span class=pt-warn>{esc(a['upozorenje'])}</span>" if a.get("upozorenje") else "")])
     return rows
 
 
@@ -631,36 +744,49 @@ def _book_html(con):
     def pt(r, k, f):
         x = r["tocke"].get(k, {}).get(f)
         return "–" if x is None else (f"{x:,.0f}" if isinstance(x, float) else str(x))
-    trs = [[f"<code>{esc(r['simbol'])}</code>", esc(r["skupina"] or ""),
+    trs = [[f"<code>{esc(r['simbol'])}</code>", esc(r["skupina"] or ""), esc(store.cet(r["ts"], "%d.%m. %H:%M")),
+            _sol(float(r.get("kupnja_sol") or 0), 3), "da" if r.get("ima_poveznice") else "ne",
+            esc(outcomes.buyers_text(r)),
             pt(r, "1h", "promet_usd"), pt(r, "12h", "promet_usd"), pt(r, "24h", "promet_usd"), pt(r, "7d", "promet_usd"),
             pt(r, "24h", "txns"), "–" if r["max_mcap_usd"] is None else f"{r['max_mcap_usd']:,.0f}",
             "–" if r["bondan"] is None else ("da" if r["bondan"] else "ne"),
-            _sol(r.get("trosak_sol"), 5), _sol(r["naknada_sol"], 5), _net(r["neto_sol"], 5)] for r in rows]
+            _sol(r.get("trosak_sol"), 5), _sol(r["naknada_sol"], 5), _net(r["neto_sol"], 5),
+            _sol(r["u_tokenima_sol"], 3)] for r in rows]
     gs = [[esc(k), str(g["n"]), str(g["s_ishodom"]), str(g["bondano"]), _sol(g["trosak_sol"], 5),
-           _sol(g["naknada_sol"], 5), _net(g["neto_sol"], 5)] for k, g in sorted(groups.items())]
+           _sol(g["naknada_sol"], 5), _net(g["neto_sol"], 5), _sol(g["u_tokenima_sol"], 3)]
+          for k, g in sorted(groups.items())]
     return (f"<details class=card><summary><span class=pt-t>Knjiga ishoda</span><span class=mut>+1 h, +12 h, +24 h, "
             f"+7 d · CSV</span></summary><div class=in><p class=pt-note>{esc(outcomes.RATE_NOTE)}.</p>"
-            + table(["Simbol", "Skupina", ("Promet 1 h", "n"), ("12 h", "n"), ("24 h", "n"), ("7 d (dan)", "n"),
-                     ("Tx 24 h", "n"), ("Najviši mcap", "n"), "Bondan", ("Trošak SOL", "n"), ("Naknada SOL", "n"),
-                     ("Neto SOL", "n")], trs, tid="ptbook", empty="Još nema lansiranih tokena.")
+            + table(["Simbol", "Skupina", "Sat (CET)", ("Vlastita kupnja SOL", "n"), "Ima poveznice",
+                     ("Kupaca u 10 min", "n"), ("Promet 1 h", "n"), ("12 h", "n"), ("24 h", "n"), ("7 d (dan)", "n"),
+                     ("Tx 24 h", "n"), ("Najviši mcap", "n"), "Bondan", ("Trošak SOL", "n"),
+                     ("Naknada bez vlastite kupnje SOL", "n"), ("Neto SOL", "n"), ("U tokenima SOL", "n")], trs,
+                    tid="ptbook", empty="Još nema lansiranih tokena.")
+            + "<p class=pt-note>Naknada bez vlastite kupnje = procjena − 0,30 % × vlastita kupnja. Neto ne uključuje "
+              "kupnju: ona je vezan kapital u tokenima (stupac „U tokenima”), ne gubitak. Kupaca u 10 min: različiti "
+              "novčanici bez kreatora (RPC); „≥ N” = dosegnut strop poziva; „kupnji” = DexScreener broji kupnje, ne "
+              "kupce.</p>"
             + "<h3>Zbroj po skupini</h3>"
             + table(["Skupina", ("Tokena", "n"), ("S ishodom", "n"), ("Bondano", "n"), ("Trošak SOL", "n"),
-                     ("Naknada SOL", "n"), ("Neto SOL", "n")], gs, tid="ptgrp", empty="Nema skupina s lansiranjem.")
+                     ("Naknada bez vl. kupnje SOL", "n"), ("Neto SOL", "n"), ("U tokenima SOL", "n")], gs, tid="ptgrp",
+                    empty="Nema skupina s lansiranjem.")
             + "<p><a class=pt-btn2 href=/pump-tokeni/csv download>⬇ CSV</a></p></div></details>")
 
 
 JS = """<script>
 function ptCopy(e,b){e.preventDefault();e.stopPropagation();var a=b.dataset.a;
 (navigator.clipboard?navigator.clipboard.writeText(a):Promise.reject()).then(function(){var t=b.textContent;b.textContent='✓ Kopirano';
-setTimeout(function(){b.textContent=t},1500)},function(){prompt('Kopiraj adresu:',a)});return false}
+setTimeout(function(){b.textContent=t},1500)},function(){prompt('Kopiraj:',a)});return false}
 function ptWallet(f){var r=f.querySelector('input[name=izbor]:checked');if(!r)return false;
 if(r.value==='trgovacki'){if(!f.potvrda.checked){alert('Za trgovački novčanik označi kvačicu potvrde.');return false}
 return confirm('Trgovački novčanik plaća lansiranja pokusa.\\nTrošak se miješa s rezultatom pravog novca, a novčanik ostaje javno označen kao kreator.\\nPotvrđuješ?')}return true}
 function ptLaunch(f,ev){var b=ev&&ev.submitter;if(b&&b.getAttribute('formaction'))return true;
 var sel=[];document.querySelectorAll('input[name=id][form=ptl]').forEach(function(x){if(x.checked)sel.push(x.value)});
-if(!sel.length){alert('Odaberi barem jedan nacrt (kvačica na kartici).');return false}var c=PT,n=sel.length;
-var names=sel.map(function(i){return '#'+i+' '+(c.names[i]||'')}).join(', ');
-var t='ODOBRI PILOT\\nNovčanik: '+c.w+'\\nNacrti ('+n+'): '+names+'\\nRazmak: '+c.gap+' min (prvi odmah), najviše '+c.day+' dnevno\\nOčekivani ukupni trošak: oko '+(n*c.lo).toFixed(4)+'–'+(n*c.hi).toFixed(4)+' SOL ('+c.lo+'–'+c.hi+' po tokenu, izmjereno); strop simulacije '+c.max+' SOL po tokenu\\nBEZ VLASTITE KUPNJE (0 SOL), token se ostavlja.\\nAko prvo lansiranje ne uspije ili trošak prijeđe strop, red staje sam.';
+if(!sel.length){alert('Odaberi barem jedan nacrt (kvačica na kartici).');return false}var c=PT,n=sel.length,kb=0;
+var ds=sel.map(function(i){return c.d[i]||{s:'#'+i,t:0,tc:'?',k:0,l:false}}).sort(function(a,b){return a.t-b.t});
+var lines=ds.map(function(d){kb+=d.k;return '• '+d.s+'  '+d.tc+' CET · '+(d.k?'kupnja '+d.k+' SOL':'bez kupnje')+' · poveznice '+(d.l?'da':'ne')}).join('\n');
+var lo=n*c.lo+kb*(1+c.fee),hi=n*c.hi+kb*c.capm;
+var t='ODOBRI RASPORED\nNovčanik: '+c.w+'\n'+lines+'\nRazmak najmanje '+c.gap+' min (bliži termin se pomiče), najviše '+c.day+' dnevno\nUkupni trošak: oko '+lo.toFixed(4)+'–'+hi.toFixed(4)+' SOL (lansiranje '+c.lo+'–'+c.hi+' po tokenu, izmjereno; vlastite kupnje '+kb.toFixed(3)+' SOL + naknada); strop simulacije '+c.max+' SOL + kupnja × '+c.capm+'\nKupljeni tokeni ostaju u novčaniku; alat ih ne prodaje. Ako bi kupnja ostavila manje od '+c.rez+' SOL, lansira se bez nje.\nTermin koji prođe više od 15 min se ne nadoknađuje. Ako prvo lansiranje ne uspije ili trošak prijeđe strop, red staje sam.';
 if(!confirm(t))return false;f.potvrda.value='1';return true}
 function ptRefund(f){var a=(f.adresa.value||'').trim();if(!a){alert('Upiši adresu.');return false}
 if(!confirm('Vrati ostatak s novčanika pokusa\\nNa adresu: '+a+'\\nIznos: oko '+(parseFloat(f.saldo.value)-0.000005).toFixed(6)+' SOL (sav saldo minus mrežna naknada; točan iznos se čita pri slanju)\\nPrije slanja ide simulacija.'))return false;f.potvrda.value='1';return true}
@@ -689,14 +815,19 @@ def page(qs, user, auto=None):
         gate = pilot_gate(con, ws, c, now)
         any_launched = bool(outcomes.launched(con))
         from pumptokeni import naknada
+        dflt = store.link_defaults(con)
         pt = {"w": WLABEL[ws["ch"]] + (f" {_short(ws['addr'])}" if ws["addr"] else ""), "lo": launch.EXPECTED[0],
               "hi": launch.EXPECTED[1], "max": c["max_sol"], "gap": int(c["razmak_s"] // 60), "day": c["dnevno"],
               "cfee": naknada.CLAIM_MAX_FEE_SOL,
-              "names": {str(d["id"]): f"{d['simbol']} {d['ime']}" for d in store.drafts(con)}}
+              "names": {str(d["id"]): f"{d['simbol']} {d['ime']}" for d in store.drafts(con)},
+              "fee": launch.BUY_FEE, "capm": launch.BUY_CAP_MULT, "rez": c["rezerva_sol"],
+              "d": {str(d["id"]): {"s": d["simbol"] or "", "t": _termin_of(d, now),
+                                   "tc": store.cet(_termin_of(d, now)), "k": float(d.get("kupnja_sol") or 0),
+                                   "l": bool(store.link_urls(con, d, dflt))} for d in store.drafts(con)}}
         b = ["<meta name=robots content='noindex,nofollow'>", CSS, "<div class=pt>",
              "<h1>🧪 Pump Fun tokeni</h1>",
-             "<p class=pt-sub>Samo za tebe. Lansiramo bez vlastite kupnje; naše tokene alat nikad ne kupuje ni ne "
-             "prodaje.</p>",
+             "<p class=pt-sub>Samo za tebe. Vlastita kupnja samo u transakciji lansiranja (do "
+             f"{store.HARD_MAX_KUPNJA:g} SOL); {BUY_NOTE}. Ništa se ne objavljuje automatski.</p>",
              _msg(qs),
              dash_html(con, now) if any_launched else _steps_html(con, ws, gate, now),
              _wallet_html(con, c, ws, steps=not any_launched),
@@ -711,7 +842,8 @@ def page(qs, user, auto=None):
              "<details class=card><summary><span class=pt-t>Pokušaji lansiranja</span><span class=mut>"
              f"{len(store.attempts(con, 500))}</span></summary><div class=in>"
              + table(["Vrijeme", "Simbol", "Novčanik", "Mint", "Potpis", ("Trošak SOL", "n"), ("Simulacija SOL", "n"),
-                      "Stanje", "Greška"], _attempt_rows(con), tid="ptpok", empty="Još nijedan pokušaj.")
+                      ("Kupnja SOL", "n"), "Stanje", "Greška / upozorenje"], _attempt_rows(con), tid="ptpok",
+                     empty="Još nijedan pokušaj.")
              + "</div></details>",
              _book_html(con),
              "</div>",
@@ -777,10 +909,16 @@ def _do(con, act, form, user, search=None):
         return f"nacrt #{did} dodan; provjeri ime prije lansiranja"
     if act == "uredi":
         did = (_ids(form) or [0])[0]
-        d = store.update_draft(con, did, {k: form[k] for k in store.DRAFT_FIELDS if k in form})
+        keys = store.DRAFT_FIELDS + ("kupnja_sol", "termin") + store.LINK_KINDS
+        f = {k: form[k] for k in keys if k in form}
+        if any(k in form for k in store.LINK_KINDS):
+            f["brend_ok"] = form.get("brend_ok") or ""
+        was = (store.draft(con, did) or {}).get("stanje")
+        d = store.update_draft(con, did, f)
         if not d["slika_vlastita"]:   # 26.11.: sjemenski simbol s datotekom pumptokeni/slike/ zadržava tu sliku
             store.set_image(con, did, store.seed_image(d["ime"] or "", d["simbol"] or ""), False)
-        return f"#{did} spremljen; provjera imena se ponavlja"
+        return (f"#{did} spremljen; provjera imena se ponavlja" +
+                ("; izašao iz reda: odobri raspored ponovno" if was == "u_redu" else ""))
     if act in ("slika", "generiraj"):
         did = (_ids(form) or [0])[0]
         d = store.draft(con, did)
@@ -807,8 +945,10 @@ def _do(con, act, form, user, search=None):
     if act == "lansiraj":
         ids = _ids(form)
         n, why = launch.approve_pilot(con, ids, user, str(form.get("potvrda") or "") == "1")
-        print(f"pump tokeni: pilot odobren ({n} nacrta: {', '.join('#' + str(i) for i in ids)})", flush=True)
-        return f"pilot odobren: u redu {n}" + (f"; preskočeno: {'; '.join(why)}" if why else "")
+        plan = (store.get(con, "pilot") or {}).get("raspored") or [] if n else []
+        txt = ", ".join(f"{x['simbol']} {store.cet(x['termin'], '%H:%M')}" for x in plan)
+        print(f"pump tokeni: raspored odobren ({n} nacrta: {txt})" + (f"; {'; '.join(why)}" if why else ""), flush=True)
+        return f"raspored odobren: {n} ({txt})" + (f"; napomene: {'; '.join(why)}" if why else "")
     if act == "provjera":
         steps = provjera.run(con, _ids(form) or None, search=search)
         bad = [x for x in steps if x["ok"] is False]
@@ -847,6 +987,10 @@ def _do(con, act, form, user, search=None):
         from pumptokeni import naknada
         r = naknada.claim(con, user, str(form.get("potvrda") or "") == "1")
         return f"naknada: {r['tekst']}, potpis {r['potpis']}"
+    if act == "zadane":
+        store.set_link_defaults(con, {k: form.get(k, "") for k in store.LINK_KINDS},
+                                str(form.get("brend_ok") or "") in ("1", "on"))
+        return "zadane poveznice spremljene"
     if act == "zabranjene":
         words = [w.strip() for w in (form.get("rijeci") or "").split(",") if w.strip()][:200]
         store.put(con, "zabranjene", words)

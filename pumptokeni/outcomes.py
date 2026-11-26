@@ -6,7 +6,13 @@ Procjena naknade kreatoru: promet × CREATOR_RATE / cijena SOL-a. Stopa 0,30 % p
 25.11.2026. (protokol 0,95 %, ukupno 1,25 %); nakon bondanja vrijedi druga ljestvica, pa je za bondane procjena gruba. Promet: dok je
 token mlađi od 24 h, DexScreenerov volume.h24 je cijeli promet od lansiranja, pa je osnova točka +24 h (ili zadnja
 ranija koja postoji); točka +7 d dodaje svoj volume.h24 (zadnji dan) kao DONJU granicu prometa dana 2-7.
-Neto = procjena naknade − izmjereni trošak lansiranja (saldo prije − poslije).
+Neto = procjena naknade bez vlastite kupnje − izmjereni trošak lansiranja (saldo prije − poslije − vlastita kupnja).
+Vlastita kupnja (26.11.): naknada kreatora od naše kupnje (0,30 % × kupnja) nije prihod, pa se oduzima od procjene
+(„naknada bez vlastite kupnje”); kupnja je vezan kapital u tokenima („u tokenima: X SOL”), ne gubitak.
+Kupci u prvih 10 min (measure_buyers): različiti novčanici (bez kreatora i računa krivulje) čiji je saldo našeg tokena
+porastao u transakcijama u prvih 600 s od lansiranja; getSignaturesForAddress(mint) + getTransaction kroz RPC posla,
+jednom po tokenu (11+ min nakon lansiranja), tvrdi strop BUYERS_MAX_CALLS poziva po tokenu (dosegnut = „≥ N”). Ako
+RPC ne odgovori: broj kupnji iz DexScreener snimka (kupnje 1 h u snimku 10–20 min nakon lansiranja), označen „kupnji”.
 
 CSV (za istraživanje): po tokenu, bez ikakvih adresa kupaca (alat ih ni ne dohvaća).
 """
@@ -20,6 +26,10 @@ from pumptokeni import store
 
 CHECKS = (("1h", 3600), ("12h", 12 * 3600), ("24h", 24 * 3600), ("7d", 7 * 86400))
 CREATOR_RATE = 0.003
+BUYERS_WINDOW_S = 600
+BUYERS_AFTER_S = 660          # mjeri se tek 11 min nakon lansiranja (prozor od 10 min je zatvoren)
+BUYERS_MAX_CALLS = 300        # tvrdi strop RPC poziva po tokenu
+BUYERS_MAX_TRIES = 3
 RATE_NOTE = "0,30 % prometa na krivulji, potvrđeno s lanca 25.11.2026.; za bondane tokene procjena je gruba"
 WSOL = "So11111111111111111111111111111111111111112"
 BATCH = 30
@@ -135,6 +145,25 @@ def check_pass(con, now=None, fetch=None, log=print):
     return len(todo)
 
 
+def own_fee_adjusted(fee_sol, buy_sol):
+    """Procjena naknade bez naknade od vlastite kupnje (0,30 % × kupnja nije prihod)."""
+    if fee_sol is None:
+        return None
+    return max(0.0, fee_sol - CREATOR_RATE * float(buy_sol or 0))
+
+
+def buyers_text(a):
+    """„7”, „≥ 300” ili „12 kupnji” (DexScreener), „–” bez mjerenja."""
+    n, src = a.get("kupci_10m"), a.get("kupci_10m_izvor")
+    if n is None:
+        return "–"
+    if src == "rpc_strop":
+        return f"≥ {n}"
+    if src == "dex_kupnji":
+        return f"{n} kupnji"
+    return str(n)
+
+
 def book(con):
     """[{pokušaj + točke + procjena}] po lansiranom tokenu, i {skupina: zbroj}."""
     pts = {}
@@ -149,16 +178,19 @@ def book(con):
         vol_total = (vol or 0) + (late or 0) if (vol is not None or late is not None) else None
         rate = next((x["sol_usd"] for x in p.values() if x.get("sol_usd")), None)
         fee_sol = vol_total * CREATOR_RATE / rate if (vol_total is not None and rate) else None
+        buy = float(a.get("kupnja_sol") or 0)
+        fee_sol = own_fee_adjusted(fee_sol, buy)
         cost = a.get("trosak_sol")
         net = (fee_sol or 0) - cost if (cost is not None and fee_sol is not None) else None
         peak = max([x["max_mcap_usd"] for x in p.values() if x.get("max_mcap_usd")] or [None]) \
             if any(x.get("max_mcap_usd") for x in p.values()) else None
         bond = 1 if any(x.get("bondan") for x in p.values()) else (0 if p else None)
         row = {**a, "tocke": p, "promet_usd": vol_total, "max_mcap_usd": peak, "bondan": bond, "naknada_sol": fee_sol,
-               "neto_sol": net}
+               "neto_sol": net, "u_tokenima_sol": buy}
         rows.append(row)
         g = groups.setdefault(a.get("skupina") or "-", {"n": 0, "trosak_sol": 0.0, "naknada_sol": 0.0, "neto_sol": 0.0,
-                                                        "bondano": 0, "s_ishodom": 0})
+                                                        "bondano": 0, "s_ishodom": 0, "u_tokenima_sol": 0.0})
+        g["u_tokenima_sol"] += buy
         g["n"] += 1
         g["trosak_sol"] += cost or 0.0
         if fee_sol is not None:
@@ -311,7 +343,7 @@ def dashboard(con, now=None):
     by_book = {r["mint"]: r for r in rows_b}
     rows = []
     t = {"lansirano": 0, "promet_usd": 0.0, "promet_sol": 0.0, "kupnje": 0, "prodaje": 0, "naknada_sol": 0.0,
-         "trosak_sol": 0.0, "s_prometom": 0, "bondano": 0}
+         "trosak_sol": 0.0, "s_prometom": 0, "bondano": 0, "u_tokenima_sol": 0.0}
     for a in launched(con):
         sn = snapshots(con, a["mint"])
         last = sn[-1] if sn else {}
@@ -323,7 +355,8 @@ def dashboard(con, now=None):
         sells = _cumulative(sn, a["ts"], "prodaje_h24")
         rate = next((s["sol_usd"] for s in reversed(sn) if s.get("sol_usd")), None) or \
             next((x["sol_usd"] for x in (b.get("tocke") or {}).values() if x.get("sol_usd")), None)
-        fee = vol * CREATOR_RATE / rate if (vol is not None and rate) else None
+        buy = float(a.get("kupnja_sol") or 0)
+        fee = own_fee_adjusted(vol * CREATOR_RATE / rate if (vol is not None and rate) else None, buy)
         cost = a.get("trosak_sol")
         peak = max([v for v in [s.get("max_mcap_usd") for s in sn] + [b.get("max_mcap_usd")] if v] or [None])
         bond = 1 if (last.get("bondan") or b.get("bondan")) else (0 if (sn or b.get("tocke")) else None)
@@ -332,7 +365,7 @@ def dashboard(con, now=None):
              "promet_h24": last.get("promet_h24"), "promet_usd": vol, "kupnje": buys, "prodaje": sells,
              "mcap_usd": last.get("mcap_usd"), "max_mcap_usd": peak, "bondan": bond, "naknada_sol": fee,
              "trosak_sol": cost, "neto_sol": (fee or 0.0) - cost if cost is not None else None, "snimci": sn,
-             "zadnji_ts": last.get("ts")}
+             "zadnji_ts": last.get("ts"), "u_tokenima_sol": buy, "kupci": buyers_text(a)}
         rows.append(r)
         t["lansirano"] += 1
         t["promet_usd"] += vol or 0.0
@@ -342,6 +375,7 @@ def dashboard(con, now=None):
         t["naknada_sol"] += fee or 0.0
         t["s_prometom"] += 1 if (vol or 0) > 0 or (buys or 0) + (sells or 0) > 0 else 0
         t["bondano"] += 1 if bond else 0
+        t["u_tokenima_sol"] += buy
     t["trosak_sol"] = float(con.execute("SELECT COALESCE(SUM(trosak_sol), 0) FROM pokusaji WHERE trosak_sol IS NOT NULL")
                             .fetchone()[0])
     t["neto_sol"] = t["naknada_sol"] - t["trosak_sol"]
@@ -354,10 +388,118 @@ def dashboard(con, now=None):
     return {"tiles": t, "rows": rows}
 
 
+# ---------- kupci u prvih 10 min (26.11., vlasnik) ----------------------------------------------------------------
 
-CSV_COLS = ("nacrt_id", "skupina", "tema", "ime", "simbol", "mint", "lansirano_utc", "novcanik", "trosak_sol",
-            "promet_1h_usd", "promet_12h_usd", "promet_24h_usd", "promet_7d_zadnji_dan_usd", "txns_24h", "max_mcap_usd",
-            "bondan", "naknada_procjena_sol", "neto_sol", "napomena")
+def curve_pda(mint):
+    from solders.pubkey import Pubkey
+    from pumptokeni import launch
+    return str(Pubkey.find_program_address([b"bonding-curve", bytes(Pubkey.from_string(mint))],
+                                           Pubkey.from_string(launch.PUMP_PROGRAM))[0])
+
+
+def _gained(tx, mint):
+    """Vlasnici token računa našeg minta kojima je saldo porastao u transakciji (bez greške)."""
+    meta = (tx or {}).get("meta") or {}
+    if meta.get("err") is not None:
+        return set()
+
+    def bal(rows):
+        out = {}
+        for b in rows or []:
+            if b.get("mint") != mint or not b.get("owner"):
+                continue
+            try:
+                out[b["owner"]] = out.get(b["owner"], 0) + int((b.get("uiTokenAmount") or {}).get("amount") or 0)
+            except (TypeError, ValueError):
+                continue
+        return out
+    pre, post = bal(meta.get("preTokenBalances")), bal(meta.get("postTokenBalances"))
+    return {o for o, v in post.items() if v > pre.get(o, 0)}
+
+
+def count_buyers(rpc, mint, launch_ts, creator, max_calls=BUYERS_MAX_CALLS):
+    """(broj, izvor 'rpc'|'rpc_strop', poziva). Različiti novčanici kojima je saldo našeg tokena porastao u prvih 600 s
+    od lansiranja (prva transakcija minta, ili launch_ts), bez kreatora i računa krivulje. Najviše max_calls poziva."""
+    calls, sigs, before = 0, [], None
+    capped, at_start = False, False
+    while True:
+        if calls >= max_calls:
+            capped = True
+            break
+        opts = {"limit": 1000, "commitment": "confirmed", **({"before": before} if before else {})}
+        page = rpc("getSignaturesForAddress", [mint, opts]) or []
+        calls += 1
+        sigs += page
+        if len(page) < 1000 or not page:
+            at_start = True   # cijela povijest minta: najstarija je lansiranje
+            break
+        if (page[-1].get("blockTime") or 0) < launch_ts - 60:
+            break
+        before = page[-1].get("signature")
+    times = [x["blockTime"] for x in sigs if x.get("blockTime")]
+    t0 = min(times) if (at_start and times and abs(min(times) - launch_ts) < 3600) else launch_ts
+    early = sorted((x for x in sigs if x.get("err") is None and x.get("blockTime") is not None
+                    and t0 <= x["blockTime"] <= t0 + BUYERS_WINDOW_S), key=lambda x: (x["blockTime"], x["signature"]))
+    skip = {creator, curve_pda(mint)}
+    buyers = set()
+    for x in early:
+        if calls >= max_calls:
+            capped = True
+            break
+        tx = rpc("getTransaction", [x["signature"], {"encoding": "json", "maxSupportedTransactionVersion": 0,
+                                                     "commitment": "confirmed"}])
+        calls += 1
+        buyers |= _gained(tx, mint) - skip
+    return len(buyers), ("rpc_strop" if capped else "rpc"), calls
+
+
+def _dex_buys(con, a):
+    """Kupnje (ne kupci) iz DexScreener snimka 10–20 min nakon lansiranja (kupnje 1 h = sve od lansiranja)."""
+    for s in snapshots(con, a["mint"]):
+        if BUYERS_WINDOW_S <= s["ts"] - a["ts"] <= 2 * BUYERS_WINDOW_S and s.get("kupnje_h1") is not None:
+            return int(s["kupnje_h1"])
+    return None
+
+
+def measure_buyers(con, now=None, rpc=None, log=print, max_calls=BUYERS_MAX_CALLS):
+    """Jednom po lansiranom tokenu (11+ min nakon lansiranja): kupci u prvih 10 min u pokusaji.kupci_10m. Broj
+    izmjerenih. RPC posla (trade/wallet.rpc), besplatno; ne baca."""
+    now = int(now or time.time())
+    todo = [a for a in launched(con) if a.get("kupci_10m") is None and a.get("kupci_10m_izvor") is None
+            and now - a["ts"] >= BUYERS_AFTER_S]
+    if not todo:
+        return 0
+    if rpc is None:
+        from trade import wallet
+        rpc = wallet.rpc
+    tries = store.get(con, "kupci_pokusaji", {}) or {}
+    n = 0
+    for a in todo:
+        try:
+            k, src, calls = count_buyers(rpc, a["mint"], a["ts"], a.get("platitelj"), max_calls)
+            store.update_attempt(con, a["id"], kupci_10m=k, kupci_10m_izvor=src, kupci_10m_poziva=calls)
+            log(f"pump tokeni: {a['simbol']} kupaca u prvih 10 min {'≥ ' if src == 'rpc_strop' else ''}{k} "
+                f"({calls} RPC poziva)")
+            n += 1
+            continue
+        except Exception as e:  # noqa: BLE001
+            tries[a["mint"]] = tries.get(a["mint"], 0) + 1
+            err = type(e).__name__
+        dex = _dex_buys(con, a)
+        if dex is not None or tries[a["mint"]] >= BUYERS_MAX_TRIES:
+            store.update_attempt(con, a["id"], kupci_10m=dex, kupci_10m_izvor="dex_kupnji" if dex is not None else
+                                 "nema", kupci_10m_poziva=0)
+            log(f"pump tokeni: {a['simbol']} RPC bez podataka ({err}): "
+                + (f"{dex} kupnji iz DexScreenera (kupnje, ne kupci)" if dex is not None else "kupci nisu izmjereni"))
+            n += 1
+    store.put(con, "kupci_pokusaji", tries)
+    return n
+
+
+CSV_COLS = ("nacrt_id", "skupina", "tema", "ime", "simbol", "mint", "lansirano_utc", "sat_lansiranja_cet", "novcanik",
+            "vlastita_kupnja_sol", "ima_poveznice", "trosak_sol", "u_tokenima_sol", "promet_1h_usd", "promet_12h_usd",
+            "promet_24h_usd", "promet_7d_zadnji_dan_usd", "txns_24h", "max_mcap_usd", "bondan", "kupaca_10min",
+            "kupaca_10min_izvor", "naknada_bez_vlastite_kupnje_sol", "neto_sol", "upozorenje", "napomena")
 
 
 def csv_text(con):
@@ -369,11 +511,17 @@ def csv_text(con):
     for r in rows:
         p = r["tocke"]
         w.writerow([r["nacrt_id"], r["skupina"], r["tema"], r["ime"], r["simbol"], r["mint"],
-                    time.strftime("%Y-%m-%d %H:%M", time.gmtime(r["ts"])), r["novcanik"], _c(r.get("trosak_sol")),
+                    time.strftime("%Y-%m-%d %H:%M", time.gmtime(r["ts"])), store.cet(r["ts"], "%Y-%m-%d %H:%M"),
+                    r["novcanik"], _c(float(r.get("kupnja_sol") or 0)), "da" if r.get("ima_poveznice") else "ne",
+                    _c(r.get("trosak_sol")), _c(r["u_tokenima_sol"]),
                     *(_c(p.get(k, {}).get("promet_usd")) for k in ("1h", "12h", "24h", "7d")),
                     p.get("24h", {}).get("txns", ""), _c(r["max_mcap_usd"]),
-                    "" if r["bondan"] is None else ("da" if r["bondan"] else "ne"), _c(r["naknada_sol"]),
-                    _c(r["neto_sol"]), RATE_NOTE])
+                    "" if r["bondan"] is None else ("da" if r["bondan"] else "ne"),
+                    "" if r.get("kupci_10m") is None else r["kupci_10m"],
+                    {"rpc": "kupaca (RPC)", "rpc_strop": f"kupaca (RPC, strop {BUYERS_MAX_CALLS} poziva: najmanje)",
+                     "dex_kupnji": "kupnji (DexScreener, ne kupaca)"}.get(r.get("kupci_10m_izvor") or "", ""),
+                    _c(r["naknada_sol"]), _c(r["neto_sol"]), r.get("upozorenje") or "",
+                    RATE_NOTE + "; naknada bez naknade od vlastite kupnje; vlastita kupnja je vezan kapital u tokenima"])
     return out.getvalue()
 
 
