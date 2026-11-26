@@ -791,11 +791,20 @@ class Handler(BaseHTTPRequestHandler):
             # 25.11. (vlasnik, ui/pumptokeni.py): launches of our own pump.fun tokens. The OWNER only, checked here on the
             # server before anything is read (other admins and users 403, visitors the login); never cached, noindex
             from trade import settings as tsettings
-            if not tsettings.is_owner(self.user):
+            from ui import pumptokeni
+            gledatelj = not tsettings.is_owner(self.user) and pumptokeni.is_viewer(self.user)
+            if not tsettings.is_owner(self.user) and not gledatelj:
                 body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
                         "<p><a href=/>← Na početnu</a></p></div>")
                 return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
-            from ui import pumptokeni
+            if gledatelj and path == PUMPT:   # 26.11.: samo čitanje (ploča, raspored); svi POST-ovi ostaju vlasnikovi
+                try:
+                    html = page(*pumptokeni.view_page(), path)
+                except Exception:
+                    html = page("Greška", _error_html(), path)
+                return self._send(200, html.encode("utf-8"))
+            if gledatelj and path == PUMPT + "/csv":
+                return self._send(403, b"", "text/plain")
             if path.startswith(PUMPT + "/slika/"):
                 try:
                     png = pumptokeni.image_png(int(path.rsplit("/", 1)[-1]))

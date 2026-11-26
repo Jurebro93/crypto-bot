@@ -853,6 +853,41 @@ def page(qs, user, auto=None):
         con.close()
 
 
+def viewers(env=None):
+    """26.11. (vlasnik: "dodaj korisnika Panda da može vidjeti pump fun dio"): korisnici koji smiju GLEDATI stranicu
+    (PUMP_TOKENI_GLEDATELJI, zarezom odvojeno; zadano Panda). Samo čitanje: nijedan gumb, nijedan POST."""
+    raw = (os.environ if env is None else env).get("PUMP_TOKENI_GLEDATELJI", "Panda")
+    return {x.strip().lower() for x in raw.split(",") if x.strip()}
+
+
+def is_viewer(user, env=None):
+    return bool(user) and str(user).strip().lower() in viewers(env)
+
+
+def view_page():
+    """Stranica za gledatelja: nadzorna ploča, raspored i knjiga ishoda. Bez obrazaca, novčanika i postavki."""
+    con = _con()
+    try:
+        now = int(time.time())
+        rows = []
+        for d in sorted(store.drafts(con), key=lambda d: (_termin_of(d, now), d["id"])):
+            w, _k = STATE_WORDS.get(d["stanje"], (d["stanje"], ""))
+            img = f"<img src='/pump-tokeni/slika/{d['id']}' width=56 height=56 alt='' loading=lazy>" if d["slika"] else ""
+            rows.append([img, f"<b>{esc(d['ime'] or '')}</b> <span class=mut>{esc(d['simbol'] or '')}</span>",
+                         esc(store.cet(_termin_of(d, now))), f"{float(d.get('kupnja_sol') or 0):g}", esc(w),
+                         esc(d["opis"] or "")])
+        b = ["<meta name=robots content='noindex,nofollow'>", CSS, "<div class=pt>", "<h1>🧪 Pump Fun tokeni</h1>",
+             "<p class=pt-sub>Pregled pokusa, samo za čitanje. Lansiranja odobrava vlasnik.</p>",
+             dash_html(con, now) if outcomes.launched(con) else "<div class=card>Još nema lansiranih tokena.</div>",
+             "<h2>Raspored</h2>",
+             table(["", "Token", "Termin (CET)", ("Kupnja SOL", "n"), "Stanje", "Opis"], rows, tid="ptgl",
+                   empty="Nema nacrta."),
+             "</div>"]
+        return "Pump Fun tokeni", "".join(b)
+    finally:
+        con.close()
+
+
 def image_png(did):
     con = _con()
     try:
