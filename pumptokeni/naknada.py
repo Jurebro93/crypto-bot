@@ -5,8 +5,8 @@ potvrde; nikad automatski.
 Tok:
   1. samo vlasnik, samo uz potvrdu; kill switch (trade/STOP) → ništa; novčanik izabran i ima ključ
   2. PumpPortal trade-local: {"publicKey", "action": "collectCreatorFee", "priorityFee", "pool": "pump"} (pump.fun
-     podiže sve naknade novčanika odjednom, mint nije potreban; prema PumpPortal dokumentaciji „Claim Creator Fees”,
-     NIJE ponovno provjereno uživo 26.11.: pumpportal.fun nedohvatljiv iz sandboxa)
+     podiže sve naknade novčanika odjednom, mint nije potreban; oblik zahtjeva provjeren u PumpPortal dokumentaciji
+     „Claim Creator Fees" (pumpportal.fun/creator-fee/, pročitano 26.11.2026.); samo slanje nije isprobano uživo)
   3. provjera naloga: platitelj prvi i JEDINI potpisnik, samo dopušteni programi (pump.fun, PumpSwap, sustavni,
      token, ATA, ComputeBudget), priority ≤ strop
   4. simulateTransaction (sigVerify): mora uspjeti, platitelj mora DOBITI SOL (inače „ništa za podići”), a trošak
