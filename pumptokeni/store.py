@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS ishodi (
   mint TEXT, tocka TEXT, ts INTEGER, nadjen INTEGER, promet_usd REAL, txns INTEGER, mcap_usd REAL, max_mcap_usd REAL,
   bondan INTEGER, sol_usd REAL, PRIMARY KEY (mint, tocka));
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS snimci (
+  mint TEXT, ts INTEGER, nadjen INTEGER, promet_m5 REAL, promet_h1 REAL, promet_h6 REAL, promet_h24 REAL,
+  kupnje_h1 INTEGER, prodaje_h1 INTEGER, kupnje_h24 INTEGER, prodaje_h24 INTEGER, mcap_usd REAL, max_mcap_usd REAL,
+  likvidnost_usd REAL, bondan INTEGER, sol_usd REAL, PRIMARY KEY (mint, ts));
+CREATE TABLE IF NOT EXISTS podizanja (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, novcanik TEXT, platitelj TEXT, potpis TEXT, stanje TEXT,
+  saldo_prije REAL, saldo_poslije REAL, iznos_sol REAL, sim_sol REAL, greska TEXT);
 """
 
 DRAFT_STATES = ("nacrt", "u_redu", "salje", "lansiran", "greska", "odbijen")
@@ -35,21 +42,38 @@ DRAFT_FIELDS = ("tema", "datum_teme", "ime", "simbol", "opis", "skupina")
 # 25.11. (vlasnik): večeras prvih 5, opće nadolazeće teme (bez osoba, brendova i postojećih tokena); opisi kratki,
 # istiniti, engleski, bez obećanja zarade i bez poveznica
 SKUPINA_0 = "opce-teme-0sol"
+# 26.11. (vlasnik: „reći javno: ne obećavamo ništa, token će vjerojatno propasti, nemojte kupovati; jasno, ali
+# satirično”): novi opisi sjemena. Stari (SEED_2511) ostaju samo za jednokratnu migraciju nediranih nacrta.
 SEED = (
     ("Dan zahvalnosti (SAD)", "2026-11-26", "Gobble", "GOBBLE",
-     "A meme coin for Thanksgiving Day, November 26. Turkey, pie and a long nap. Just a meme: no roadmap, no promises."),
+     "A Thanksgiving turkey token. It promises nothing, does nothing and will most likely be carved up before Friday. "
+     "Please do not buy it. Crypto is mostly a scam anyway. Gobble gobble."),
     ("Black Friday", "2026-11-27", "Doorbuster", "DOORB",
-     "A meme coin for Black Friday, November 27: the crowd at the door before the store opens. Just a meme: no roadmap, "
-     "no promises."),
+     "Doorbuster: a Black Friday token with zero utility, no roadmap and no team. It will probably go to zero. Do not "
+     "buy. The only real deal today is keeping your money."),
     ("Cyber Monday", "2026-11-30", "Cart Goblin", "CARTGOB",
-     "A meme coin for Cyber Monday, November 30: the little goblin who fills the cart at midnight. Just a meme: no "
-     "roadmap, no promises."),
+     "Cart Goblin lives in your abandoned shopping cart. He has no plans, no utility and no shame. This token will "
+     "likely fail. Do not buy. Close the tab."),
     ("Prosinački rast tržišta", "2026-12-24", "Santa Rally", "SRALLY",
-     "A meme coin about the Santa rally, the old market saying about late December. Just a meme, not advice: no "
-     "roadmap, no promises."),
+     "Santa Rally: the yearly belief that numbers go up because of a man in a red suit. No promises, no presents, "
+     "probably coal. Do not buy."),
     ("Nova godina", "2027-01-01", "Twenty Seven", "Y2027",
-     "A meme coin for New Year 2027. Twenty seven, here we go. Just a meme: no roadmap, no promises."),
+     "Twenty Seven: same charts, new year. No roadmap, no utility, no resolutions kept. Probably worthless before the "
+     "fireworks end. Do not buy."),
 )
+SEED_2511 = {
+    "GOBBLE": "A meme coin for Thanksgiving Day, November 26. Turkey, pie and a long nap. Just a meme: no roadmap, no "
+              "promises.",
+    "DOORB": "A meme coin for Black Friday, November 27: the crowd at the door before the store opens. Just a meme: no "
+             "roadmap, no promises.",
+    "CARTGOB": "A meme coin for Cyber Monday, November 30: the little goblin who fills the cart at midnight. Just a "
+               "meme: no roadmap, no promises.",
+    "SRALLY": "A meme coin about the Santa rally, the old market saying about late December. Just a meme, not advice: "
+              "no roadmap, no promises.",
+    "Y2027": "A meme coin for New Year 2027. Twenty seven, here we go. Just a meme: no roadmap, no promises.",
+}
+SEED_SYMBOLS = tuple(x[3] for x in SEED)
+UNSENT = ("nacrt", "odbijen", "greska", "u_redu")
 
 
 def db_path():
@@ -78,20 +102,78 @@ def put(con, k, v):
     con.commit()
 
 
-def seed(con, now=None, image_fn=None):
-    """Pet nacrta za večeras, jednom (kv 'seed_2511'); slika iz generatora. Broj dodanih."""
+def seed_image(ime, simbol, image_fn=None, slike_dir=None):
+    """Slika sjemenskog nacrta: pumptokeni/slike/<SIMBOL>.png kad postoji (prerađena u 512×512 PNG), inače
+    generator. Simbol izvan sjemena uvijek ide u generator."""
+    from pumptokeni import image
+    if (simbol or "").upper() in SEED_SYMBOLS:
+        png = image.from_file(simbol, slike_dir)
+        if png:
+            return png
+    return (image_fn or image.generate)(ime, simbol)
+
+
+def seed(con, now=None, image_fn=None, slike_dir=None):
+    """Pet nacrta, jednom (kv 'seed_2511'); slika iz datoteke ili generatora. Zatim migrate_seed(). Broj dodanih."""
     if get(con, "seed_2511"):
+        migrate_seed(con, now, image_fn, slike_dir)
         return 0
-    if image_fn is None:
-        from pumptokeni import image
-        image_fn = image.generate
     now = int(now or time.time())
     for tema, datum, ime, simbol, opis in SEED:
         con.execute("INSERT INTO nacrti (tema, datum_teme, ime, simbol, opis, slika, skupina, stanje, napravljen_ts, "
                     "promijenjen_ts) VALUES (?,?,?,?,?,?,?,'nacrt',?,?)",
-                    (tema, datum, ime, simbol, opis, image_fn(ime, simbol), SKUPINA_0, now, now))
+                    (tema, datum, ime, simbol, opis, seed_image(ime, simbol, image_fn, slike_dir), SKUPINA_0, now, now))
     put(con, "seed_2511", now)
+    put(con, "seed_2611", now)
+    migrate_seed(con, now, image_fn, slike_dir)
     return len(SEED)
+
+
+def _untouched(d, row, ok_opis):
+    tema, datum, ime, simbol, _opis = row
+    return (d["stanje"] in UNSENT and not d["slika_vlastita"] and (d["tema"], d["datum_teme"], d["ime"], d["simbol"])
+            == (tema, datum, ime, simbol) and (d["opis"] or "") in ok_opis)
+
+
+def migrate_seed(con, now=None, image_fn=None, slike_dir=None):
+    """26.11. (vlasnik): nacrti sjemena koje vlasnik nije mijenjao (ista tema, datum, ime, simbol, stari ili novi
+    sjemenski opis, slika iz generatora, nelansirani) dobivaju novi opis (jednom, kv 'seed_2611') i sliku iz datoteke
+    pumptokeni/slike/<SIMBOL>.png kad se pojavi (jednom po sadržaju datoteke, kv 'slike_datoteka'). Uređene ne dira.
+    Promjena briše provjeru imena i spremljeni meta_uri. Broj promijenjenih nacrta."""
+    import hashlib
+    from pumptokeni import image
+    now = int(now or time.time())
+    rows = {r[3]: r for r in SEED}
+    done_desc = bool(get(con, "seed_2611"))
+    files = get(con, "slike_datoteka", {}) or {}
+    before = dict(files)
+    n = 0
+    for d in drafts(con):
+        row = rows.get(d["simbol"])
+        if not row or not _untouched(d, row, (SEED_2511.get(d["simbol"]), row[4])):
+            continue
+        sets = {}
+        if not done_desc and d["opis"] != row[4]:
+            sets["opis"] = row[4]
+        raw = image.file_bytes(d["simbol"], slike_dir)
+        if raw:
+            h = hashlib.sha256(raw).hexdigest()
+            if files.get(d["simbol"]) != h:
+                png = image.from_file(d["simbol"], slike_dir)
+                if png:
+                    sets["slika"] = png
+                    files[d["simbol"]] = h
+        if sets:
+            sql = ", ".join(f"{k}=?" for k in sets)
+            con.execute(f"UPDATE nacrti SET {sql}, provjera=NULL, provjera_ts=NULL, meta_uri=NULL, promijenjen_ts=? "
+                        "WHERE id=?", (*sets.values(), now, d["id"]))
+            n += 1
+    con.commit()
+    if not done_desc:
+        put(con, "seed_2611", now)
+    if files != before:
+        put(con, "slike_datoteka", files)
+    return n
 
 
 def drafts(con):

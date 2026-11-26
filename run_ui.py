@@ -806,6 +806,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, png, "image/png")
             if path == PUMPT + "/csv":
                 return self._send(200, pumptokeni.csv_bytes(), "text/csv")
+            if path == PUMPT + "/ploca":   # 26.11.: nadzorna ploča za osvježavanje (samo baza, bez mreže)
+                try:
+                    return self._send(200, pumptokeni.dash_fragment().encode("utf-8"), cache_control="no-store")
+                except Exception:
+                    return self._send(500, b"", "text/plain")
             if path != PUMPT:
                 return self._send(404, b"", "text/plain")
             try:

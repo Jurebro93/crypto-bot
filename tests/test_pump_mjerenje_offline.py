@@ -199,7 +199,8 @@ class Classes(Base):
         self.assertEqual(r["vlastita kupnja: iznad 2 SOL"]["n"], 1)
         line = pm.line(s)
         self.assertTrue(line.startswith("pump mjerenje (završno): 4 lansiranja"))
-        self.assertIn("prema objavi, neprovjereno", line)
+        self.assertIn("potvrđeno s lanca 25.11.2026.", line)
+        self.assertNotIn("neprovjereno", line)
         for txt in [line] + [" ".join(x) for x in pm.table_rows(s)]:
             self.assertNotIn("DEVA", txt)
             self.assertNotIn("DEVB", txt)
@@ -327,7 +328,8 @@ class Isolation(unittest.TestCase):
         s = {"final": False, "rok": NOW, "lansiranja": 10, "udio": 1.0, "s_ishodom": 0, "razredi": [],
              "dex_dnevno": 5, "mb": 0.1, "izvor": pm.SLUZBENI_URL}
         html = render.pump_mjerenje_section(s)
-        self.assertIn("NEPROVJERENO", html)
+        self.assertIn("potvrđena s lanca 25.11.2026.", html)
+        self.assertNotIn("NEPROVJERENO", html)
         self.assertIn("Mjerenje: naknada devu na pump.fun", html)
 
 

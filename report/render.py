@@ -627,9 +627,9 @@ def pump_mjerenje_section(s):
     body += ctable(["Razred deva", "Tokena", "Medijan SOL", "Prosjek SOL", "≥5k $", "≥10k $", "≥30k $", "≥100k $",
                     "Migrirao", "Gornjih 1 %", "Nepoznat", "Bez USD"], [[e(c) for c in r] for r in pm.table_rows(s)], nowrap=True)
     body += small(
-        "Naknada = promet tokena (DexScreener, od lansiranja do provjere) × 0,30 % — prema objavi, NEPROVJERENO: "
-        f"službena stranica pump.funa ({e(s.get('izvor'))}) nije bila dostupna; nakon prelaska na PumpSwap stopa "
-        "vjerojatno ovisi o vrijednosti tokena. Pragovi = najviša viđena vrijednost na provjerama (donja granica "
+        "Naknada = promet tokena (DexScreener, od lansiranja do provjere) × 0,30 % — stopa na krivulji potvrđena s "
+        f"lanca 25.11.2026. (službena stranica {e(s.get('izvor'))} nije bila dostupna); nakon prelaska na PumpSwap "
+        "vrijedi druga ljestvica, pa je procjena za migrirane tokene gruba. Pragovi = najviša viđena vrijednost na provjerama (donja granica "
         "vrha). „Prvi token” = dev nije lansirao drugi token u 24 h prije, koliko je mjerenje vidjelo. „Nepoznat” = "
         "DexScreener ne zna token (računa se s 0 prometa). „Bez USD” = DexScreener zna token, ali za njega još ne daje promet u dolarima: "
         "izvan svih brojki u retku (samo prebrojen). Razred ispod 30 tokena: premalo. Gornjih 1 % = udio "

@@ -15,9 +15,8 @@ MAX_TRAJANJE_S od sada je greška u upisu: isključeno. Nakon roka: nema pretpla
                         a +1 h hvata tokene koji umru odmah), red u logu svakih 6 h, završni sažetak na kraju roka
   sazetak()             tablica po razredima deva za dnevni izvještaj (report/collect.pump_mjerenje)
 
-Naknada kreatoru: službeni izvor (https://pump.fun/docs/fees) NIJE bio dohvatljiv iz sandboxa 25.11.2026. (DNS
-blokiran, isto intercom.help/pumpfun-web); računa se s 0,30 % prometa „prema objavi, neprovjereno” (objava: 1,25 % po
-strani na krivulji, od toga 0,30 % kreatoru). Sekundarni izvori (coinpaprika.com/education/launchpad-fees, rujan 2026.;
+Naknada kreatoru: 0,30 % prometa na krivulji, POTVRĐENO s lanca 25.11.2026. (protokol 0,95 %, ukupno 1,25 %; službeni
+izvor https://pump.fun/docs/fees nije bio dohvatljiv iz sandboxa). Sekundarni izvori (coinpaprika.com/education/launchpad-fees, rujan 2026.;
 blockworks „dynamic fee model”) navode da na PumpSwapu nakon migracije stopa ovisi o mcapu: zato su migrirani tokeni
 posebno označeni i njihova procjena je najnesigurnija.
 
@@ -38,8 +37,8 @@ import time
 ENV = "PUMP_MJERENJE_DO"
 MAX_TRAJANJE_S = 72 * 3600          # rok dalji od ovoga od sada = greška u upisu (vlasnik je odobrio 48 h)
 CHECKS = ((1, 3600, 3 * 3600), (12, 12 * 3600, 20 * 3600))   # (oznaka h, kada, najkasnije: kasnije = propušteno)
-CREATOR_RATE = 0.003                # 0,30 % prometa (prema objavi, neprovjereno)
-RATE_NOTE = "stopa 0,30 % prometa prema objavi, neprovjereno (službeni izvor nedohvatljiv)"
+CREATOR_RATE = 0.003                # 0,30 % prometa na krivulji (potvrđeno s lanca 25.11.2026.)
+RATE_NOTE = "0,30 % prometa na krivulji, potvrđeno s lanca 25.11.2026.; za bondane tokene procjena je gruba"
 SLUZBENI_URL = "https://pump.fun/docs/fees"   # pokušano 25.11.2026., nedohvatljivo iz sandboxa
 MAX_ROWS = int(os.environ.get("PUMP_MJERENJE_MAX_REDAKA", "150000"))   # tvrdi strop lansiranja u bazi
 MAX_MB = float(os.environ.get("PUMP_MJERENJE_MAX_MB", "80"))           # tvrdi strop veličine baze (s WAL-om)
