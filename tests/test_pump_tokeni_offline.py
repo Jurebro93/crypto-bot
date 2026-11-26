@@ -32,7 +32,7 @@ from solders.pubkey import Pubkey  # noqa: E402
 from solders.signature import Signature  # noqa: E402
 from solders.transaction import VersionedTransaction  # noqa: E402
 
-from pumptokeni import devwallet, guards, image, launch, outcomes, own, provjera, store  # noqa: E402
+from pumptokeni import devwallet, guards, image, launch, naknada, outcomes, own, posao, provjera, store  # noqa: E402
 from trade import executor, settings  # noqa: E402
 
 NOW = 1_795_000_000
@@ -603,7 +603,8 @@ class Book(Base):
         self.assertAlmostEqual(groups["A"]["neto_sol"], 0.59, places=6)
         self.assertAlmostEqual(groups["B"]["neto_sol"], -0.008, places=6)
         csv = outcomes.csv_text(self.con)
-        self.assertIn("NEPROVJERENO", csv)
+        self.assertIn("potvrđeno s lanca 25.11.2026.", csv)
+        self.assertNotIn("NEPROVJERENO", csv)
         self.assertNotIn("BUYERWALLET", csv)
         self.assertNotIn("PAYER", csv)
         self.assertEqual(csv.splitlines()[0].split(","), list(outcomes.CSV_COLS))
@@ -683,6 +684,325 @@ class SelfTrade(Base):
                 self.assertNotIn("jupiter", src.lower(), f)
 
 
+# ---------- 26.11.: nadzorna ploča, snimci, opisi, slike iz datoteke, podizanje naknade, „Odobri pilot” -----------
+
+def dex_pair(mint, vol24=20_000, vol1=1_000, vol5=50, buys=30, sells=10, mcap=9000, dex="pumpfun"):
+    return {"baseToken": {"address": mint}, "quoteToken": {"address": outcomes.WSOL}, "priceUsd": "0.00001",
+            "priceNative": "0.0000001", "dexId": dex, "liquidity": {"usd": 5000},
+            "volume": {"m5": vol5, "h1": vol1, "h6": vol1 * 3, "h24": vol24},
+            "txns": {"h1": {"buys": 3, "sells": 1}, "h24": {"buys": buys, "sells": sells}}, "marketCap": mcap,
+            "priceChange": {"h1": -50}, "info": {"maker": "BUYERWALLET111"}}
+
+
+class Dashboard(Base):
+    def _launched(self, mint, ts, cost, did=1, payer=None):
+        d = store.draft(self.con, did)
+        aid = store.new_attempt(self.con, d, launch.TOOL, payer or str(Keypair().pubkey()), ts, mint=mint)
+        store.update_attempt(self.con, aid, stanje="lansiran", potpis="sig" + mint, trosak_sol=cost)
+        store.set_state(self.con, did, "lansiran", ts)
+
+    def test_refresh_one_request_only_our_tokens_and_tiles(self):
+        self._launched("MintA", NOW, 0.01, 1)
+        self._launched("MintB", NOW, 0.008, 2)
+        aid = store.new_attempt(self.con, store.draft(self.con, 3), launch.TOOL, "P", NOW, mint="MintFail",
+                                stanje="neuspio")
+        store.update_attempt(self.con, aid, trosak_sol=0.002)
+        calls = []
+
+        def fetch(m):
+            calls.append(list(m))
+            return [dex_pair("MintA"), dex_pair("MintB", vol24=0, vol1=0, vol5=0, buys=0, sells=0),
+                    dex_pair("SomeoneElse", vol24=9e9)]
+        n, pts = outcomes.refresh(self.con, NOW + 3 * 3600, fetch=fetch, log=self.log)
+        self.assertEqual(calls, [["MintA", "MintB"]])           # jedan zahtjev, samo naši lansirani
+        self.assertEqual((n, pts), (2, 2))                        # snimci + dospjela točka +1 h iz istog odgovora
+        db = outcomes.dashboard(self.con, NOW + 3 * 3600)
+        t = db["tiles"]
+        self.assertEqual(t["lansirano"], 2)
+        self.assertAlmostEqual(t["promet_usd"], 20_000)
+        self.assertAlmostEqual(t["promet_sol"], 200.0)            # 100 $ po SOL-u
+        self.assertEqual((t["kupnje"], t["prodaje"]), (30, 10))
+        self.assertAlmostEqual(t["naknada_sol"], 0.6)             # 20k × 0,30 % / 100
+        self.assertAlmostEqual(t["trosak_sol"], 0.02)             # i neuspjelo lansiranje se broji u trošak
+        self.assertAlmostEqual(t["neto_sol"], 0.58)
+        self.assertEqual(t["s_prometom"], 1)
+        self.assertEqual(t["osvjezeno_ts"], NOW + 3 * 3600)
+        a = next(r for r in db["rows"] if r["mint"] == "MintA")
+        self.assertEqual((a["promet_m5"], a["promet_h1"], a["promet_h24"]), (50, 1000, 20_000))
+        self.assertEqual(a["max_mcap_usd"], 18000)
+        self.assertEqual(a["bondan"], 0)
+        # drugi prolaz isti sat: novi snimak, nema novih točaka; ništa ne ide za tokene koji nisu naši
+        outcomes.refresh(self.con, NOW + 3 * 3600 + 600, fetch=fetch, log=self.log)
+        self.assertEqual(len(outcomes.snapshots(self.con, "MintA")), 2)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM snimci WHERE mint='SomeoneElse'").fetchone()[0], 0)
+
+    def test_old_tokens_once_a_day_and_cumulative(self):
+        self._launched("MintOld", NOW, 0.01, 1)
+        calls = []
+
+        def fetch(m):
+            calls.append(list(m))
+            return [dex_pair("MintOld", vol24=1000, buys=5, sells=5)]
+        t0 = NOW + 8 * 86400
+        outcomes.refresh(self.con, t0, fetch=fetch, log=self.log)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(outcomes.refresh(self.con, t0 + 600, fetch=fetch, log=self.log), (0, 0))
+        self.assertEqual(len(calls), 1)                            # stariji od 7 dana: jednom dnevno
+        outcomes.refresh(self.con, t0 + 86400, fetch=fetch, log=self.log)
+        self.assertEqual(len(calls), 2)
+        sn = [{"ts": NOW + h * 3600, "promet_h24": v} for h, v in ((1, 10), (23, 100), (25, 300), (49, 200), (60, 50))]
+        self.assertEqual(outcomes._cumulative(sn[:2], NOW, "promet_h24"), 100)   # mlađi od 24 h: zadnji
+        self.assertEqual(outcomes._cumulative(sn, NOW, "promet_h24"), 500)       # dani 1 i 2 (donja granica)
+
+    def test_snapshot_hard_cap(self):
+        self._launched("MintA", NOW, 0.01, 1)
+        with mock.patch.object(outcomes, "MAX_SNAPS", 3):
+            for k in range(6):
+                outcomes.refresh(self.con, NOW + 600 * (k + 1), fetch=lambda m: [dex_pair("MintA")], log=self.log)
+        ts = [s["ts"] for s in outcomes.snapshots(self.con, "MintA")]
+        self.assertEqual(ts, [NOW + 600 * 4, NOW + 600 * 5, NOW + 600 * 6])
+        self.assertEqual(outcomes.MAX_SNAPS, 7 * 144)
+
+    def test_job_refreshes_every_10_min_min_5(self):
+        self._launched("MintA", NOW, 0.01, 1)
+        self.assertEqual(outcomes.refresh_every_s({}), 600)
+        self.assertEqual(outcomes.refresh_every_s({"PUMP_TOKENI_OSVJEZI_MIN": "2"}), 300)
+        self.assertEqual(outcomes.refresh_every_s({"PUMP_TOKENI_OSVJEZI_MIN": "x"}), 600)
+        calls = []
+        self.con.commit()
+        with mock.patch.object(outcomes, "_fetch", lambda m: calls.append(m) or [dex_pair("MintA")]), \
+                mock.patch.object(outcomes, "read_vaults", lambda con, now, log=print: {}):
+            for k in range(25):   # posao svake minute, 25 min
+                posao.tick(NOW + 7200 + 60 * k, log=self.log)
+        self.assertEqual(len(calls), 3)                            # 0., 10. i 20. minuta
+
+    def test_vault_pda_and_reading(self):
+        kp = Keypair()
+        self._launched("MintA", NOW, 0.01, 1, payer=str(kp.pubkey()))
+        v = outcomes.vault_pda(str(kp.pubkey()))
+        exp = Pubkey.find_program_address([b"creator-vault", bytes(kp.pubkey())], PUMP)[0]
+        self.assertEqual(v, str(exp))
+        rpc = FakeRpc(sol=0.05)
+        out = outcomes.read_vaults(self.con, NOW, rpc=rpc, log=self.log)
+        self.assertAlmostEqual(out[str(kp.pubkey())]["za_podici_sol"], 0.05 - outcomes.RENT_EMPTY_LAMPORTS / 1e9)
+        self.assertEqual([p[0] for m, p in rpc.calls if m == "getBalance"], [v])
+        self.assertAlmostEqual(outcomes.dashboard(self.con, NOW)["tiles"]["za_podici_sol"], 0.04910912)
+
+    def test_page_dashboard_on_top_from_db_without_network(self):
+        self._launched("MintA", NOW, 0.01, 1)
+        outcomes.refresh(self.con, NOW + 3600, fetch=lambda m: [dex_pair("MintA", dex="pumpswap")], log=self.log)
+        outcomes.refresh(self.con, NOW + 4200, fetch=lambda m: [dex_pair("MintA", vol24=30_000, dex="pumpswap")],
+                         log=self.log)
+        from ui import pumptokeni
+        with mock.patch.object(pumptokeni, "balance", lambda a, max_age=60: 0.2), \
+                mock.patch.object(outcomes, "_fetch", side_effect=AssertionError("ploča ne zove mrežu")):
+            _t, html = pumptokeni.page({}, "Jure", auto=False)
+            frag = pumptokeni.dash_fragment()
+        self.assertLess(html.index("Nadzorna ploča"), html.index("id=ptw"))
+        self.assertNotIn("<ol class=pt-steps>", html)
+        self.assertIn(frag[:200], html)
+        self.assertIn("https://pump.fun/coin/MintA' target=_blank rel='noopener noreferrer'", frag)
+        self.assertIn("https://dexscreener.com/solana/MintA' target=_blank rel='noopener noreferrer'", frag)
+        self.assertIn("<polyline", frag)
+        self.assertIn("procjena samo za krivulju", frag)            # bondan: druga ljestvica
+        self.assertIn("Podigni naknadu", frag)
+        self.assertIn("/pump-tokeni/ploca", html)                  # samo-osvježavanje fragmenta
+
+    def test_page_before_wallet_shows_steps(self):
+        from ui import pumptokeni
+        with mock.patch.object(pumptokeni, "balance", lambda a, max_age=60: None):
+            _t, html = pumptokeni.page({}, "Jure", auto=False)
+        self.assertIn("<ol class=pt-steps>", html)
+        self.assertNotIn("<section id=ptdash", html)
+        self.assertIn("Stvori novčanik", html)
+        self.assertIn("<details id=ptw class=card open>", html)    # novčanik proširen dok ne postoji
+        for internal in ("SOLANA_PRIVATE_KEY", "PUMP_DEV_PRIVATE_KEY", "NEPROVJERENO"):
+            self.assertNotIn(internal, html)
+
+
+class SeedTextAndImages(Base):
+    def test_new_descriptions_pass_guards_and_say_do_not_buy(self):
+        for tema, datum, ime, sym, opis in store.SEED:
+            self.assertIn("not buy", opis.lower())
+            self.assertLessEqual(len(opis), 500)
+            r = guards.check({"ime": ime, "simbol": sym, "opis": opis, "slika": b"x"}, search=no_search, now=NOW)
+            self.assertTrue(r["ok"], (sym, r))
+        self.assertEqual([d["opis"] for d in store.drafts(self.con)], [x[4] for x in store.SEED])
+
+    def _old_db(self):
+        p = os.path.join(self.tmp.name, "old.db")
+        con = store.connect(p)
+        for tema, datum, ime, sym, _o in store.SEED:
+            con.execute("INSERT INTO nacrti (tema, datum_teme, ime, simbol, opis, slika, skupina, stanje, napravljen_ts,"
+                        " promijenjen_ts, provjera) VALUES (?,?,?,?,?,?,?,'nacrt',?,?,'{\"ok\":true}')",
+                        (tema, datum, ime, sym, store.SEED_2511[sym], image.generate(ime, sym), store.SKUPINA_0, NOW, NOW))
+        con.commit()
+        store.put(con, "seed_2511", NOW)
+        return con
+
+    def test_migration_only_untouched_drafts_once(self):
+        con = self._old_db()
+        store.update_draft(con, 2, {"opis": "My own words."}, NOW)                # vlasnik uredio DOORB
+        con.execute("UPDATE nacrti SET slika_vlastita=1 WHERE id=3")             # vlasnikova slika CARTGOB
+        con.execute("UPDATE nacrti SET stanje='lansiran' WHERE id=4")             # SRALLY lansiran
+        con.commit()
+        self.assertEqual(store.seed(con, NOW + 10), 0)
+        ds = {d["simbol"]: d for d in store.drafts(con)}
+        new = {x[3]: x[4] for x in store.SEED}
+        self.assertEqual(ds["GOBBLE"]["opis"], new["GOBBLE"])
+        self.assertEqual(ds["Y2027"]["opis"], new["Y2027"])
+        self.assertIsNone(ds["GOBBLE"]["provjera"])                              # nova provjera imena
+        self.assertEqual(ds["DOORB"]["opis"], "My own words.")
+        self.assertEqual(ds["CARTGOB"]["opis"], store.SEED_2511["CARTGOB"])
+        self.assertEqual(ds["SRALLY"]["opis"], store.SEED_2511["SRALLY"])
+        before = [(d["opis"], d["promijenjen_ts"]) for d in store.drafts(con)]
+        store.seed(con, NOW + 20)
+        self.assertEqual([(d["opis"], d["promijenjen_ts"]) for d in store.drafts(con)], before)   # idempotentno
+        con.close()
+
+    def _png_with_metadata(self, path, color=(200, 30, 30)):
+        from PIL import Image, PngImagePlugin
+        info = PngImagePlugin.PngInfo()
+        info.add_text("Author", "SECRETNAME")
+        Image.new("RGB", (900, 600), color).save(path, "PNG", pnginfo=info)
+
+    def test_seed_image_from_file_else_generator(self):
+        d = os.path.join(self.tmp.name, "slike")
+        os.makedirs(d)
+        self._png_with_metadata(os.path.join(d, "GOBBLE.png"))
+        self._png_with_metadata(os.path.join(d, "OTHER.png"))
+        png = store.seed_image("Gobble", "GOBBLE", slike_dir=d)
+        self.assertTrue(image.is_png_512(png))
+        self.assertNotIn(b"SECRETNAME", png)
+        self.assertNotEqual(png, image.generate("Gobble", "GOBBLE"))
+        self.assertEqual(store.seed_image("Other", "OTHER", slike_dir=d), image.generate("Other", "OTHER"))
+        self.assertEqual(store.seed_image("Doorbuster", "DOORB", slike_dir=d), image.generate("Doorbuster", "DOORB"))
+        self.assertIsNone(image.file_bytes("../GOBBLE", d))
+        # migracija: nedirani nacrt dobiva sliku iz datoteke jednom; vlasnikova slika ostaje
+        store.set_image(self.con, 5, b"own", True)
+        self.assertEqual(store.migrate_seed(self.con, NOW, slike_dir=d), 1)
+        self.assertEqual(store.draft(self.con, 1)["slika"], png)
+        self.assertEqual(store.migrate_seed(self.con, NOW, slike_dir=d), 0)
+        self._png_with_metadata(os.path.join(d, "Y2027.png"))
+        self.assertEqual(store.migrate_seed(self.con, NOW, slike_dir=d), 0)    # Y2027 ima vlasnikovu sliku
+        self.assertEqual(store.draft(self.con, 5)["slika"], b"own")
+        self.assertTrue(os.path.exists(os.path.join(ROOT, "pumptokeni", "slike", ".gitkeep")))
+
+
+def claim_tx(payer, signers=(), program=PUMP, price=0, limit=None):
+    ixs = []
+    if limit is not None:
+        ixs.append(Instruction(CB, bytes([2]) + int(limit).to_bytes(4, "little"), []))
+    if price:
+        ixs.append(Instruction(CB, bytes([3]) + int(price).to_bytes(8, "little"), []))
+    metas = [AccountMeta(payer, True, True)] + [AccountMeta(s, True, False) for s in signers]
+    ixs.append(Instruction(program, b"collect_creator_fee", metas))
+    msg = MessageV0.try_compile(payer, ixs, [], Hash.default())
+    return bytes(VersionedTransaction.populate(msg, [Signature.default()] * msg.header.num_required_signatures))
+
+
+class ClaimPost:
+    def __init__(self, tx_fn=claim_tx):
+        self.calls, self.tx_fn = [], tx_fn
+
+    def __call__(self, url, body, headers, timeout=30):
+        self.calls.append((url, json.loads(body)))
+        assert url == launch.PUMPPORTAL, url
+        return 200, self.tx_fn(Pubkey.from_string(json.loads(body)["publicKey"]))
+
+
+class ClaimFee(Base):
+    def setUp(self):
+        super().setUp()
+        self.addr = self.tool_wallet()
+
+    def test_claim_simulates_sends_and_measures(self):
+        rpc, post = FakeRpc(sol=0.1, cost=-0.05, sim_cost=-0.05), ClaimPost()
+        with self.assertRaises(ValueError):
+            naknada.claim(self.con, "Ivan", True, NOW, rpc=rpc, post=post)
+        with self.assertRaises(ValueError):
+            naknada.claim(self.con, "Jure", False, NOW, rpc=rpc, post=post)
+        self.assertEqual(post.calls, [])
+        r = naknada.claim(self.con, "Jure", True, NOW, rpc=rpc, post=post, wait=lambda s: True, log=self.log)
+        self.assertTrue(r["ok"])
+        self.assertAlmostEqual(r["iznos_sol"], 0.05, places=9)
+        self.assertEqual(post.calls[0][1], {"publicKey": self.addr, "action": "collectCreatorFee",
+                                            "priorityFee": launch.cfg()["priority_sol"], "pool": "pump"})
+        m = rpc.methods()
+        self.assertLess(m.index("simulateTransaction"), m.index("sendTransaction"))
+        self.assertAlmostEqual(outcomes.claimed_sol(self.con), 0.05, places=9)
+        tx = VersionedTransaction.from_bytes(base64.b64decode([p for mm, p in rpc.calls if mm == "sendTransaction"][0][0]))
+        self.assertEqual(len(tx.signatures), 1)
+        self.assertNotEqual(tx.signatures[0], Signature.default())
+
+    def test_claim_refusals_never_send(self):
+        cases = [(FakeRpc(sim_cost=0.001), ClaimPost(), "iznad stropa"),                 # trošak iznad stropa
+                 (FakeRpc(sim_cost=0.0), ClaimPost(), "ništa za podići"),                # ne bi dobio ništa
+                 (FakeRpc(sim_cost=-0.05), ClaimPost(lambda p: claim_tx(p, signers=[Keypair().pubkey()])), "potpisa"),
+                 (FakeRpc(sim_cost=-0.05), ClaimPost(lambda p: claim_tx(p, program=Keypair().pubkey())), "pump.fun"),
+                 (FakeRpc(sim_cost=-0.05), ClaimPost(lambda p: claim_tx(p, price=10_000_000, limit=200_000)), "priority"),
+                 (FakeRpc(sim_err={"x": 1}), ClaimPost(), "simulacija")]
+        for rpc, post, word in cases:
+            with self.assertRaises(ValueError) as e:
+                naknada.claim(self.con, "Jure", True, NOW, rpc=rpc, post=post, wait=lambda s: True, log=self.log)
+            self.assertIn(word, str(e.exception))
+            self.assertNotIn("sendTransaction", rpc.methods())
+        open(self.stop, "w").close()
+        post = ClaimPost()
+        with self.assertRaises(ValueError):
+            naknada.claim(self.con, "Jure", True, NOW, rpc=FakeRpc(sim_cost=-0.05), post=post)
+        self.assertEqual(post.calls, [])
+        self.assertEqual(outcomes.claimed_sol(self.con), 0.0)
+
+    def test_claim_post_owner_only_via_page(self):
+        from ui import pumptokeni
+        self.assertIn("err=", pumptokeni.post("/pump-tokeni/podigni", {"potvrda": "1"}, "Ivan"))
+        with mock.patch.object(naknada, "claim", side_effect=AssertionError("ne smije")):
+            self.assertIn("samo%20vlasnik", pumptokeni.post("/pump-tokeni/podigni", {"potvrda": "1"}, "Ana"))
+
+
+class PilotButton(Base):
+    def setUp(self):
+        super().setUp()
+        from ui import pumptokeni
+        self.ui = pumptokeni
+        self.p_bal = mock.patch.object(pumptokeni, "balance", lambda a, max_age=60: self.bal)
+        self.p_bal.start()
+        self.bal = 0.2
+
+    def tearDown(self):
+        self.p_bal.stop()
+        super().tearDown()
+
+    def gate(self):
+        ws = self.ui.wallet_state(self.con, now=NOW)
+        return self.ui.pilot_gate(self.con, ws, now=NOW)
+
+    def test_reasons_until_everything_is_ready(self):
+        g = self.gate()
+        self.assertTrue(any("nema novčanika" in x for x in g), g)
+        self.tool_wallet()
+        self.bal = 0.01
+        g = self.gate()
+        self.assertTrue(any("treba još" in x for x in g), g)
+        self.assertTrue(any("PINATA_JWT" in x for x in g), g)
+        self.assertTrue(any("nije pokrenuta" in x for x in g), g)
+        self.bal = 0.2
+        with mock.patch.dict(os.environ, {"PINATA_JWT": "j"}):
+            provjera.run(self.con, [1, 2], now=NOW, rpc=FakeRpc(), post=FakePost(), get=lambda u, h: 200,
+                         search=no_search, log=self.log)
+            with mock.patch("time.time", lambda: NOW):
+                self.assertEqual(self.gate(), [])
+                _t, html = self.ui.page({}, "Jure", auto=False)
+            self.assertIn("<button class=pt-btn type=submit form=ptl>✅ Odobri pilot</button>", html)
+            self.assertEqual(self.ui.pilot_gate(self.con, self.ui.wallet_state(self.con, now=NOW), now=NOW + 3600),
+                             ["provjera je starija od 30 min: ponovi je"])
+        _t, html = self.ui.page({}, "Jure", auto=False)
+        self.assertIn("form=ptl disabled>✅ Odobri pilot", html)
+        self.assertIn("PINATA_JWT", html)                           # samo u poruci što nedostaje
+
+
+
 # ---------- pristup i izbornik (HTTP) -----------------------------------------------------------------------------
 
 class Access(unittest.TestCase):
@@ -758,6 +1078,7 @@ class Access(unittest.TestCase):
             self.assertNotIn("GOBBLE", html)
             self.assertEqual(self.call("/pump-tokeni/csv", who)[0], 403)
             self.assertEqual(self.call("/pump-tokeni/slika/1", who)[0], 403)
+            self.assertEqual(self.call("/pump-tokeni/ploca", who)[0], 403)
         self.assertEqual(self.call("/pump-tokeni")[0], 401)
         code, html, _ = self.call("/vise", jure)
         self.assertIn('href="/pump-tokeni"', html)
@@ -769,6 +1090,9 @@ class Access(unittest.TestCase):
         # slika i CSV vlasniku
         code, png, hdr = self.call("/pump-tokeni/slika/1", jure)
         self.assertEqual((code, hdr.get("Content-Type", "")[:9]), (200, "image/png"))
+        code, frag, _ = self.call("/pump-tokeni/ploca", jure)
+        self.assertEqual(code, 200)
+        self.assertIn("id=ptdash", frag)
         code, csv, _ = self.call("/pump-tokeni/csv", jure)
         self.assertEqual(code, 200)
         self.assertTrue(csv.startswith("nacrt_id,"))

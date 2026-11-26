@@ -5,9 +5,40 @@ oblika i veliki simbol kao tekst; bez tuđih likova i logotipa. Deterministički
 import colorsys
 import hashlib
 import io
+import os
+import re
 
 SIZE = 512
 MAX_UPLOAD = 4 * 1024 * 1024
+# 26.11. (vlasnik): slike sjemena iz datoteka pumptokeni/slike/<SIMBOL>.png (store.seed_image); ostalo generator
+SLIKE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "slike")
+_SYM = re.compile(r"^[A-Z0-9]{2,10}$")
+
+
+def file_bytes(symbol, d=None):
+    """Sirovi bajtovi pumptokeni/slike/<SIMBOL>.png ili None (simbol samo 2-10 velikih slova/brojki: bez putanja)."""
+    sym = (symbol or "").strip().upper()
+    if not _SYM.match(sym):
+        return None
+    p = os.path.join(d or SLIKE_DIR, sym + ".png")
+    try:
+        if os.path.getsize(p) > MAX_UPLOAD:
+            return None
+        with open(p, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def from_file(symbol, d=None):
+    """Slika iz datoteke prerađena kao vlasnikova (512×512 PNG bez metapodataka) ili None."""
+    raw = file_bytes(symbol, d)
+    if not raw:
+        return None
+    try:
+        return normalize(raw)
+    except ValueError:
+        return None
 
 
 def _rng(name, symbol):

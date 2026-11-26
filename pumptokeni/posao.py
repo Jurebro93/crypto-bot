@@ -1,7 +1,8 @@
 """python3 -m pumptokeni.posao tick   (start.sh, svake minute)
 
 Jedan prolaz: razriješi nepotvrđena lansiranja, pošalji najviše JEDAN token iz reda (stropovi, razmak, kill switch u
-launch.tick), zapiši dospjele točke ishoda (najviše jednom u 10 min), jednom dnevno red „pump tokeni: ...”.
+launch.tick), osvježi nadzornu ploču (najviše jednom u PUMP_TOKENI_OSVJEZI_MIN, zadano 10 min: jedan batch zahtjev
+DexScreeneru za snimke i dospjele točke ishoda, saldo trezora naknade kroz RPC), jednom dnevno red „pump tokeni: ...”.
 Bez baze (pokus nikad otvoren) odmah izlazi: nema mreže, nema retka.
 """
 import os
@@ -10,7 +11,6 @@ import time
 
 from pumptokeni import launch, outcomes, store
 
-OUTCOME_EVERY_S = 600
 
 
 def tick(now=None, log=print, path=None):
@@ -29,9 +29,13 @@ def tick(now=None, log=print, path=None):
             res = launch.tick(con, now, log=log)
         except Exception as e:  # noqa: BLE001 - one bad pass never stops the next
             log(f"pump tokeni: red nije obrađen ({type(e).__name__}: {str(e)[:120]})")
-        if now - (store.get(con, "ishodi_ts") or 0) >= OUTCOME_EVERY_S:
-            store.put(con, "ishodi_ts", now)
-            outcomes.check_pass(con, now, log=log)
+        if now - (store.get(con, "snimak_ts") or 0) >= outcomes.refresh_every_s() and outcomes.launched(con):
+            store.put(con, "snimak_ts", now)
+            try:
+                outcomes.refresh(con, now, log=log)
+            except Exception as e:  # noqa: BLE001
+                log(f"pump tokeni: ploča nije osvježena ({type(e).__name__})")
+            outcomes.read_vaults(con, now, log=log)
         outcomes.daily_line(con, now, log=log)
         return res
     finally:
