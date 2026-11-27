@@ -651,6 +651,9 @@ class Handler(BaseHTTPRequestHandler):
         to = maknuto.redirect(path)
         if to:
             return self._redirect(to, code=303)
+        gone = autopilot_gone(path)
+        if gone:   # 27.11. (vlasnik: "Autopilot ... uklanja se potpuno", ops/autopilot_off): 410 + a simple page
+            return self._gone(*gone)
         if path in ("/sw.js", deploypage.PATH, "/healthz"):   # deploy page + its service worker, every host, no login
             if path == "/sw.js":
                 return self._send(200, deploypage.sw_js().encode("utf-8"), "text/javascript")
@@ -1217,6 +1220,9 @@ class Handler(BaseHTTPRequestHandler):
         if need:   # e.g. a basic user posting /run/wallets by hand: refused before anything starts
             print(f"uloge: odbijeno {self.who or '-'} ({self.role}) POST {path}", flush=True)
             return self._forbidden(path, need)
+        gone = autopilot_gone(path, post=True)
+        if gone:   # 27.11.: the removed Autopilot's forms (its public chat, the terminal's parts) do nothing
+            return self._gone(*gone)
         if path.startswith("/autopilot/"):   # 10.11.: chat of the public Autopilot page (no cached page changes)
             return self._autopilot_post(path)
         if path.startswith("/tokenstranica/"):   # 15.11.: comments and votes of a token page (same rules as the chat)
@@ -1517,6 +1523,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, landing.page_html({}, err=err, form=form, lang=lang).encode("utf-8"))
         return self._redirect(("/" if lang == "en" else "/hr") + "?poslano=1#forma")
 
+    def _gone(self, kind, lang):
+        """410 of a removed Autopilot address: the simple page (a public one) or an empty body (a fragment / form)."""
+        from ops import autopilot_off
+        self._index = False
+        self._robots = "noindex"
+        self._public = True
+        if kind == "page":
+            return self._send(410, autopilot_off.gone_html(lang).encode("utf-8"), cache_control="public, max-age=3600")
+        return self._send(410, b"", "text/plain")
+
     def _autopilot(self, path, qs, ok):
         """10.11. (Jure): /autopilot is readable without a login on every host. A visitor gets it in a light public
         frame (English at /autopilot through ui/i18n, Croatian at /hr/autopilot); a logged-in player gets it inside the app, where the chat
@@ -1788,6 +1804,41 @@ def _peer_gone(sock):
         return True
 
 
+# 27.11. (vlasnik: "Ugasi Autopilot ... uklanja se potpuno"; ops/autopilot_off): with AUTOPILOT_OFF (default) the public
+# Autopilot pages answer 410 with a simple page, their chat and live parts 410 empty; of /pravi-trade only the owner's
+# minimal page (ui/pravitrade.page_min) and its forms stay: every polled fragment of the old terminal is 410 empty.
+AUTOPILOT_PAGES = ("/autopilot", "/en/autopilot", "/hr/autopilot")
+PRAVI_KEEP = ("/pravi-trade",)
+
+
+def autopilot_gone(path, post=False):
+    """None, or ("page" | "empty", lang) for a removed Autopilot address while ops/autopilot_off is on. POSTs to
+    /pravi-trade/* stay (the owner's buy, sell, Prodaj sve, kill switch: post() lets only him in)."""
+    from ops import autopilot_off
+    if not autopilot_off.on():
+        return None
+    if path in AUTOPILOT_PAGES:
+        return ("page", "hr" if path.startswith("/hr/") else "en")
+    if path.startswith("/autopilot/"):
+        return ("empty", "en")
+    if not post and path.startswith("/pravi-trade/") and path not in PRAVI_KEEP:
+        return ("empty", "hr")
+    return None
+
+
+def background_threads():
+    """[(thread name, target, kwargs)] of the Pravi trade threads main() starts next to the competition loops.
+    10.11. (Jure: MC u trenutku poziva i pomak u 5/10/15 min bez čekanja na svijeće): live samples of the skips;
+    10.11. (Jure: "DCA ide ručno, granice postavljam ručno"): the owner's dokup orders, watched every second.
+    27.11. (ops/autopilot_off): with the Autopilot removed the skip sampler does not start at all and the owner's
+    orders (his manual buying, kept) are watched every DCA_S (15 s)."""
+    from ops import autopilot_off
+    from ui import pravitrade as _pt
+    if autopilot_off.on():
+        return [("dca-nalozi", _pt.dca_loop, {"every": autopilot_off.DCA_S})]
+    return [("preskoceni-uzivo", _pt.skip_sampler_loop, {}), ("dca-nalozi", _pt.dca_loop, {})]
+
+
 def _bind(host, port):
     """Take the port over from deploy_wait.py (the funny deploy page that holds it while we load): tell it to let
     go, then retry the bind for a few seconds instead of failing on "address in use"."""
@@ -1836,12 +1887,11 @@ def main(argv=None):
         threading.Thread(target=auto.loop, args=(market,), daemon=True, name="auto-sell").start()
         # 10.11. (Jure: TP +40 % dotaknut, a prodaja se nije dogodila): the Autopilot's TP/SL every second, apart
         # from the 20-s pass over every player's positions
+        # 27.11. (vlasnik: "Autopilot ... uklanja se potpuno", ops/autopilot_off): with it removed the same thread runs
+        # at the learning cadence (demo exits every 30 s, 15 s only while an open real position is left)
         threading.Thread(target=auto.fast_loop, args=(market,), daemon=True, name="autopilot-izlazi").start()
-        # 10.11. (Jure: MC u trenutku poziva i pomak u 5/10/15 min bez čekanja na svijeće): live samples of the skips
-        from ui import pravitrade as _pt
-        threading.Thread(target=_pt.skip_sampler_loop, daemon=True, name="preskoceni-uzivo").start()
-        # 10.11. (Jure: "DCA ide ručno, granice postavljam ručno"): the owner's dokup orders, watched every second
-        threading.Thread(target=_pt.dca_loop, daemon=True, name="dca-nalozi").start()
+        for name, target, kw in background_threads():
+            threading.Thread(target=target, kwargs=kw, daemon=True, name=name).start()
     # 20.11. (2): the memory sampler names the page (and the stacks) while the memory is rising, not after
     import threading as _th
     from ops import mem as _mem

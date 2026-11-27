@@ -5103,10 +5103,82 @@ def page(qs, user):
     post() below with the same fields. ?stari=1 shows the page as it was (page_classic), for a comparison while the
     new one settles in; ?sve=1 renders every lazy part into the page (no JavaScript)."""
     qs = qs if isinstance(qs, dict) else {}
+    from ops import autopilot_off
+    if autopilot_off.on():   # 27.11. (vlasnik: Autopilot uklonjen): no terminal, no polling, the owner's minimum
+        return page_min(qs, user)
     if qs.get("stari") == "1":
         return page_classic(qs, user)
     from ui import apterm
     return apterm.page(qs, user)
+
+
+MIN_TITLE = "Pravi trade"
+
+
+def _kill_on():
+    return os.path.exists(executor.STOP_FILE)
+
+
+def page_min(qs, user):
+    """27.11. (vlasnik: "Ugasi Autopilot, ne treba nam praćenje uživo ... uklanja se potpuno"; ops/autopilot_off): the
+    owner's page while the Autopilot is removed. Static, nothing polls: the wallet balance only on his tap (?stanje=1,
+    one RPC through the short cache), the open real positions from trade.db (no price requests) with the sell buttons,
+    the kill switch (trade/STOP: every buy checks it first) and his manual buy (the same form and checks as before;
+    run_trade mirrors it within seconds). Everyone else: the invite-only line."""
+    qs = qs if isinstance(qs, dict) else {}
+    tcon = _tcon()
+    try:
+        if not settings.is_owner(user):
+            return (MIN_TITLE, '<div class="ap ms-page"><h1>Pravi trade</h1><p class=ms-hint>Ova stranica je samo za '
+                    'vlasnika.</p></div>' + CSS)
+        cfg = _cfg(tcon)
+        msg = ""
+        if qs.get("err"):
+            msg = f'<p class="ap-w bad"><b>Nije prošlo:</b> {esc(qs["err"])}</p>'
+        elif qs.get("ok"):
+            msg = f'<p class="ap-w ok">{esc(qs["ok"])}</p>'
+        live = executor.armed()
+        state = ("Autopilot je uklonjen: nema automatskih kupnji pravim novcem. Demo računi, istraživač i knjiga sjene "
+                 "rade dalje u pozadini. Ručna kupnja: " + ("pravi novac" if executor.is_live(cfg) else "probna (dry)")
+                 + ".")
+        if qs.get("stanje") == "1":
+            bal = _balance(wallet.address()) if wallet.address() else None
+            wal = (f'<p>Stanje walleta: <b>{esc(redak.sol(bal, 4))}</b></p>' if bal is not None
+                   else '<p class=mut>Stanje walleta se sada ne može pročitati.</p>')
+        else:
+            wal = ('<form method=get action=/pravi-trade style="margin:0"><input type=hidden name=stanje value=1>'
+                   '<button class=ap-cancel>Prikaži stanje walleta</button></form>')
+        rows = tcon.execute("SELECT id, token, symbol, opened_ts, mode, status, sol_in FROM positions "
+                            "WHERE status IN ('open','pending') ORDER BY id").fetchall()
+        prow = []
+        for pid, tok, sym, ts, mode, st, sol_in in rows:
+            sell = ("" if st != "open" else
+                    f'<form method=post action=/pravi-trade/sell style="margin:0;display:inline" onsubmit="return '
+                    f'confirm(\'Prodati ovu poziciju?\')"><input type=hidden name=id value="{pid}"><input type=hidden '
+                    'name=frac value=1><button class=ap-cancel>Prodaj</button></form>')
+            prow.append(f'<div class=ap-ord-r><span><b>{esc(sym or tok[:6])}</b> · {esc(mode)} · {esc(st)} · '
+                        f'{esc(redak.sol(sol_in or 0, 3))} · otvoreno {esc(ago(ts)[0] if ts else "?")}</span>{sell}</div>')
+        pos = ("".join(prow) + '<p class=mut>Otvorene pozicije zadržavaju svoje postojeće izlaze (stop / cilj), '
+               'provjera svakih 15 s dok postoji otvorena prava pozicija.</p>'
+               '<form method=post action=/pravi-trade/sellall onsubmit="return confirm(\'Prodati SVE otvorene '
+               'pozicije?\')"><button class=ap-cancel>Prodaj sve</button></form>') if rows else \
+            '<p class=mut>Nema otvorenih pozicija.</p>'
+        kill = _kill_on()
+        ks = (f'<p class="ap-w {"bad" if kill else "ok"}">Kill switch: <b>{"UKLJUČEN" if kill else "isključen"}</b>'
+              f'{" (nove kupnje su zaustavljene)" if kill else ""}</p>'
+              f'<form method=post action=/pravi-trade/kill onsubmit="return confirm(\''
+              f'{"Isključiti kill switch?" if kill else "Uključiti kill switch? Sve nove kupnje staju."}\')">'
+              f'<input type=hidden name=on value="{0 if kill else 1}"><button class=ap-cancel>'
+              f'{"Isključi kill switch" if kill else "Uključi kill switch"}</button></form>')
+        body = (f'<div class="ap ms-page"><h1>Pravi trade</h1>{msg}{warn_box(qs, user)}<p class=mut>{esc(state)}</p>'
+                f'<section class=ap-qb id=wallet><h2 class=ap-qb-h>Wallet</h2>{wal}'
+                f'{"" if live else "<p class=mut>Pravi swapovi nisu mogući (TRADE_LIVE ili ključ).</p>"}</section>'
+                f'<section class=ap-qb id=pozicije><h2 class=ap-qb-h>Otvorene pozicije · {len(rows)}</h2>{pos}</section>'
+                f'<section class=ap-qb id=kill><h2 class=ap-qb-h>Kill switch</h2>{ks}</section>'
+                f'{_buy_now_card(cfg, True)}</div>')
+        return MIN_TITLE, body + CSS
+    finally:
+        tcon.close()
 
 
 def page_classic(qs, user):
@@ -5287,12 +5359,43 @@ def _warnings(tcon, cfg, con):
 
 
 
+RING_PATHS = ("/pravi-trade/buy", "/pravi-trade/sell", "/pravi-trade/sellall", "/pravi-trade/dca", "/pravi-trade/exit",
+              "/pravi-trade/mcpok")
+
+
 def post(path, form, user):
+    """The owner's forms (_post). 27.11. (ops/autopilot_off): run_trade now naps TRADE_POLL_S between passes, so a
+    buy / sell button rings trade/wake after it is written: the real swap starts within a fraction of a second."""
+    to = _post(path, form, user)
+    if path in RING_PATHS and settings.is_owner(user):
+        try:
+            from trade import wake
+            wake.ring(f"vlasnik {path.rsplit('/', 1)[-1]}")
+        except Exception:  # noqa: BLE001
+            pass
+    return to
+
+
+def set_kill(on, user):
+    """27.11.: the kill switch from the owner's page: trade/STOP made or removed (executor.buy checks it first)."""
+    if on:
+        with open(executor.STOP_FILE, "w") as f:
+            f.write(f"{int(time.time())} {user}\n")
+    elif os.path.exists(executor.STOP_FILE):
+        os.remove(executor.STOP_FILE)
+    print(f"pravi trade: {user} je {'UKLJUČIO' if on else 'isključio'} kill switch (trade/STOP)", flush=True)
+
+
+def _post(path, form, user):
     from urllib.parse import quote as qq
     tcon = _tcon()
     try:
         if not settings.is_owner(user):
             return f"{BACK}?err={qq('samo vlasnik može mijenjati pravi trade')}"
+        if path == "/pravi-trade/kill":   # 27.11.: the kill switch on the owner's page
+            on = form.get("on") == "1"
+            set_kill(on, user)
+            return f"{BACK}?ok={qq('Kill switch je uključen: nove kupnje staju.' if on else 'Kill switch je isključen.')}#kill"
         if path == "/pravi-trade/switch":
             on = form.get("on") == "1"
             settings.put(tcon, "on", on, user)

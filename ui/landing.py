@@ -719,6 +719,9 @@ def ap_block(lang):
     """20.11. (vlasnik 19.11.: "Autopilot stavi u drugi plan dok rekonstruiramo app"): one short block low on the page.
     While paused: the public pause notice of ui/pauza (the single source of that wording) and its demo sentence; else
     one plain line with a link to the public results. Never raises."""
+    from ops import autopilot_off   # 27.11. (vlasnik: Autopilot uklonjen; "ne želimo tvrditi da smo napravili
+    if autopilot_off.on():          # profitabilnog bota"): no block, no link to its (410) page
+        return ""
     t = T["en" if lang == "en" else "hr"]
     href = "/autopilot" if lang == "en" else "/hr/autopilot"
     try:

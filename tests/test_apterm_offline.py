@@ -18,6 +18,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests import autopilot_staro  # noqa: E402
 
 from league import copy, store  # noqa: E402
 from tests.test_apui_offline import SUMMARY, Base, fake_aplog, fake_equity, history  # noqa: E402
@@ -31,11 +32,13 @@ _WAKE = mock.patch.object(copy, "WAKE", os.path.join(tempfile.mkdtemp(), ".copy_
 
 
 def setUpModule():
+    autopilot_staro.setUpModule()   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
     _WAKE.start()
 
 
 def tearDownModule():
     _WAKE.stop()
+    autopilot_staro.tearDownModule()
 
 
 def market(mcap, liq=60_000.0, price=None):

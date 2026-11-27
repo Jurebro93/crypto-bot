@@ -902,6 +902,24 @@ def _stop_equity():
         pass
 
 
+def _autopilot_off():
+    """27.11. (ops/autopilot_off): True while the Autopilot is removed; never raises."""
+    try:
+        from ops import autopilot_off
+        return autopilot_off.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _poll_s(cfg, off):
+    """Seconds between passes: config poll_s (1 s), or, with the Autopilot removed, TRADE_POLL_S (15 s); an exit of
+    the real account and the owner's buy / sell buttons ring trade/wake and end the nap at once either way."""
+    if not off:
+        return cfg["poll_s"]
+    from ops import autopilot_off
+    return max(float(cfg.get("poll_s") or 0), autopilot_off.TRADE_POLL_S)
+
+
 def cmd_follow(a):
     cfg = load(a.config)
     since = time.time() - cfg["max_signal_age_s"]
@@ -911,7 +929,15 @@ def cmd_follow(a):
         signal.signal(signal.SIGTERM, _on_term)
     except (ValueError, OSError):   # not the main thread (tests): no handler, the loop still works
         pass
-    if not a.once:   # one pass (cron, a check by hand) measures nothing: the snapshots belong to the loop that stays
+    off = _autopilot_off()
+    if off:   # 27.11. (vlasnik: "Autopilot ... uklanja se potpuno", ops/autopilot_off): what stays and how often
+        from ops import autopilot_off
+        n = autopilot_off.open_real()
+        print(f"pravi trade: Autopilot uklonjen; prolaz svakih {autopilot_off.TRADE_POLL_S:g} s (odmah na izlaz ili "
+              "gumb vlasnika), bez snimanja walleta svakih 5 min, bez Trigger probe, paper zrcala i mjerenja troška; "
+              f"otvorene prave pozicije: {'nepoznato' if n is None else n} (zadržavaju svoje izlaze); ručna kupnja, "
+              "Prodaj sve i kill switch rade", flush=True)
+    if not a.once and not off:   # one pass (cron, a check by hand) measures nothing: the snapshots belong to the loop
         _start_equity()
     try:   # 15.11. (trade/capgate): the microcap gate's rule, one line at the start
         from trade import capgate
@@ -972,16 +998,18 @@ def cmd_follow(a):
                 print("pravi trade: automatske kupnje pravim novcem: "
                       + ("PAUZIRANE (nalog vlasnika 19.11.)" if settings.pauza(con) else "nisu pauzirane"), flush=True)
             follow_league_once(con, cfg, since)
-            _trigger_probe_once(con)          # 10.11.: Jupiter Trigger step 1, only when the owner asked (no money)
+            if not off:
+                _trigger_probe_once(con)      # 10.11.: Jupiter Trigger step 1, only when the owner asked (no money)
             executor.reconcile_pending(con)   # buys a crash left half-booked, matched with the wallet
             sell_all_once(con, cfg)
             sell_requests_once(con, cfg)
-            if cfg.get("follow_paper"):
+            if cfg.get("follow_paper") and not off:
                 follow_once(con, cfg, since)
             _exit_recon_once(con)             # 10.11. (plan 1.5): demo vs real exit price of positions just closed
             if executor.is_live(cfg):         # 18.11. (audit): the token-account deposit of a closed position, tried
                 executor.rent_sweep(con, time.time())   # again here (it did not come back once in 11 closes); never raises
-            _mjerenje_once(con, cfg)          # 18.11.: the owner's one-time cost measurement, last: exits and buys first
+            if not off:
+                _mjerenje_once(con, cfg)      # 18.11.: the owner's one-time cost measurement, last: exits and buys first
             con.close()
         except Exception as e:
             print(f"greška: {type(e).__name__}: {e}", file=sys.stderr)
@@ -994,8 +1022,8 @@ def cmd_follow(a):
             break
         # 13.11. (owner's order point 2): poll_s at most; an exit of the real account (league/exitplan, league/auto
         # fast loop: trade/wake.ring) ends the nap within wake.STEP_S
-        wake.nap(cfg["poll_s"], since=rung)
-    if not a.once:
+        wake.nap(_poll_s(cfg, off), since=rung)
+    if not a.once and not off:
         _stop_equity()
 
 

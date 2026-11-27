@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from tests import autopilot_staro  # noqa: E402
 
 from events import brief, evreport, health, night, outcomes, remeasure, sources, store  # noqa: E402
 from league import copy  # noqa: E402
@@ -35,11 +36,13 @@ _WAKE = mock.patch.object(copy, "WAKE", os.path.join(tempfile.mkdtemp(), ".copy_
 
 
 def setUpModule():   # the wallet hooks wake the copy loop; never the repo's own .copy_wake
+    autopilot_staro.setUpModule()   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
     _WAKE.start()
 
 
 def tearDownModule():
     _WAKE.stop()
+    autopilot_staro.tearDownModule()
 
 
 def zagreb(y, m, d, h, mi=0):

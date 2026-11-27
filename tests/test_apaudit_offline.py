@@ -33,6 +33,7 @@ from unittest import mock
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.autopilot_staro import setUpModule, tearDownModule  # noqa: E402,F401   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
 
 from tests import test_veliki_intra_offline as vi  # noqa: E402
 from tests.test_apterm_offline import Env  # noqa: E402

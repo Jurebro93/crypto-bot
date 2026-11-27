@@ -396,13 +396,45 @@ def _real_user():
     return tsettings.LEAGUE_USER
 
 
-def fast_loop(market, user=None, every=FAST_EVERY_S):
-    """Background thread body for run_ui.py: the Autopilot account's TP/SL every `every` seconds."""
+def _off():
+    """27.11. (vlasnik: "Autopilot ... uklanja se potpuno", ops/autopilot_off.py): True while it is removed."""
+    try:
+        from ops import autopilot_off
+        return autopilot_off.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _fast_every(every):
+    """(seconds to the next pass, open real positions or None): `every` as before, or, with the Autopilot removed
+    and no `every` given, ops/autopilot_off.exit_every (15 s while an open real position exists, else 30 s)."""
+    if every is not None:
+        return every, None
+    if not _off():
+        return FAST_EVERY_S, None
+    from ops import autopilot_off
+    return autopilot_off.exit_every()
+
+
+def fast_loop(market, user=None, every=None):
+    """Background thread body for run_ui.py: the Autopilot account's TP/SL every `every` seconds (FAST_EVERY_S; with
+    the Autopilot removed the learning cadence of _fast_every)."""
     if user is None:   # 10.11. (Phase 0): the paper account gets the same 1-second exits, or paper would lag live
         from trade import settings as tsettings
         user = (tsettings.LEAGUE_USER, tsettings.PAPER_USER)
     con, beat = None, 0.0
+    said = None
     while True:
+        try:
+            nap, n_real = _fast_every(every)
+        except Exception:  # noqa: BLE001
+            nap, n_real = FAST_EVERY_S, None
+        if every is None and _off() and (nap, bool(n_real)) != said:
+            said = (nap, bool(n_real))
+            print(f"autopilot izlazi: Autopilot uklonjen; izlazi demo računa svakih {nap:g} s"
+                  + (f" (otvorene prave pozicije: {n_real}, njihovi postojeći stop/cilj ostaju)" if n_real else
+                     " (otvorene prave pozicije: nepoznato, pazim kao da ih ima)" if n_real is None else
+                     " (nema otvorenih pravih pozicija)"), flush=True)
         try:
             if con is None:
                 con = store.connect()
@@ -458,7 +490,7 @@ def fast_loop(market, user=None, every=FAST_EVERY_S):
             except Exception:  # noqa: BLE001
                 pass
             con = None
-        time.sleep(every)
+        time.sleep(nap)
 
 
 def run_once(con, market, now=None):
@@ -612,14 +644,14 @@ def loop(market, every=EVERY_S):
             except Exception as e:  # noqa: BLE001 - never stops the copies
                 print(f"auto sell: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # Autopilot: the tool picks whom the real-money account follows, hourly, only if the owner said so
-                from ui import autopilot
-                for what in autopilot.maybe_sync(con):
+                from ui import autopilot   # 27.11.: not while the Autopilot is removed (ops/autopilot_off)
+                for what in ([] if _off() else autopilot.maybe_sync(con)):
                     print(f"natjecanje {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"autopilot izbor: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # SimianX long signals on the real-trade account, only with the owner's switch (simianx_feed.py)
-                from . import simianx_feed
-                for user, what in simianx_feed.run_once(con, market):
+                from . import simianx_feed   # 27.11.: the real account only: not while the Autopilot is removed
+                for user, what in ([] if _off() else simianx_feed.run_once(con, market)):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"simianx signali: {type(e).__name__}: {e}", file=sys.stderr)

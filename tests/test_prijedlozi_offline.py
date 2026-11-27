@@ -29,6 +29,7 @@ from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from tests.autopilot_staro import setUpModule, tearDownModule  # noqa: E402,F401   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
 
 from league import copy as lcopy, exitplan  # noqa: E402
 from proposals import build, calib, job, outcomes, paper, report, store, strategies, view  # noqa: E402

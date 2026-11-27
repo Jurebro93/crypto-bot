@@ -29,6 +29,7 @@ from zoneinfo import ZoneInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from tests.autopilot_staro import setUpModule, tearDownModule  # noqa: E402,F401   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
 
 from fast import checks, decide, enqueue, outcomes, paper, report, sources, store, view, worker  # noqa: E402
 from league import copy as lcopy, exitplan, store as lstore  # noqa: E402

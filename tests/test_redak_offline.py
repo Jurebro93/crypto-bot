@@ -131,7 +131,9 @@ class Navigation(unittest.TestCase):
     def test_vise_has_17_rows_and_every_page_stays_reachable(self):
         _, body = html.vise_page({})
         rows = body[:body.index("ms-note")].count("<a href=")
-        self.assertEqual(rows, 14)   # 19.11.: 1 + 2 + 3 + 4 + Sustav, Postavke, Odjava; 25.11.: + Pump Fun tokeni
+        # 19.11.: 1 + 2 + 3 + 4 + Sustav, Postavke, Odjava; 25.11.: + Pump Fun tokeni; 27.11. (Autopilot uklonjen,
+        # ops/autopilot_off): its public page "Autopilot: rezultati i chat" left the list
+        self.assertEqual(rows, 13 if html.AP_OFF else 14)
         self.assertNotIn("/pump-tokeni", admstrip.strip(admstrip.strip(body), "own-only"))   # 25.11.: owner only
         _, sub = html.vise_page({}, "sustav")
         sustav = next(items for s, items in html.SECTIONS if s == "Sustav")
