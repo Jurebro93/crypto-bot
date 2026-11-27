@@ -1399,8 +1399,10 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             chainwatch.ingest(payload, os.path.join(os.path.dirname(os.path.abspath(__file__)), "hype.db"))
             self.send_response(200)
-        except Exception:
-            self.send_response(400)
+        except Exception as e:  # noqa: BLE001
+            # 27.11.: 200 anyway: a 400 makes Helius deliver the same events again, and every delivery is billed
+            print(f"chain hook: {type(e).__name__}: {e}", flush=True)
+            self.send_response(200)
         self.end_headers()
 
     def _login(self, qs):

@@ -11,7 +11,7 @@ import time
 USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 LAMPORTS = 1e9
 _CACHE = {}
-CACHE_S = 600
+CACHE_S = 3600   # 27.11.: prikaz trezora jednom na sat (krediti idu na skupljanje podataka)
 
 
 # Nicholas's new Phantom wallet, 1.11.2026 (public address only). Later a Squads multisig vault: set NAS_TOKEN_TREZOR.
@@ -26,14 +26,8 @@ def address():
 
 def _rpc(method, params):
     from wallets import rpc
-    res, cached = rpc._rpc(method, params, ttl=CACHE_S)
-    if not cached:
-        try:
-            from usage import meter
-            meter.record("helius", f"trezor:{method}", 10 if method == "getTransactionsForAddress" else 1)
-        except Exception:  # noqa: BLE001
-            pass
-    return res
+    res, _cached = rpc._rpc(method, params, ttl=CACHE_S)   # event_calendar/http already meters the call (27.11.:
+    return res                                              # it was counted twice)
 
 
 def _keys(tx):

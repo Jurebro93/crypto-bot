@@ -237,11 +237,15 @@ box.querySelectorAll('[data-meta]').forEach(m=>{const to=document.querySelector(
 if(window.apOpen)window.apOpen(box);if(window.apcInit)window.apcInit();return true}})()</script>"""
 
 
+# 27.11. (vlasnik: podaci na stranicama rjeđe, krediti idu na skupljanje podataka): saldo na prikazu 5 min
+BAL_TTL_S = 300
+
+
 def _rpc_cached(addr, what, fn):
     if not addr:
         return None
     hit = _BAL.get((addr, what))
-    if hit and time.time() - hit[0] < 60:
+    if hit and time.time() - hit[0] < BAL_TTL_S:
         return hit[1]
     try:
         val = fn(addr)
