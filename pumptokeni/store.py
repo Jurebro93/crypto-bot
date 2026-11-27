@@ -95,7 +95,24 @@ SEED_2611_SAT = {
     "Y2027": "Twenty Seven: same charts, new year. No roadmap, no utility, no resolutions kept. Probably worthless "
              "before the fireworks end. Do not buy.",
 }
-SEED_SYMBOLS = tuple(x[3] for x in SEED)
+# 27.11. (vlasnik: "twenty seven je prošao najbolje. Kako možemo lansirati sada 5 sličnih tokena"): pet novih nacrta na
+# temu Nove godine, kao Twenty Seven bez vlastite kupnje, u kasnijim večernjim terminima. Dodaju se jednom (kv
+# 'seed_2711'); ništa se ne odobrava: raspored odobrava vlasnik svojim dodirom na „Odobri pilot".
+SEED_2711 = (
+    ("Nova godina", "2027-01-01", "Countdown", "CNTDWN",
+     "A New Year countdown token, launched early. No promises.", "2026-11-27 20:15", 0.0, SKUPINA_BEZ),
+    ("Nova godina", "2027-01-01", "Resolution", "RESO27",
+     "A New Year's resolution token. Probably abandoned by February. No promises.", "2026-11-27 20:40", 0.0,
+     SKUPINA_BEZ),
+    ("Nova godina", "2027-01-01", "Party Hat", "PHAT27",
+     "A party hat for New Year 2027. No roadmap, no promises.", "2026-11-27 21:05", 0.0, SKUPINA_BEZ),
+    ("Nova godina", "2027-01-01", "Sparkler", "SPARK27",
+     "A New Year sparkler. Bright for a moment, then probably gone. No promises.", "2026-11-27 21:30", 0.0,
+     SKUPINA_BEZ),
+    ("Nova godina", "2027-01-01", "Hangover", "HANG27",
+     "The morning after New Year 2027, launched early. No promises.", "2026-11-27 21:55", 0.0, SKUPINA_BEZ),
+)
+SEED_SYMBOLS = tuple(x[3] for x in SEED) + tuple(x[3] for x in SEED_2711)
 UNSENT = ("nacrt", "odbijen", "greska", "u_redu", "propusten")
 LINK_KINDS = ("twitter", "telegram", "website")
 NO_LINK = "-"          # u polju nacrta: bez poveznice i bez zadane vrijednosti
@@ -254,20 +271,40 @@ def seed_image(ime, simbol, image_fn=None, slike_dir=None):
     return (image_fn or image.generate)(ime, simbol)
 
 
+def seed_2711(con, now=None, image_fn=None, slike_dir=None):
+    """Pet novogodišnjih nacrta (SEED_2711), jednom; preskače simbol koji već postoji. Ništa ne odobrava. Broj dodanih."""
+    if get(con, "seed_2711"):
+        return 0
+    now = int(now or time.time())
+    have = {(d["simbol"] or "").upper() for d in drafts(con)}
+    n = 0
+    for tema, datum, ime, simbol, opis, termin, kupnja, skupina in SEED_2711:
+        if simbol in have:
+            continue
+        con.execute("INSERT INTO nacrti (tema, datum_teme, ime, simbol, opis, slika, skupina, stanje, napravljen_ts, "
+                    "promijenjen_ts, termin_ts, kupnja_sol) VALUES (?,?,?,?,?,?,?,'nacrt',?,?,?,?)",
+                    (tema, datum, ime, simbol, opis, seed_image(ime, simbol, image_fn, slike_dir), skupina, now, now,
+                     parse_termin(termin), kupnja))
+        n += 1
+    put(con, "seed_2711", now)
+    con.commit()
+    return n
+
+
 def seed(con, now=None, image_fn=None, slike_dir=None):
     """Pet nacrta, jednom (kv 'seed_2511'); slika iz datoteke ili generatora, termin, kupnja i skupina iz SEED. Zatim
     migrate_seed(). Broj dodanih."""
     if get(con, "seed_2511"):
         migrate_seed(con, now, image_fn, slike_dir)
         migrate_stari_red(con, now)
-        return 0
+        return seed_2711(con, now, image_fn, slike_dir)
     now = int(now or time.time())
     for tema, datum, ime, simbol, opis, termin, kupnja, skupina in SEED:
         con.execute("INSERT INTO nacrti (tema, datum_teme, ime, simbol, opis, slika, skupina, stanje, napravljen_ts, "
                     "promijenjen_ts, termin_ts, kupnja_sol) VALUES (?,?,?,?,?,?,?,'nacrt',?,?,?,?)",
                     (tema, datum, ime, simbol, opis, seed_image(ime, simbol, image_fn, slike_dir), skupina, now, now,
                      parse_termin(termin), kupnja))
-    for k in ("seed_2511", "seed_2611", "seed_2611b", "seed_2611c"):
+    for k in ("seed_2511", "seed_2611", "seed_2611b", "seed_2611c", "seed_2711"):
         put(con, k, now)
     migrate_seed(con, now, image_fn, slike_dir)
     return len(SEED)

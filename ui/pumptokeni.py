@@ -44,8 +44,8 @@ def _short(a):
     return f"{a[:4]}…{a[-4:]}" if a and len(a) > 10 else (a or "")
 
 
-def balance(addr, max_age=60):
-    """SOL saldo (RPC, predmemorija 60 s) ili None."""
+def balance(addr, max_age=300):
+    """SOL saldo (RPC, predmemorija 5 min; 27.11. rjeđe radi kredita) ili None."""
     if not addr:
         return None
     hit = _BAL.get(addr)

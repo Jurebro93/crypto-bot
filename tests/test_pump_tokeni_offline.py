@@ -857,6 +857,7 @@ class SeedTextAndImages(Base):
                         (tema, datum, ime, sym, store.SEED_2511[sym], image.generate(ime, sym), store.SKUPINA_0, NOW, NOW))
         con.commit()
         store.put(con, "seed_2511", NOW)
+        store.put(con, "seed_2711", NOW)   # ovaj test gleda samo migraciju prvih pet nacrta
         return con
 
     def test_migration_only_untouched_drafts_once(self):
@@ -1343,7 +1344,7 @@ class SeedSchedule(unittest.TestCase):
             con.execute("INSERT INTO nacrti (tema, datum_teme, ime, simbol, opis, slika, skupina, stanje, napravljen_ts, "
                         "promijenjen_ts) VALUES (?,?,?,?,?,?,?,'nacrt',?,?)",
                         (tema, datum, ime, sym, store.SEED_2611_SAT[sym], b"png", store.SKUPINA_0, NOW, NOW))
-        con.execute("INSERT INTO kv VALUES ('seed_2511', '1'), ('seed_2611', '1')")
+        con.execute("INSERT INTO kv VALUES ('seed_2511', '1'), ('seed_2611', '1'), ('seed_2711', '1')")
         con.commit()
         con.close()
 
@@ -1377,6 +1378,21 @@ class SeedSchedule(unittest.TestCase):
         store.seed(con, NOW)
         self.assertEqual([(d["termin_ts"] - T19) // 60 for d in store.drafts(con)], [0, 25, 50, 75, 100])
         self.assertEqual([d["kupnja_sol"] for d in store.drafts(con)], [0.04, 0.04, 0, 0, 0])
+        con.close()
+
+    def test_new_year_drafts_added_once_never_approved(self):
+        """27.11.: pet novogodišnjih nacrta se dodaju jednom u postojeću bazu; ništa se ne odobrava."""
+        con = store.connect(self.p)
+        con.execute("DELETE FROM kv WHERE k='seed_2711'")
+        con.commit()
+        self.assertEqual(store.seed(con, NOW, slike_dir=self.tmp.name), 5)
+        ds = {d["simbol"]: d for d in store.drafts(con)}
+        for sym, ime, termin in (("CNTDWN", "Countdown", "2026-11-27 20:15"), ("HANG27", "Hangover", "2026-11-27 21:55")):
+            self.assertEqual((ds[sym]["ime"], ds[sym]["stanje"], ds[sym]["kupnja_sol"]), (ime, "nacrt", 0.0))
+            self.assertEqual(ds[sym]["termin_ts"], store.parse_termin(termin))
+            self.assertTrue(guards.check_text(ds[sym]["ime"], sym, ds[sym]["opis"])[0] if hasattr(guards, "check_text") else True)
+        self.assertEqual(launch.queue(con), [])
+        self.assertEqual(store.seed(con, NOW + 60, slike_dir=self.tmp.name), 0)        # jednom
         con.close()
 
     def test_old_queue_without_termin_goes_back_to_drafts_with_tonights_plan(self):

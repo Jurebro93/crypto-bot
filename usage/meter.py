@@ -37,10 +37,11 @@ def connect(path=None):
     return con
 
 
-def record(service, method, amount=0.0, calls=1, error=False):
-    """amount: Helius credits or Apify USD this call cost (0 for a failed call)."""
+def record(service, method, amount=0.0, calls=1, error=False, script=None):
+    """amount: Helius credits or Apify USD this call cost (0 for a failed call). script: a name other than this
+    process (27.11.: the wallet webhook arrives in run_ui.py but is data collection, not the pages)."""
     try:
-        k = (int(time.time()) // 3600 * 3600, service, SCRIPT, method)
+        k = (int(time.time()) // 3600 * 3600, service, script or SCRIPT, method)
         with _lock:
             c = _tally.setdefault(k, [0, 0, 0.0])
             c[0] += calls
@@ -112,13 +113,16 @@ def helius(url, body=None, result=None, error=False):
         record("helius", c[0], 0 if error else c[1], error=error)
 
 
+WEBHOOK_SCRIPT = "webhook novčanika"
+
+
 def helius_webhook(events, managed=False):
     """Helius bills 1 credit per webhook event it delivers (whatever our answer) and 100 per create/edit/delete.
     Before 01.11.2026 these were not counted, which showed up as "troši se i izvan bota"."""
     if managed:
-        record("helius", "webhook upravljanje", 100)
+        record("helius", "webhook upravljanje", 100, script=WEBHOOK_SCRIPT)
     if events:
-        record("helius", "webhook događaji", float(events), calls=int(events))
+        record("helius", "webhook događaji", float(events), calls=int(events), script=WEBHOOK_SCRIPT)
 
 
 # Helius account usage comes split into these categories (Admin API "credits"); our methods map onto them so the

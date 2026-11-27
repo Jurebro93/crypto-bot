@@ -857,3 +857,25 @@ class DeepReview(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Order2711(unittest.TestCase):
+    """27.11. (vlasnik: "isključi OpenAI kritičara"): jednom, samo na niže; vlasnik ga može ponovno uključiti."""
+
+    def test_once_off_then_owner_can_turn_it_back_on(self):
+        import sqlite3 as _sq
+        import tempfile as _tf
+        from trade import settings as st
+        with _tf.TemporaryDirectory() as d:
+            con = st.connect(os.path.join(d, "trade.db")) if hasattr(st, "connect") else _sq.connect(os.path.join(d, "t.db"))
+            st._FLAG_CACHE.clear()
+            self.assertEqual(st.flag_state(con)[st.KRITICAR]["mode"], "live")          # zadano uključen
+            txt = st.kriticar_order_2711(con, now=1795730000)
+            self.assertIn("live → off", txt)
+            st._FLAG_CACHE.clear()
+            self.assertEqual(st.flag_state(con)[st.KRITICAR]["mode"], "off")
+            st.set_flag(con, st.KRITICAR, "live", st.owner(), now=1795730100)           # vlasnik ga vraća
+            self.assertIsNone(st.kriticar_order_2711(con, now=1795730200))              # nalog se ne ponavlja
+            st._FLAG_CACHE.clear()
+            self.assertEqual(st.flag_state(con)[st.KRITICAR]["mode"], "live")
+            con.close()
