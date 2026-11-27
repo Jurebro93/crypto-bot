@@ -231,6 +231,9 @@ def now(now_ts=None, trade_db=None, env=None):
         det = (f"zadnji {when(st['last'])}, " if st.get("last") else "") + (
             f"otvoren do {when(st['end'])}, " if m == "open" else "") + (
             f"sljedeći {when(st['next'])}" if st.get("next") else "još nije bilo prozora")
+        if drustveni.abolished():   # 27.11. (vlasnik): no window; the X budget (usage/xbudzet) stops paid reads
+            return _row("social_window", state, None, "sat",
+                        f"prozor ukinut {drustveni.ABOLISHED}: svaki dan, X pod budžetom 5 $ dnevno / 100 $ mjesečno")
         return _row("social_window", state, st.get("last"), "sat",
                     f"{det}; svakih {drustveni.days_word()} dana po {drustveni.window_h():g} h")
 

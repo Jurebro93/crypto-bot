@@ -6,7 +6,11 @@ $0.15 per 1,000 posts returned, at least $0.00015 per request. Unlike the Apify 
 per query, so reading 400 accounts every 30 min costs about what their new posts cost.
 
 Spend is estimated per request and kept per UTC day in kol.db kv 'twapi:<day>'; at timeline_twapi.daily_usd the
-round stops (the rest waits for the next day). Every request is also metered in usage.db (service 'twitterapi')."""
+round stops (the rest waits for the next day). Every request is also metered in usage.db (service 'twitterapi').
+
+27.11. (vlasnik): every request is also under the X budget (usage/xbudzet: 5 $ a day, 100 $ a month, by priority):
+each function takes cat ("pozivi" | "otkrivanje" | "ostatak") and job (the name in the daily line); before a request
+the most it can cost must fit (search stops its pages, the others raise xbudzet.Cap), after it what it cost is booked."""
 import json
 import os
 import time
@@ -42,7 +46,15 @@ def spent(con, now=None):
     return float(row[0]) if row else 0.0
 
 
-def _add(con, usd, now):
+MAX_PAGE = 20 * PER_TWEET   # the most one search page can cost (~20 posts)
+
+
+def _add(con, usd, now, cat=None, job=None):
+    try:
+        from usage import xbudzet
+        xbudzet.book(cat, usd, now, job or "kol")
+    except Exception:  # noqa: BLE001
+        pass
     k = f"twapi:{_day(now)}"
     con.execute("INSERT INTO kv VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = CAST(value AS REAL) + ?",
                 (k, str(usd), usd))
@@ -53,7 +65,20 @@ def _add(con, usd, now):
         pass
 
 
-def search(con, query, since_ts, budget, get=None, max_pages=5, now=None, until_ts=None):
+def _room(cat, usd, now):
+    try:
+        from usage import xbudzet
+    except ImportError:
+        return True
+    return xbudzet.room(cat, usd, now)
+
+
+def _need(cat, usd, now):
+    from usage import xbudzet
+    xbudzet.need(cat, usd, now)
+
+
+def search(con, query, since_ts, budget, get=None, max_pages=5, now=None, until_ts=None, cat=None, job=None):
     """Posts matching query newer than since_ts (and older than until_ts), newest first, as dicts calls_from_tweet
     understands. Stops at budget (USD spent today), at a post older than since_ts, or after max_pages."""
     get = get or _get
@@ -61,11 +86,11 @@ def search(con, query, since_ts, budget, get=None, max_pages=5, now=None, until_
     q = f"{query} since_time:{int(since_ts)}" + (f" until_time:{int(until_ts)}" if until_ts else "")
     out, cursor = [], ""
     for _ in range(max_pages):
-        if spent(con, now) >= budget:
+        if spent(con, now) >= budget or not _room(cat, MAX_PAGE, now):
             break
         d = get(q, cursor)
         tweets = d.get("tweets") or []
-        _add(con, cost(len(tweets)), now)
+        _add(con, cost(len(tweets)), now, cat, job)
         from kol.collect import tweet_ts
         old = False
         for t in tweets:
@@ -91,33 +116,36 @@ def _get_url(url, params, timeout=30):
         return json.load(r)
 
 
-def user_info(con, handle, get=None, now=None):
+def user_info(con, handle, get=None, now=None, cat=None, job=None):
     """Profile of one X account (bio, createdAt, followers, pinnedTweetIds, unavailable...) or None."""
     get = get or _get_url
+    _need(cat, PER_USER, now or time.time())
     d = get(USER_URL, {"userName": handle})
-    _add(con, PER_USER, now or time.time())
+    _add(con, PER_USER, now or time.time(), cat, job)
     return d.get("data") if d.get("status") == "success" else None
 
 
-def tweets(con, ids, get=None, now=None):
+def tweets(con, ids, get=None, now=None, cat=None, job=None):
     """Posts by id (the pinned post), as twitterapi.io returns them."""
     if not ids:
         return []
     get = get or _get_url
+    _need(cat, cost(len(ids)), now or time.time())
     d = get(TWEETS_URL, {"tweet_ids": ",".join(str(i) for i in ids)})
     out = d.get("tweets") or []
-    _add(con, cost(len(out)), now or time.time())
+    _add(con, cost(len(out)), now or time.time(), cat, job)
     return out
 
 
 FOLLOWINGS_URL = "https://api.twitterapi.io/twitter/user/followings"
 
 
-def followings(con, handle, page=200, get=None, now=None):
+def followings(con, handle, page=200, get=None, now=None, cat=None, job=None):
     """Newest accounts `handle` follows (one page). 200 per page = $0.01 per 1,000, at least $0.0006 a call."""
     get = get or _get_url
+    rate = 0.00001 if page >= 200 else 0.00002 if page >= 100 else 0.00003
+    _need(cat, max(0.0006, page * rate), now or time.time())
     d = get(FOLLOWINGS_URL, {"userName": handle, "cursor": "", "pageSize": page})
     out = d.get("followings") or []
-    _add(con, max(0.0006, len(out) * (0.00001 if page >= 200 else 0.00002 if page >= 100 else 0.00003)),
-         now or time.time())
+    _add(con, max(0.0006, len(out) * rate), now or time.time(), cat, job)
     return out

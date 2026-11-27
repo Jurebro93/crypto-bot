@@ -345,7 +345,18 @@ def drustveni(now):
     from ops import drustveni as soc
     st = soc.state(now, create=False)
     return {"stanje": st["mode"], "otvoren": bool(st["open"]), "zadnji": st.get("last"), "sljedeci": st.get("next"),
-            "do": st.get("end")}
+            "do": st.get("end"), "ukinut": soc.ABOLISHED if soc.abolished() else None}
+
+
+def xbudzet(now):
+    """27.11. (vlasnik): the X budget of the day (usage/xbudzet): spend per category, the day and month caps, calls
+    captured, new influencers found."""
+    from usage import xbudzet as xb
+    st = xb.state(now)
+    return {"persist": st["persist"], "dan": st["today"], "L": st["L"], "mjesec": st["month"],
+            "strop_dan": st["day_cap"], "strop_mjesec": st["month_cap"], "stat": st["stat"], "poslovi": st["jobs"],
+            "kategorije": {k: {"potroseno": v["spent"], "dostupno": v["avail"], "preneseno": v["carry"]}
+                           for k, v in st["cats"].items()}, "linija": xb.line(now, st)}
 
 
 def drustveni_part(dr):
@@ -358,6 +369,8 @@ def drustveni_part(dr):
         return f"društveni izvori: prozor otvoren (do {soc.when(dr.get('do'))}, sljedeći {soc.when(dr.get('sljedeci'))})"
     if m == "first":
         return "društveni izvori: otvoren (prvo osvježavanje)"
+    if dr.get("ukinut"):   # 27.11. (vlasnik): no window; the X budget stops paid reads (usage/xbudzet)
+        return f"društveni izvori: svaki dan (prozor od 5 dana ukinut {dr['ukinut']})"
     return "društveni izvori: otvoren (uvijek)" if m == "always" else "društveni izvori: otvoren"
 
 
@@ -372,7 +385,7 @@ def collect(now=None, paths=None):
                      ("helius", lambda: helius(now, paths)), ("ai", lambda: ai(now, paths)),
                      ("openai", lambda: openai(now, paths)), ("vijece", lambda: vijece(now, paths)),
                      ("birdeye", lambda: birdeye(now, paths)), ("simianx", lambda: simianx(now, paths)),
-                     ("drustveni", lambda: drustveni(now))):
+                     ("drustveni", lambda: drustveni(now)), ("xbudzet", lambda: xbudzet(now))):
         try:
             out[name] = fn()
         except Exception as e:  # noqa: BLE001 - one source costs only its part of the line
@@ -455,6 +468,10 @@ def line(d):
     dr = d.get("drustveni") or {}
     if dr and not dr.get("greska"):   # 19.11.: influencers and Telegram once in 5 days: is the window open today
         parts.append(drustveni_part(dr))
+    xb = d.get("xbudzet") or {}
+    if xb and not xb.get("greska") and xb.get("persist"):   # 27.11.: X budget, day and month
+        parts.append(f"X budžet dan ${_usd(xb.get('dan'))}/{_usd(xb.get('L'))}, mjesec ${_usd(xb.get('mjesec'))}/"
+                     f"{_usd(xb.get('strop_mjesec'))}")
     errs = [f"{k}: {v['greska']}" for k, v in d.items() if isinstance(v, dict) and v.get("greska")]
     return f"trošak po izvoru {d.get('day')} (UTC dan): " + " | ".join(parts) + (f" | greške: {'; '.join(errs)}" if errs else "")
 
@@ -576,4 +593,7 @@ def run(now=None, log=print, paths=None, path=None):
     except sqlite3.Error as e:
         log(f"trošak po izvoru: nije spremljeno u usage.db ({e})")
     log(line(d), flush=True)
+    xb = d.get("xbudzet") or {}
+    if xb.get("persist") and xb.get("linija"):   # 27.11. (vlasnik): the X budget's one line a day (spend per category, calls, new accounts)
+        log(xb["linija"], flush=True)
     return d

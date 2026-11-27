@@ -1144,7 +1144,14 @@ def kol_later_row(stats=None):
         last, _nxt = drustveni.notice_dates()
     except Exception:  # noqa: BLE001
         last = None
-    note = f"osvježeno {_when(last)}, jednom u 5 dana" if last else "osvježava se jednom u 5 dana"
+    try:   # 27.11. (vlasnik): the 5-day window is gone, influencers refresh every day again
+        daily = drustveni.abolished()
+    except Exception:  # noqa: BLE001
+        daily = True
+    if daily:
+        note = "osvježava se svaki dan"
+    else:
+        note = f"osvježeno {_when(last)}, jednom u 5 dana" if last else "osvježava se jednom u 5 dana"
     return R.cat(R.rows([r]), R.hint(f"Influenceri: {note}."))
 
 

@@ -681,9 +681,10 @@ class SpendStop(unittest.TestCase):
     def test_the_module_acts_as_if_it_had_no_key(self):
         from kol import twapi
         from makroinf import xapi
-        self.assertTrue(store.config()["twapi_stop"])
-        with mock.patch.object(twapi, "key", lambda: "k"):
-            self.assertFalse(xapi.has_key())                              # production: a key, but stopped
+        self.assertFalse(store.config()["twapi_stop"])                  # 27.11.: approved within the X budget
+        with mock.patch.object(twapi, "key", lambda: "k"), \
+                mock.patch.object(store, "config", lambda cfg=None: {**store.DEFAULT, "twapi_stop": True}):
+            self.assertFalse(xapi.has_key())                              # stopped again: a key, but no spend
             self.assertTrue(xapi.has_key(get=lambda *a, **k: None))       # an injected fetcher (tests) is not a spend
             with mock.patch.object(store, "config", lambda cfg=None: {**store.DEFAULT, "twapi_stop": False}):
                 self.assertTrue(xapi.has_key())                           # the owner approved again

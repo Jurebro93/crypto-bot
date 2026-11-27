@@ -1,4 +1,8 @@
-"""Društveni izvori jednom u 5 dana (19.11.2026., vlasnik: "From now on I want the tool to stop spending resources on
+"""27.11.2026. (vlasnik): THE 5-DAY WINDOW IS ABOLISHED. Influencers, X and Telegram refresh every day again; what
+stops a paid X read now is the X budget (usage/xbudzet.py: 5 $ a day, 100 $ a month, by priority). Every gate below
+is open by default (mode "always"); SOCIAL_WINDOW=1 brings the old window back (the tests of its mechanics use it).
+
+Before (19.11.2026., vlasnik: "From now on I want the tool to stop spending resources on
 scraping influencers and Telegram channels. That can be refreshed once every 5 days. What I want every day is
 wallets.").
 
@@ -97,8 +101,16 @@ def window_h():
     return _env_float("SOCIAL_WINDOW_H", DEFAULT_WINDOW_H, 0.0)
 
 
+ABOLISHED = "27.11.2026."
+
+
+def abolished():
+    """27.11. (vlasnik): no window unless SOCIAL_WINDOW=1 asks for it again."""
+    return os.environ.get("SOCIAL_WINDOW", "").strip() != "1"
+
+
 def always():
-    return os.environ.get("SOCIAL_ALWAYS", "").strip() == "1"
+    return abolished() or os.environ.get("SOCIAL_ALWAYS", "").strip() == "1"
 
 
 def path():
@@ -178,6 +190,8 @@ def state(now=None, create=False):
     P, W = every_d() * 86400, window_h() * 3600
     out = {"open": True, "mode": "always", "last": None, "end": None, "next": None, "every_d": every_d(),
            "window_h": window_h()}
+    if abolished():   # 27.11.: no window, no dates (nothing "next" to show)
+        return out
     a = first_start(t, create=create) if path() else None
     if a is not None:
         k = max(0, math.floor((t - a) / P))
@@ -289,6 +303,9 @@ def line(now=None):
     """The start line / the part of the daily cost line."""
     st = state(now, create=False)
     m = st["mode"]
+    if abolished():
+        return (f"društveni izvori: svaki dan (prozor od 5 dana ukinut {ABOLISHED}; X pod budžetom "
+                "5 $ dnevno / 100 $ mjesečno, usage/xbudzet)")
     if m == "always":
         return "društveni izvori: uvijek otvoreno (SOCIAL_ALWAYS=1)"
     if m == "nopersist":
@@ -349,7 +366,9 @@ def block_html(text, cls="ms-hint", style="", notr=True):
 
 
 def notice_html(lang="hr", now=None, cls="ms-hint", style="", notr=True):
-    """The influencer / Telegram notice (block_html of notice_text)."""
+    """The influencer / Telegram notice (block_html of notice_text); none since 27.11. (daily refresh again)."""
+    if abolished():
+        return ""
     return block_html(notice_text(lang, now), cls, style, notr)
 
 
@@ -363,7 +382,7 @@ def public_notice(lang="hr", now=None):
 
 
 def main(argv=None):
-    if path() and not always():
+    if path() and not always() and not abolished():
         first_start()
     print(line(), flush=True)
     return 0
