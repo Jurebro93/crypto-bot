@@ -963,6 +963,9 @@ def cmd_follow(a):
                 krit = settings.kriticar_order_2711(con)   # 27.11.: the owner's order, OpenAI critic off, once
                 if krit:
                     print(krit, flush=True)
+                ap = settings.autopilot_order_2711(con)   # 27.11. kasno: Autopilot pravim novcem off, demo ostaje
+                if ap:
+                    print(settings.autopilot_order_line(ap), flush=True)
                 print("pravi trade: automatske kupnje pravim novcem: "
                       + ("PAUZIRANE (nalog vlasnika 19.11.)" if settings.pauza(con) else "nisu pauzirane"), flush=True)
             follow_league_once(con, cfg, since)

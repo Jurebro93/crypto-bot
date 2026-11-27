@@ -251,6 +251,49 @@ def kriticar_order_2711(con, now=None):
     return (f"kritičar (OpenAI): isključen po nalogu vlasnika 27.11. ({old} → off); ponovno ga uključuje samo vlasnik "
             "na stranici Autopilot")
 
+# 27.11. kasno (vlasnik u chatu: "Autopilot gasi za pravi novac, ali demo trade-ove neka rade u pozadini ... Ugasi da"):
+# ONCE, at the first mirror pass after the deploy: every real-money switch off, the pause on, and any strategy flag that
+# stands in "live" goes down to "paper" (its demo keeps running). Going down is always allowed; nothing is sold, no
+# cap, stake, exit or manual owner order is touched. On again only by the owner's own tap on the Autopilot page.
+AUTOPILOT_ONCE = "owner_once:autopilot_pravi_off_2711"
+AUTOPILOT_WHY = "vlasnik u chatu 27.11.: Autopilot gasi za pravi novac, demo radi u pozadini"
+AUTOPILOT_KEEP_LIVE = ("makroinf_javno",)   # publishing switch, not a trading one
+
+
+def autopilot_order_2711(con, now=None):
+    """-> [text of each change]; [] when it has already run or the database cannot be read."""
+    try:
+        if con.execute("SELECT 1 FROM settings WHERE k = ?", (AUTOPILOT_ONCE,)).fetchone():
+            return []
+        done = []
+        st = flag_state(con)
+        for name in REAL_SWITCHES:
+            old = st[name]["mode"]
+            if old != "off":
+                set_flag(con, name, "off", owner(), now=now)
+                done.append(f"{name}: {old} \u2192 off")
+        for name in sorted(FLAGS):
+            if name in REAL_SWITCHES or name in AUTOPILOT_KEEP_LIVE or name == PUMP_TRGOVACKI:
+                continue
+            if st.get(name, {}).get("mode") == "live":
+                try:
+                    set_flag(con, name, "paper", owner(), now=now)
+                    done.append(f"{name}: live \u2192 paper (demo)")
+                except ValueError:   # a flag without a paper mode goes off instead (no real money either way)
+                    set_flag(con, name, "off", owner(), now=now)
+                    done.append(f"{name}: live \u2192 off")
+        pauza_set(con, True, owner(), AUTOPILOT_WHY, now)
+        put(con, AUTOPILOT_ONCE, {"ts": int(now or time.time()), "promjene": done}, owner())
+    except (sqlite3.Error, ValueError, TypeError):
+        return []
+    return done or ["sve je već bilo isključeno"]
+
+
+def autopilot_order_line(done):
+    return ("pravi trade: nalog vlasnika 27.11. izvršen: Autopilot pravim novcem ISKLJUČEN (" + "; ".join(done)
+            + "); demo računi, istraživač i knjiga sjene rade dalje; otvorene prave pozicije zadržavaju izlaze; "
+            "ručna kupnja vlasnika nije dirana; uključuje samo vlasnik svojim prekidačem")
+
 
 # 15.11. (vlasnik: "Isključi pravi novac zasad, ali hitno pronađi profitabilnu strategiju kombiniranjem profitabilnih
 # novčanika i influencera ... analizu tokena isključi za pravi novac, pozadinu ostavi za demo"; konsenzus/): the source
