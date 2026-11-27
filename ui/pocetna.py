@@ -143,9 +143,8 @@ def _strategy_info(st, best, winners, hidden, control):
     body = (
         f"<h3>Što se mjeri</h3>"
         f"<p>{n_all} odvojenih demo računa po ${cfg['bankroll_usd']:,.0f}, od {st['days']:.0f} dana. Svaki kupuje po jednom "
-        f"pravilu (izvoru signala), s ulogom ${cfg.get('size_usd', 50)} po ulazu, a svi izlaze po istim pravilima: za tokene "
-        f"ispod 1 M $ pola se proda na +15 %, ostatak prati stop 15 % ispod vrha, stop −25 %; za tokene iznad 1 M $ stop −20 % "
-        f"i ljestvica +15 % / +30 %. Cijene su demo cijene s DexScreenera i GeckoTerminala, s troškom 1 % po strani. "
+        f"pravilu (izvoru signala), s ulogom ${cfg.get('size_usd', 50)} po ulazu, a svi izlaze po istim pravilima, pa se "
+        f"izvori uspoređuju pošteno. Cijene su javne tržišne cijene, uz realan trošak kupnje i prodaje. "
         f"Nikad pravi novac.</p>"
         f"<h3>Kako čitati brojke</h3>"
         f"<ul><li><b>S pravih ${cfg['bankroll_usd']:,.0f}</b>: isti zatvoreni tradeovi ponovljeni s fiksnim računom bez "
@@ -179,7 +178,7 @@ def strategy_html(now=None):
     if not st or not any(s["closed"] + s["open"] for s in st["rank"]):
         return ("<div class=ov-hero><div class=k>Najprofitabilnija strategija</div><div class=s>Pet demo računa po $1000 "
                 "još nema nijedan trade. Prvi ulazi dolaze unutar par minuta nakon pokretanja.</div>"
-                "<div class=s><a href=/strategije>Usporedba strategija →</a></div></div>")
+                "<div class=\"s r-pri\"><a href=/strategije>Usporedba strategija →</a></div></div>")
     cfg = st["cfg"]
     bankroll = cfg["bankroll_usd"]
     rank, control = _ranked(st)
@@ -219,7 +218,7 @@ def strategy_html(now=None):
             f'{st["days"]:.1f} dana{d24}{d7}</div>'
             f'<div class=s>{best["closed"]} zatvorenih tradeova, {hit} tradeova u plusu · {esc(best.get("opis") or "")}</div>'
             f'{verdict}{conc}{early}' + (f'<ul class=ov-rank>{others}</ul>' if others else "") + rest +
-            '<div class=s style="margin-top:10px"><a href=/strategije>Sve strategije, graf i tradeovi →</a> · '
+            '<div class=s style="margin-top:10px"><a class=r-pri href=/strategije>Sve strategije, graf i tradeovi →</a> · '
             '<a href="#" onclick="document.getElementById(\'strat-info\').showModal();return false">'
             'Vidi više: što se mjerilo, kako i zaključak</a></div></div>'
             + _strategy_info(st, best, winners, hidden, control))
@@ -771,11 +770,21 @@ def autopilot_state():
     return {"state": st, "eq": eq, "stats": stats}
 
 
+def _ap_off():
+    try:
+        from ops import autopilot_off
+        return autopilot_off.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def autopilot_row(a=None, paused=None):
     """"Autopilot · ● uživo, pravi novac · 8 zatvorenih", the wallet value and the result. One row, not a second
     banner: the black "Autopilot je live" line on top stays as Jure asked (9.11.). Leads to the page everyone may
     open (/autopilot; the owner's controls are one tap further)."""
     from ui import redak as R
+    if _ap_off():   # 27.11. (vlasnik: Autopilot uklonjen): no row, no equity read
+        return None
     a = a if a is not None else autopilot_state()
     if not a:
         return None
@@ -1087,7 +1096,7 @@ def open_real_line(o=None):
     if not o or not o[0]:
         return ""
     n, sol = o
-    return (f'<a class="pg-open" href="/autopilot">Otvoreno pravim novcem: {R.num(n)} '
+    return (f'<a class="pg-open" href="{"/pravi-trade" if _ap_off() else "/autopilot"}">Otvoreno pravim novcem: {R.num(n)} '
             f'{plural(n, "pozicija", "pozicije", "pozicija")}, uloženo {R.h(R.sol(sol))}; izlazi i dalje rade.'
             '<span class="ms-chev" aria-hidden="true"></span></a>')
 
@@ -1096,6 +1105,8 @@ def autopilot_folded(now=None):
     """The Autopilot at the bottom of Pregled as ONE collapsed block (19.11., vlasnik: "Autopilot stavi u drugi plan
     dok rekonstruiramo app")."""
     from ui import pauza, redak as R
+    if _ap_off():   # 27.11.: the Autopilot is removed: no block at the bottom of Pregled
+        return ""
     paused = _safe("pauza", pauza.on)
     title = "Autopilot (pauzirano)" if paused else "Autopilot"
     inner = autopilot_now() or R.hint("Stanje Autopilota se trenutno ne može učitati.")
@@ -1132,7 +1143,14 @@ def kol_later_row(stats=None):
         last, _nxt = drustveni.notice_dates()
     except Exception:  # noqa: BLE001
         last = None
-    note = f"osvježeno {_when(last)}, jednom u 5 dana" if last else "osvježava se jednom u 5 dana"
+    try:   # 27.11. (vlasnik): the 5-day window is gone, influencers refresh every day again
+        daily = drustveni.abolished()
+    except Exception:  # noqa: BLE001
+        daily = True
+    if daily:
+        note = "osvježava se svaki dan"
+    else:
+        note = f"osvježeno {_when(last)}, jednom u 5 dana" if last else "osvježava se jednom u 5 dana"
     return R.cat(R.rows([r]), R.hint(f"Influenceri: {note}."))
 
 

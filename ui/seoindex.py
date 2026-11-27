@@ -181,7 +181,9 @@ def _hubs(now):
                     (coinseo.T["en"]["rug_hub"], coinseo.T["hr"]["rug_hub"], "0.7", coins_day)]
         except Exception as e:  # noqa: BLE001
             print(f"seo: coinseo nedostupan: {type(e).__name__}: {e}"[:200], flush=True)
-    out.append(("/autopilot", "/hr/autopilot", "0.8", None))
+    from ops import autopilot_off   # 27.11. (vlasnik: Autopilot uklonjen): its pages answer 410, out of the sitemap
+    if not autopilot_off.on():
+        out.append(("/autopilot", "/hr/autopilot", "0.8", None))
     out.append(("/glossary", "/hr/rjecnik", "0.8", _glossary_day()))
     try:
         from ui import blog

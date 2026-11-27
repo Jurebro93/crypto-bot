@@ -19,7 +19,16 @@ STABLE = {SOL, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfr
 HYPE_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hype.db")
 
 
-AUTH_V = 3   # 4.11.: key in the Authorization header; 5.11.: TRANSFER events too (kol/traces.py), resync once
+AUTH_V = 4   # 4.11.: key in the Authorization header; 5.11.: TRANSFER events too (kol/traces.py); 27.11.: SWAP only
+# 27.11. (vlasnik: "više znanja za isti trošak"): the webhook asks for SWAP only (chain.types); the transfers (funding
+# sources, received tokens) come from kol/rotacija.transfers_batch once a day, for the wallets that need them only
+TYPES = ["SWAP"]
+
+
+def types(cfg):
+    """The webhook's transaction types (chain.types, default SWAP only)."""
+    t = [str(x).upper() for x in ((cfg or {}).get("types") or TYPES)]
+    return t or list(TYPES)
 
 
 def hook_url():
@@ -182,6 +191,11 @@ def wanted(con, cfg, wallet_db=None, now=None):
                 lcon.close()
     except Exception:  # noqa: BLE001
         followed = []
+    try:   # 27.11. (kol/rotacija.py): parked wallets stay out of the share groups, the rotation's replacements go in
+        from kol import rotacija as _rot   # before them (protected wallets are never parked: followed, proven, ...)
+        parked, forced = _rot.webhook_view(con)
+    except Exception:  # noqa: BLE001 - the webhook list never breaks on the rotation
+        parked, forced = set(), []
     out, seen = [], set()
     for w in followed[:max(1, cap // 4)]:
         if w not in seen:
@@ -203,8 +217,14 @@ def wanted(con, cfg, wallet_db=None, now=None):
         if w not in seen:
             seen.add(w)
             out.append(w)
-    busy = too_busy(set(ids) | set(copy) | set(signal) | set(ins), wallet_db) - set(followed)
-    groups = [([w for w in ws if w not in busy], sh) for ws, sh in
+    busy = too_busy(set(ids) | set(copy) | set(signal) | set(ins) | set(forced), wallet_db) - set(followed)
+    for w in forced:
+        if len(out) >= cap:
+            break
+        if w not in seen and w not in busy:
+            seen.add(w)
+            out.append(w)
+    groups = [([w for w in ws if w not in busy and w not in parked], sh) for ws, sh in
               ((ids, share["ids"]), (copy, share["copy"]), (signal, share["signal"]), (ins, share.get("insajderi", 0)))]
     for second in (False, True):   # second pass: the slots a short group left over
         for ws, sh in groups:
@@ -228,11 +248,18 @@ def sync(con, cfg, now=None, api=None, log=print):
     if not url or not os.environ.get("HELIUS_API_KEY") and api is _api:
         return None
     wallets = wanted(con, cfg)
+    try:   # 27.11. (kol/rotacija.py): when each wallet entered the webhook (the rotation judges only 7+ days)
+        from kol import rotacija as _rot
+        _rot.note_seen(con, wallets, now)
+        con.commit()
+    except Exception:  # noqa: BLE001
+        pass
+    tt = types(cfg)
     state = json.loads((con.execute("SELECT value FROM kv WHERE key='chain_hook'").fetchone() or ("{}",))[0])
     if not wallets or (sorted(wallets) == sorted(state.get("wallets", [])) and now - state.get("ts", 0) < cfg["resync_h"] * 3600
-                       and state.get("auth") == AUTH_V):
+                       and state.get("auth") == AUTH_V and state.get("types", ["SWAP", "TRANSFER"]) == tt):
         return False
-    body = {"webhookURL": url, "transactionTypes": ["SWAP", "TRANSFER"], "accountAddresses": wallets, "webhookType": "enhanced",
+    body = {"webhookURL": url, "transactionTypes": tt, "accountAddresses": wallets, "webhookType": "enhanced",
             "authHeader": store.chain_key()}
     hid = state.get("id")
     if not hid:  # reuse one we made before (same URL) instead of piling up webhooks
@@ -242,9 +269,9 @@ def sync(con, cfg, now=None, api=None, log=print):
     res = api("PUT", f"/{hid}", body) if hid else api("POST", "", body)
     hid = (res or {}).get("webhookID") or hid
     con.execute("INSERT OR REPLACE INTO kv VALUES ('chain_hook', ?)",
-                (json.dumps({"id": hid, "wallets": wallets, "ts": now, "auth": AUTH_V}),))
+                (json.dumps({"id": hid, "wallets": wallets, "ts": now, "auth": AUTH_V, "types": tt}),))
     con.commit()
-    log(f"chain: Helius webhook prati {len(wallets)} KOL novčanika")
+    log(f"chain: Helius webhook prati {len(wallets)} KOL novčanika ({', '.join(tt)})")
     return True
 
 

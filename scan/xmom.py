@@ -241,10 +241,12 @@ def measure(token, symbol, now, scon, kcon, cfg, get=None, known=frozenset(), bo
     left = store.budget_left(scon, "xusd", cfg["x_usd_day"], now)
     if left < twapi.MIN_REQ * int(cfg["x_max_pages"]):
         return None
+    if not twapi._room("ostatak", twapi.MAX_PAGE, now):   # 27.11.: the X budget (usage/xbudzet), leftover share
+        return None
     before = twapi.spent(kcon, now)
     try:
         tweets = twapi.search(kcon, query(token, symbol), now - 4500, before + left, get=get,
-                              max_pages=int(cfg["x_max_pages"]), now=now)
+                              max_pages=int(cfg["x_max_pages"]), now=now, cat="ostatak", job="skener")
     except Exception as e:  # noqa: BLE001 - X is extra information, never the reason a pass stops
         log(f"skener: X pretraga {token[:6]}: {type(e).__name__}: {str(e)[:80]}")
         tweets = None

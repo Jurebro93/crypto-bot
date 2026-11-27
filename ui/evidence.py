@@ -12,18 +12,18 @@ from ui import data
 from ui.labels import feat, feat_low, sources as sources_hr
 from ui.html import tdesc, ago, badge, esc, ext_token, num, price, short, signed, table, ts, usd, verdict, wlink
 
-SOURCES = {
-    "dex": ("DexScreener API", "https://docs.dexscreener.com/api/reference"),
+SOURCES = {   # 27.11. (vlasnik): izvori na razini "javni lanac, licencirani tržišni podaci", bez servisa i scrapera
+    "dex": ("javni tržišni podaci", None),
     "hype": ("hype skener", None),
-    "x": ("X / Twitter preko Apify apidojo/tweet-scraper", "https://apify.com/apidojo/tweet-scraper"),
-    "pumpfun": ("pump.fun preko Apify pump-fun-token-scraper", "https://apify.com/muhammetakkurtt/pump-fun-token-scraper-monitor"),
+    "x": ("javne objave na X-u", None),
+    "pumpfun": ("javni podaci launchpada", None),
     "kol": ("praćenje KOL-ova na X-u", None),
-    "tg": ("javni Telegram kanali (t.me/s)", None),
-    "rug": ("Helius + RugCheck", "https://rugcheck.xyz"),
-    "event": ("kalendar: Polymarket, Wikipedia, RocketLaunch, ručni eventi", None),
-    "smart": ("smart walleti: naša Helius analiza + GMGN preko Apifyja", None),
+    "tg": ("javni Telegram kanali", None),
+    "rug": ("javni lanac i javne provjere tokena", None),
+    "event": ("javni kalendari i tržišta predviđanja", None),
+    "smart": ("smart walleti: naša analiza javnog lanca", None),
     "paper": ("demo trading", None),
-    "wallets": ("registar walleta (Helius)", None),
+    "wallets": ("registar walleta (javni lanac)", None),
 }
 
 
@@ -181,12 +181,13 @@ def fragment(mint):
             b.append("<ul class=r>" + "".join(f"<li class=bad>{esc(t)}</li>" for t in risk) + "</ul>")
         tot = sum(w.values()) or 1
         rows = sorted(((k, f.get(k) or 0, w.get(k, 0)) for k in set(f) | set(w)), key=lambda r: -r[1] * r[2])
-        b.append(tdesc('Signali iz kojih je izračunata hype ocjena; prikazani su samo oni koji nisu nula.') + table(["Signal", ("Izmjereno 0-1", "n"), ("Težina", "n"), ("Bodova", "n")],
+        # 27.11. (vlasnik: bez težina za korisnike): the weights table is adm-only; run_ui strips it for non-admins
+        b.append('<div class=adm-only>' + table(["Signal", ("Izmjereno 0-1", "n"), ("Težina", "n"), ("Bodova", "n")],
                        [[esc(feat(k)), (f"{v:.2f}", v, "n"), (f"{wt:g}", wt, "n"), (f"{100 * v * wt / tot:.1f}", v * wt, "n")]
-                        for k, v, wt in rows if v]))
+                        for k, v, wt in rows if v]) + "</div>")
         zero = [k for k, v, wt in rows if not v and wt]
         if zero:
-            b.append(f"<p class=mut>Nula (nije izmjereno ili nema signala): {esc(', '.join(sorted(feat_low(k) for k in zero)))}.</p>")
+            b.append(f"<p class='mut adm-only'>Nula (nije izmjereno ili nema signala): {esc(', '.join(sorted(feat_low(k) for k in zero)))}.</p>")
         b.append(f"<p>Ocjena <b>{sig['score']:.0f}</b>/100 · prvi signal {ts(sigs[-1]['ts'])[0]} UTC po cijeni "
                  f"{price(sigs[-1]['price'])[0]} · {len(sigs)} signala · otkud je došao: {esc(sources_hr(sig['sources']))}</p>"
                  + _src("hype", sig["ts"]))
@@ -198,7 +199,7 @@ def fragment(mint):
         chg = pair.get("priceChange") or {}
         age_h = (time.time() * 1000 - (pair.get("pairCreatedAt") or time.time() * 1000)) / 3.6e6
         b.append("<h3>Tržište sada</h3>")
-        b.append(tdesc('Živi podaci s DexScreenera u trenutku otvaranja.') + table(["Cijena", ("Mcap", "n"), ("Likvidnost", "n"), ("Volumen 1h / 24h", "n"), ("Promjena 1h / 24h", "n"),
+        b.append(table(["Cijena", ("Mcap", "n"), ("Likvidnost", "n"), ("Volumen 1h / 24h", "n"), ("Promjena 1h / 24h", "n"),
                         ("Kupnje / prodaje 24h", "n"), ("Starost", "n")],
                        [[price(pair.get("priceUsd")), usd(pair.get("marketCap") or pair.get("fdv")),
                          usd((pair.get("liquidity") or {}).get("usd")),

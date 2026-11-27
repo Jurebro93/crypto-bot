@@ -96,11 +96,11 @@ def shortlist(w, min_score=COPY_MIN_SCORE, min_closed=COPY_MIN_CLOSED):
         why.append("nema zatvorenih tokena u zadnjih 30 dana (nije u rangu za kopiranje)")
         return False, why
     if (r.get("n") or 0) < min_closed:
-        why.append(f"samo {r.get('n') or 0} zatvorenih u 30 dana (treba {min_closed})")
+        why.append(f"samo {r.get('n') or 0} zatvorenih u 30 dana (premalo za dokaz)")
     if not r.get("copyable"):
         why.append("nije kopirljiv: " + (r.get("why") or "likvidnost na ulazu"))
     if (r.get("score") or 0) < min_score:
-        why.append(f"ocjena za kopiranje {r.get('score') or 0:.0f} < {min_score:g}")
+        why.append(f"ocjena za kopiranje {r.get('score') or 0:.0f} je preniska")
     return not why, why
 
 

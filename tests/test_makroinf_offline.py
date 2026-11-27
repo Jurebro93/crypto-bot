@@ -69,7 +69,11 @@ class Base(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.db = os.path.join(self.tmp.name, "makroinf.db")
         self.tdb = os.path.join(self.tmp.name, "trade.db")
-        for p in (mock.patch.dict(os.environ, {"MAKROINF_DB": self.db}), mock.patch("usage.meter.record"),
+        # 27.11.: every test its own X budget ledger (usage/xbudzet), so one test's spend never caps the next one
+        # (other modules leave DATA_DIR set, which would otherwise share one ledger across the suite)
+        xb_db = os.path.join(self.tmp.name, "usage.db")
+        for p in (mock.patch.dict(os.environ, {"MAKROINF_DB": self.db, "XBUDZET_DB": xb_db}),
+                  mock.patch("usage.meter.record"),
                   mock.patch.object(settings, "DB", self.tdb), mock.patch.dict(prices.FETCH, {}, clear=True)):
             p.start()
             self.addCleanup(p.stop)

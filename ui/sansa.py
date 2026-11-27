@@ -56,6 +56,9 @@ def dots_html(checks):
 
 def explain_html(s, conf, an, pr, pa):
     from ui.html import esc
-    return (f"<p>Šansa za skok <b>{s}</b> = confidence {conf} × pokrivenost {0.5 + 0.5 * an / N:.2f} "
+    # 27.11.: the formula is adm-only (stripped for everyone else); the plain line says what the number is
+    return (f'<p class=nadm>Šansa za skok <b>{s}</b>: ocjena prilagođena tome koliko je neovisnih provjera token '
+            f'prošao ({an} od {N} analizirano, {pa} palo).</p>'
+            f"<p class=adm-only>Šansa za skok <b>{s}</b> = confidence {conf} × pokrivenost {0.5 + 0.5 * an / N:.2f} "
             f"({an} od {N} slojeva analizirano) × {max(0.0, 1 - 0.15 * pa):.2f} ({pa} palo). "
             f"<span class=mut>{esc('Prošlo ' + str(pr) + ' slojeva. Sloj koji nije analiziran ne računa se kao prolaz.')}</span></p>")

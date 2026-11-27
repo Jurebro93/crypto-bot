@@ -175,7 +175,13 @@ def note(kind="wallet"):
     from wallets import rang
     who = "zatvorenih tokena" if kind == "wallet" else "poziva"
     pc = lambda x: rd.pct(x, sign=False, frac=True)
-    return rd.raw('<p class=rt-note>' + rd.h(
+    # 27.11. (vlasnik: bez težina i pragova u tekstu za korisnike): everyone reads the plain line, the weights and
+    # thresholds are adm-only (stripped from a non-admin's copy, run_ui._no_admin)
+    plain = rd.raw('<p class="rt-note nadm">' + rd.h(
+        f"Ocjena 0–100 iz zadnjih {rang.WINDOW_D} dana: koliko pouzdano zarađuje, koliko tipičan trade donese, "
+        "koliko ga je realno kopirati i koliko je svjež; jedan sretan pogodak ne nosi ocjenu. Ukupna zarada u SOL-u je "
+        "u retku detalja (dodir na redak), nije u ocjeni. Stupci se poredaju klikom na naslov.") + "</p>")
+    return plain + rd.raw('<p class="rt-note adm-only">' + rd.h(
         f"Ocjena 0–100 iz zadnjih {rang.WINDOW_D} dana: donja granica win ratea {pc(rang.WEIGHTS['win'])}, medijan po "
         f"tradeu {pc(rang.WEIGHTS['median'])}, profit factor {pc(rang.WEIGHTS['pf'])}, kopirljivost "
         f"{pc(rang.WEIGHTS['copy'])}, svježina {pc(rang.WEIGHTS['recency'])}; koncentracija iznad "

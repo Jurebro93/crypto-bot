@@ -502,10 +502,10 @@ def page_novi(qs, view="novi", now=None, rows=None, st=None, picks=None):
 
 EMPTY_ON = "Popis se puni: prvi podaci nakon sljedećeg osvježavanja."
 EMPTY_OFF = "Popis midcap tokena se trenutno ne puni: sakupljač je isključen."
-DUGO_LINK = ('<p class="ms-hint" style="margin-top:14px"><a class="ms-acc" href="/dugorocno">Dugoročni</a>: stariji tokeni '
+DUGO_LINK = ('<p class="ms-hint r-pri" style="margin-top:14px"><a class="ms-acc" href="/dugorocno">Dugoročni</a>: stariji tokeni '
              's ocjenom preživljavanja, poseban popis.</p>')
 # 20.11. (market/trziste.py): the tokens against BTC, Fear & Greed and the meme platforms' volume
-TRZISTE_LINK = ('<p class="ms-hint"><a class="ms-acc" href="/trziste">Tržište i tokeni</a>: prate li tokeni BTC, i kad se '
+TRZISTE_LINK = ('<p class="ms-hint r-pri"><a class="ms-acc" href="/trziste">Tržište i tokeni</a>: prate li tokeni BTC, i kad se '
                 'događaju skokovi i padovi.</p>')
 
 

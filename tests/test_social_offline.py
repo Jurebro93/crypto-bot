@@ -38,7 +38,9 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.state = os.path.join(self.tmp.name, "drustveni.json")
-        env = mock.patch.dict(os.environ, {"SOCIAL_STATE": self.state, "FOKUS_MIDCAP_FORCE": "0"})
+        env = mock.patch.dict(os.environ, {"SOCIAL_STATE": self.state, "FOKUS_MIDCAP_FORCE": "0",
+                                          # 27.11.: the window is abolished by default; its mechanics stay testable
+                                          "SOCIAL_WINDOW": "1"})
         env.start()
         self.addCleanup(env.stop)
         for k in ("SOCIAL_EVERY_D", "SOCIAL_WINDOW_H", "SOCIAL_ALWAYS"):

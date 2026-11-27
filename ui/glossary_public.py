@@ -157,7 +157,7 @@ _E = [
      "A 0-100 score for how much an influencer's calls move price and volume on average.",
      "It combines the hit rate (how many calls grow 50%+ in 24 hours), growth after 1 and 24 hours, how many buyers a "
      "post brings, whether the influencer was first and how rarely their tokens rug; late calls take points away. Until "
-     "an influencer has enough measured calls the score stays close to 35.", "",
+     "an influencer has enough measured calls the score stays cautious.", "",
      ("/influencers", "Influencers ranked by call power")),
     ("pogodak", "hit-rate", "Hit rate", "What is a hit rate for crypto calls?",
      "The share of calls after which the token was at least 50% higher within 24 hours.",
@@ -233,7 +233,7 @@ _E = [
      "A way for a program (a bot, an app) to ask another service for data, such as a token's price.",
      "Crypto apps use an RPC node (for example Helius) to read the blockchain and send transactions, and a data API "
      "(DexScreener, Birdeye, CoinGecko) for prices, pools and holders. Free tiers limit how many calls you can make.",
-     "MemeSonar uses Helius for wallets and DexScreener for prices.",
+     "MemeSonar reads the public blockchain and licensed market data.",
      ("/best-crypto-tools/crypto-apis", "Best crypto APIs compared")),
     ("udio-u-dobiti", "profit-share", "Profit share", "What is profit share in copy trading?",
      "The share of your profit (usually 10-20%) that goes to the trader you copy on an exchange.",

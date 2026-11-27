@@ -75,6 +75,9 @@ def _need(con, kind_usd, ph, c, now):
     left = store.left(con, "twapi", ph, now, c)
     if left + 1e-12 < kind_usd:
         raise CapReached(f"strop twitterapi ({ph}) dosegnut: ostalo {left:.4f} $")
+    from usage import xbudzet   # 27.11. (vlasnik): macro only from the X budget's leftover share (priority 3)
+    if not xbudzet.room("ostatak", kind_usd, now):
+        raise CapReached("X budžet (ostatak: makro i opći sken) za danas potrošen")
 
 
 def search_page(con, query, cursor, ph, c, now=None, get=None, what="pretraga"):

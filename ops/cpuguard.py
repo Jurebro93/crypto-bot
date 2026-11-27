@@ -143,7 +143,10 @@ PROCESSES = (
     # 15.11. navečer (owner switch fokus_midcap): one line at every start; reads trade.db / midcap.db, milliseconds
     ("fokus-stanje", "-m ops.fokus", (), PROTECTED, "jedan red na startu: poslovi za mikrokapove ugašeni / preusmjereni"),
     ("drustveni-stanje", "-m ops.drustveni", (), PROTECTED, "jedan red na startu: prozor osvježavanja influencera i "
-     "Telegrama (19.11.: jednom u 5 dana), prvi prozor pri prvom startu"),
+     "Telegrama (19.11.: jednom u 5 dana; 27.11.: prozor ukinut, svaki dan)"),
+    # 27.11. (vlasnik): one line at every start: the X budget of the day (usage.db xb_spend), milliseconds
+    ("xbudzet-stanje", "-m usage.xbudzet", (), PROTECTED, "jedan red na startu: X budžet dana (5 $ dnevno, 100 $ "
+     "mjesečno po prioritetima); čita usage.db"),
     ("sched", "run_sched.py", (), PROTECTED, "raspored: drži sat i pokreće svoje poslove; sam ne troši CPU"),
     # 2: the hype scan (a child of the demo loop every 2 min) and the nightly smart-wallet learning
     ("hype-status", "run_hype.py", ("status",), JOBS, "status tokena svakih 6 sati (raspored)"),
@@ -163,6 +166,8 @@ PROCESSES = (
     # 15.11. (tokenstranice/): hourly, reads our databases only, waits on the API for the opinions; nobody waits for it
     ("tokenstranice", "run_tokenstranice.py", (), JOBS,
      "stranice tokena svaki sat iz naših baza (samo čita) i mala serija AI mišljenja (strop 0,30 $ dnevno)"),
+    # 27.11. (tocnost/): once a night, reads our databases only (read-only), writes tocnost.db; nobody waits for it
+    ("tocnost", "run_tocnost.py", (), JOBS, "noćna provjera točnosti prikazanih ocjena, samo čita naše baze"),
     ("wallets", "run_wallets.py", (), JOBS, "registar walleta: skupljanje, ocjenjivanje, popisi"),
     # 10.11. (Grok MCP audit 9): night only, at most 200 getTransaction calls a night; waits on the network, not the CPU
     ("solfill", "-m wallets.solfill", (), JOBS, "noću upisuje iznose prodaja praćenih walleta iz transakcija (Helius)"),
@@ -189,6 +194,8 @@ PROCESSES = (
     # PUMP_MJERENJE_DO; nitko ga ne čeka (pauza samo kasni ishod)
     ("pumpmjerenje", "-m live.pumpmjerenje", (), JOBS,
      "jednokratno mjerenje naknade devu na pump.fun (DexScreener, besplatno; samo uz PUMP_MJERENJE_DO)"),
+    # 27.11. (bondmodel/): model bondanja, jednom dnevno, offline; nitko ga ne čeka
+    ("bondmodel", "-m bondmodel.posao", (), JOBS, "model vjerojatnosti bondanja pump.fun lansiranja (offline, dnevno)"),
     # 25.11. (vlasnik, /pump-tokeni): red lansiranja vlastitih tokena (jedan po jedan, nakon vlasnikova odobrenja) i
     # knjiga ishoda; svake minute, bez baze odmah izlazi; nitko ga ne čeka po sekundu (pauza samo kasni red)
     ("pumptokeni", "-m pumptokeni.posao", (), JOBS,
@@ -231,6 +238,10 @@ PROCESSES = (
     ("holderi", "run_holderi.py", (), JOBS,
      "holderi midcapova i listing signali: svakih 10 min top holderi (RugCheck), tragovi prijenosa na burze (Helius u "
      "dnevnom stropu), PRE-LISTING signali, profitabilni holderi"),
+    # 27.11. (owner, osobe/): wallets grouped into persons, read-only on the other databases, once a night; writes
+    # only osobe.db, may be paused (the page shows the last night)
+    ("osobe", "run_osobe.py", (), JOBS,
+     "osobe iza novčanika: noćno grupiranje novčanika u osobe, moguće veze s praćenim X računima, grupni pozivi"),
     # 15.11. (owner, oscilator/): read-only walk-forward after a deploy and nightly; writes only oscilator.db
     ("oscilator", "run_oscilator.py", (), JOBS,
      "oscilator: walk-forward skalpiranja tokena koji osciliraju (samo čita minutne podatke), nakon deploya i noću"),

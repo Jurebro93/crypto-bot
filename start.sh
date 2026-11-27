@@ -57,7 +57,10 @@ python3 -m ops.fokus || true
 # SOCIAL_WINDOW_H 6 h; state DATA_DIR/drustveni.json). Every influencer / Telegram job below asks the same gate
 # (KOL search round and push rules, minute candles after calls, Telegram reader, makroinf, call power, X momentum, AI
 # labels, zadnjih5, konsenzus); outside the window each says so once a day. SOCIAL_ALWAYS=1 = the old behaviour.
+# 27.11. (vlasnik): the 5-day window is abolished (every gate open; SOCIAL_WINDOW=1 brings it back); every X read is
+# under the X budget instead (usage/xbudzet.py: 5 $ a day, 100 $ a month, priorities pozivi / otkrivanje / ostatak)
 python3 -m ops.drustveni || true
+python3 -m usage.xbudzet || true
 
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).
@@ -420,6 +423,12 @@ fi
 # "novčanici kopija: ..." and wallets.db copy_rank_kv "kopija" (the morning report and /strategije show it). Not a
 # microcap job of ops/fokus.OFF: it runs under the owner switch fokus_midcap too.
 ( sleep "${KOPIJA_FIRST_S:-1200}"; python3 -m ops.heavy run_wallets.py kopija --ako-nema || echo "novčanici kopija nije uspjela"; while true; do sleep 3600; python3 -m ops.heavy --night run_wallets.py kopija --night || echo "novčanici kopija (noć) nije uspjela"; done ) &
+# 27.11. (vlasnik: "Izmjeri kopirljivost svakog walleta i influencera s kašnjenjem 5, 30 i 120 s i stvarnim troškom";
+# wallets/kopirljivost.py): every tracked wallet's buys and every influencer's calls copied 5 / 30 / 120 s late at the
+# stored prices, after the real round trip; databases only (read-only), no network, no paid call. Nightly only
+# (01-06 Zagreb, once a day) under the heavy-job lock, budget KOPIRLJIVOST_BUDGET_S (30 min); kopirljivost.db, one
+# line "kopirljivost: ...", the wallet and influencer pages show it.
+( sleep "${KOPIRLJIVOST_FIRST_S:-1500}"; while true; do python3 -m ops.heavy --night run_wallets.py kopirljivost --night || echo "kopirljivost (noć) nije uspjela"; sleep 3600; done ) &
 # 15.11. (vlasnik: "insajderi drže velik dio ponude? oprez — ali to su često BURZE ... kad dio ponude ode na novčanik
 # burze, a token tamo još nije listan, to je jak signal"; holderi/, run_holderi.py): every HOLDERI_EVERY_S (10 min), a
 # short low-priority process outside the heavy lock, only with the owner switch fokus_midcap: the top 20 holders of the
@@ -520,6 +529,9 @@ if [ -z "${LIVE_OFF:-}" ]; then keep live python3 run_live.py loop ${LIVE_ARGS:-
 # kraja>. Every 10 min: DexScreener outcome of the recorded launches (+1 h, +12 h), a log line every 6 h, the final
 # summary at the deadline, the database deleted 7 days after it. Without the variable and the database it exits at once.
 ( sleep 900; while true; do low python3 -m live.pumpmjerenje tick || echo "pump mjerenje nije uspjelo"; sleep 600; done ) &
+# 27.11. (vlasnik: model vjerojatnosti bondanja; bondmodel/): once a day, offline over the measurement database and its
+# archives (no network, buys nothing, nothing that trades reads it); without data it exits at once. A few seconds.
+( sleep 1800; while true; do low python3 -m bondmodel.posao run || echo "model bondanja nije uspio"; sleep 86400; done ) &
 # 25.11. (vlasnik, /pump-tokeni; pumptokeni/posao.py): every minute the owner-approved launch queue (one token at a time,
 # spacing, caps, kill switch, safety stop), the outcome book (+1 h/+12 h/+24 h/+7 d, DexScreener) and one log line a
 # day. Without pump_tokeni.db (the page never opened) it exits at once. Buys and sells nothing.

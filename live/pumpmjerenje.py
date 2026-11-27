@@ -4,7 +4,10 @@ lansira, ne kupuje i ne objavljuje; ništa odavde ne čita nijedan posao koji od
 
 Prekidač: env PUMP_MJERENJE_DO=<unix ts kraja>. Zadano isključeno (nema varijable = ništa se ne događa). Rok dalji od
 MAX_TRAJANJE_S od sada je greška u upisu: isključeno. Nakon roka: nema pretplate, nema upita; jedan završni sažetak;
-7 dana nakon roka baza se briše (KEEP_AFTER_S).
+7 dana nakon roka baza se briše (KEEP_AFTER_S). 27.11. (vlasnik: model vjerojatnosti bondanja, bondmodel/): prije
+brisanja gzip arhiva potrebnih stupaca (launches, ishod, imena, stanje) u mapu baze (DATA_DIR):
+pump_mjerenje_arhiva_<GGGGMMDD početka>.json.gz, provjerena ponovnim čitanjem; arhiva se piše čim rok prođe, a baza
+se ne briše dok arhiva ne postoji (rok čišćenja inače isti).
 
   live/pumpportal.run   dok mjerenje traje, na POSTOJEĆOJ vezi šalje i subscribeNewToken (besplatno) unatoč fokusu
                         midcap; poruke `create` idu samo u vlastitu bazu (pump_mjerenje.db), nikad u live_launches
@@ -25,6 +28,7 @@ Adrese devova su samo u bazi; ništa ovdje ih ne ispisuje.
     python3 -m live.pumpmjerenje tick        # posao iz start.sh (bez varijable i baze: odmah izlazi)
     python3 -m live.pumpmjerenje sazetak     # sažetak sada (samo čita bazu)
 """
+import gzip
 import hashlib
 import json
 import math
@@ -557,6 +561,61 @@ def report(now=None, path=None):
         return None
 
 
+# ---------- arhiva prije brisanja (27.11.) ------------------------------------------------------------------------------
+
+ARHIVA_TABLICE = {
+    "launches": ("mint", "ts", "creator", "initial_sol", "initial_tokens", "mcap_sol", "pool", "mayhem", "dev_24h",
+                 "hist_s", "u"),
+    "ishod": ("mint", "k", "ts", "found", "vol_usd", "txns", "mcap_usd", "max_mcap_usd", "migrated", "sol_usd"),
+    "imena": ("mint", "name", "symbol", "tema")}
+
+
+def archive_path(con, path=None):
+    """<mapa baze>/pump_mjerenje_arhiva_<GGGGMMDD početka>.json.gz (u produkciji mapa baze = DATA_DIR)."""
+    p = path or db_path()
+    start = int(get(con, "start") or 0)
+    tag = time.strftime("%Y%m%d", time.gmtime(start)) if start else "bez_pocetka"
+    return os.path.join(os.path.dirname(os.path.abspath(p)), f"pump_mjerenje_arhiva_{tag}.json.gz")
+
+
+def archive(con, path=None, now=None, log=print):
+    """Gzip JSON kopija potrebnih stupaca; piše se u .tmp, čita natrag i uspoređuje broj redaka, tek onda os.replace.
+    Vraća putanju ili None (greška: baza ostaje, sljedeći tick pokušava ponovno)."""
+    out = archive_path(con, path)
+    tmp = out + ".tmp"
+    try:
+        data = {"verzija": 1, "izvor": "live/pumpmjerenje", "ts": int(now or time.time()),
+                "stanje": dict(con.execute("SELECT key, value FROM stanje"))}
+        counts = {}
+        for t, cols in ARHIVA_TABLICE.items():
+            rows = [list(r) for r in con.execute(f"SELECT {', '.join(cols)} FROM {t}")]
+            data[t] = {"cols": list(cols), "rows": rows}
+            counts[t] = len(rows)
+        with gzip.open(tmp, "wt", encoding="utf-8") as f:
+            json.dump(data, f, separators=(",", ":"), ensure_ascii=False)
+        with gzip.open(tmp, "rt", encoding="utf-8") as f:
+            back = json.load(f)
+        if any(len(back[t]["rows"]) != n for t, n in counts.items()):
+            raise ValueError("arhiva se ne slaže s bazom")
+        os.replace(tmp, out)
+        put(con, "arhiva", out)
+        log(f"pump mjerenje: arhiva spremljena ({counts['launches']} lansiranja, {counts['ishod']} ishoda, "
+            f"{os.path.getsize(out) / 1e6:.1f} MB)")
+        return out
+    except (OSError, ValueError, sqlite3.Error) as e:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        log(f"pump mjerenje: arhiva nije uspjela ({type(e).__name__}: {str(e)[:60]}); baza se ne briše")
+        return None
+
+
+def archived(con):
+    a = get(con, "arhiva")
+    return bool(a) and os.path.exists(a)
+
+
 # ---------- posao (start.sh, svakih 10 min) ----------------------------------------------------------------------------
 
 def tick(now=None, fetch=None, log=print, env=None, path=None):
@@ -583,6 +642,8 @@ def tick(now=None, fetch=None, log=print, env=None, path=None):
                 + time.strftime("%d.%m.%Y. %H:%M UTC", time.gmtime(rok + KEEP_AFTER_S)))
             put(con, "kraj", now)
             put(con, "zavrsni", json.dumps(s))
+        if rok and now >= rok and not archived(con) and not archive(con, p, now, log):
+            return 0   # 27.11.: bez provjerene arhive baza se ne briše
         if rok and now >= rok + KEEP_AFTER_S:
             con.close()
             con = None
@@ -591,7 +652,7 @@ def tick(now=None, fetch=None, log=print, env=None, path=None):
                     os.remove(p + suf)
                 except OSError:
                     pass
-            log("pump mjerenje: 7 dana nakon kraja, baza obrisana")
+            log("pump mjerenje: 7 dana nakon kraja, baza obrisana (arhiva ostaje)")
         return 0
     finally:
         if con is not None:

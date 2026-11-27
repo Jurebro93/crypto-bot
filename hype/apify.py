@@ -118,6 +118,14 @@ def check(source):
     budget = cfg["daily_usd"].get(source, 0)
     if spent(source) >= budget:
         raise BudgetExceeded(f"{source}: dnevni budžet ${budget} potrošen")
+    try:   # 27.11. (vlasnik): the X actors are under the X budget too (usage/xbudzet: 5 $ a day, 100 $ a month)
+        from usage import xbudzet
+        xcat = xbudzet.APIFY_X.get(source)
+        # kol_monitor is billed by the hours it ran and its STOP goes through here too: booked, never blocked
+        if xcat and source != "kol_monitor" and not xbudzet.room(xcat, 0.005):
+            raise BudgetExceeded(f"{source}: X budžet ({xcat}) za danas potrošen")
+    except ImportError:
+        pass
     used, cap = monthly()
     if cap and used >= cap - cfg.get("monthly_reserve_usd", 3):
         raise BudgetExceeded(f"Apify račun: ${used:.2f} od ${cap:.0f} ovaj mjesec, čuvam rezervu")
@@ -166,6 +174,12 @@ def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=60, max_wai
         from usage import meter
         meter.record("apify", source, cost)
     except ImportError:
+        pass
+    try:   # 27.11.: X actors booked to the X budget
+        from usage import xbudzet
+        if source in xbudzet.APIFY_X:
+            xbudzet.book(xbudzet.APIFY_X[source], cost, None, f"apify_{source}")
+    except Exception:  # noqa: BLE001
         pass
     if r["status"] != "SUCCEEDED" and not items:
         raise RuntimeError(f"{actor}: {r['status']}")

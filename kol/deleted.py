@@ -60,7 +60,7 @@ def check(con, cfg, now=None, fetch=None, log=print):
     now = now or int(time.time())
     c = config(cfg)
     ids = due(con, cfg, now)
-    fetch = fetch or (lambda batch: [str(t.get("id")) for t in twapi.tweets(con, batch, now=now)])
+    fetch = fetch or (lambda batch: [str(t.get("id")) for t in twapi.tweets(con, batch, now=now, cat="pozivi", job="obrisane")])
     checked = deleted = 0
     for i in range(0, len(ids), c["batch"]):
         batch = ids[i:i + c["batch"]]
@@ -130,7 +130,7 @@ def flash_check(con, cfg, now=None, fetch=None, log=print):
     ids = ids[:max(0, c["day_cap"] - used)]
     if not ids:
         return 0, 0
-    fetch = fetch or (lambda batch: [str(t.get("id")) for t in twapi.tweets(con, batch, now=now)])
+    fetch = fetch or (lambda batch: [str(t.get("id")) for t in twapi.tweets(con, batch, now=now, cat="pozivi", job="obrisane")])
     checked = flashed = 0
     for i in range(0, len(ids), c["batch"]):
         batch = ids[i:i + c["batch"]]

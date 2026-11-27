@@ -21,6 +21,7 @@ from html.parser import HTMLParser
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests import autopilot_staro  # noqa: E402
 
 import tests.test_apterm_offline as at  # noqa: E402  (module import: its own test classes are not rerun here)
 from trade import executor, settings, uskladi  # noqa: E402
@@ -34,11 +35,13 @@ JARGON = re.compile(r"\b(EV|holdout|walk-forward|backtest|flag|shadow|paper|live
 
 
 def setUpModule():
+    autopilot_staro.setUpModule()   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
     at.setUpModule()
 
 
 def tearDownModule():
     at.tearDownModule()
+    autopilot_staro.tearDownModule()
 
 
 class _Text(HTMLParser):

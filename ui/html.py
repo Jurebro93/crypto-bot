@@ -16,11 +16,19 @@ def _p(href, icon, name, desc, kw=""):
     return {"href": href, "icon": icon, "name": name, "desc": desc, "kw": kw}
 
 
+from ops import autopilot_off as _apoff
+
+# 27.11. (vlasnik: "Ugasi Autopilot ... uklanja se potpuno", ops/autopilot_off): with it removed the menu group is the
+# owner's "Pravi trade" (manual buy, open positions, kill switch) and the public Autopilot page leaves the menu
+AP_OFF = _apoff.on()
+AP_GROUP = "Pravi trade" if AP_OFF else "Autopilot"
+
 SECTIONS = [
     # 19.11. (vlasnik: fokus na novčanike koji kupuju prije pumpe, zatim midcapovi): Pregled, Novčanici, Tokeni lead the
     # menu, the phone bar and the map; Influenceri moved to "Više" (refreshed once in 5 days, ops/drustveni)
     ("Glavno", [
-        _p("/pregled", "🏠", "Pregled", "Što alat sada radi: novčanici koji kupuju prije pumpe, Autopilot i midcapovi koji su skočili.",
+        _p("/pregled", "🏠", "Pregled", "Što alat sada radi: novčanici koji kupuju prije pumpe" + ("" if AP_OFF else ", Autopilot")
+           + " i midcapovi koji su skočili.",
            "overview home početna pregled start nadzorna ploča dashboard sažetak"),
         _p("/wallets", "👛", "Novčanici", "Novčanici koji kupuju prije pumpe i koga se isplati pratiti.",
            "walleti wallet smart money copy praćenje insajderi prije pumpe"),
@@ -32,6 +40,9 @@ SECTIONS = [
     ("Novčanici i tokeni", [
         _p("/dugorocno", "🌱", "Dugoročni", "Sigurniji stariji tokeni koji se oporavljaju i rastu.",
            "dugorocno long term preživjeli veliki holderi burze"),
+        # 27.11. (vlasnik: novčanici grupirani u osobe s izmišljenim imenima; osobe/, ui/osobe.py): behind the login
+        _p("/osobe", "🕵", "Osobe iza novčanika", "Novčanici grupirani u osobe: profil, pumpe, snopovi i grupni pozivi.",
+           "osobe profil grupe novčanika bundle snop povezani walleti tko stoji iza"),
         _p("/strategije", "🏁", "Usporedba strategija", "Midcap strategije u demu, jedna uz drugu.",
            "strategije usporedba demo midcap"),
         # 20.11. (vlasnik: BTC i Fear & Greed uz skokove i padove tokena; market/trziste.py)
@@ -51,7 +62,10 @@ SECTIONS = [
            "novosti novo promjene dnevnik log povijest update changelog dodano"),
         _p("/mapa", "🧭", "Sve stranice", "Sve stranice na jednom mjestu.", "izbornik mapa pomoć help gdje je što"),
     ]),
-    ("Autopilot", [
+    (AP_GROUP, [
+        _p("/pravi-trade", "💰", "Pravi trade", "Ručna kupnja vlasnika, otvorene pozicije i kill switch.",
+           "pravi trade pravi novac wallet ručna kupnja prodaja kill switch")
+        if AP_OFF else
         _p("/pravi-trade", "💰", "Autopilot", "Bot trguje pravim novcem iz tvog walleta, po onima koje odabereš.",
            "pravi trade pravi novac live trading wallet phantom jupiter prekidač limit kupnja prodaja autopilot usdc"),
     ]),
@@ -59,10 +73,10 @@ SECTIONS = [
         # 19.11. (vlasnik: "the admin must have a dashboard with more data about the wallets"): the owner only
         _p("/novcanici-admin", "👛", "Novčanici: administracija", "Grupe koje kupuju prije pumpe, bundle, isključeni, "
            "test kopiranja, povijest i veliki holderi.", "insajderi kupuje prije pumpe bundle novčanici admin pnl holderi"),
-        _p("/criteria", "📏", "Pravila", "Svi pragovi i težine po kojima bot ocjenjuje.", "kriteriji criteria"),
+        _p("/criteria", "📏", "Pravila", "Pravila po kojima bot ocjenjuje.", "kriteriji criteria"),
         _p("/market", "🌡", "Tržište", "Je li tržište vruće ili hladno.", "market volumen"),
         _p("/analitika", "📈", "Analitika", "Posjete s Googlea.", "google search console gsc seo klikovi prikazi upiti posjete"),
-        _p("/usage", "💸", "Potrošnja", "Koliko trošimo na servise.", "trošak helius apify budžet"),
+        _p("/usage", "💸", "Potrošnja", "Koliko trošimo na servise.", "trošak budžet krediti"),
         _p("/zahtjevi", "📨", "Pozivnice i zahtjevi", "Linkovi za registraciju i tko je zatražio pristup.",
            "pristup zahtjev pozivnica invite lista čekanja novi korisnici registracija"),
         _p("/outputs", "🗂", "Izvještaji modula", "Pisani izvještaji pojedinih dijelova bota.", "outputs datoteke"),
@@ -76,11 +90,11 @@ BONUS = None   # 19.11.: Natjecanje is gone (vlasnik: "Makni natjecanje")
 # menu groups only an admin sees (UI_ADMINS); everyone else still reaches the pages by link or search
 # 9.11. (Jure): Autopilot is for the administrators only: shown to them at the top of the menu, highlighted (see
 # autopilot_link); everybody else gets a copy without it (ui/admstrip strips adm-only elements server-side)
-ADMIN = ("Autopilot", "Sustav")
+ADMIN = (AP_GROUP, "Sustav")
 # only the trade owner and the players they invite (cookie cb_pt, see run_ui._trade_cookie)
-PRIVATE = ("Autopilot",)
+PRIVATE = (AP_GROUP,)
 # detail pages light up the menu item they belong to
-NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/kol/": "/kol",
+NAV_PREFIX = {"/postavke": "/postavke", "/osobe": "/wallets", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/kol/": "/kol",
               "/prijava": "/", "/nas-token/": "/nas-token", "/registracija": "/pregled", "/izvjestaj/": "/izvjestaj"}
 # phone bottom bar (19.11., vlasnik: "Autopilot stavi u drugi plan dok rekonstruiramo app"): Pregled, Novčanici, Tokeni,
 # Influenceri, Više for every role; the Autopilot is under "Više". Line icons, one colour.
@@ -306,12 +320,14 @@ def _vrow(href, label, right="", cls=""):
 # Pages of the microcap strategies that stopped on 15.11. left the list (ui/umirovljeno.py: their routes answer with
 # one line); "Sve stranice" (/mapa) lists every page that is still in use.
 VISE = [
-    ("Novčanici i tokeni", [("/dugorocno", "Dugoročni tokeni", "")]),
+    ("Novčanici i tokeni", [("/dugorocno", "Dugoročni tokeni", ""), ("/osobe", "Osobe iza novčanika", "")]),
     # 19.11. (vlasnik: "Telegram KOLs makni iz izračuna ... samo informativna lista skrivena negdje sa strane"): one
     # quiet link to the informational channel list (/telegram-kanali, ui/tgkanali.py: built in another branch)
     ("Influenceri", [("/kol", "Influenceri", ""), ("/telegram-kanali", "Telegram kanali (informativno)", "ms-quiet")]),
     # 19.11. (vlasnik: "Autopilot stavi u drugi plan dok rekonstruiramo app"): the Autopilot family near the end;
     # the heading and its line follow the real-money pause (ui/pauza), see vise_page
+    ("Pravi trade", [("/pravi-trade", "Pravi trade", "adm-only"), ("/strategije", "Usporedba strategija (demo)", "")])
+    if AP_OFF else
     ("Autopilot", [("/pravi-trade", "Autopilot", "adm-only"), ("/strategije", "Usporedba strategija (demo)", ""),
                    ("/autopilot", "Autopilot: rezultati i chat", "")]),
     ("Alati", [("/izvjestaj", "Jutarnji izvještaj", ""), ("/nas-token", "Naš token", ""), ("/pojmovnik", "Pojmovnik", ""),
@@ -650,7 +666,7 @@ def autopilot_link(cur):
     items, class adm-only (admins see it, non-admins get the page without it). 10.11. (Jure, prijedlog 3.5): a plain
     row like the core items, without the orange block and the emoji ("bez narančastog bloka")."""
     return (f'<div class="sec-ap adm-only"><a href="/pravi-trade" class="ap{" on" if cur == "/pravi-trade" else ""}">'
-            'Autopilot</a></div>')
+            f'{AP_GROUP}</a></div>')
 
 
 def _more_cur(path, cur):
@@ -826,8 +842,8 @@ def page(title, body, path="/"):
     except Exception:  # noqa: BLE001
         nk, nt = "", ""
     try:   # 10.11. (Jure): "Autopilot je live" right under the top bar of every page while real money trades (state kept 30 s)
-        from ui import apjavno
-        ban = apjavno.banner_html(path=path)
+        from ui import apjavno   # 27.11.: none while the Autopilot is removed (its state is not even read)
+        ban = "" if _apoff.on() else apjavno.banner_html(path=path)
     except Exception:  # noqa: BLE001 - the banner must never take a page down
         ban = ""
     return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
@@ -1141,8 +1157,23 @@ def ago(t):
     return (f"prije {s}", t, "")
 
 
+def plain_reasons(parts, n=3):
+    """27.11. (vlasnik: korisnik vidi rezultat i 2-3 obična razloga, nikad težine ni formule): the names of the parts
+    that add the most and the one that takes the most away, in words, without points or maxima."""
+    up = [nm for nm, p, _, _ in sorted(parts, key=lambda x: -x[1]) if p > 0][:n]
+    down = [nm for nm, p, _, _ in sorted(parts, key=lambda x: x[1]) if p < 0][:1]
+    bits = []
+    if up:
+        bits.append("najviše pomaže: " + ", ".join(up))
+    if down:
+        bits.append("najviše odnosi: " + ", ".join(down))
+    line = "; ".join(bits)
+    return f'<p class="ms-hint nadm">{esc(line[:1].upper() + line[1:])}.</p>' if bits else ""
+
+
 def breakdown(parts, total_label="Zbroj", stored=None, mult=None, mult_label=None):
-    """Score parts as a table with bars."""
+    """Score parts as a table with bars. 27.11.: the table (points, maxima, the stored value) is adm-only, so only an
+    admin's copy carries it; everyone else gets plain_reasons()."""
     rows = [[esc(n) + (" " + info(n) if info(n) else ""), (f"{p:+.1f}" if p < 0 else f"{p:.1f}", p, "n"), (f"/ {m}", m, "n mut"),
              bar(p, m) if m else "", f'<span class="mut">{esc(x)}</span>'] for n, p, m, x in parts]
     raw = sum(p for _, p, _, _ in parts)
@@ -1151,7 +1182,8 @@ def breakdown(parts, total_label="Zbroj", stored=None, mult=None, mult_label=Non
         foot += f" × {mult:.2f} {esc(mult_label or '')} = <b>{raw * mult:.1f}</b>"
     if stored is not None:
         foot += f' <span class="mut">(spremljeno u bazi: {esc(stored)})</span>'
-    return table(["Dio", ("Bodovi", "n"), ("Max", "n"), "", ("Objašnjenje", "wrap")], rows) + f'<p>{foot}</p>'
+    return (plain_reasons(parts) + '<div class=adm-only>'
+            + table(["Dio", ("Bodovi", "n"), ("Max", "n"), "", ("Objašnjenje", "wrap")], rows) + f'<p>{foot}</p></div>')
 
 
 MODAL_JS = """
@@ -1173,3 +1205,10 @@ def modal():
 def jsonblock(o):
     """Raw data dumps are not for the trader: kept as a no-op so old call sites stay valid."""
     return ""
+
+
+# 27.11. (vlasnik: page source must not tell how the app is built): the CSS comments (file names, design notes) stay in
+# this file and never reach the browser
+for _n in ("BAR_CSS", "CSS", "NAV_CSS", "LIGHT_CSS", "SIMPLE_CSS", "MS_CSS"):
+    globals()[_n] = re.sub(r"/\*.*?\*/", "", globals()[_n], flags=re.S)
+del _n

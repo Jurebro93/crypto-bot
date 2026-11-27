@@ -31,7 +31,9 @@ SWITCH = "makroinf_javno"    # owner switch: the public pages (default off: rout
 DEFAULT = {
     # caps (USD)
     # (16.11., the owner's second wave: the daily caps 1,50 -> 2,00 $ and 0,50 -> 0,60 $, "more accounts")
-    "twapi_stop": True,   # 18.11.: no twitterapi spend until the owner approves a budget (makroinf/xapi.stopped)
+    # 18.11.: no twitterapi spend until the owner approves a budget (makroinf/xapi.stopped); 27.11. (vlasnik): approved
+    # within the X budget (usage/xbudzet: the leftover share of 5 $ a day / 100 $ a month); the daily caps below stay
+    "twapi_stop": False,
     "pilot_twapi_usd": 5.0, "day_twapi_usd": 2.00, "pilot_openai_usd": 4.0, "day_openai_usd": 0.60,
     "quality_openai_usd": 1.0, "expand_twapi_usd": 40.0, "expand_openai_usd": 15.0,
     "expand2_twapi_usd": 25.0, "expand2_openai_usd": 8.0,
@@ -209,6 +211,9 @@ def book(con, src, usd, phase, what, now=None):
         from usage import meter
         svc, method = SRC_METER.get(src, (src, "makroinf"))
         meter.record(svc, method, float(usd))
+        if src == "twitterapi":   # 27.11. (vlasnik): the X budget, priority 3 (usage/xbudzet)
+            from usage import xbudzet
+            xbudzet.book("ostatak", float(usd), now, "makroinf")
     except Exception:  # noqa: BLE001 - losing a count must not break the job
         pass
 

@@ -215,7 +215,21 @@ def helius(now, paths):
         rows = _all(ucon, "SELECT script, SUM(amount) FROM usage WHERE service = 'helius' AND hour >= ? GROUP BY script",
                     (day0,))
         by = {s: int(_f(v)) for s, v in rows if s}
-        return {"krediti_bot": sum(by.values()), "po_poslu": by, "racun": _account(ucon, "helius", now)}
+        out = {"krediti_bot": sum(by.values()), "po_poslu": by, "racun": _account(ucon, "helius", now)}
+        # 27.11. (kol/rotacija.py: webhook samo SWAP, transferi batchom, tjedna rotacija): the wallet webhook's events
+        # today and yesterday (1 credit each) and the transfer batch apart, so the saving can be checked the next day
+        try:
+            from usage import meter
+            wh = meter.WEBHOOK_SCRIPT
+            for key, lo, hi in (("webhook_dogadaja", day0, day0 + 86400), ("webhook_dogadaja_jucer", day0 - 86400, day0)):
+                out[key] = int(_f(_one(ucon, "SELECT SUM(calls) FROM usage WHERE service = 'helius' AND script = ? AND "
+                                             "method = 'webhook događaji' AND hour >= ? AND hour < ?", (wh, lo, hi), 0)))
+            from kol import rotacija
+            out["transferi_batch"] = by.get(rotacija.SCRIPT, 0)
+            out["rotacija"] = rotacija.report(paths.get("kol"), paths.get("usage"), now)
+        except Exception as e:  # noqa: BLE001 - the rest of the Helius part stays
+            out["rotacija_greska"] = f"{type(e).__name__}: {e}"[:120]
+        return out
     finally:
         if ucon is not None:
             ucon.close()
@@ -331,7 +345,18 @@ def drustveni(now):
     from ops import drustveni as soc
     st = soc.state(now, create=False)
     return {"stanje": st["mode"], "otvoren": bool(st["open"]), "zadnji": st.get("last"), "sljedeci": st.get("next"),
-            "do": st.get("end")}
+            "do": st.get("end"), "ukinut": soc.ABOLISHED if soc.abolished() else None}
+
+
+def xbudzet(now):
+    """27.11. (vlasnik): the X budget of the day (usage/xbudzet): spend per category, the day and month caps, calls
+    captured, new influencers found."""
+    from usage import xbudzet as xb
+    st = xb.state(now)
+    return {"persist": st["persist"], "dan": st["today"], "L": st["L"], "mjesec": st["month"],
+            "strop_dan": st["day_cap"], "strop_mjesec": st["month_cap"], "stat": st["stat"], "poslovi": st["jobs"],
+            "kategorije": {k: {"potroseno": v["spent"], "dostupno": v["avail"], "preneseno": v["carry"]}
+                           for k, v in st["cats"].items()}, "linija": xb.line(now, st)}
 
 
 def drustveni_part(dr):
@@ -344,6 +369,8 @@ def drustveni_part(dr):
         return f"društveni izvori: prozor otvoren (do {soc.when(dr.get('do'))}, sljedeći {soc.when(dr.get('sljedeci'))})"
     if m == "first":
         return "društveni izvori: otvoren (prvo osvježavanje)"
+    if dr.get("ukinut"):   # 27.11. (vlasnik): no window; the X budget stops paid reads (usage/xbudzet)
+        return f"društveni izvori: svaki dan (prozor od 5 dana ukinut {dr['ukinut']})"
     return "društveni izvori: otvoren (uvijek)" if m == "always" else "društveni izvori: otvoren"
 
 
@@ -358,7 +385,7 @@ def collect(now=None, paths=None):
                      ("helius", lambda: helius(now, paths)), ("ai", lambda: ai(now, paths)),
                      ("openai", lambda: openai(now, paths)), ("vijece", lambda: vijece(now, paths)),
                      ("birdeye", lambda: birdeye(now, paths)), ("simianx", lambda: simianx(now, paths)),
-                     ("drustveni", lambda: drustveni(now))):
+                     ("drustveni", lambda: drustveni(now)), ("xbudzet", lambda: xbudzet(now))):
         try:
             out[name] = fn()
         except Exception as e:  # noqa: BLE001 - one source costs only its part of the line
@@ -411,6 +438,12 @@ def line(d):
                  + (f" (+{_f(acc['dan']) / 1e3:.0f}k u 24 h)" if acc.get("dan") is not None else "")
                  + time.strftime(", očitano %H:%M UTC", time.gmtime(acc["ts"]))) if acc else "stanje računa: /usage ručno"
         parts.append(f"Helius bot {_n(he.get('krediti_bot'))} kr. ({_top(he.get('po_poslu'))}), {state}")
+        if he.get("webhook_dogadaja") is not None:
+            parts.append(f"webhook novčanika {_n(he.get('webhook_dogadaja'))} događaja danas (jučer "
+                         f"{_n(he.get('webhook_dogadaja_jucer'))}), transferi batch {_n(he.get('transferi_batch'))} kr.")
+        if he.get("rotacija"):
+            from kol import rotacija
+            parts.append(rotacija.report_line(he["rotacija"]))
     if ai_:
         parts.append(f"AI oznake {_n(ai_.get('objava'))} objava, ${_usd(ai_.get('usd'))} ({_top(ai_.get('po_poslu'), fmt=_usd)})")
     oa = d.get("openai") or {}
@@ -435,6 +468,10 @@ def line(d):
     dr = d.get("drustveni") or {}
     if dr and not dr.get("greska"):   # 19.11.: influencers and Telegram once in 5 days: is the window open today
         parts.append(drustveni_part(dr))
+    xb = d.get("xbudzet") or {}
+    if xb and not xb.get("greska") and xb.get("persist"):   # 27.11.: X budget, day and month
+        parts.append(f"X budžet dan ${_usd(xb.get('dan'))}/{_usd(xb.get('L'))}, mjesec ${_usd(xb.get('mjesec'))}/"
+                     f"{_usd(xb.get('strop_mjesec'))}")
     errs = [f"{k}: {v['greska']}" for k, v in d.items() if isinstance(v, dict) and v.get("greska")]
     return f"trošak po izvoru {d.get('day')} (UTC dan): " + " | ".join(parts) + (f" | greške: {'; '.join(errs)}" if errs else "")
 
@@ -556,4 +593,7 @@ def run(now=None, log=print, paths=None, path=None):
     except sqlite3.Error as e:
         log(f"trošak po izvoru: nije spremljeno u usage.db ({e})")
     log(line(d), flush=True)
+    xb = d.get("xbudzet") or {}
+    if xb.get("persist") and xb.get("linija"):   # 27.11. (vlasnik): the X budget's one line a day (spend per category, calls, new accounts)
+        log(xb["linija"], flush=True)
     return d

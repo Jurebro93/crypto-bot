@@ -187,6 +187,15 @@ def pct(x, signed=False):
     return f"{x * 100:+.0f}%" if signed else f"{x * 100:.0f}%"
 
 
+def compare(s, base):
+    """"better" | "worse" | "same" than the median account on up1h (a 5-point band), None when either is unknown.
+    27.11.: shared by verdict() and the public API (ui/javniapi.py)."""
+    b_up = (base or {}).get("up1h")
+    if s.get("up1h") is None or b_up is None:
+        return None
+    return "better" if s["up1h"] > b_up + 0.05 else "worse" if s["up1h"] < b_up - 0.05 else "same"
+
+
 def verdict(s, base, lang):
     """One honest sentence: what the clean calls say, compared with the median account, or 'premalo podataka'."""
     if not s["enough"]:
@@ -195,8 +204,8 @@ def verdict(s, base, lang):
                  "hr": "Premalo podataka: dosad {n} izmjerenih poziva (treba nam {m} prije nego išta kažemo o računu). "
                        "Stranica se osvježava kako se pozivi mjere."}[lang]).format(n=s["n"], m=MIN_CLEAN)
     b_up = base.get("up1h")
-    better = s["up1h"] is not None and b_up is not None and s["up1h"] > b_up + 0.05
-    worse = s["up1h"] is not None and b_up is not None and s["up1h"] < b_up - 0.05
+    c = compare(s, base)
+    better, worse = c == "better", c == "worse"
     if lang == "en":
         cmp_ = ("better than the median account" if better else "worse than the median account" if worse else
                 "about the same as the median account")

@@ -15,6 +15,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.autopilot_staro import setUpModule, tearDownModule  # noqa: E402,F401   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
 
 from scripts import seed_tokeni as SEED  # noqa: E402
 from ui import admstrip, html, midcaplist, pauza, tokens, umirovljeno  # noqa: E402
@@ -173,6 +174,11 @@ class Navigation(unittest.TestCase):
         with mock.patch.object(pauza, "on", return_value=True):
             _t, body = html.vise_page({})
         heads = re.findall(r"<div class=ms-gt>([^<]+)", body)
+        if html.AP_OFF:   # 27.11. (ops/autopilot_off): the owner's "Pravi trade", no public Autopilot page
+            self.assertEqual([h.strip() for h in heads][:4], ["Novčanici i tokeni", "Influenceri", "Pravi trade", "Alati"])
+            self.assertIn('href="/pravi-trade"', body)
+            self.assertNotIn('href="/autopilot"', body)
+            return
         self.assertEqual([h.strip() for h in heads][:4],
                          ["Novčanici i tokeni", "Influenceri", "Autopilot (pauzirano)", "Alati"])
         self.assertIn("Pauzirano: kupnje pravim novcem stoje, alat se preslaguje oko novčanika.", body)

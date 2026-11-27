@@ -414,7 +414,8 @@ def csrf_token(session_value):
 
 
 # POSTs that change money, roles or settings: need a non-empty same-site Origin/Referer AND the form token
-CSRF_STRICT = ("/pravi-trade/", "/korisnici/", "/postavke/", "/zahtjevi/", "/run/", "/pump-tokeni/")
+CSRF_STRICT = ("/pravi-trade/", "/korisnici/", "/postavke/", "/zahtjevi/", "/run/", "/pump-tokeni/", "/osobe/",
+               "/api-kljucevi/")
 PUMPT = "/pump-tokeni"   # 25.11.: owner-only page (ui/pumptokeni.py)
 
 
@@ -628,6 +629,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._export(path[len("/admin/export/"):], qs)
         if path.startswith("/api/mcp/"):   # 10.11.: the MemeSonar MCP server's data (Bearer MCP_API_KEY), no login
             return self._mcp_get(path, qs)
+        if path.startswith("/api/v1/"):   # 27.11.: the public API, a key per user (ui/javniapi.py), no login, every host
+            return self._api_v1(path, qs)
         if path == "/mcp":   # 10.11.: the hosted MCP endpoint answers POST only (no server-initiated stream)
             self.send_response(405)
             self.send_header("Allow", "POST")
@@ -651,6 +654,9 @@ class Handler(BaseHTTPRequestHandler):
         to = maknuto.redirect(path)
         if to:
             return self._redirect(to, code=303)
+        gone = autopilot_gone(path)
+        if gone:   # 27.11. (vlasnik: "Autopilot ... uklanja se potpuno", ops/autopilot_off): 410 + a simple page
+            return self._gone(*gone)
         if path in ("/sw.js", deploypage.PATH, "/healthz"):   # deploy page + its service worker, every host, no login
             if path == "/sw.js":
                 return self._send(200, deploypage.sw_js().encode("utf-8"), "text/javascript")
@@ -766,6 +772,35 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/tocnost":
+            # 27.11. (vlasnik: "Every score shown on the site gets its own measured accuracy"; ui/tocnost.py): the whole
+            # table, the OWNER only, checked here on the server before anything is read; never cached, never public
+            from trade import settings as tsettings
+            from ui import tocnost as _toc
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/>← Na početnu</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+            try:
+                html = page(*_toc.page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
+        if path == "/osobe" or path.startswith("/osobe/"):
+            # 27.11. (vlasnik, osobe/): wallets grouped into persons. Behind the login (noindex like every page here);
+            # the possible links to X accounts only for the OWNER, decided here on the server (defamation risk,
+            # osobe/xveza.py). Built per request from osobe.db (a few small reads).
+            from trade import settings as tsettings
+            from ui import osobe as uosobe
+            try:
+                if path == "/osobe":
+                    html = page(*uosobe.page(qs, self.user), path)
+                else:
+                    html = page(*uosobe.profile_page(path[len("/osobe/"):], qs, self.user,
+                                                     owner=tsettings.is_owner(self.user)), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
         if path == "/novcanici-admin":
             # 19.11. (vlasnik: "the admin must have a dashboard with more data about the wallets than an ordinary
             # user"; ui/novadmin.py): the OWNER only, checked here on the server like /kol-insajderi and /stanje, before
@@ -787,6 +822,22 @@ class Handler(BaseHTTPRequestHandler):
                 return 200, html.encode("utf-8")
             code, raw, gz = pagecache.get(("/novcanici-admin", u.query, "vlasnik", self.lang), build_admin)
             return self._send(code, raw, gz=gz, translated=True)
+        if path == "/api":   # 27.11.: docs of the public API, every logged-in user, noindex like every app page
+            from ui import javniapistr
+            return self._send(200, page(*javniapistr.docs_page(), path).encode("utf-8"))
+        if path == "/api-kljucevi":
+            # 27.11. (ui/javniapistr.py): API keys per user. The OWNER only, checked here before anything is read; never cached
+            from trade import settings as tsettings
+            from ui import javniapistr
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/>← Na početnu</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+            try:
+                html = page(*javniapistr.owner_page(qs), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
         if path == PUMPT or path.startswith(PUMPT + "/"):
             # 25.11. (vlasnik, ui/pumptokeni.py): launches of our own pump.fun tokens. The OWNER only, checked here on the
             # server before anything is read (other admins and users 403, visitors the login); never cached, noindex
@@ -949,7 +1000,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, out.encode("utf-8"), "application/json")
         if path == "/api/pojam":
             from ui import glossarypage
-            frag = glossarypage.fragment(qs.get("k", ""), qs.get("l", "")[:80], qs.get("t", "")[:800])
+            # 27.11.: only an admin gets the long "how it is computed" text of the scoring terms (ui/glossarypage)
+            frag = glossarypage.fragment(qs.get("k", ""), qs.get("l", "")[:80], qs.get("t", "")[:800],
+                                         full=not AUTH or self.role == "admin")
             return self._send(200, frag.encode("utf-8"))
         if path == "/api/natjecanje":
             return self._send(200, league.api().encode("utf-8"), "application/json")
@@ -964,6 +1017,9 @@ class Handler(BaseHTTPRequestHandler):
                 frag = evidence.fragment(path[len("/api/evidence/"):])
             except Exception:
                 frag = _error_html()
+            if AUTH and self.role != "admin":   # 27.11.: the weights and formulas (adm-only) only in an admin's copy
+                from ui import admstrip
+                frag = admstrip.strip(frag)
             return self._send(200, frag.encode("utf-8"))
         if path in ("/tokens", "/tokens/jaki"):   # 19.11.: the old Novi / Jaki views move to the new default view
             to = tokens.redirect_for(path, qs)
@@ -1043,6 +1099,28 @@ class Handler(BaseHTTPRequestHandler):
                 os.remove(tmp.name)
             except OSError:
                 pass
+
+    def _api_v1(self, path, qs):
+        """27.11.: GET /api/v1/* (ui/javniapi.handle): JSON only, 429 with Retry-After, noindex, never a traceback."""
+        from ui import javniapi
+        try:
+            code, out, extra = javniapi.handle(path, qs, self.headers)
+        except Exception as e:  # noqa: BLE001
+            print(f"javniapi: {type(e).__name__}", flush=True)
+            code, out, extra = 500, {"error": "temporary error, try again later"}, {}
+        body = json.dumps(out, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Robots-Tag", "noindex, nofollow")
+        for k, v in extra.items():
+            self.send_header(k, v)
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def _mcp_auth(self):
         """True, or the (code, json) to answer: 404 while MCP_API_KEY is not set (the API does not exist), 401 on a
@@ -1197,6 +1275,12 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/hook/chain":
             self._chain_hook(u)
             return
+        if u.path.startswith("/api/v1/"):   # 27.11.: the public API is GET only
+            self.send_response(405)
+            self.send_header("Allow", "GET")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
         if u.path == "/api/mcp/trade":   # 10.11.: a trade REQUEST from the MCP server; waits for the owner's tap
             return self._mcp_post()
         if u.path == "/mcp":   # 10.11.: the MCP endpoint for Grok, hosted in the app (ui/mcpapi.rpc), Bearer key
@@ -1217,6 +1301,9 @@ class Handler(BaseHTTPRequestHandler):
         if need:   # e.g. a basic user posting /run/wallets by hand: refused before anything starts
             print(f"uloge: odbijeno {self.who or '-'} ({self.role}) POST {path}", flush=True)
             return self._forbidden(path, need)
+        gone = autopilot_gone(path, post=True)
+        if gone:   # 27.11.: the removed Autopilot's forms (its public chat, the terminal's parts) do nothing
+            return self._gone(*gone)
         if path.startswith("/autopilot/"):   # 10.11.: chat of the public Autopilot page (no cached page changes)
             return self._autopilot_post(path)
         if path.startswith("/tokenstranica/"):   # 15.11.: comments and votes of a token page (same rules as the chat)
@@ -1237,6 +1324,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(403)
                 self.end_headers()
                 return
+        if path.startswith("/api-kljucevi/"):   # 27.11.: owner only, same site + form token (CSRF_STRICT) when AUTH
+            from trade import settings as tsettings
+            from ui import javniapistr
+            if not tsettings.is_owner(self.user):
+                return self._forbidden(path, "admin")
+            if not same_site:
+                self.send_response(403)
+                self.end_headers()
+                return
+            form = dict(parse_qsl(self._read_body(200_000).decode("utf-8", "replace")))
+            to, shown = javniapistr.post(path, form, self.user)
+            if shown:   # a new key or a trace: rendered here, never put in an address
+                return self._send(200, page(*shown, "/api-kljucevi").encode("utf-8"))
+            return self._redirect(to)
         if path.startswith(PUMPT + "/"):   # 25.11.: owner only, same site + form token (CSRF_STRICT) when AUTH
             from trade import settings as tsettings
             if not tsettings.is_owner(self.user):
@@ -1251,6 +1352,13 @@ class Handler(BaseHTTPRequestHandler):
             form = {k: v[-1] for k, v in multi.items()}
             form["id_list"] = multi.get("id", [])
             return self._redirect(pumptokeni.post(path, form, self.user))
+        if path == "/osobe/sakrij":   # 27.11.: the owner hides a possible X link (ui/osobe.post checks the owner too)
+            from trade import settings as tsettings
+            from ui import osobe as uosobe
+            if not tsettings.is_owner(self.user) or not same_site:
+                return self._forbidden(path, "admin")
+            form = dict(parse_qsl(self._read_body(10_000).decode("utf-8", "replace")))
+            return self._redirect(uosobe.post(path, form, self.user))
         if same_site and path.startswith("/korisnici/"):
             from ui import userroles
             form = dict(parse_qsl(self._read_body(10_000).decode("utf-8", "replace")))
@@ -1516,6 +1624,16 @@ class Handler(BaseHTTPRequestHandler):
             err = landing.ERR_EN.get(err, err) if lang == "en" else err
             return self._send(400, landing.page_html({}, err=err, form=form, lang=lang).encode("utf-8"))
         return self._redirect(("/" if lang == "en" else "/hr") + "?poslano=1#forma")
+
+    def _gone(self, kind, lang):
+        """410 of a removed Autopilot address: the simple page (a public one) or an empty body (a fragment / form)."""
+        from ops import autopilot_off
+        self._index = False
+        self._robots = "noindex"
+        self._public = True
+        if kind == "page":
+            return self._send(410, autopilot_off.gone_html(lang).encode("utf-8"), cache_control="public, max-age=3600")
+        return self._send(410, b"", "text/plain")
 
     def _autopilot(self, path, qs, ok):
         """10.11. (Jure): /autopilot is readable without a login on every host. A visitor gets it in a light public
@@ -1788,6 +1906,41 @@ def _peer_gone(sock):
         return True
 
 
+# 27.11. (vlasnik: "Ugasi Autopilot ... uklanja se potpuno"; ops/autopilot_off): with AUTOPILOT_OFF (default) the public
+# Autopilot pages answer 410 with a simple page, their chat and live parts 410 empty; of /pravi-trade only the owner's
+# minimal page (ui/pravitrade.page_min) and its forms stay: every polled fragment of the old terminal is 410 empty.
+AUTOPILOT_PAGES = ("/autopilot", "/en/autopilot", "/hr/autopilot")
+PRAVI_KEEP = ("/pravi-trade",)
+
+
+def autopilot_gone(path, post=False):
+    """None, or ("page" | "empty", lang) for a removed Autopilot address while ops/autopilot_off is on. POSTs to
+    /pravi-trade/* stay (the owner's buy, sell, Prodaj sve, kill switch: post() lets only him in)."""
+    from ops import autopilot_off
+    if not autopilot_off.on():
+        return None
+    if path in AUTOPILOT_PAGES:
+        return ("page", "hr" if path.startswith("/hr/") else "en")
+    if path.startswith("/autopilot/"):
+        return ("empty", "en")
+    if not post and path.startswith("/pravi-trade/") and path not in PRAVI_KEEP:
+        return ("empty", "hr")
+    return None
+
+
+def background_threads():
+    """[(thread name, target, kwargs)] of the Pravi trade threads main() starts next to the competition loops.
+    10.11. (Jure: MC u trenutku poziva i pomak u 5/10/15 min bez čekanja na svijeće): live samples of the skips;
+    10.11. (Jure: "DCA ide ručno, granice postavljam ručno"): the owner's dokup orders, watched every second.
+    27.11. (ops/autopilot_off): with the Autopilot removed the skip sampler does not start at all and the owner's
+    orders (his manual buying, kept) are watched every DCA_S (15 s)."""
+    from ops import autopilot_off
+    from ui import pravitrade as _pt
+    if autopilot_off.on():
+        return [("dca-nalozi", _pt.dca_loop, {"every": autopilot_off.DCA_S})]
+    return [("preskoceni-uzivo", _pt.skip_sampler_loop, {}), ("dca-nalozi", _pt.dca_loop, {})]
+
+
 def _bind(host, port):
     """Take the port over from deploy_wait.py (the funny deploy page that holds it while we load): tell it to let
     go, then retry the bind for a few seconds instead of failing on "address in use"."""
@@ -1836,12 +1989,11 @@ def main(argv=None):
         threading.Thread(target=auto.loop, args=(market,), daemon=True, name="auto-sell").start()
         # 10.11. (Jure: TP +40 % dotaknut, a prodaja se nije dogodila): the Autopilot's TP/SL every second, apart
         # from the 20-s pass over every player's positions
+        # 27.11. (vlasnik: "Autopilot ... uklanja se potpuno", ops/autopilot_off): with it removed the same thread runs
+        # at the learning cadence (demo exits every 30 s, 15 s only while an open real position is left)
         threading.Thread(target=auto.fast_loop, args=(market,), daemon=True, name="autopilot-izlazi").start()
-        # 10.11. (Jure: MC u trenutku poziva i pomak u 5/10/15 min bez čekanja na svijeće): live samples of the skips
-        from ui import pravitrade as _pt
-        threading.Thread(target=_pt.skip_sampler_loop, daemon=True, name="preskoceni-uzivo").start()
-        # 10.11. (Jure: "DCA ide ručno, granice postavljam ručno"): the owner's dokup orders, watched every second
-        threading.Thread(target=_pt.dca_loop, daemon=True, name="dca-nalozi").start()
+        for name, target, kw in background_threads():
+            threading.Thread(target=target, kwargs=kw, daemon=True, name=name).start()
     # 20.11. (2): the memory sampler names the page (and the stacks) while the memory is rising, not after
     import threading as _th
     from ops import mem as _mem

@@ -618,6 +618,15 @@ def _base(kind, now=None, rows=None, live=None):
     try:   # dnevnik odluka: write the picks down, show the box's own 7-day record (ui/prijedlog_log)
         from ui import prijedlog_log
         prijedlog_log.log(data.HYPE_DB, picks, log_kind, now)
+    except Exception:  # noqa: BLE001
+        pass
+    try:   # 27.11. (tocnost/): the "Nemoj kupiti jer ..." rows as shown, so the night batch can check them too
+        from ui import tocnost as _toc
+        _toc.log("kartica", [(x["token"], "nemoj", None, x.get("mcap0") or x.get("mcap")) for x, _ in near], now)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from ui import prijedlog_log
         rec = prijedlog_log.sentence(prijedlog_log.summary(data.HYPE_DB, now=now))
     except Exception:  # noqa: BLE001
         pass
@@ -977,7 +986,12 @@ def compact(p):
         out.append(R.rows([R.row(x.get("symbol") or short_addr(x["token"]), reason=f"nemoj kupiti jer {r}", reason_tone="warn",
                                  href=_tok_href(x["token"]), muted=True) for x, r in near[:2]], cls="pdj-rows"))
     link = '<a href="#pdj-full" data-dlg="pdj-full">Cijeli prijedlog za danas</a>'
-    out.append(f'<p class="ms-hint">{esc(EXIT_PLAIN) if picks else ""}{" " if picks else ""}{link}</p>')
+    try:   # 27.11. (tocnost/): how often this card's "Kupi" / "Nemoj kupiti" was right in the last 30 days
+        from ui import tocnost as _toc
+        acc = _toc.CSS + _toc.line("kartica", "kupi" if picks else "nemoj", "Kupi" if picks else "Nemoj kupiti")
+    except Exception:  # noqa: BLE001
+        acc = ""
+    out.append(f'<p class="ms-hint">{esc(EXIT_PLAIN) if picks else ""}{" " if picks else ""}{link}{acc}</p>')
     out.append(dialog("pdj-full", "Prijedlog za danas", full_text(p)))
     out.append("</div>" + DLG_JS + COMPACT_JS)
     return "".join(out)

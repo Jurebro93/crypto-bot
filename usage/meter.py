@@ -107,10 +107,32 @@ def helius_cost(url, body=None, result=None):
     return method, 1
 
 
+_ctx = threading.local()
+
+
+class as_script:
+    """27.11. (kol/rotacija.py): `with meter.as_script("transferi novčanika"):` books this thread's Helius calls under
+    that name instead of the process (the daily cost line shows the transfer batch apart from the rest of run_kol)."""
+
+    def __init__(self, name):
+        self.name, self.prev = name, None
+
+    def __enter__(self):
+        self.prev = getattr(_ctx, "script", None)
+        _ctx.script = self.name
+        return self
+
+    def __exit__(self, *_a):
+        _ctx.script = self.prev
+
+
 def helius(url, body=None, result=None, error=False):
     c = helius_cost(url, body, result)
     if c:
-        record("helius", c[0], 0 if error else c[1], error=error)
+        record("helius", c[0], 0 if error else c[1], error=error, script=getattr(_ctx, "script", None))
+
+
+WEBHOOK_SCRIPT = "webhook novčanika"
 
 
 WEBHOOK_SCRIPT = "webhook novčanika"

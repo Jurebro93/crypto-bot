@@ -742,6 +742,16 @@ def wallet(addr, qs):
     row = dokazani.for_wallet(addr)
     word, kind, facts, sentence = _verdict(w, row, now)
     left = [rd.verdict(word, sentence, label="Presuda", facts=facts, kind=kind)]
+    try:   # 27.11. (tocnost/): the accuracy of "dokazan dvaput" and of the copy rank, measured on later buys
+        from ui import tocnost as _toc
+        rk_ = w.get("rang") or {}
+        from tocnost.izvori import rang_bucket
+        acc = (_toc.line("dokazani", ("dokazan" if row.get("passed") else "nije dokazan"), "Ova presuda") if row else "")
+        acc += _toc.line("rang", rang_bucket(rk_.get("score")), "Rang za kopiranje") if rk_.get("score") is not None else ""
+        if acc:
+            left.append(rd.raw(_toc.CSS + f'<div class="toc-w">{acc}</div>'))
+    except Exception:  # noqa: BLE001
+        pass
     if s:
         n, wins = s.get("closed") or 0, round((s.get("win_rate") or 0) * (s.get("closed") or 0))
         days = round(s.get("history_days") or 0)
@@ -773,6 +783,13 @@ def wallet(addr, qs):
               "nije dokazan dvaput ni ručno praćen")
     left.append(rd.raw('<div class="ms-ap">' + rd.rows([rd.row("Prati ga Autopilot", ap_why,
                                                                rd.cat(rd.dot("good"), "da") if followed else "ne")]) + "</div>"))
+    try:   # 27.11. (vlasnik: kopirljivost uz 5 / 30 / 120 s kašnjenja i stvarni trošak, wallets/kopirljivost.py)
+        from wallets import kopirljivost
+        kb = kopirljivost.box("novcanik", addr)
+        if kb:
+            left.append(kb)
+    except Exception:  # noqa: BLE001 - the page never breaks on this box
+        pass
     pos, priced = _positions(addr)
     closed = _closed_sorted(pos)
     right = [_sec("Kako je zarađivao")]
@@ -830,7 +847,11 @@ def wallet(addr, qs):
     out.append(_sec("Više o njemu"))
     out.append(rd.rows(more))
     r = dokazani.RULE
-    out.append(rd.raw('<p class="ms-hint">' + rd.h(
+    # 27.11. (vlasnik: bez pragova u tekstu za korisnike): the exact cut is adm-only, everyone reads the plain line
+    out.append(rd.raw('<p class="ms-hint nadm">' + rd.h(
+        "Dokazan dvaput: u plusu na starijim tradeovima i opet na novijima koje odabir nije vidio. Kopirljiv: ne trguje "
+        "prebrzo ni prečesto, nije bot ni sniper. ") + '<a href="/pojmovnik">Pojmovnik</a></p>'))
+    out.append(rd.raw('<p class="ms-hint adm-only">' + rd.h(
         f"Dokazan dvaput: u plusu na {r['min_closed']}+ zatvorenih prije reza od {r['cut_days']} dana i opet poslije "
         f"njega. Kopirljiv: drži {r['min_hold_min']}+ min, do {r['max_tpd']} tradeova dnevno, nije bot ni sniper. ")
         + '<a href="/pojmovnik">Pojmovnik</a></p>'))
@@ -856,6 +877,11 @@ def _wallet_sub(v, addr, w, sm):
         items.append({"name": "Dokaz", "reason": f"{rd.num(s.get('closed') or 0)} zatvorenih; ispod 10 zbroj se smanjuje",
                       "value": f"× {rd.num(ev, 2)}"})
         items.append({"name": "Ocjena", "reason": "zbroj puta dokaz, 0 do 100", "value": rd.num(w.get("score"))})
+        # 27.11.: points, maxima and the evidence factor are the recipe: only an admin's copy keeps them; everyone
+        # else reads what each part is about (the measured fact before the first ";") and the score itself
+        plain = [{"name": n_, "reason": x_.split(";")[0]} for n_, p_, m_, x_ in parts]
+        plain.append({"name": "Ocjena", "reason": "0 do 100; s malo zatvorenih pozicija ocjena je oprezna",
+                      "value": rd.num(w.get("score"))})
         r = w.get("rang")
         ok, why = explain.shortlist(w)
         litems = [{"name": "Na copy listi", "reason": "prolazi sve uvjete" if ok else "; ".join(why),
@@ -873,7 +899,9 @@ def _wallet_sub(v, addr, w, sm):
         else:
             sec = (_sec("Ocjena za kopiranje") + rd.hint("Nema zatvorenih tokena u zadnjih 30 dana, pa nije u rangu za "
                                                          "kopiranje."))
-        return "Ocjena", (head(title) + rd.rows(items, cls="ms-wrap") + sec + _sec("Copy lista")
+        return "Ocjena", (head(title) + rd.raw('<div class=adm-only>' + str(rd.rows(items, cls="ms-wrap")) + "</div>"
+                                             + '<div class=nadm>' + str(rd.rows(plain, cls="ms-wrap")) + "</div>")
+                          + sec + _sec("Copy lista")
                           + rd.rows(litems, cls="ms-wrap")
                           + rd.hint("Ocjena profitabilnosti 0 do 100 dolazi iz zatvorenih pozicija i služi samo rasporedu "
                                     "provjera; za kopiranje vrijedi ocjena za kopiranje (30 dana, bez apsolutne zarade u "
@@ -1262,7 +1290,19 @@ def _rug_html(top, rug, now):
     head = f'<h2 class="ms-h2"><span>Provjera ruga</span><span class="tkp-h2s">{esc(when)}</span></h2>'
     if not state:
         return head + R.hint("Još nije provjeren: puna provjera ide tokenima koji prođu prve razine analize.")
-    return (head + f'<div class="tkp-state">{R.dot(state[0], state[1])}</div>'
+    acc = ""
+    try:   # 27.11. (tocnost/): the accuracy of the verdict this section shows (topcheck, else the rug filter's)
+        from ui import tocnost as _toc
+        if top and top.get("verdict") and topcheckui.check_rows(top):
+            if top["verdict"] == "nepoznato":
+                raise ValueError("bez presude")
+            _toc.log("topcheck", [(top.get("token") or (rug or {}).get("mint"), top["verdict"], None, top.get("mcap"))], now)
+            acc = _toc.CSS + _toc.line("topcheck", top["verdict"], "Ova provjera")
+        elif rug and rug.get("verdict"):
+            acc = _toc.CSS + _toc.line("rug", rug["verdict"], "Ova provjera")
+    except Exception:  # noqa: BLE001 - the section stays up without it
+        acc = ""
+    return (head + f'<div class="tkp-state">{R.dot(state[0], state[1])}{acc}</div>'
             + "".join(f'<div class="tkp-chk">{esc(k)}<span class="{kind or ""}">{esc(v)}</span></div>' for k, v, kind in rows))
 
 
@@ -1419,7 +1459,13 @@ def token(mint, qs):
         za, protiv = narrative.za_protiv(keyed, parts)
         zt, pt = narrative.za_protiv_line(za, protiv, html=True)
         lbl = R.cat(R.dot(kind) if kind in ("warn", "bad") else "", f"Pouzdanost {conf} · šansa za skok {sn}")
-        panel = (f'<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">{lbl}</div><div class="ms-name">{esc(word)}</div>'
+        # 27.11. (vlasnik, tocnost/): the scores as shown now are written down; each gets its measured accuracy line
+        from ui import tocnost as _toc
+        _toc.log("pouzdanost", [(mint, confidence.level(conf)[0], conf, mcap_now)], now)
+        _toc.log("sansa", [(mint, confidence.level(sn)[0], sn, mcap_now)], now)
+        acc = (_toc.CSS + _toc.line("pouzdanost", confidence.level(conf)[0], "Pouzdanost")
+               + _toc.line("sansa", confidence.level(sn)[0], "Šansa za skok"))
+        panel = (f'<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">{lbl}</div>{acc}<div class="ms-name">{esc(word)}</div>'
                  f'<p>{esc(sentence)}</p><div class="tkp-go"><b>Za:</b> {zt} <b>Protiv:</b> {pt}</div></div>')
     elif tracked:
         panel = ('<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">Pratimo</div><div class="ms-name">'
@@ -1469,9 +1515,9 @@ def token(mint, qs):
         except Exception as e:  # noqa: BLE001 - never break the page over the summary
             print(f"narrative {mint}: {type(e).__name__}: {e}")
             head_, paras = "", []
-        pts = "".join(f'<li><b class="{R.tone(p)}">{esc(R.num(p, 0, sign=True))}</b> {esc(t)}</li>' for p, t in parts)
+        pts = "".join(f'<li><b class="{R.tone(p)} adm-only">{esc(R.num(p, 0, sign=True))}</b> {esc(t)}</li>' for p, t in parts)
         full.append(f'<details class="tkp-d"{" open" if opened else ""}>'
-                    + _sum_row("Cijelo tumačenje", "za i protiv, svaki razlog s brojem")
+                    + _sum_row("Cijelo tumačenje", "za i protiv, svaki razlog")
                     + f'<div class="tkp-in"><p>{head_}</p>{"".join(paras)}'
                     + (f"<p><b>Pouzdanost {conf}</b>, po dijelovima:</p><ul class=tkp-list>{pts}</ul>" if pts else "")
                     + sansa.explain_html(sn, conf, an, pr, pa).replace("confidence", "pouzdanost") + "</div></details>")
@@ -1564,11 +1610,17 @@ def _layers_html(mint, ev, sigs, rugs, pc, best, role, opened):
             pts = 100 * wt * val / tot
             rows.append([esc(labels.feat(k)), (f"{val:.2f}", val, "n"), (f"{wt:g}", wt, "n"), (f"{pts:.1f}", pts, "n"),
                          bar(pts, 100 * wt / tot if wt else 1), (f'<span class=mut>{esc(FEATURE.get(k, ""))}</span>', "", "wrap")])
-        b.append(f"<p>Zadnji signal {ts(last['ts'])[0]} UTC, ocjena <b>{last['score']}</b>, otkud je došao: "
+        # 27.11. (vlasnik: rezultat i 2-3 obična razloga, nikad težine ni formula): formula, weights and the sum are
+        # adm-only (run_ui strips them from a non-admin's copy); everyone reads the strongest signals by name
+        top3 = [labels.feat(k) for k in sorted(set(f), key=lambda k: -(wts.get(k, 0) * f.get(k, 0)))
+                if (wts.get(k, 0) * (f.get(k, 0) or 0)) > 0][:3]
+        b.append(f"<p class=nadm>Zadnji signal {ts(last['ts'])[0]} UTC, ocjena <b>{last['score']}</b>"
+                 + (f"; najviše su je podigli: {esc(', '.join(top3))}" if top3 else "") + ".</p>")
+        b.append(f"<div class=adm-only><p>Zadnji signal {ts(last['ts'])[0]} UTC, ocjena <b>{last['score']}</b>, otkud je došao: "
                  f"<span>{esc(labels.sources(last['sources']))}</span>. Ocjena = Σ(signal × težina) / Σ težina izmjerenih signala × 100; "
                  f"provjera koja nije rađena (npr. X buzz) ne ulazi ni u zbroj ni u nazivnik.</p>")
         b.append(table(["Signal", ("Vrijednost 0-1", "n"), ("Težina", "n"), ("Doprinos", "n"), "", ("Što mjeri", "wrap")], rows))
-        b.append(f"<p>Zbroj doprinosa: <b>{sum(r[3][1] for r in rows):.1f}</b> <span class=mut>(spremljeno {last['score']})</span></p>")
+        b.append(f"<p>Zbroj doprinosa: <b>{sum(r[3][1] for r in rows):.1f}</b> <span class=mut>(spremljeno {last['score']})</span></p></div>")
         snaps = data.hype_snapshots(mint)
         if len(snaps) > 1:
             b.append("<h3>Cijena od prvog signala</h3>" + _spark(snaps, sigs_asc[0]["price"]))

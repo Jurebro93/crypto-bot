@@ -109,11 +109,12 @@ def search(con, cfg, get=None, now=None, log=print):
     n = 0
     for tok, since in targets(con, cfg, now)[:c["per_run"]]:
         left = min(c["usd"] - mine, discover.disc_left(con, cfg, now))
-        if left <= 0:
+        if left <= 0 or not twapi._room("otkrivanje", twapi.MAX_PAGE, now):   # 27.11.: + the X budget
             break
         before = twapi.spent(con, now)
         try:
-            items = twapi.search(con, tok, since, before + left, get=get, max_pages=c["pages_x"], now=now)
+            items = twapi.search(con, tok, since, before + left, get=get, max_pages=c["pages_x"], now=now, cat="otkrivanje",
+                                  job="trending")
         except Exception as e:  # noqa: BLE001
             log(f"trending: upit nije uspio ({type(e).__name__}: {e})")
             items = []

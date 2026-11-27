@@ -10,6 +10,8 @@
     python3 run_wallets.py history <address>       # score and PnL over time
     python3 run_wallets.py label <address> rugger  # manual label (--off to remove)
     python3 run_wallets.py credits                 # Helius credits used by this module this month
+    python3 run_wallets.py kopirljivost            # every wallet's / influencer's copyability at 5 / 30 / 120 s after the
+                                                   # real cost (wallets/kopirljivost.py; --night: 01-06 Zagreb, once a day)
     python3 run_wallets.py kopija                  # what WE would have earned copying the proven wallets (wallets/kopija.py:
                                                    # walk-forward on the stored trades and prices, no network); --ako-nema:
                                                    # only when no result exists; --night: 01-06 Zagreb, once a day
@@ -380,6 +382,27 @@ def cmd_kopija(a):
     kopija.run(now=now, log=lambda m: print(m, flush=True))
 
 
+def cmd_kopirljivost(a):
+    """27.11. (vlasnik: "Izmjeri kopirljivost svakog walleta i influencera s kašnjenjem 5, 30 i 120 s i stvarnim
+    troškom"): wallets/kopirljivost.py over the stored trades, calls and prices; database reads only, no API call;
+    the result into kopirljivost.db, one line "kopirljivost: ...". Measurement only: nothing trades on it."""
+    from wallets import kopirljivost
+    now = int(time.time())
+    last = kopirljivost.last_run() or {}
+    if not a.force:
+        if a.ako_nema and last.get("ts"):
+            return
+        day = time.strftime("%Y-%m-%d", time.gmtime(now + 3600))
+        if a.night and (not _in_night(now) or (last.get("ts") and
+                                               time.strftime("%Y-%m-%d", time.gmtime(last["ts"] + 3600)) == day)):
+            return
+    try:
+        os.nice(5)
+    except OSError:
+        pass
+    kopirljivost.run(now=now, log=lambda m: print(m, flush=True))
+
+
 def refresh_targets(con, limit):
     """The wallets worth keeping fresh for the copy measurement: the proven-twice list, then the copy ranking's proven
     and copyable wallets, best first, at most `limit`."""
@@ -506,6 +529,10 @@ def main(argv=None):
     k.add_argument("--ako-nema", action="store_true", help="samo kad još nema spremljenog rezultata")
     k.add_argument("--night", action="store_true", help="samo 01-06 po Zagrebu, jednom dnevno")
     k.add_argument("--force", action="store_true")
+    kp = sub.add_parser("kopirljivost")
+    kp.add_argument("--ako-nema", action="store_true", help="samo kad još nema spremljenog rezultata")
+    kp.add_argument("--night", action="store_true", help="samo 01-06 po Zagrebu, jednom dnevno")
+    kp.add_argument("--force", action="store_true")
     pv = sub.add_parser("povijest")
     pv.add_argument("--kind", choices=("day", "night"), default="day",
                     help="day: kratki prolaz (pass_max_s day, dan_udio dnevnog stropa); night: veliki prolaz")
@@ -514,7 +541,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     {"harvest": cmd_harvest, "score": cmd_score, "top": cmd_top, "copy": cmd_copy, "wallet": cmd_wallet,
      "history": cmd_history, "label": cmd_label, "credits": cmd_credits, "dokazani": cmd_dokazani,
-     "rang": cmd_rang, "kopija": cmd_kopija, "osvjezi": cmd_osvjezi, "povijest": cmd_povijest}[a.cmd](a)
+     "rang": cmd_rang, "kopija": cmd_kopija, "kopirljivost": cmd_kopirljivost, "osvjezi": cmd_osvjezi, "povijest": cmd_povijest}[a.cmd](a)
 
 
 if __name__ == "__main__":
