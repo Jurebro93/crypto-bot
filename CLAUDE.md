@@ -13,3 +13,8 @@
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.
 - Sve objave (X, LinkedIn, Buffer, privatni i MemeSonar profili): nikad hashtagovi i nikad zaključak tipa "Lesson:",
   "Takeaway:", "My take:" (preočito AI). Jureovi privatni profili: engleski, prvo lice jednine ("I", ne "we"). (13.11.)
+- Sadržaj iz content generatora (blog, LinkedIn, X, Facebook, bilo što; 27.11.): 1) teme i briefovi nastaju iz naše
+  biblioteke (studio seo/crypto/pr); 2) kad Jure odabere temu, ključne riječi te teme pretraže se na Googleu i nađu
+  dodatni izvori; 3) svaka brojka i tvrdnja iz briefa provjeri se u izvorniku vezanom striktno za tu temu (biblioteka
+  čuva sažetke); 4) tekst spaja oba izvora (biblioteka + Google) u jedinstven sadržaj s vrijednošću u svakom dijelu.
+  Nijedna brojka ne ide u objavu bez provjerenog izvora.
