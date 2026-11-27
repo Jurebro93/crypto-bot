@@ -119,7 +119,30 @@
    "signal": 0.1,
    "insajderi": 0.45
   },
-  "min_copy": 35
+  "min_copy": 35,
+  "types": [
+   "SWAP"
+  ],
+  "_types_2711": "27.11. vlasnik (više znanja za isti trošak): webhook samo SWAP; transferi jednom dnevno batchom (kol/rotacija.transfers_batch, strop transferi.credits_day) samo za novčanike kojima trebaju",
+  "_max_wallets_2711": "27.11.: max_wallets ostaje 300 dok dnevni red troška (webhook događaja/dan po novčaniku, kol/rotacija.webhook_estimate) ne pokaže da 400 stane",
+  "rotacija": {
+   "on": true,
+   "every_d": 7,
+   "window_d": 14,
+   "min_age_d": 7,
+   "cap_share": 0.2,
+   "protect_insajderi_top": 45,
+   "pinned": []
+  },
+  "transferi": {
+   "on": true,
+   "credits_day": 15000,
+   "max_pages": 2,
+   "lookback_d": 14,
+   "min_gap_h": 20,
+   "top_insajderi": 45,
+   "max_wallets": 400
+  }
  },
  "idents": {
   "every_h": 24
