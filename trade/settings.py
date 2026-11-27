@@ -231,6 +231,27 @@ OWNER_SWITCH_NOTES[KRITICAR] = ("Tvoj prekidač: „uživo” (zadano) = kritič
                                 "OpenAI. Samo savjeti: ništa ne kupuje, ne prodaje i ne mijenja.")
 
 
+# 27.11. (vlasnik u chatu: "isključi OpenAI kritičara, jer mislim da više nije potreban"): ONCE, the critic switch goes
+# off (going down is always allowed). Advice only, so no trade, cap or stake changes; the owner can turn it back on with
+# his own tap on the Autopilot page. With it the OpenAI member of the council is not asked either (vijece/kriticari.py).
+KRITICAR_ONCE = "owner_once:openai_kritika_off_2711"
+
+
+def kriticar_order_2711(con, now=None):
+    """-> text of the change, or None when it already ran / the database cannot be read."""
+    try:
+        if con.execute("SELECT 1 FROM settings WHERE k = ?", (KRITICAR_ONCE,)).fetchone():
+            return None
+        old = flag_state(con)[KRITICAR]["mode"]
+        if old != "off":
+            set_flag(con, KRITICAR, "off", owner(), now=now)
+        put(con, KRITICAR_ONCE, {"ts": int(now or time.time()), "prije": old}, owner())
+    except (sqlite3.Error, ValueError, TypeError):
+        return None
+    return (f"kritičar (OpenAI): isključen po nalogu vlasnika 27.11. ({old} → off); ponovno ga uključuje samo vlasnik "
+            "na stranici Autopilot")
+
+
 # 15.11. (vlasnik: "Isključi pravi novac zasad, ali hitno pronađi profitabilnu strategiju kombiniranjem profitabilnih
 # novčanika i influencera ... analizu tokena isključi za pravi novac, pozadinu ostavi za demo"; konsenzus/): the source
 # consensus strategy. FLAG "konsenzus": paper = the DEMO account PAPER_USER enters whenever the currently best candidate
