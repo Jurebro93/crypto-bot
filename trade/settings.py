@@ -272,21 +272,44 @@ def autopilot_order_2711(con, now=None):
             if old != "off":
                 set_flag(con, name, "off", owner(), now=now)
                 done.append(f"{name}: {old} \u2192 off")
-        for name in sorted(FLAGS):
-            if name in REAL_SWITCHES or name in AUTOPILOT_KEEP_LIVE or name == PUMP_TRGOVACKI:
-                continue
-            if st.get(name, {}).get("mode") == "live":
-                try:
-                    set_flag(con, name, "paper", owner(), now=now)
-                    done.append(f"{name}: live \u2192 paper (demo)")
-                except ValueError:   # a flag without a paper mode goes off instead (no real money either way)
-                    set_flag(con, name, "off", owner(), now=now)
-                    done.append(f"{name}: live \u2192 off")
         pauza_set(con, True, owner(), AUTOPILOT_WHY, now)
         put(con, AUTOPILOT_ONCE, {"ts": int(now or time.time()), "promjene": done}, owner())
     except (sqlite3.Error, ValueError, TypeError):
         return []
     return done or ["sve je već bilo isključeno"]
+
+
+# 27.11. 21:38 UTC: the first version of the order above also moved every other flag standing at "live" to "paper",
+# and for these seven "live" only means "on" (exits of open positions, the micro-cap block, retention and archive
+# jobs, ...). ONCE, at the next start: each of them that the order changed (recorded in AUTOPILOT_ONCE) and that still
+# stands at "paper" goes back to exactly "live", written directly (it was the state before the order; no real-money
+# switch is among them and the pause stays on).
+AUTOPILOT_RESTORE_ONCE = "owner_once:autopilot_vrati_2711"
+AUTOPILOT_RESTORE = ("arhiva_mikrokapova", "exit_plan_live", "fokus_midcap", "live_trades_retention",
+                     "mikrokap_blokada", "prati_zadnjih5", "tg_text_retention")
+
+
+def autopilot_restore_2711(con, now=None):
+    """-> [names put back]; [] when it has already run, nothing to restore, or the database cannot be read."""
+    try:
+        if con.execute("SELECT 1 FROM settings WHERE k = ?", (AUTOPILOT_RESTORE_ONCE,)).fetchone():
+            return []
+        rec = raw(con).get(AUTOPILOT_ONCE) or {}
+        changed = " ".join(rec.get("promjene") or []) if isinstance(rec, dict) else ""
+        now = int(now or time.time())
+        back = []
+        st = flag_state(con)
+        for name in AUTOPILOT_RESTORE:
+            if name in FLAGS and name not in REAL_SWITCHES and f"{name}: live" in changed \
+                    and st.get(name, {}).get("mode") == "paper":
+                put(con, f"flag:{name}", {"mode": "live", "since": now, "who": owner(),
+                                         "nalog": "vraćeno nakon greške naloga 27.11."}, owner())
+                back.append(name)
+        put(con, AUTOPILOT_RESTORE_ONCE, {"ts": now, "vraceno": back}, owner())
+        _FLAG_CACHE.clear()
+    except (sqlite3.Error, ValueError, TypeError, AttributeError):
+        return []
+    return back
 
 
 def autopilot_order_line(done):

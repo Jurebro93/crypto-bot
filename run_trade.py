@@ -966,6 +966,9 @@ def cmd_follow(a):
                 ap = settings.autopilot_order_2711(con)   # 27.11. kasno: Autopilot pravim novcem off, demo ostaje
                 if ap:
                     print(settings.autopilot_order_line(ap), flush=True)
+                vr = settings.autopilot_restore_2711(con)   # 27.11.: the seven on/off flags back to live, once
+                if vr:
+                    print("pravi trade: vraćene zastavice koje nalog 27.11. nije smio dirati: " + ", ".join(vr), flush=True)
                 print("pravi trade: automatske kupnje pravim novcem: "
                       + ("PAUZIRANE (nalog vlasnika 19.11.)" if settings.pauza(con) else "nisu pauzirane"), flush=True)
             follow_league_once(con, cfg, since)
