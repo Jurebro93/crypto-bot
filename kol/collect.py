@@ -150,15 +150,23 @@ def mark_ambiguous(con, tweet_ids=None):
 def save(con, calls):
     """Insert new calls. Posts of accounts already flagged as automated (kol/bots.py) are stored as kind 'bot', so
     they never count as a KOL call, not even in the minutes before the next score run."""
-    n = 0
+    n = new_x = new_h = 0
+    seen = set()
     for c in calls:
         if c.get("kind") in ("call", "brag", "warn") and _is_bot(con, c["handle"]):
             c = dict(c, kind="bot")
-        n += con.execute("""INSERT OR IGNORE INTO calls (tweet_id, token, handle, ts, url, text, followers, likes, retweets,
+        h = str(c.get("handle") or "")
+        x = not h.startswith(("tg:", "w:"))
+        if x and h and h not in seen:   # 27.11.: a new X account for the X budget's daily line (usage/xbudzet)
+            seen.add(h)
+            new_h += con.execute("SELECT 1 FROM kols WHERE handle = ?", (h,)).fetchone() is None
+        k = con.execute("""INSERT OR IGNORE INTO calls (tweet_id, token, handle, ts, url, text, followers, likes, retweets,
             views, kind, match, source, symbol) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                          (c["tweet_id"], c["token"], c["handle"], c["ts"], c["url"], c["text"], c["followers"],
                           c["likes"], c["retweets"], c["views"], c["kind"], c["match"], c["source"],
                           c["symbol"])).rowcount
+        n += k
+        new_x += k if x else 0
         au = c.get("author") or {}
         con.execute("""INSERT INTO kols (handle, name, followers, verified, first_seen, last_seen) VALUES (?,?,?,?,?,?)
             ON CONFLICT (handle) DO UPDATE SET
@@ -169,6 +177,13 @@ def save(con, calls):
               first_seen=MIN(first_seen, excluded.first_seen), last_seen=MAX(last_seen, excluded.last_seen)""",
                     (c["handle"], au.get("name"), c["followers"] or None, int(au.get("verified") or 0), c["ts"], c["ts"]))
     mark_ambiguous(con, {c["tweet_id"] for c in calls if c.get("match") == "ticker"})
+    if new_x or new_h:
+        try:   # 27.11. (vlasnik): calls captured and new influencers found, one line a day (usage/xbudzet)
+            from usage import xbudzet
+            xbudzet.note("pozivi", new_x)
+            xbudzet.note("novi_influenceri", new_h)
+        except Exception:  # noqa: BLE001
+            pass
     try:   # 11.11. dual write into events.db (events/hooks.py): queued, never waits, never breaks the round
         from events import hooks as _ev
         _ev.calls_saved(con, calls)
@@ -558,11 +573,14 @@ def timeline_twapi(con, cfg, get=None, now=None):
             print(f"kol twitterapi: do sada dopušteno ${budget:.2f} danas potrošeno, ostatak u sljedećem krugu",
                   flush=True)
             break
+        if not twapi._room("otkrivanje", twapi.MAX_PAGE, now):   # 27.11.: the X budget (usage/xbudzet)
+            print("kol twitterapi: X budžet (otkrivanje) za danas potrošen, ostatak u sljedećem krugu", flush=True)
+            break
         since = max(now - 6 * 3600, min(read.get(h) or round_since for h in chunk)) - 300
         before = twapi.spent(con, now)
         try:
             items = twapi.search(con, " OR ".join(f"from:{h}" for h in chunk), since, before + budget - tl_spent,
-                                 get=get, now=now)
+                                 get=get, now=now, cat="otkrivanje", job="timeline")
         except Exception as e:  # noqa: BLE001 - one bad query must not stop the round
             body = ""
             try:

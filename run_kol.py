@@ -63,7 +63,7 @@ def cmd_search(a, con=None, cfg=None):
         return 0
     n = 0
     from kol import discover
-    from kol import graduates, trending
+    from kol import graduates, novcanici_x, trending
     try:
         k = trending.collect_today(con, cfg)
         con.commit()
@@ -78,7 +78,10 @@ def cmd_search(a, con=None, cfg=None):
             print(f"bondani: {k} novih tokena u popisu (GeckoTerminal pumpswap)")
     except Exception as e:  # noqa: BLE001
         print(f"bondani: {type(e).__name__}: {e}", file=sys.stderr)
-    for name, fn in (("followup", collect.followup), ("timeline", collect.timeline), ("stars", collect.stars),
+    from usage import xbudzet
+    # 27.11. (vlasnik): priority 1 of the X budget first (calls on the tokens our watched wallets buy)
+    for name, fn in (("novcanici", novcanici_x.search),
+                     ("followup", collect.followup), ("timeline", collect.timeline), ("stars", collect.stars),
                      ("winners", discover.winners), ("trending", trending.search), ("audit", discover.audit),
                      ("graph", discover.graph)):
         try:
@@ -86,7 +89,7 @@ def cmd_search(a, con=None, cfg=None):
             con.commit()
             n += k
             print(f"search {name}: {k} novih poziva")
-        except apify.BudgetExceeded as e:
+        except (apify.BudgetExceeded, xbudzet.Cap) as e:
             print(f"search {name}: {e}")
         except Exception as e:
             print(f"search {name}: {type(e).__name__}: {e}", file=sys.stderr)

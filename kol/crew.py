@@ -117,8 +117,12 @@ def run(con, cfg, hype_db, get=None, now=None, log=print):
     for tid, tok, caller, call_ts in due_calls(con, cfg, now):
         if spent >= c["daily_usd"]:
             break
+        from usage import xbudzet   # 27.11. (vlasnik): who pushes a call is priority 1 of the X budget
+        if not xbudzet.room("pozivi", 3 * 0.00015 + 20 * 0.00015, now):
+            break
         eng = fetch_engagers(tid, get, call_ts)
         spent += 3 * 0.00015 + len(eng) * 0.00015
+        xbudzet.book("pozivi", 3 * 0.00015 + len(eng) * 0.00015, now, "ekipa", calls=3)
         for h, kind, foll, ts in eng:
             if h.lower() == (caller or "").lower():
                 continue

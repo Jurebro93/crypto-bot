@@ -324,6 +324,10 @@ def fetch_posts(con, c, now, infs, get=None, log=print):
         if spent + usd >= cap:
             state = "strop"
             break
+        from usage import xbudzet   # 27.11. (vlasnik): wallet <-> influencer linking is priority 1 of the X budget
+        if not xbudzet.room("pozivi", twapi.cost(20), now):
+            state = "strop"
+            break
         try:
             d = get(f"from:{h} since_time:{int(max(last, now - int(c['kol_x_days']) * 86400))}", "")
         except Exception as e2:  # noqa: BLE001 - a refusal or an outage: this pass reads nothing more from X
@@ -336,6 +340,7 @@ def fetch_posts(con, c, now, infs, get=None, log=print):
         tweets = (d or {}).get("tweets") or []
         cost = twapi.cost(len(tweets))
         usd += cost
+        xbudzet.book("pozivi", cost, now, "insajderi")
         try:
             from usage import meter
             meter.record("twitterapi", "kol_insajderi", cost)

@@ -57,7 +57,10 @@ python3 -m ops.fokus || true
 # SOCIAL_WINDOW_H 6 h; state DATA_DIR/drustveni.json). Every influencer / Telegram job below asks the same gate
 # (KOL search round and push rules, minute candles after calls, Telegram reader, makroinf, call power, X momentum, AI
 # labels, zadnjih5, konsenzus); outside the window each says so once a day. SOCIAL_ALWAYS=1 = the old behaviour.
+# 27.11. (vlasnik): the 5-day window is abolished (every gate open; SOCIAL_WINDOW=1 brings it back); every X read is
+# under the X budget instead (usage/xbudzet.py: 5 $ a day, 100 $ a month, priorities pozivi / otkrivanje / ostatak)
 python3 -m ops.drustveni || true
+python3 -m usage.xbudzet || true
 
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).

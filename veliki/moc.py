@@ -254,10 +254,14 @@ def sweep(con, tokens, symmap, now, get=None, log=print, day_usd=DAY_USD, every_
         if twapi.spent(con, now) >= day_usd:
             out["stopped"] = f"dnevni strop {day_usd:g} $"
             break
+        if not twapi._room("pozivi", twapi.MAX_PAGE, now):   # 27.11.: the X budget (usage/xbudzet)
+            out["stopped"] = "X budžet (pozivi) potrošen"
+            break
         sym = inv.get(mint)
         q = (f"(${sym} OR {mint})" if sym else mint) + f" min_faves:{MIN_FAVES} -filter:replies"
         try:
-            items = twapi.search(con, q, now - SEARCH_DAYS * D, day_usd, get=get, max_pages=pages, now=now)
+            items = twapi.search(con, q, now - SEARCH_DAYS * D, day_usd, get=get, max_pages=pages, now=now,
+                                 cat="pozivi", job="moc")
         except Exception as e:  # noqa: BLE001 - 402 (no credit), 429, a network error: stop, keep what we have
             con.commit()
             out["stopped"] = f"{type(e).__name__}: {str(e)[:80]}"

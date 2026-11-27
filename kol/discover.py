@@ -106,12 +106,13 @@ def winners(con, cfg, get=None, now=None):
     n = 0
     for tok, since, until in winner_targets(con, cfg, now)[:d["win_per_run"]]:
         left = min(d["winners_usd"] - mine, disc_left(con, cfg, now))
-        if left <= 0:
+        if left <= 0 or not twapi._room("otkrivanje", twapi.MAX_PAGE, now):   # 27.11.: + the X budget
             break
         before = twapi.spent(con, now)
         budget = before + left
         try:
-            items = twapi.search(con, tok, since, budget, get=get, max_pages=d["win_pages"], now=now, until_ts=until)
+            items = twapi.search(con, tok, since, budget, get=get, max_pages=d["win_pages"], now=now, until_ts=until,
+                                  cat="otkrivanje", job="discover")
         except Exception as e:  # noqa: BLE001 - one bad query must not stop the round
             print(f"kol winners: upit nije uspio ({type(e).__name__}: {e})", flush=True)
             items = []
@@ -257,11 +258,11 @@ def audit(con, cfg, client=None, get=None, now=None):
         client = anthropic.Anthropic(timeout=60, max_retries=2)
     n = 0
     for h in audit_targets(con, cfg, now)[:a["per_run"]]:
-        if disc_left(con, cfg, now) <= 0:
+        if disc_left(con, cfg, now) <= 0 or not twapi._room("otkrivanje", 0.002, now):   # 27.11.: + the X budget
             break
         before = twapi.spent(con, now)
         try:
-            u = twapi.user_info(con, h, get=get, now=now)
+            u = twapi.user_info(con, h, get=get, now=now, cat="otkrivanje", job="discover")
             if u is None or u.get("unavailable"):
                 why = (u or {}).get("unavailableReason") or "račun ne postoji"
                 con.execute("INSERT OR REPLACE INTO audits VALUES (?,?,?,?,?,?,?,?,?)",
@@ -269,7 +270,8 @@ def audit(con, cfg, client=None, get=None, now=None):
                 _charge(con, now, before)
                 n += 1
                 continue
-            pins = twapi.tweets(con, (u.get("pinnedTweetIds") or [])[:1], get=get, now=now)
+            pins = twapi.tweets(con, (u.get("pinnedTweetIds") or [])[:1], get=get, now=now, cat="otkrivanje",
+                                job="discover")
             pinned = (pins[0].get("text") if pins else "") or "(nema)"
             posts = [t for (t,) in con.execute("SELECT text FROM calls WHERE handle = ? AND kind IN "
                                                "('call', 'brag', 'warn', 'bot') ORDER BY ts DESC LIMIT ?",
@@ -338,11 +340,11 @@ def graph(con, cfg, get=None, now=None):
     from kol import collect
     n = 0
     for h in due:
-        if disc_left(con, cfg, now) <= 0:
+        if disc_left(con, cfg, now) <= 0 or not twapi._room("otkrivanje", 0.002, now):   # 27.11.: + the X budget
             break
         before = twapi.spent(con, now)
         try:
-            fs = twapi.followings(con, h, g["page"], get=get, now=now)
+            fs = twapi.followings(con, h, g["page"], get=get, now=now, cat="otkrivanje", job="discover")
         except Exception as e:  # noqa: BLE001
             print(f"kol graph @{h}: {type(e).__name__}: {e}", flush=True)
             continue
