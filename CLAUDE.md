@@ -62,6 +62,15 @@
   relevantnih stranica; nove javne stranice dodaju se postupno, nikad stotine odjednom; sadržaj se osvježava stvarnim
   novim podacima i linka na autoritativne izvore. Svaku promjenu indeksiranja (noindex, sitemap, robots, nova skupina
   javnih stranica) prije deploya opisati vlasniku: što se mijenja, koliko stranica, koji je rizik.
+- Smjer 27.11. (vlasnik): MemeSonar prodaje izmjerene podatke (pretplata, API, B2B), ne tvrdi da ima profitabilan bot.
+  Autopilot je potpuno ugašen i ne troši resurse; pravi novac samo ručno (vlasnik) ili njegovim prekidačem; demo,
+  istraživač i knjiga sjene rade dalje radi učenja. OpenAI kritičar isključen. Helius ostaje na istom planu: novčanici
+  bez korisne kupnje tjedno izlaze iz praćenja (podaci se nikad ne brišu, mogu se vratiti), webhook samo kupnje i
+  prodaje, prijenosi dnevno u skupnom dohvatu. Pravilo „influenceri jednom u 5 dana" ukinuto: X do 5 $ dnevno i
+  100 $ mjesečno (prvo pozivi praćenih tokena, zatim novi influenceri, ostatak makro). Prikaz na stranicama osvježava
+  se rjeđe; krediti idu na skupljanje podataka. Korisnici vide rezultat i 2–3 razloga, nikad težine, pragove ni
+  formule. Veza novčanika s X računom samo za javne praćene influencere, kao „moguća veza" s dokazima, nikad javno
+  indeksirano.
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.
