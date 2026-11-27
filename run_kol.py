@@ -221,7 +221,8 @@ def cmd_live(a, con=None, cfg=None):
 
 
 def cmd_traces(a, con=None, cfg=None):
-    """Suspicious transfers around tracked wallets (kol/traces.py) from the Helius TRANSFER events."""
+    """Suspicious transfers around tracked wallets (kol/traces.py) from hype.db chain_transfers (27.11.: the daily
+    transfer batch of kol/rotacija, cmd_rotacija runs before it in the night round; the webhook is SWAP only)."""
     from kol import chainwatch, traces
     con, cfg = con or store.connect(), cfg or config()
     n = traces.run(con, chainwatch.HYPE_DB, cfg)
@@ -259,6 +260,17 @@ def cmd_chain(a, con=None, cfg=None):
         print("chain: nema HELIUS_API_KEY ili javnog URL-a, preskačem")
 
 
+def cmd_rotacija(a, con=None, cfg=None):
+    """27.11. (kol/rotacija.py): parked wallets back when useful, the weekly webhook rotation (night only, every 7
+    days) and the day's transfer batch (Helius, chain.transferi.credits_day); never deletes a row."""
+    from kol import rotacija
+    con, cfg = con or store.connect(), cfg or config()
+    if getattr(a, "force", False):
+        print(rotacija.rotate(con, cfg["chain"], force=True))
+        return
+    rotacija.night(con, cfg["chain"])
+
+
 def cmd_converge(a, con=None, cfg=None):
     from kol import converge
     con, cfg = con or store.connect(), cfg or config()
@@ -274,8 +286,8 @@ def cmd_converge(a, con=None, cfg=None):
 # scoring (40+ min of CPU), traces, the GeckoTerminal measure, Helius flows and the deleted-posts check run only in
 # the night window (ops/heavy.NIGHT). KOL_FULL_ROUND=1 forces the full round at any hour.
 DAY_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", "cmd_converge", "cmd_crew")
-NIGHT_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", "cmd_converge", "cmd_score", "cmd_traces",
-               "cmd_measure", "cmd_flows", "cmd_deleted", "cmd_crew")
+NIGHT_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", "cmd_converge", "cmd_score",
+               "cmd_rotacija", "cmd_traces", "cmd_measure", "cmd_flows", "cmd_deleted", "cmd_crew")
 
 
 # 19.11. (vlasnik: "stop spending resources on scraping influencers and Telegram channels ... once every 5 days. What
@@ -285,7 +297,7 @@ NIGHT_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", 
 # rule), and at night the traces and Helius flows of wallets around calls. No scoring, measuring, snapshots, crews,
 # deletion checks, no search round; the day round then runs without the heavy-job lock.
 WALLET_DAY_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live")
-WALLET_NIGHT_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_traces", "cmd_flows")
+WALLET_NIGHT_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_rotacija", "cmd_traces", "cmd_flows")
 
 
 def round_steps(full=None, social=None):
@@ -414,13 +426,15 @@ def main(argv=None):
     bp.add_argument("--kols", type=int, default=150, help="koliko KOL-ova dobiva povijest timelinea")
     bp.add_argument("--per-kol", type=int, default=100)
     bp.add_argument("--budget", type=float, default=11.0, help="USD za cijeli backfill (Apify)")
+    rp = sub.add_parser("rotacija")
+    rp.add_argument("--force", action="store_true", help="tjedna rotacija odmah (izvan rasporeda i noći)")
     tp = sub.add_parser("top")
     tp.add_argument("-n", type=int, default=30)
     a = p.parse_args(argv)
     {"collect": cmd_collect, "search": cmd_search, "snap": cmd_snap, "measure": cmd_measure, "flows": cmd_flows, "score": cmd_score,
      "top": cmd_top, "live": cmd_live, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill,
      "chain": cmd_chain, "converge": cmd_converge, "minute": cmd_minute, "minute-loop": cmd_minute_loop,
-     "search-round": cmd_search_round}[a.cmd](a)
+     "search-round": cmd_search_round, "rotacija": cmd_rotacija}[a.cmd](a)
 
 
 if __name__ == "__main__":

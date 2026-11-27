@@ -215,7 +215,21 @@ def helius(now, paths):
         rows = _all(ucon, "SELECT script, SUM(amount) FROM usage WHERE service = 'helius' AND hour >= ? GROUP BY script",
                     (day0,))
         by = {s: int(_f(v)) for s, v in rows if s}
-        return {"krediti_bot": sum(by.values()), "po_poslu": by, "racun": _account(ucon, "helius", now)}
+        out = {"krediti_bot": sum(by.values()), "po_poslu": by, "racun": _account(ucon, "helius", now)}
+        # 27.11. (kol/rotacija.py: webhook samo SWAP, transferi batchom, tjedna rotacija): the wallet webhook's events
+        # today and yesterday (1 credit each) and the transfer batch apart, so the saving can be checked the next day
+        try:
+            from usage import meter
+            wh = meter.WEBHOOK_SCRIPT
+            for key, lo, hi in (("webhook_dogadaja", day0, day0 + 86400), ("webhook_dogadaja_jucer", day0 - 86400, day0)):
+                out[key] = int(_f(_one(ucon, "SELECT SUM(calls) FROM usage WHERE service = 'helius' AND script = ? AND "
+                                             "method = 'webhook događaji' AND hour >= ? AND hour < ?", (wh, lo, hi), 0)))
+            from kol import rotacija
+            out["transferi_batch"] = by.get(rotacija.SCRIPT, 0)
+            out["rotacija"] = rotacija.report(paths.get("kol"), paths.get("usage"), now)
+        except Exception as e:  # noqa: BLE001 - the rest of the Helius part stays
+            out["rotacija_greska"] = f"{type(e).__name__}: {e}"[:120]
+        return out
     finally:
         if ucon is not None:
             ucon.close()
@@ -411,6 +425,12 @@ def line(d):
                  + (f" (+{_f(acc['dan']) / 1e3:.0f}k u 24 h)" if acc.get("dan") is not None else "")
                  + time.strftime(", očitano %H:%M UTC", time.gmtime(acc["ts"]))) if acc else "stanje računa: /usage ručno"
         parts.append(f"Helius bot {_n(he.get('krediti_bot'))} kr. ({_top(he.get('po_poslu'))}), {state}")
+        if he.get("webhook_dogadaja") is not None:
+            parts.append(f"webhook novčanika {_n(he.get('webhook_dogadaja'))} događaja danas (jučer "
+                         f"{_n(he.get('webhook_dogadaja_jucer'))}), transferi batch {_n(he.get('transferi_batch'))} kr.")
+        if he.get("rotacija"):
+            from kol import rotacija
+            parts.append(rotacija.report_line(he["rotacija"]))
     if ai_:
         parts.append(f"AI oznake {_n(ai_.get('objava'))} objava, ${_usd(ai_.get('usd'))} ({_top(ai_.get('po_poslu'), fmt=_usd)})")
     oa = d.get("openai") or {}

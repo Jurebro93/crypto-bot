@@ -503,6 +503,12 @@ def costs_rows(c):
         acc = he.get("racun") or {}
         rows.append(("Helius", f"{_n(he.get('krediti_bot'))} kredita"
                      + (f" (račun +{(acc.get('dan') or 0) / 1e3:,.0f}k)" if acc.get("dan") is not None else "")))
+        if he.get("webhook_dogadaja") is not None:   # 27.11. (kol/rotacija.py): the saving is checked here
+            rows.append(("Helius: webhook novčanika", f"{_n(he.get('webhook_dogadaja'))} događaja (1 kredit svaki), "
+                                                      f"transferi batch {_n(he.get('transferi_batch'))} kredita"))
+        if he.get("rotacija"):
+            from kol import rotacija
+            rows.append(("Rotacija novčanika", rotacija.report_line(he["rotacija"])))
     ai_ = c.get("ai") or {}
     if ai_:
         rows.append(("AI oznake (Claude)", f"{ai_.get('usd') or 0:.2f} $, {_n(ai_.get('objava'))} objava"))
