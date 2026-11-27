@@ -1236,6 +1236,11 @@ def profile(con, k, handle, now=None):
     facts = R.cat(f"{v['word']} · {v['n']} {_poziva(v['n'])}", f" · ocjena {sc:.0f}" if sc is not None else None, rugw)
     title = ("Još bez presude" if v["word"] == "premalo podataka" else KS.VERDICT_TITLE[v["key"]])
     panel = R.verdict(title, KS.verdict_counts(v), label=f"Presuda za zadnjih {sr['days']} dana", facts=facts, kind=v["dot"])
+    try:   # 27.11. (tocnost/): how often this verdict was right on the calls that came after it (14-day verdict)
+        from ui import tocnost as _toc
+        panel = R.raw(str(panel) + _toc.CSS + _toc.line("kol", v.get("key"), "Ova presuda"))
+    except Exception:  # noqa: BLE001
+        pass
     n1, n24 = v["n1"], v["n24"]
     fast, hold = sr["fast_usd"], sr["hold_usd"]
     money = R.raw(" · ".join(f'<span class={kolchart._tone(x) or "mut"}>{esc(kolchart.money(x))}</span>' for x in (fast, hold)))

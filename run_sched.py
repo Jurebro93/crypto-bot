@@ -22,6 +22,7 @@ process that ends and gives its memory back; this process only keeps the clock. 
   kriticar_dan run_critic.py daily  at the first check after a start when today (Zagreb) has none, then daily at
                                 KRITICAR_DAILY_HOUR:40 (default 06:40, before the 07:00 morning e-mail); light
   kriticar_dubinski run_critic.py deep --auto  every 10 min a look: the deep session when due (critic/deep.py); light
+  tocnost run_tocnost.py noc     once a day at 03:00 Zagreb (TOCNOST_HOUR): accuracy of every shown score, heavy lock
   tokenstranice run_tokenstranice.py sat  every TOKENSTRANICE_EVERY_MIN (60): the token pages + AI opinions; light
 """
 import datetime as dt
@@ -320,6 +321,9 @@ JOBS = [
     # 15.11. (vlasnik: "svi novi tokeni ... svoj page sa statistikom, feedbackom, tko ga je zvao ... i mišljenje";
     # tokenstranice/): every hour the token pages from our own databases (read-only) and a small batch of AI opinions
     # (gpt-5-mini, its own cap 0.30 $/day); nice 10 inside, light (no heavy lock: it only reads and waits on the API)
+    # 27.11. (vlasnik: "Every score shown on the site gets its own measured accuracy"; tocnost/): read-only on the
+    # source databases, writes only tocnost.db; in the night window under the heavy lock (not light)
+    ("tocnost", daily_local, (["run_tocnost.py", "noc"], _env_hour("TOCNOST_HOUR", 3), False)),
     ("tokenstranice", every, (["run_tokenstranice.py", "sat"], float(os.environ.get("TOKENSTRANICE_EVERY_MIN", "60")),
                               True)),
 ]
