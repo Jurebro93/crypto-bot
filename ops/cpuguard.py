@@ -233,6 +233,10 @@ PROCESSES = (
     ("holderi", "run_holderi.py", (), JOBS,
      "holderi midcapova i listing signali: svakih 10 min top holderi (RugCheck), tragovi prijenosa na burze (Helius u "
      "dnevnom stropu), PRE-LISTING signali, profitabilni holderi"),
+    # 27.11. (owner, osobe/): wallets grouped into persons, read-only on the other databases, once a night; writes
+    # only osobe.db, may be paused (the page shows the last night)
+    ("osobe", "run_osobe.py", (), JOBS,
+     "osobe iza novčanika: noćno grupiranje novčanika u osobe, moguće veze s praćenim X računima, grupni pozivi"),
     # 15.11. (owner, oscilator/): read-only walk-forward after a deploy and nightly; writes only oscilator.db
     ("oscilator", "run_oscilator.py", (), JOBS,
      "oscilator: walk-forward skalpiranja tokena koji osciliraju (samo čita minutne podatke), nakon deploya i noću"),

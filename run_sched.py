@@ -24,6 +24,7 @@ process that ends and gives its memory back; this process only keeps the clock. 
   kriticar_dubinski run_critic.py deep --auto  every 10 min a look: the deep session when due (critic/deep.py); light
   tocnost run_tocnost.py noc     once a day at 03:00 Zagreb (TOCNOST_HOUR): accuracy of every shown score, heavy lock
   tokenstranice run_tokenstranice.py sat  every TOKENSTRANICE_EVERY_MIN (60): the token pages + AI opinions; light
+  osobe   run_osobe.py noc      once a Zagreb night at 03:20: wallets grouped into persons (osobe/); heavy lock, no API
 """
 import datetime as dt
 import json
@@ -326,6 +327,9 @@ JOBS = [
     ("tocnost", daily_local, (["run_tocnost.py", "noc"], _env_hour("TOCNOST_HOUR", 3), False)),
     ("tokenstranice", every, (["run_tokenstranice.py", "sat"], float(os.environ.get("TOKENSTRANICE_EVERY_MIN", "60")),
                               True)),
+    # 27.11. (vlasnik: novčanici grupirani u osobe, profil, moguće veze s praćenim X računima, moć grupnih poziva;
+    # osobe/): reads the other jobs' databases only, no API; once a Zagreb night at 03:20 under the heavy-job lock
+    ("osobe", daily_local, (["run_osobe.py", "noc"], 3, False, 20)),
 ]
 
 
