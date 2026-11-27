@@ -414,7 +414,8 @@ def csrf_token(session_value):
 
 
 # POSTs that change money, roles or settings: need a non-empty same-site Origin/Referer AND the form token
-CSRF_STRICT = ("/pravi-trade/", "/korisnici/", "/postavke/", "/zahtjevi/", "/run/", "/pump-tokeni/", "/osobe/")
+CSRF_STRICT = ("/pravi-trade/", "/korisnici/", "/postavke/", "/zahtjevi/", "/run/", "/pump-tokeni/", "/osobe/",
+               "/api-kljucevi/")
 PUMPT = "/pump-tokeni"   # 25.11.: owner-only page (ui/pumptokeni.py)
 
 
@@ -628,6 +629,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._export(path[len("/admin/export/"):], qs)
         if path.startswith("/api/mcp/"):   # 10.11.: the MemeSonar MCP server's data (Bearer MCP_API_KEY), no login
             return self._mcp_get(path, qs)
+        if path.startswith("/api/v1/"):   # 27.11.: the public API, a key per user (ui/javniapi.py), no login, every host
+            return self._api_v1(path, qs)
         if path == "/mcp":   # 10.11.: the hosted MCP endpoint answers POST only (no server-initiated stream)
             self.send_response(405)
             self.send_header("Allow", "POST")
@@ -819,6 +822,22 @@ class Handler(BaseHTTPRequestHandler):
                 return 200, html.encode("utf-8")
             code, raw, gz = pagecache.get(("/novcanici-admin", u.query, "vlasnik", self.lang), build_admin)
             return self._send(code, raw, gz=gz, translated=True)
+        if path == "/api":   # 27.11.: docs of the public API, every logged-in user, noindex like every app page
+            from ui import javniapistr
+            return self._send(200, page(*javniapistr.docs_page(), path).encode("utf-8"))
+        if path == "/api-kljucevi":
+            # 27.11. (ui/javniapistr.py): API keys per user. The OWNER only, checked here before anything is read; never cached
+            from trade import settings as tsettings
+            from ui import javniapistr
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/>← Na početnu</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+            try:
+                html = page(*javniapistr.owner_page(qs), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
         if path == PUMPT or path.startswith(PUMPT + "/"):
             # 25.11. (vlasnik, ui/pumptokeni.py): launches of our own pump.fun tokens. The OWNER only, checked here on the
             # server before anything is read (other admins and users 403, visitors the login); never cached, noindex
@@ -1081,6 +1100,28 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
 
+    def _api_v1(self, path, qs):
+        """27.11.: GET /api/v1/* (ui/javniapi.handle): JSON only, 429 with Retry-After, noindex, never a traceback."""
+        from ui import javniapi
+        try:
+            code, out, extra = javniapi.handle(path, qs, self.headers)
+        except Exception as e:  # noqa: BLE001
+            print(f"javniapi: {type(e).__name__}", flush=True)
+            code, out, extra = 500, {"error": "temporary error, try again later"}, {}
+        body = json.dumps(out, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Robots-Tag", "noindex, nofollow")
+        for k, v in extra.items():
+            self.send_header(k, v)
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
     def _mcp_auth(self):
         """True, or the (code, json) to answer: 404 while MCP_API_KEY is not set (the API does not exist), 401 on a
         wrong key."""
@@ -1234,6 +1275,12 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/hook/chain":
             self._chain_hook(u)
             return
+        if u.path.startswith("/api/v1/"):   # 27.11.: the public API is GET only
+            self.send_response(405)
+            self.send_header("Allow", "GET")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
         if u.path == "/api/mcp/trade":   # 10.11.: a trade REQUEST from the MCP server; waits for the owner's tap
             return self._mcp_post()
         if u.path == "/mcp":   # 10.11.: the MCP endpoint for Grok, hosted in the app (ui/mcpapi.rpc), Bearer key
@@ -1277,6 +1324,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(403)
                 self.end_headers()
                 return
+        if path.startswith("/api-kljucevi/"):   # 27.11.: owner only, same site + form token (CSRF_STRICT) when AUTH
+            from trade import settings as tsettings
+            from ui import javniapistr
+            if not tsettings.is_owner(self.user):
+                return self._forbidden(path, "admin")
+            if not same_site:
+                self.send_response(403)
+                self.end_headers()
+                return
+            form = dict(parse_qsl(self._read_body(200_000).decode("utf-8", "replace")))
+            to, shown = javniapistr.post(path, form, self.user)
+            if shown:   # a new key or a trace: rendered here, never put in an address
+                return self._send(200, page(*shown, "/api-kljucevi").encode("utf-8"))
+            return self._redirect(to)
         if path.startswith(PUMPT + "/"):   # 25.11.: owner only, same site + form token (CSRF_STRICT) when AUTH
             from trade import settings as tsettings
             if not tsettings.is_owner(self.user):

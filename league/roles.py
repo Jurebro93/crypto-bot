@@ -46,6 +46,7 @@ PAGES = {
     # now the server refuses them like the menu hides them (_role_cls in ui/html.py reads this same table)
     "/strategije": "prijatelj", "/trziste": "prijatelj", "/market": "prijatelj", "/dugorocno": "prijatelj",
     "/ekipe": "prijatelj", "/izlazi": "prijatelj", "/korelacije": "prijatelj",
+    "/api-kljucevi": "admin",    # 27.11.: and of the admins only the OWNER (run_ui.py): public API keys
 }   # 19.11.: /whatsapp removed (the page is gone; ui/maknuto redirects it)
 # forms (path prefix) and the lowest role that may send them; anything not listed needs only a login
 POSTS = (
@@ -55,6 +56,7 @@ POSTS = (
     ("/natjecanje/pozivnica/", "admin"),   # invite links: who gets into the app is the admin's call
     ("/paper/izlaz", "admin"),             # sells the bot's own demo position
     ("/nas-token/", "prijatelj"),
+    ("/api-kljucevi/", "admin"),           # 27.11.: and of the admins only the OWNER (run_ui.py)
     ("/pump-tokeni/", "admin"),            # 25.11.: and of the admins only the OWNER (run_ui.py)          # includes /nas-token/rpc, which goes through our paid Helius key
 )
 
