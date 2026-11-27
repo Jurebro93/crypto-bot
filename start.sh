@@ -520,6 +520,9 @@ if [ -z "${LIVE_OFF:-}" ]; then keep live python3 run_live.py loop ${LIVE_ARGS:-
 # kraja>. Every 10 min: DexScreener outcome of the recorded launches (+1 h, +12 h), a log line every 6 h, the final
 # summary at the deadline, the database deleted 7 days after it. Without the variable and the database it exits at once.
 ( sleep 900; while true; do low python3 -m live.pumpmjerenje tick || echo "pump mjerenje nije uspjelo"; sleep 600; done ) &
+# 27.11. (vlasnik: model vjerojatnosti bondanja; bondmodel/): once a day, offline over the measurement database and its
+# archives (no network, buys nothing, nothing that trades reads it); without data it exits at once. A few seconds.
+( sleep 1800; while true; do low python3 -m bondmodel.posao run || echo "model bondanja nije uspio"; sleep 86400; done ) &
 # 25.11. (vlasnik, /pump-tokeni; pumptokeni/posao.py): every minute the owner-approved launch queue (one token at a time,
 # spacing, caps, kill switch, safety stop), the outcome book (+1 h/+12 h/+24 h/+7 d, DexScreener) and one log line a
 # day. Without pump_tokeni.db (the page never opened) it exits at once. Buys and sells nothing.
