@@ -783,6 +783,13 @@ def wallet(addr, qs):
               "nije dokazan dvaput ni ručno praćen")
     left.append(rd.raw('<div class="ms-ap">' + rd.rows([rd.row("Prati ga Autopilot", ap_why,
                                                                rd.cat(rd.dot("good"), "da") if followed else "ne")]) + "</div>"))
+    try:   # 27.11. (vlasnik: kopirljivost uz 5 / 30 / 120 s kašnjenja i stvarni trošak, wallets/kopirljivost.py)
+        from wallets import kopirljivost
+        kb = kopirljivost.box("novcanik", addr)
+        if kb:
+            left.append(kb)
+    except Exception:  # noqa: BLE001 - the page never breaks on this box
+        pass
     pos, priced = _positions(addr)
     closed = _closed_sorted(pos)
     right = [_sec("Kako je zarađivao")]

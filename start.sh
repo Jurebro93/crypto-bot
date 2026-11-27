@@ -423,6 +423,12 @@ fi
 # "novčanici kopija: ..." and wallets.db copy_rank_kv "kopija" (the morning report and /strategije show it). Not a
 # microcap job of ops/fokus.OFF: it runs under the owner switch fokus_midcap too.
 ( sleep "${KOPIJA_FIRST_S:-1200}"; python3 -m ops.heavy run_wallets.py kopija --ako-nema || echo "novčanici kopija nije uspjela"; while true; do sleep 3600; python3 -m ops.heavy --night run_wallets.py kopija --night || echo "novčanici kopija (noć) nije uspjela"; done ) &
+# 27.11. (vlasnik: "Izmjeri kopirljivost svakog walleta i influencera s kašnjenjem 5, 30 i 120 s i stvarnim troškom";
+# wallets/kopirljivost.py): every tracked wallet's buys and every influencer's calls copied 5 / 30 / 120 s late at the
+# stored prices, after the real round trip; databases only (read-only), no network, no paid call. Nightly only
+# (01-06 Zagreb, once a day) under the heavy-job lock, budget KOPIRLJIVOST_BUDGET_S (30 min); kopirljivost.db, one
+# line "kopirljivost: ...", the wallet and influencer pages show it.
+( sleep "${KOPIRLJIVOST_FIRST_S:-1500}"; while true; do python3 -m ops.heavy --night run_wallets.py kopirljivost --night || echo "kopirljivost (noć) nije uspjela"; sleep 3600; done ) &
 # 15.11. (vlasnik: "insajderi drže velik dio ponude? oprez — ali to su često BURZE ... kad dio ponude ode na novčanik
 # burze, a token tamo još nije listan, to je jak signal"; holderi/, run_holderi.py): every HOLDERI_EVERY_S (10 min), a
 # short low-priority process outside the heavy lock, only with the owner switch fokus_midcap: the top 20 holders of the

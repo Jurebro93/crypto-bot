@@ -496,13 +496,14 @@ def liq_near(points, ts, tol=LIQ_TOL_S):
 
 # ---------- one copied trade ----------------------------------------------------------------------------------------------
 
-def simulate(ep, delay, rule, ser, hi):
+def simulate(ep, delay, rule, ser, hi, gap=ENTRY_GAP_S):
     """The copier's trade of one position `ep` on one price series, before cost: None when the series has no price for
     our entry; else {"ts", "e_px", "src", "out_ts", "x_px" (None = the exit has no price), "why", "open", "stale"}.
     why: "prodao" (his first sale + delay), "stop" (the first print at or under entry x (1 - STOP)), "vrijeme" (24 h),
-    "otvoreno" (not sold by the end of the data `hi`: marked at the last print)."""
+    "otvoreno" (not sold by the end of the data `hi`: marked at the last print). gap: how much later than buy + delay
+    the entry's price point may be (27.11. wallets/kopirljivost.py asks a tighter one)."""
     et = ep["t0"] + delay
-    i = ser.first_from(et, ENTRY_GAP_S)
+    i = ser.first_from(et, gap)
     if i is None:
         return None
     ts, px = ser.ts, ser.px
@@ -592,14 +593,33 @@ class Trade:
         return getattr(self, k, default)
 
 
-def copy_trade(wallet, ep, delay, rule, tok, sol_usd, fee=None, size=SIZE_SOL, floor=RT_FLOOR, hi=None):
+def entry_liq_mc(mint, kind, e_px, ts, tok, sol_usd):
+    """(pool liquidity USD or None, market cap USD or None, supply or None) at our entry: the stored pool snapshot
+    nearest ts; else, for a pump.fun mint, the constant-product estimate from our entry price. kind: the series the
+    entry price e_px is in ("sol" or "usd")."""
+    from wallets import rang
+    liq = liq_near(tok["liq"], ts)
+    supply = tok["supply"] or (rang.PUMP_SUPPLY if rang.is_pump(mint) else None)
+    if kind == "sol":
+        if liq is None and rang.is_pump(mint):
+            liq = rang.pool_liq_usd(e_px * rang.PUMP_SUPPLY, sol_usd)
+        mc = e_px * supply * sol_usd if supply else None
+    else:
+        if liq is None and rang.is_pump(mint) and sol_usd:
+            liq = rang.pool_liq_usd(e_px * rang.PUMP_SUPPLY / sol_usd, sol_usd)
+        mc = e_px * supply if supply else None
+    return liq, mc, supply
+
+
+def copy_trade(wallet, ep, delay, rule, tok, sol_usd, fee=None, size=SIZE_SOL, floor=RT_FLOOR, hi=None,
+               gap=ENTRY_GAP_S):
     """One buy as the copier would have traded it, or None when no stored price is near our entry. The SOL prints
     first, the USD series only when the prints cannot price the trade. "ret" None = the exit has no price."""
     from trade import cost
     from wallets import rang
     best = None
     for kind in ("sol", "usd"):
-        s = simulate(ep, delay, rule, tok[kind], hi)
+        s = simulate(ep, delay, rule, tok[kind], hi, gap)
         if s is None:
             continue
         s["kind"] = kind
@@ -610,16 +630,7 @@ def copy_trade(wallet, ep, delay, rule, tok, sol_usd, fee=None, size=SIZE_SOL, f
     if best is None:
         return None
     t = best
-    liq = liq_near(tok["liq"], t["ts"])
-    supply = tok["supply"] or (rang.PUMP_SUPPLY if rang.is_pump(ep["mint"]) else None)
-    if t["kind"] == "sol":
-        if liq is None and rang.is_pump(ep["mint"]):
-            liq = rang.pool_liq_usd(t["e_px"] * rang.PUMP_SUPPLY, sol_usd)
-        mc = t["e_px"] * supply * sol_usd if supply else None
-    else:
-        if liq is None and rang.is_pump(ep["mint"]) and sol_usd:
-            liq = rang.pool_liq_usd(t["e_px"] * rang.PUMP_SUPPLY / sol_usd, sol_usd)
-        mc = t["e_px"] * supply if supply else None
+    liq, mc, supply = entry_liq_mc(ep["mint"], t["kind"], t["e_px"], t["ts"], tok, sol_usd)
     rt = max(floor, cost.round_trip(size * sol_usd, liq, fee))
     ser = tok[t["kind"]]
     t.update(wallet=wallet, token=ep["mint"], t0=ep["t0"], liq=liq, mc=mc, cost=rt, his=ep.get("ret"), gross=None,
