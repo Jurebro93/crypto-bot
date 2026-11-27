@@ -22,6 +22,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.autopilot_staro import setUpModule, tearDownModule  # noqa: E402,F401   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
 
 from tests.test_grokcard_1311_offline import MINT, Card  # noqa: E402
 from trade import settings  # noqa: E402

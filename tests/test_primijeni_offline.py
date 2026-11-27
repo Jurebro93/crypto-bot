@@ -15,6 +15,7 @@ import unittest
 from urllib.parse import unquote
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.autopilot_staro import setUpModule, tearDownModule  # noqa: E402,F401   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
 
 from league import copy, flags, store  # noqa: E402
 from trade import executor, settings  # noqa: E402

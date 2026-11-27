@@ -620,6 +620,10 @@ def execute(body, now=None, wait_s=None, market=None):
                              "mode": (tx or {}).get("mode"), "tx_signature": (tx or {}).get("signature"),
                              "tx_status": (tx or {}).get("status") or "submitted"}
             # buy
+            from ops import autopilot_off   # 27.11. (vlasnik: Autopilot uklonjen): no automatic real-money buy; sells
+            if autopilot_off.on():          # above still close open positions
+                return reject("the Autopilot has been removed by the owner: no automatic real-money buys",
+                              hr="Autopilot je uklonjen (vlasnik 27.11.): nema automatskih kupnji pravim novcem")
             if not st["active"]:
                 return reject(f"paused until midnight Zagreb: {st['pause_reason']}",
                               hr=f"stoji do ponoći (Zagreb): {st['pause_reason']}")

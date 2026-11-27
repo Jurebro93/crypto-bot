@@ -32,6 +32,7 @@ from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from tests import autopilot_staro  # noqa: E402
 os.environ.setdefault("I18N_OFF", "1")
 
 from kol import store as kstore  # noqa: E402
@@ -112,6 +113,7 @@ ENV = {}
 
 
 def setUpModule():
+    autopilot_staro.setUpModule()   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
     ENV["tmp"] = tempfile.TemporaryDirectory()
     d = ENV["tmp"].name
     build(d)
@@ -134,6 +136,7 @@ def tearDownModule():
     public._cache.clear()
     javniteret.forget()
     ENV["tmp"].cleanup()
+    autopilot_staro.tearDownModule()
 
 
 def fresh():

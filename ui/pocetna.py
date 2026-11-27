@@ -771,11 +771,21 @@ def autopilot_state():
     return {"state": st, "eq": eq, "stats": stats}
 
 
+def _ap_off():
+    try:
+        from ops import autopilot_off
+        return autopilot_off.on()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def autopilot_row(a=None, paused=None):
     """"Autopilot · ● uživo, pravi novac · 8 zatvorenih", the wallet value and the result. One row, not a second
     banner: the black "Autopilot je live" line on top stays as Jure asked (9.11.). Leads to the page everyone may
     open (/autopilot; the owner's controls are one tap further)."""
     from ui import redak as R
+    if _ap_off():   # 27.11. (vlasnik: Autopilot uklonjen): no row, no equity read
+        return None
     a = a if a is not None else autopilot_state()
     if not a:
         return None
@@ -1087,7 +1097,7 @@ def open_real_line(o=None):
     if not o or not o[0]:
         return ""
     n, sol = o
-    return (f'<a class="pg-open" href="/autopilot">Otvoreno pravim novcem: {R.num(n)} '
+    return (f'<a class="pg-open" href="{"/pravi-trade" if _ap_off() else "/autopilot"}">Otvoreno pravim novcem: {R.num(n)} '
             f'{plural(n, "pozicija", "pozicije", "pozicija")}, uloženo {R.h(R.sol(sol))}; izlazi i dalje rade.'
             '<span class="ms-chev" aria-hidden="true"></span></a>')
 
@@ -1096,6 +1106,8 @@ def autopilot_folded(now=None):
     """The Autopilot at the bottom of Pregled as ONE collapsed block (19.11., vlasnik: "Autopilot stavi u drugi plan
     dok rekonstruiramo app")."""
     from ui import pauza, redak as R
+    if _ap_off():   # 27.11.: the Autopilot is removed: no block at the bottom of Pregled
+        return ""
     paused = _safe("pauza", pauza.on)
     title = "Autopilot (pauzirano)" if paused else "Autopilot"
     inner = autopilot_now() or R.hint("Stanje Autopilota se trenutno ne može učitati.")

@@ -426,13 +426,13 @@ class AutopilotMenuForAdmins(unittest.TestCase):
         stripped = admstrip.strip(menu)
         self.assertNotIn("/pravi-trade", admstrip.strip(html.vise_page({})[1]))   # a non-admin's copy has no trace of it
         self.assertIn('href="/pregled"', stripped)                                # ... and keeps the rest of the menu
-        self.assertIn("Autopilot", html.ADMIN)
+        self.assertIn(html.AP_GROUP, html.ADMIN)   # 27.11.: "Pravi trade" while the Autopilot is removed
         self.assertIn(".side .sec-ap a.ap", html.ADMIN_CSS)
 
     def test_map_page_marks_the_autopilot_group_admin_only(self):
         from ui import admstrip, html
         _, body = html.map_page()
-        i = body.index("Autopilot</h2>")
+        i = body.index(f"{html.AP_GROUP}</h2>")
         self.assertIn("adm-only", body[body.rfind("<h2", 0, i):i])
         self.assertNotIn("/pravi-trade", admstrip.strip(body))
 

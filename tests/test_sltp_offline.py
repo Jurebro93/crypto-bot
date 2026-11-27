@@ -26,6 +26,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests import autopilot_staro  # noqa: E402
 
 from league import copy  # noqa: E402
 from tests.test_apterm_offline import LIVE_T, NOW, PAPER_T, Env, market  # noqa: E402
@@ -38,11 +39,13 @@ OTHER = "Bxue111111111111111111111111111111111111pump"
 
 
 def setUpModule():
+    autopilot_staro.setUpModule()   # 27.11.: tests the removed Autopilot (AUTOPILOT_OFF=0)
     _WAKE.start()
 
 
 def tearDownModule():
     _WAKE.stop()
+    autopilot_staro.tearDownModule()
 
 
 def pks(html):
