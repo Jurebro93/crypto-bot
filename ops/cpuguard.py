@@ -191,6 +191,8 @@ PROCESSES = (
     # PUMP_MJERENJE_DO; nitko ga ne čeka (pauza samo kasni ishod)
     ("pumpmjerenje", "-m live.pumpmjerenje", (), JOBS,
      "jednokratno mjerenje naknade devu na pump.fun (DexScreener, besplatno; samo uz PUMP_MJERENJE_DO)"),
+    # 27.11. (bondmodel/): model bondanja, jednom dnevno, offline; nitko ga ne čeka
+    ("bondmodel", "-m bondmodel.posao", (), JOBS, "model vjerojatnosti bondanja pump.fun lansiranja (offline, dnevno)"),
     # 25.11. (vlasnik, /pump-tokeni): red lansiranja vlastitih tokena (jedan po jedan, nakon vlasnikova odobrenja) i
     # knjiga ishoda; svake minute, bez baze odmah izlazi; nitko ga ne čeka po sekundu (pauza samo kasni red)
     ("pumptokeni", "-m pumptokeni.posao", (), JOBS,

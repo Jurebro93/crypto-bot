@@ -302,7 +302,8 @@ class Isolation(unittest.TestCase):
     def test_nothing_else_reads_the_measurement(self):
         allowed = {os.path.join("live", "pumpmjerenje.py"), os.path.join("live", "pumpportal.py"),
                    os.path.join("report", "collect.py"), os.path.join("report", "render.py"),
-                   os.path.join("ops", "cpuguard.py")}   # cpuguard: only the process name for the CPU guard
+                   os.path.join("ops", "cpuguard.py"),   # cpuguard: only the process name for the CPU guard
+                   os.path.join("bondmodel", "model.py")}   # 27.11.: research model, offline; nothing that trades reads it
         bad = []
         for d, _sub, files in os.walk(ROOT):
             rel = os.path.relpath(d, ROOT)

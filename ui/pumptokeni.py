@@ -800,6 +800,16 @@ setInterval(function(){fetch('/pump-tokeni/ploca',{credentials:'same-origin'}).t
 </script>"""
 
 
+def _bond_html():
+    """27.11. (vlasnik): procjena bondanja tuđih lansiranja (ui/bondmodel.py); greška nikad ne ruši stranicu."""
+    try:
+        from ui import bondmodel
+        return bondmodel.section_html()
+    except Exception as e:  # noqa: BLE001
+        print(f"procjena bondanja: odjeljak nije uspio ({type(e).__name__})", flush=True)
+        return ""
+
+
 def page(qs, user, auto=None):
     con = _con()
     try:
@@ -846,6 +856,7 @@ def page(qs, user, auto=None):
                      empty="Još nijedan pokušaj.")
              + "</div></details>",
              _book_html(con),
+             _bond_html(),
              "</div>",
              f"<script>var PT={json.dumps(pt, ensure_ascii=False)};</script>" + JS]
         return "Pump Fun tokeni", "".join(b)

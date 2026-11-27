@@ -919,7 +919,7 @@ class Priorities(unittest.TestCase):
                 self.assertIn(name, ("minute", "sched", "report", "top", "watch", "simianx", "skener", "grupe", "range", "insajderi",
                                      "momentum", "shill-mreza", "eventi", "prijedlozi", "zonewatch", "fast", "disk",
                                      "retencija", "kriticar", "veliki", "arhiva", "holderi", "makroinf", "vijece",
-                                     "wallets", "tg", "pumpmjerenje", "pumptokeni"), ln)   # 19.11.: run_tg.py pratitelji (weekly follower count; JOBS)   # 19.11.: run_wallets.py povijest --kind day (JOBS class)   # 15.11.: veliki/ candles (run_veliki.py candles)   # 11.11.: momentum/, kol/preshill.py, topics/, proposals/,
+                                     "wallets", "tg", "pumpmjerenje", "pumptokeni", "bondmodel"), ln)   # 19.11.: run_tg.py pratitelji (weekly follower count; JOBS)   # 19.11.: run_wallets.py povijest --kind day (JOBS class)   # 15.11.: veliki/ candles (run_veliki.py candles)   # 11.11.: momentum/, kol/preshill.py, topics/, proposals/,
                 # zonewatch/, fast/ (run_fast.py, flag fast_path G24), ops/retencija.py (the retention, owner switches);
                 # 15.11.: critic/ (run_critic.py loop, the OpenAI critic's watcher of real-money fills; advice only);
                 # 15.11. navečer: veliki/ (run_veliki.py candles every 15 min, the midcap collector every 90 s; JOBS class)
