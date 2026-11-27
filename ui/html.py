@@ -70,10 +70,10 @@ SECTIONS = [
         # 19.11. (vlasnik: "the admin must have a dashboard with more data about the wallets"): the owner only
         _p("/novcanici-admin", "👛", "Novčanici: administracija", "Grupe koje kupuju prije pumpe, bundle, isključeni, "
            "test kopiranja, povijest i veliki holderi.", "insajderi kupuje prije pumpe bundle novčanici admin pnl holderi"),
-        _p("/criteria", "📏", "Pravila", "Svi pragovi i težine po kojima bot ocjenjuje.", "kriteriji criteria"),
+        _p("/criteria", "📏", "Pravila", "Pravila po kojima bot ocjenjuje.", "kriteriji criteria"),
         _p("/market", "🌡", "Tržište", "Je li tržište vruće ili hladno.", "market volumen"),
         _p("/analitika", "📈", "Analitika", "Posjete s Googlea.", "google search console gsc seo klikovi prikazi upiti posjete"),
-        _p("/usage", "💸", "Potrošnja", "Koliko trošimo na servise.", "trošak helius apify budžet"),
+        _p("/usage", "💸", "Potrošnja", "Koliko trošimo na servise.", "trošak budžet krediti"),
         _p("/zahtjevi", "📨", "Pozivnice i zahtjevi", "Linkovi za registraciju i tko je zatražio pristup.",
            "pristup zahtjev pozivnica invite lista čekanja novi korisnici registracija"),
         _p("/outputs", "🗂", "Izvještaji modula", "Pisani izvještaji pojedinih dijelova bota.", "outputs datoteke"),
@@ -1154,8 +1154,23 @@ def ago(t):
     return (f"prije {s}", t, "")
 
 
+def plain_reasons(parts, n=3):
+    """27.11. (vlasnik: korisnik vidi rezultat i 2-3 obična razloga, nikad težine ni formule): the names of the parts
+    that add the most and the one that takes the most away, in words, without points or maxima."""
+    up = [nm for nm, p, _, _ in sorted(parts, key=lambda x: -x[1]) if p > 0][:n]
+    down = [nm for nm, p, _, _ in sorted(parts, key=lambda x: x[1]) if p < 0][:1]
+    bits = []
+    if up:
+        bits.append("najviše pomaže: " + ", ".join(up))
+    if down:
+        bits.append("najviše odnosi: " + ", ".join(down))
+    line = "; ".join(bits)
+    return f'<p class="ms-hint nadm">{esc(line[:1].upper() + line[1:])}.</p>' if bits else ""
+
+
 def breakdown(parts, total_label="Zbroj", stored=None, mult=None, mult_label=None):
-    """Score parts as a table with bars."""
+    """Score parts as a table with bars. 27.11.: the table (points, maxima, the stored value) is adm-only, so only an
+    admin's copy carries it; everyone else gets plain_reasons()."""
     rows = [[esc(n) + (" " + info(n) if info(n) else ""), (f"{p:+.1f}" if p < 0 else f"{p:.1f}", p, "n"), (f"/ {m}", m, "n mut"),
              bar(p, m) if m else "", f'<span class="mut">{esc(x)}</span>'] for n, p, m, x in parts]
     raw = sum(p for _, p, _, _ in parts)
@@ -1164,7 +1179,8 @@ def breakdown(parts, total_label="Zbroj", stored=None, mult=None, mult_label=Non
         foot += f" × {mult:.2f} {esc(mult_label or '')} = <b>{raw * mult:.1f}</b>"
     if stored is not None:
         foot += f' <span class="mut">(spremljeno u bazi: {esc(stored)})</span>'
-    return table(["Dio", ("Bodovi", "n"), ("Max", "n"), "", ("Objašnjenje", "wrap")], rows) + f'<p>{foot}</p>'
+    return (plain_reasons(parts) + '<div class=adm-only>'
+            + table(["Dio", ("Bodovi", "n"), ("Max", "n"), "", ("Objašnjenje", "wrap")], rows) + f'<p>{foot}</p></div>')
 
 
 MODAL_JS = """
@@ -1186,3 +1202,10 @@ def modal():
 def jsonblock(o):
     """Raw data dumps are not for the trader: kept as a no-op so old call sites stay valid."""
     return ""
+
+
+# 27.11. (vlasnik: page source must not tell how the app is built): the CSS comments (file names, design notes) stay in
+# this file and never reach the browser
+for _n in ("BAR_CSS", "CSS", "NAV_CSS", "LIGHT_CSS", "SIMPLE_CSS", "MS_CSS"):
+    globals()[_n] = re.sub(r"/\*.*?\*/", "", globals()[_n], flags=re.S)
+del _n

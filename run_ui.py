@@ -952,7 +952,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, out.encode("utf-8"), "application/json")
         if path == "/api/pojam":
             from ui import glossarypage
-            frag = glossarypage.fragment(qs.get("k", ""), qs.get("l", "")[:80], qs.get("t", "")[:800])
+            # 27.11.: only an admin gets the long "how it is computed" text of the scoring terms (ui/glossarypage)
+            frag = glossarypage.fragment(qs.get("k", ""), qs.get("l", "")[:80], qs.get("t", "")[:800],
+                                         full=not AUTH or self.role == "admin")
             return self._send(200, frag.encode("utf-8"))
         if path == "/api/natjecanje":
             return self._send(200, league.api().encode("utf-8"), "application/json")
@@ -967,6 +969,9 @@ class Handler(BaseHTTPRequestHandler):
                 frag = evidence.fragment(path[len("/api/evidence/"):])
             except Exception:
                 frag = _error_html()
+            if AUTH and self.role != "admin":   # 27.11.: the weights and formulas (adm-only) only in an admin's copy
+                from ui import admstrip
+                frag = admstrip.strip(frag)
             return self._send(200, frag.encode("utf-8"))
         if path in ("/tokens", "/tokens/jaki"):   # 19.11.: the old Novi / Jaki views move to the new default view
             to = tokens.redirect_for(path, qs)

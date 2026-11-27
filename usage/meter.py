@@ -135,6 +135,9 @@ def helius(url, body=None, result=None, error=False):
 WEBHOOK_SCRIPT = "webhook novčanika"
 
 
+WEBHOOK_SCRIPT = "webhook novčanika"
+
+
 def helius_webhook(events, managed=False):
     """Helius bills 1 credit per webhook event it delivers (whatever our answer) and 100 per create/edit/delete.
     Before 01.11.2026 these were not counted, which showed up as "troši se i izvan bota"."""

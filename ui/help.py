@@ -3,10 +3,7 @@
 HELP = {
     # tokens
     "Token": "Klik na ime otvara našu stranicu tokena; male ikone pored njega otvaraju token na DexScreeneru, GMGN-u, Birdeyeu, Solscanu i drugdje.",
-    "Confidence": "Koliko alat vjeruje da će token napraviti skok svoje klase, 0-100. Dok model ne nauči: hype ocjena plus "
-                  "neovisne potvrde (X, smart money, KOL, rug filter) minus rizici, ručne težine. Kad nauči iz barem 200 ishoda "
-                  "(dnevno, sa zaštitom): iste činjenice vagane po tome što je stvarno prethodilo skoku; 50 = prosječan token "
-                  "klase, 75 = tri puta češći skok. Raspis je u pop-upu, kalibracija na stranici Učenje.",
+    "Confidence": "Koliko alat vjeruje da će token napraviti skok svoje klase, 0-100. Gleda pažnju oko tokena, neovisne potvrde i rizike, a s vremenom uči iz stvarnih ishoda. To nije vjerojatnost zarade.",
     "SimianX": "Drugo mišljenje vanjskog alata SimianX AI na dnevnom grafu: kupi (long), pada (short) ili čekaj, s "
                "njegovom sigurnošću. Prijeđi mišem/prstom za kratko obrazloženje. \"nije pokriven\" = token nije na "
                "OKX/Bybit ili je to drugi token s istim tickerom. Analiza, ne savjet.",
@@ -21,38 +18,31 @@ HELP = {
     "Zašto": "Najjači razlozi zbog kojih je token istaknut, iz izmjerenih signala.",
     "Analize": "Koje je neovisne provjere token prošao (✓) ili pao (✗). Provjere koje nisu rađene se ne prikazuju.",
     "Prošao": "Broj prođenih provjera / broj provedenih provjera.",
-    "Hype": "Hype ocjena 0-100 iz zadnjeg skeniranja: ponderirani zbroj signala (volumen, kupci, X, KOL, kopije teme…).",
-    "Šansa": "Šansa za skok 0-100: confidence × pokrivenost (0,5 + 0,5 × analizirano/7 slojeva) × (1 − 0,15 × palo). Nagrađuje "
-             "token kojeg je pogledalo više neovisnih analiza; neanaliziran sloj se ne računa kao prolaz.",
-    "Razina": "Dokle je token stigao u slojevitoj analizi: T0 besplatno sito (samo mehanika ruga), T1 rani kupci preko "
-              "Heliusa, T2 pun rug filter i X buzz, T3 duboka analiza. Skupe provjere dobivaju samo tokeni koji su stigli do razine.",
+    "Hype": "Hype ocjena 0-100 iz zadnjeg skeniranja: koliko pažnje i trgovanja token trenutno ima (volumen, kupci, X, KOL…).",
+    "Šansa": "Šansa za skok 0-100: confidence prilagođen tome koliko je neovisnih provjera token prošao. Nije vjerojatnost.",
+    "Razina": "Dokle je token stigao u analizi: od osnovne provjere prevare do duboke analize. Skuplje provjere dobivaju samo tokeni koji prođu ranije.",
     "Klasa": "Moonshot (mcap < $150k, mlađi od 3 dana), Rizičan (između), Event (pravi token događaja iz kalendara), "
              "Stabilni (mcap > $2M, stariji od 7 dana). Svaka klasa ima vlastiti cilj i pravila; granice su probne.",
-    "T0": "Besplatno sito: pada samo token s aktivnim mint ili freeze authorityjem ili nezaključanim LP-om izvan launchpada. "
-          "Likvidnost i holderi nisu pragovi nego signali čiju težinu bot sam uči.",
+    "T0": "Osnovna provjera prevare u mehanici tokena (mint, freeze, zaključan LP). Ostalo su signali, ne tvrdi pragovi.",
     "Put": "Oblik puta do današnjeg mcapa iz snimaka cijene: brzina (log rast po satu), skokovitost (udio rasta u jednom "
            "koraku, 1 = sve odjednom), zadržavanje (mcap prema vrhu, 1 = na vrhu).",
-    "market_regime": "Koliko je tržište (launchpadi i Solana DEX) bilo vruće jučer, 0-1 sa stranice Tržište. Isto za sve tokene u skenu: "
-                     "kontekst, a težinu mu bot uči sam (početno 0).",
-    "Snaga": "Trajna snaga iz pulsa (zadnjih 6 h, očitanje svaka 2 min): volumen i transakcije prema najboljem satu, rast "
-             "holdera po satu i omjer novih holdera i transakcija (organski). Token koji drži volumen i raste u holderima "
-             "dobiva bodove; težine bot uči sam.",
-    "Puls": "Očitanja svakih 2 min za tokene koji su stigli do razine 1 u zadnjih 24 h: cijena, mcap, volumen 5 min / 1 h, "
-            "kupnje i prodaje, broj holdera (Helius svakih 30 min, pump.fun kad postoji).",
-    "Holderi (puls)": "Broj walleta s pozitivnim stanjem; izvor helius (točno, do 3000) ili pumpfun (s ploče).",
+    "market_regime": "Koliko je tržište bilo vruće jučer, 0-1 sa stranice Tržište. Isto za sve tokene: kontekst, ne presuda.",
+    "Snaga": "Drži li token volumen i raste li mu broj holdera kroz zadnjih nekoliko sati (organski rast).",
+    "Puls": "Česta očitanja zanimljivih tokena: cijena, mcap, volumen, kupnje i prodaje, broj holdera.",
+    "Holderi (puls)": "Broj walleta s pozitivnim stanjem tokena.",
     "Zadnji sken": "Stranica s rezultatom zadnjeg prolaza hype skenera (zadnja 3 h). Nije isto što i Svi tokeni: ovdje je trenutak, tamo povijest.",
     "Hype max": "Najviša hype ocjena koju je token ikad dobio.",
-    "Hype ≥ 50": "Hype ocjena je bila barem 50 (prag za ulaz u demo trading).",
-    "X buzz": "Na X-u ga spominje barem 5 različitih autora ili barem jedan influencer (10k+ pratitelja).",
+    "Hype ≥ 50": "Hype ocjena je bila dovoljno visoka za demo ulaz.",
+    "X buzz": "Na X-u ga spominje više različitih autora ili barem jedan veći influencer.",
     "Smart money": "Walleti s dokazanim profitom (naša analiza ili GMGN) su među prvim kupcima.",
     "KOL": "KOL walleti ga trejdaju (pump.fun) ili su ga praćeni influenceri objavili na X-u.",
-    "Holderi": "Top 10 holdera drži manje od 35% i bundleri manje od 15% (pump.fun podaci).",
-    "Rug filter": "Helius + RugCheck provjera: PROLAZI ili OPREZ = ✓, VISOK RIZIK ili ODBAČEN = ✗.",
+    "Holderi": "Token nije previše koncentriran: top holderi i bundleri ne drže velik dio ponude.",
+    "Rug filter": "Provjera prevare iz javnih podataka s lanca: PROLAZI ili OPREZ = ✓, VISOK RIZIK ili ODBAČEN = ✗.",
     "Event": "Token je vezan uz nadolazeći događaj iz kalendara; ✓ ako je pravi token eventa, ✗ ako je kopija.",
     "Paper uzeo": "Je li ga demo trading kupio.",
-    "Rug": "Presuda rug filtera prije ulaza (PROLAZI, OPREZ, VISOK RIZIK, ODBAČEN), ili 💀 RUGAN ako je iz poola otišlo barem pola SOL-a više nego što objašnjava pad cijene (stvarni SOL omjer / očekivani √(cijena kraj / početak) ≤ 0,5, od prve snimke ili prve nakon dodavanja likvidnosti), ili su i cijena i SOL strana pale 90 %+, ili je token pao 70%+ od vrha dok dev ili top holder prodaje ili je rug rizik visok. Pad od vrha bez toga je „dump nakon pumpe”: nije blok, samo manja vjerojatnost (P × 0,7). Rugani se ne nude i ne mogu se kupiti; dok vlasnik ne potvrdi nove oznake, blokira i stara (rug ako ijedna kaže rug).",
+    "Rug": "Presuda rug filtera prije ulaza (PROLAZI, OPREZ, VISOK RIZIK, ODBAČEN), ili 💀 RUGAN kad je likvidnost izvučena iz poola ili su dev i veliki holderi prodali u slom cijene. Rugani tokeni se ne nude i ne mogu se kupiti.",
     "Rug presuda": "Presuda rug filtera: PROLAZI, OPREZ, VISOK RIZIK ili ODBAČEN (tvrdi pad).",
-    "Rug ocjena": "0-100, kreće od 100 i svaka zastavica oduzima bodove. Prazno kad je tvrdi pad.",
+    "Rug ocjena": "0-100: što više upozorenja rug filter nađe, to niža ocjena. Prazno kad je token odbačen.",
     "Glavni razlog": "Prvi tvrdi pad ili najteža zastavica rug filtera.",
     "Mcap": "Tržišna kapitalizacija u dolarima (cijena × ponuda).",
     "Likvidnost": "Novac u poolu. Mala likvidnost = velik slippage i lakša manipulacija.",
@@ -82,11 +72,9 @@ HELP = {
     "Tier": "Raspored provjera: A svakih 6 h, B dnevno, C tjedno, D bot ili u minusu.",
     "Na listi": "Prolazi li sve uvjete za copytrading listu.",
     "Na listi?": "Prolazi li sve uvjete za copytrading listu.",
-    "Copy": "Ocjena za kopiranje 0-100 (30 dana, zatvorene pozicije): donja granica win ratea, medijan po tradeu, profit "
-            "factor, kopirljivost, svježina; bez apsolutne zarade u SOL-u.",
-    "Ocjena za kopiranje": "0-100 iz zadnjih 30 dana: donja granica win ratea, medijan po tradeu, profit factor, kopirljivost "
-                           "(likvidnost na ulazu, naš trošak, kašnjenje), svježina; koncentracija iznad 50 % × 0,6.",
-    "Ocjena": "Ocjena profitabilnosti 0-100: PnL, ROI, win rate, profit factor, 2x trejdovi.",
+    "Copy": "Ocjena za kopiranje 0-100 iz zadnjih 30 dana: koliko pouzdano novčanik zarađuje i koliko ga je realno kopirati.",
+    "Ocjena za kopiranje": "0-100 iz zadnjih 30 dana: koliko pouzdano novčanik zarađuje i bi li se kopiranje isplatilo nakon troška i kašnjenja.",
+    "Ocjena": "Ocjena profitabilnosti 0-100 iz zatvorenih pozicija.",
     "PnL SOL": "Dobit ili gubitak na zatvorenim pozicijama u SOL-u.",
     "ROI": "Povrat na uloženi SOL na zatvorenim pozicijama.",
     "Win": "Udio zatvorenih pozicija u plusu.",
@@ -118,8 +106,7 @@ HELP = {
     "Min": "Najgori trenutak pozicije.",
     "Izlaz": "Zašto je prodano: stop loss, take profit, trailing stop, isteklo vrijeme ili rug.",
     "Zašto uzet": "Signali i provjere zbog kojih je bot kupio, izmjereni u trenutku ulaska.",
-    "Ishod i lekcija": "Što se dogodilo i što alat iz toga uči (dnevni pregled mijenja pragove i težine samo kad promjena "
-                       "radi bolje na starijim i novijim podacima).",
+    "Ishod i lekcija": "Što se dogodilo i što alat iz toga uči (promjene vrijede tek kad se potvrde na novijim podacima).",
     "Confidence pri ulazu": "Confidence izračunat iz podataka kakvi su bili u trenutku kupnje.",
     "Viđen": "Kad je bot prvi put razmatrao token.",
     "Porijeklo": "Odakle je kandidat došao: hype skener ili event iz kalendara.",
@@ -137,7 +124,7 @@ HELP = {
     "Tokena s volumenom": "Prvi pozivi na tokene kojima je najviše volumena (45%+) u ovoj sesiji.",
     "Pogodak (volumen)": "Pogodak poziva na tokene kojima je volumen najviše u ovoj sesiji.",
     "Volumen max 24 h": "Medijan max 24 h za te pozive.",
-    "Faktor signala": "Kojim se brojem množi KOL signal kad grupni poziv krene u ovoj sesiji (naučeno, ×0.7-×1.3).",
+    "Faktor signala": "Koliko grupni poziv u ovoj sesiji pojačava ili slabi KOL signal (naučeno).",
     "Razlog": "Zašto je kupljen ili preskočen.",
     "Ulazna cijena": "Cijena po kojoj je pozicija otvorena.",
     "Sada": "Trenutna cijena s DexScreenera.",
@@ -151,10 +138,8 @@ HELP = {
     # KOL-ovi (ui/kol.py, kol.db)
     "X račun": "Autor posta na X-u. Klik otvara sve njegove pozive, ↗ njegov profil na X-u.",
     "Pratitelji": "Broj pratitelja računa na X-u (u trenutku posta, na ljestvici zadnji poznati).",
-    "Moć poziva": "0-100: koliko KOL-ovi prvi pozivi na token u prosjeku pomaknu cijenu i volumen, iz pogotka, rasta, "
-                  "volumena, prvenstva i rugova; kasni pozivi oduzimaju. S malo poziva bliže 35. Raspis na stranici KOL-a.",
-    "Moć/pratitelj": "Pomak cijene i volumena u prvom satu podijeljen s log(pratitelji), naspram medijan KOL-a. "
-                     "2× = pomiče dvostruko više nego što bi njegov broj pratitelja dao očekivati.",
+    "Moć poziva": "0-100: koliko KOL-ovi prvi pozivi na token u prosjeku pomaknu cijenu i volumen; kasni pozivi i rugovi oduzimaju. S malo poziva ocjena je oprezna.",
+    "Moć/pratitelj": "Koliko KOL pomiče cijenu i volumen u odnosu na svoj broj pratitelja. 2× = dvostruko više od očekivanog.",
     "Poziva": "Broj tokena koje je zvao i koje smo izmjerili cijenom (prvi post po tokenu, bez hvalisanja).",
     "Pogodak": "Udio poziva nakon kojih je token barem +50% u 24 h.",
     "Medijan max 24 h": "Medijan najvećeg rasta u 24 h nakon poziva.",
@@ -169,8 +154,7 @@ HELP = {
     "Engagement": "Medijan (lajkovi + 2× repostovi) / pratitelji po pozivu: koliko mu publika stvarno reagira. Na X-u je 1% već dobro; 0% = lajkove za te postove nismo dobili (npr. Telegram).",
     "Razlog": "Zašto je na listi za praćenje uživo: broj izmjerenih poziva, pogodak, medijan rasta, udio kasnih poziva.",
     "Na listi od": "Otkad je KOL na listi za praćenje uživo.",
-    "Praćenje": "uživo = monitor šalje njegove nove postove odmah; čeka pokretanje = ulazi pri sljedećem krugu; "
-                "isključeno = nema javnog URL-a ili Apify ključa.",
+    "Praćenje": "uživo = njegovi novi postovi stižu odmah; čeka pokretanje = ulazi pri sljedećem krugu; isključeno = trenutno se ne prati.",
     "Zadnja sinkronizacija": "Zadnji put kad je bot javio monitoru listu (svakih 6 h ili kad se lista promijeni).",
     "Vrsta poziva": "poziv = post s CA prije/za vrijeme rasta; hvalisanje = '20x on…' nakon skoka; ticker = post bez CA, "
                     "samo $TICKER (možda drugi token istog imena); automatska objava = račun-bot koji javlja svaki novi token "
@@ -184,8 +168,7 @@ HELP = {
     "Max 24 h": "Najveći rast (najviša cijena) u 24 h nakon posta.",
     "Volumen ×": "Volumen trgovanja u satu nakon posta podijeljen s volumenom u satu prije (GeckoTerminal). 50×+ = sat prije gotovo nije bilo trgovanja.",
     "Grupa": "Koliko je različitih autora zvalo isti token unutar 30 min od ovog posta.",
-    "Prodaja u poziv": "Helius: insajderi (kupili sat prije, prodali do 30 min poslije) · SOL prodano/kupljeno u 30 min "
-                       "nakon posta · rotacijski devovi koji su prodavali. Prazno = još nije provjereno.",
+    "Prodaja u poziv": "Jesu li rani kupci i devovi prodavali u objavu (kupili prije, prodali odmah nakon). Prazno = još nije provjereno.",
     "Tekst": "Početak teksta posta.",
     "Do eventa": "Kada je event: danas, sutra, za koliko dana, ili prije koliko dana je bio (po datumu, UTC).",
     "Kupio prije eventa": "Koliko je prije eventa wallet prvi put kupio token (ili koliko nakon, ako je kupio kasnije).",
@@ -200,17 +183,17 @@ HELP = {
     "KOL-ovi (redom)": "Autori grupe redom kojim su zvali; prvi je pokrenuo poziv.",
     "Trajanje": "Vrijeme od prvog do zadnjeg posta u grupi.",
     "Insajdera": "Walleti koji su kupili prije i prodali u ovaj grupni poziv.",
-    "Dev prodaje": "DA ako su 2+ insajdera ili rotacijski dev prodavali u poziv: signal kol_group se tada ne daje.",
+    "Dev prodaje": "DA ako su insajderi ili dev prodavali u poziv; takav grupni poziv se tada ne računa kao signal.",
     "Prvi račun": "Prvi račun para.",
     "Drugi račun": "Drugi račun para.",
     "Zajedničkih tokena": "Na koliko su tokena oba računa zvala unutar istih 30 min.",
     "Koji tokeni": "Tokeni koje je par zvao zajedno.",
     "Da je slučajno": "Na koliko bi zajedničkih tokena par došao čistom slučajnošću, s obzirom na to koliko tokena svaki zove i koliko se tokena tada zvalo.",
     "Češće od slučaja": "Zajedničkih tokena podijeljeno sa slučajno očekivanim. 3× i više = rade zajedno češće nego što bi slučaj dao.",
-    "Presuda": "Dokazano = 3+ zajednička tokena, 3× češće od slučaja i manje od 1% šanse da je slučajno.",
+    "Presuda": "Dokazano = zajedno zovu iste tokene puno češće nego što bi slučaj dao, na dovoljno primjera.",
     "Mali KOL": "Manji račun koji je token zvao prvi. Klik otvara sve njegove pozive.",
     "Pratitelji malog": "Pratitelji manjeg računa.",
-    "Veliki KOL": "Veći račun (5× više pratitelja, barem 20.000) koji je isti token zvao poslije, unutar 48 h.",
+    "Veliki KOL": "Puno veći račun koji je isti token zvao poslije, unutar 48 h.",
     "Pratitelji velikog": "Pratitelji većeg računa.",
     "Mali prvi": "Na koliko je tokena mali zvao prvi, a veliki poslije.",
     "Veliki prvi": "Na koliko je tokena bilo obrnuto: veliki prvi, mali poslije.",

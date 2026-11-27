@@ -143,9 +143,8 @@ def _strategy_info(st, best, winners, hidden, control):
     body = (
         f"<h3>Što se mjeri</h3>"
         f"<p>{n_all} odvojenih demo računa po ${cfg['bankroll_usd']:,.0f}, od {st['days']:.0f} dana. Svaki kupuje po jednom "
-        f"pravilu (izvoru signala), s ulogom ${cfg.get('size_usd', 50)} po ulazu, a svi izlaze po istim pravilima: za tokene "
-        f"ispod 1 M $ pola se proda na +15 %, ostatak prati stop 15 % ispod vrha, stop −25 %; za tokene iznad 1 M $ stop −20 % "
-        f"i ljestvica +15 % / +30 %. Cijene su demo cijene s DexScreenera i GeckoTerminala, s troškom 1 % po strani. "
+        f"pravilu (izvoru signala), s ulogom ${cfg.get('size_usd', 50)} po ulazu, a svi izlaze po istim pravilima, pa se "
+        f"izvori uspoređuju pošteno. Cijene su javne tržišne cijene, uz realan trošak kupnje i prodaje. "
         f"Nikad pravi novac.</p>"
         f"<h3>Kako čitati brojke</h3>"
         f"<ul><li><b>S pravih ${cfg['bankroll_usd']:,.0f}</b>: isti zatvoreni tradeovi ponovljeni s fiksnim računom bez "
@@ -179,7 +178,7 @@ def strategy_html(now=None):
     if not st or not any(s["closed"] + s["open"] for s in st["rank"]):
         return ("<div class=ov-hero><div class=k>Najprofitabilnija strategija</div><div class=s>Pet demo računa po $1000 "
                 "još nema nijedan trade. Prvi ulazi dolaze unutar par minuta nakon pokretanja.</div>"
-                "<div class=s><a href=/strategije>Usporedba strategija →</a></div></div>")
+                "<div class=\"s r-pri\"><a href=/strategije>Usporedba strategija →</a></div></div>")
     cfg = st["cfg"]
     bankroll = cfg["bankroll_usd"]
     rank, control = _ranked(st)
@@ -219,7 +218,7 @@ def strategy_html(now=None):
             f'{st["days"]:.1f} dana{d24}{d7}</div>'
             f'<div class=s>{best["closed"]} zatvorenih tradeova, {hit} tradeova u plusu · {esc(best.get("opis") or "")}</div>'
             f'{verdict}{conc}{early}' + (f'<ul class=ov-rank>{others}</ul>' if others else "") + rest +
-            '<div class=s style="margin-top:10px"><a href=/strategije>Sve strategije, graf i tradeovi →</a> · '
+            '<div class=s style="margin-top:10px"><a class=r-pri href=/strategije>Sve strategije, graf i tradeovi →</a> · '
             '<a href="#" onclick="document.getElementById(\'strat-info\').showModal();return false">'
             'Vidi više: što se mjerilo, kako i zaključak</a></div></div>'
             + _strategy_info(st, best, winners, hidden, control))

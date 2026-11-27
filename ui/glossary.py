@@ -172,15 +172,15 @@ T("Rug checker", "osnove", "Besplatan alat (npr. RugCheck) koji prije kupnje pro
 T("API", "osnove", "Način na koji program (bot, aplikacija) traži podatke od drugog servisa, npr. cijenu tokena.",
   "Kripto aplikacije koriste RPC čvor (npr. Helius) za čitanje blockchaina i slanje transakcija, i API za podatke "
   "(DexScreener, Birdeye, CoinGecko) za cijene, poolove i holdere. Besplatne razine imaju ograničen broj poziva.",
-  "MemeSonar koristi Helius za novčanike i DexScreener za cijene.", alias=["rpc", "rpc čvor", "api ključ"], k="api")
+  "MemeSonar čita javni lanac i licencirane tržišne podatke.", alias=["rpc", "rpc čvor", "api ključ"], k="api")
 T("Udio u dobiti", "trading", "Postotak dobiti koji kod copy tradinga na burzi ide traderu kojeg kopiraš (obično 10-20%).",
   "Naplaćuje se samo na dobitne tradeove. On-chain copy trading umjesto toga naplaćuje oko 1% na svaki trade, i "
   "dobitni i gubitni.", "Kopirani trade zaradi $100, trader s 10% udjela dobije $10.",
   vidi=["copy-trading"], alias=["profit share", "profit sharing"], k="udio-u-dobiti")
 T("Rug", "osnove", "Prevara ili krah: tvorci izvuku novac ili token padne 90%+ i više se ne oporavi.",
   "Rug pull znači da tvorac izvuče likvidnost ili proda sve svoje tokene odjednom. U alatu 💀 RUGAN znači da je likvidnost "
-  "izvučena (50 %+ ispod vrha) ili da je cijena 70%+ ispod vrha dok dev ili top holder prodaje ili je rug rizik "
-  "visok; pad bez toga je „dump nakon pumpe” (nije blok, P × 0,7). Rugani tokeni se ne prikazuju i ne mogu se kupiti, ali alat iz "
+  "izvučena ili da je cijena pala u slom dok dev ili veliki holderi prodaju; pad bez toga je „dump nakon pumpe” "
+  "(upozorenje, ne blok). Rugani tokeni se ne prikazuju i ne mogu se kupiti, ali alat iz "
   "njih uči kako prepoznati sljedeći (stranica Učenje → Rugovi).",
   vidi=["rug-filter", "rug-profil", "likvidnost"], gdje=[("/learn", "Učenje")], alias=["rugan", "rug pull", "rugovi", "💀 rugan"])
 T("Dev", "osnove", "Tvorac tokena (developer). Njegov novčanik je napravio token.",
@@ -327,7 +327,7 @@ T("Razina", "ocjene", "Dokle je token stigao u analizi: T0 → T1 → T2 → T3.
 T("T0", "ocjene", "Prvo, besplatno sito: izbacuje samo tokene s očitom prevarom u mehanici.",
   "Pada token s aktivnim mint ili freeze pravom, nezaključanom likvidnošću izvan launchpada ili lažnim bazenom. "
   "Likvidnost ispod $10k se također odbija.", vidi=["mint-authority", "razina"])
-T("Rug filter", "ocjene", "Provjera prevare prije ulaza: Helius + RugCheck podaci o tokenu i tvorcu.",
+T("Rug filter", "ocjene", "Provjera prevare prije ulaza iz javnih podataka s lanca o tokenu i tvorcu.",
   "Presude: PROLAZI (nema zastavica), OPREZ (manje zastavice), VISOK RIZIK, ODBAČEN (tvrdi pad, npr. dev drži previše ili "
   "je već radio rugove). Ocjena kreće od 100 i svaka zastavica oduzima bodove.",
   vidi=["rug", "t0", "bundler"], alias=["rug presuda", "rug ocjena", "prolazi", "oprez", "visok rizik", "odbačen"])
@@ -551,8 +551,8 @@ T("Test slučajnosti", "grupe", "Provjera rade li dva KOL-a stvarno zajedno ili 
   vidi=["provjera-tocnosti"], gdje=[("/kol/analize#parovi", "KOL-ovi")], alias=["dokazano", "moguća slučajnost"])
 T("Moć poziva", "kol", "0-100: koliko KOL-ovi pozivi u prosjeku pomaknu cijenu i volumen.",
   "Sastoji se od: Pogodak (koliko poziva naraste 50%+ u 24 h), Rast 24 h, Rast 1 h, Volumen (koliko kupaca post dovede), "
-  "Prvi (je li prvi zvao token) i Bez ruga; Kasni pozivi oduzimaju. Dok KOL nema puno izmjerenih poziva, ocjena je bliže "
-  "35 (ne vjerujemo mu još). Raspis je na stranici svakog KOL-a pod 'Kako je dobio ocjenu'.",
+  "Prvi (je li prvi zvao token) i Bez ruga; Kasni pozivi oduzimaju. Dok KOL nema puno izmjerenih poziva, ocjena je "
+  "oprezna (ne vjerujemo mu još). Raspis je na stranici svakog KOL-a pod 'Kako je dobio ocjenu'.",
   "Moć 70 = jedan od jačih KOL-ova; njegovi pozivi u pravilu pomaknu token.",
   vidi=["pogodak", "volumen-x", "kasni-pozivi", "moc-po-pratitelju"], gdje=[("/kol", "KOL-ovi")],
   alias=["moć objava (bot)", "moć"])
@@ -574,7 +574,7 @@ T("Kasni pozivi", "kol", "Pozivi objavljeni kad je cijena već bila udvostručen
 T("Prvi", "kol", "Udio poziva u kojima je KOL prvi autor kojeg smo vidjeli na tom tokenu.",
   "Tko zove prvi, pronalazi tokene sam; tko je uvijek treći, vjerojatno prepisuje.")
 T("Bez ruga", "kol", "Koliko rijetko KOL-ovi tokeni padnu 90%+. Više rugova = manje bodova.")
-T("Engagement", "kol", "Koliko publika stvarno reagira: (lajkovi + 2× repostovi) / pratitelji.",
+T("Engagement", "kol", "Koliko publika stvarno reagira na objave u odnosu na broj pratitelja.",
   "Na X-u je 1% već dobro. Puno pratitelja a malo reakcija = kupljeni pratitelji.", alias=["angažman"])
 T("Pregledi objave", "kol", "Koliko je ljudi vidjelo post. Bolje predviđa skok od broja pratitelja.",
   alias=["medijan pregleda", "pregleda"])
@@ -859,8 +859,8 @@ T("Nejasan token", "osnove", "Objava spominje samo ticker, a tim imenom postoji 
   "adresom (mintom), linkom ili drugom provjerljivom vezom.", "Objava „$DOG ide gore” bez linka, a postoje tri DOG "
   "tokena → nejasan token.", vidi=["kol", "poziv"], alias=["nejasno", "ambiguous", "nejasan"])
 T("Sumnjiva cijena", "osnove", "Pool čija se cijena ne slaže s ostalim poolovima istog tokena ili daje nemoguć market cap.",
-  "Alat bira pool s pouzdanom valutom (SOL/USDC/USDT) i dovoljnom likvidnošću, a cijene više poolova moraju se slagati "
-  "unutar 3×. Token s neslaganjem ili mcapom iznad 200 mlrd $ ide van rangiranja dok se ne popravi.",
+  "Alat bira pool s pouzdanom valutom (SOL/USDC/USDT) i dovoljnom likvidnošću, a cijene više poolova moraju se "
+  "slagati. Token s neslaganjem ili nemogućim mcapom ide van rangiranja dok se ne popravi.",
   "PYTH: jedan mali pool javio je cijenu 1.000× veću od ostalih → sumnjivo, ne rangira se.", vidi=["likvidnost", "mcap"],
   alias=["sumnjivo", "sumnjiv pool"])
 T("Kontrola strategija", "ocjene", "Nasumičan ulaz iz istog skenera, istih dana i s istim pravilima izlaza; mjerilo za strategije.",
