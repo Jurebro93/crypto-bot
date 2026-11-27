@@ -143,7 +143,10 @@ PROCESSES = (
     # 15.11. navečer (owner switch fokus_midcap): one line at every start; reads trade.db / midcap.db, milliseconds
     ("fokus-stanje", "-m ops.fokus", (), PROTECTED, "jedan red na startu: poslovi za mikrokapove ugašeni / preusmjereni"),
     ("drustveni-stanje", "-m ops.drustveni", (), PROTECTED, "jedan red na startu: prozor osvježavanja influencera i "
-     "Telegrama (19.11.: jednom u 5 dana), prvi prozor pri prvom startu"),
+     "Telegrama (19.11.: jednom u 5 dana; 27.11.: prozor ukinut, svaki dan)"),
+    # 27.11. (vlasnik): one line at every start: the X budget of the day (usage.db xb_spend), milliseconds
+    ("xbudzet-stanje", "-m usage.xbudzet", (), PROTECTED, "jedan red na startu: X budžet dana (5 $ dnevno, 100 $ "
+     "mjesečno po prioritetima); čita usage.db"),
     ("sched", "run_sched.py", (), PROTECTED, "raspored: drži sat i pokreće svoje poslove; sam ne troši CPU"),
     # 2: the hype scan (a child of the demo loop every 2 min) and the nightly smart-wallet learning
     ("hype-status", "run_hype.py", ("status",), JOBS, "status tokena svakih 6 sati (raspored)"),
