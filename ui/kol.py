@@ -1253,7 +1253,12 @@ def profile(con, k, handle, now=None):
               "Da" if con_live else "Sporije",
               (f"+10 % za {R.num(med, 0)} min" if med else "+10 % u prvoj minuti") if med is not None else "–", sub_tone="mut"),
     ], cls="kl-key")
-    left = f"<div>{panel}{key}{_ap_row(handle)}</div>"
+    try:   # 27.11. (vlasnik: kopirljivost uz 5 / 30 / 120 s kašnjenja i stvarni trošak, wallets/kopirljivost.py)
+        from wallets import kopirljivost
+        kbox = kopirljivost.box("influencer", handle)
+    except Exception:  # noqa: BLE001 - the page never breaks on this box
+        kbox = ""
+    left = f"<div>{panel}{key}{_ap_row(handle)}{kbox}</div>"
     ch = kolchart.chart(sr)
     right = ("<div>" + R.section("10 $ u svaki poziv")
              + (ch or R.hint(f"Još nema izmjerenih poziva u zadnjih {sr['days']} dana."))
