@@ -32,6 +32,9 @@ SECTIONS = [
     ("Novčanici i tokeni", [
         _p("/dugorocno", "🌱", "Dugoročni", "Sigurniji stariji tokeni koji se oporavljaju i rastu.",
            "dugorocno long term preživjeli veliki holderi burze"),
+        # 27.11. (vlasnik: novčanici grupirani u osobe s izmišljenim imenima; osobe/, ui/osobe.py): behind the login
+        _p("/osobe", "🕵", "Osobe iza novčanika", "Novčanici grupirani u osobe: profil, pumpe, snopovi i grupni pozivi.",
+           "osobe profil grupe novčanika bundle snop povezani walleti tko stoji iza"),
         _p("/strategije", "🏁", "Usporedba strategija", "Midcap strategije u demu, jedna uz drugu.",
            "strategije usporedba demo midcap"),
         # 20.11. (vlasnik: BTC i Fear & Greed uz skokove i padove tokena; market/trziste.py)
@@ -80,7 +83,7 @@ ADMIN = ("Autopilot", "Sustav")
 # only the trade owner and the players they invite (cookie cb_pt, see run_ui._trade_cookie)
 PRIVATE = ("Autopilot",)
 # detail pages light up the menu item they belong to
-NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/kol/": "/kol",
+NAV_PREFIX = {"/postavke": "/postavke", "/osobe": "/wallets", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/kol/": "/kol",
               "/prijava": "/", "/nas-token/": "/nas-token", "/registracija": "/pregled", "/izvjestaj/": "/izvjestaj"}
 # phone bottom bar (19.11., vlasnik: "Autopilot stavi u drugi plan dok rekonstruiramo app"): Pregled, Novčanici, Tokeni,
 # Influenceri, Više for every role; the Autopilot is under "Više". Line icons, one colour.
@@ -306,7 +309,7 @@ def _vrow(href, label, right="", cls=""):
 # Pages of the microcap strategies that stopped on 15.11. left the list (ui/umirovljeno.py: their routes answer with
 # one line); "Sve stranice" (/mapa) lists every page that is still in use.
 VISE = [
-    ("Novčanici i tokeni", [("/dugorocno", "Dugoročni tokeni", "")]),
+    ("Novčanici i tokeni", [("/dugorocno", "Dugoročni tokeni", ""), ("/osobe", "Osobe iza novčanika", "")]),
     # 19.11. (vlasnik: "Telegram KOLs makni iz izračuna ... samo informativna lista skrivena negdje sa strane"): one
     # quiet link to the informational channel list (/telegram-kanali, ui/tgkanali.py: built in another branch)
     ("Influenceri", [("/kol", "Influenceri", ""), ("/telegram-kanali", "Telegram kanali (informativno)", "ms-quiet")]),

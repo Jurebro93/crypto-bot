@@ -414,7 +414,7 @@ def csrf_token(session_value):
 
 
 # POSTs that change money, roles or settings: need a non-empty same-site Origin/Referer AND the form token
-CSRF_STRICT = ("/pravi-trade/", "/korisnici/", "/postavke/", "/zahtjevi/", "/run/", "/pump-tokeni/")
+CSRF_STRICT = ("/pravi-trade/", "/korisnici/", "/postavke/", "/zahtjevi/", "/run/", "/pump-tokeni/", "/osobe/")
 PUMPT = "/pump-tokeni"   # 25.11.: owner-only page (ui/pumptokeni.py)
 
 
@@ -763,6 +763,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
             try:
                 html = page(*kolinsajderi.page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
+        if path == "/osobe" or path.startswith("/osobe/"):
+            # 27.11. (vlasnik, osobe/): wallets grouped into persons. Behind the login (noindex like every page here);
+            # the possible links to X accounts only for the OWNER, decided here on the server (defamation risk,
+            # osobe/xveza.py). Built per request from osobe.db (a few small reads).
+            from trade import settings as tsettings
+            from ui import osobe as uosobe
+            try:
+                if path == "/osobe":
+                    html = page(*uosobe.page(qs, self.user), path)
+                else:
+                    html = page(*uosobe.profile_page(path[len("/osobe/"):], qs, self.user,
+                                                     owner=tsettings.is_owner(self.user)), path)
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
@@ -1251,6 +1266,13 @@ class Handler(BaseHTTPRequestHandler):
             form = {k: v[-1] for k, v in multi.items()}
             form["id_list"] = multi.get("id", [])
             return self._redirect(pumptokeni.post(path, form, self.user))
+        if path == "/osobe/sakrij":   # 27.11.: the owner hides a possible X link (ui/osobe.post checks the owner too)
+            from trade import settings as tsettings
+            from ui import osobe as uosobe
+            if not tsettings.is_owner(self.user) or not same_site:
+                return self._forbidden(path, "admin")
+            form = dict(parse_qsl(self._read_body(10_000).decode("utf-8", "replace")))
+            return self._redirect(uosobe.post(path, form, self.user))
         if same_site and path.startswith("/korisnici/"):
             from ui import userroles
             form = dict(parse_qsl(self._read_body(10_000).decode("utf-8", "replace")))
