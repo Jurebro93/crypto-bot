@@ -769,6 +769,20 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/tocnost":
+            # 27.11. (vlasnik: "Every score shown on the site gets its own measured accuracy"; ui/tocnost.py): the whole
+            # table, the OWNER only, checked here on the server before anything is read; never cached, never public
+            from trade import settings as tsettings
+            from ui import tocnost as _toc
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/>← Na početnu</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+            try:
+                html = page(*_toc.page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
         if path == "/novcanici-admin":
             # 19.11. (vlasnik: "the admin must have a dashboard with more data about the wallets than an ordinary
             # user"; ui/novadmin.py): the OWNER only, checked here on the server like /kol-insajderi and /stanje, before

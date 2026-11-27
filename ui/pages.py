@@ -742,6 +742,16 @@ def wallet(addr, qs):
     row = dokazani.for_wallet(addr)
     word, kind, facts, sentence = _verdict(w, row, now)
     left = [rd.verdict(word, sentence, label="Presuda", facts=facts, kind=kind)]
+    try:   # 27.11. (tocnost/): the accuracy of "dokazan dvaput" and of the copy rank, measured on later buys
+        from ui import tocnost as _toc
+        rk_ = w.get("rang") or {}
+        from tocnost.izvori import rang_bucket
+        acc = (_toc.line("dokazani", ("dokazan" if row.get("passed") else "nije dokazan"), "Ova presuda") if row else "")
+        acc += _toc.line("rang", rang_bucket(rk_.get("score")), "Rang za kopiranje") if rk_.get("score") is not None else ""
+        if acc:
+            left.append(rd.raw(_toc.CSS + f'<div class="toc-w">{acc}</div>'))
+    except Exception:  # noqa: BLE001
+        pass
     if s:
         n, wins = s.get("closed") or 0, round((s.get("win_rate") or 0) * (s.get("closed") or 0))
         days = round(s.get("history_days") or 0)
@@ -1273,7 +1283,19 @@ def _rug_html(top, rug, now):
     head = f'<h2 class="ms-h2"><span>Provjera ruga</span><span class="tkp-h2s">{esc(when)}</span></h2>'
     if not state:
         return head + R.hint("Još nije provjeren: puna provjera ide tokenima koji prođu prve razine analize.")
-    return (head + f'<div class="tkp-state">{R.dot(state[0], state[1])}</div>'
+    acc = ""
+    try:   # 27.11. (tocnost/): the accuracy of the verdict this section shows (topcheck, else the rug filter's)
+        from ui import tocnost as _toc
+        if top and top.get("verdict") and topcheckui.check_rows(top):
+            if top["verdict"] == "nepoznato":
+                raise ValueError("bez presude")
+            _toc.log("topcheck", [(top.get("token") or (rug or {}).get("mint"), top["verdict"], None, top.get("mcap"))], now)
+            acc = _toc.CSS + _toc.line("topcheck", top["verdict"], "Ova provjera")
+        elif rug and rug.get("verdict"):
+            acc = _toc.CSS + _toc.line("rug", rug["verdict"], "Ova provjera")
+    except Exception:  # noqa: BLE001 - the section stays up without it
+        acc = ""
+    return (head + f'<div class="tkp-state">{R.dot(state[0], state[1])}{acc}</div>'
             + "".join(f'<div class="tkp-chk">{esc(k)}<span class="{kind or ""}">{esc(v)}</span></div>' for k, v, kind in rows))
 
 
@@ -1430,7 +1452,13 @@ def token(mint, qs):
         za, protiv = narrative.za_protiv(keyed, parts)
         zt, pt = narrative.za_protiv_line(za, protiv, html=True)
         lbl = R.cat(R.dot(kind) if kind in ("warn", "bad") else "", f"Pouzdanost {conf} · šansa za skok {sn}")
-        panel = (f'<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">{lbl}</div><div class="ms-name">{esc(word)}</div>'
+        # 27.11. (vlasnik, tocnost/): the scores as shown now are written down; each gets its measured accuracy line
+        from ui import tocnost as _toc
+        _toc.log("pouzdanost", [(mint, confidence.level(conf)[0], conf, mcap_now)], now)
+        _toc.log("sansa", [(mint, confidence.level(sn)[0], sn, mcap_now)], now)
+        acc = (_toc.CSS + _toc.line("pouzdanost", confidence.level(conf)[0], "Pouzdanost")
+               + _toc.line("sansa", confidence.level(sn)[0], "Šansa za skok"))
+        panel = (f'<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">{lbl}</div>{acc}<div class="ms-name">{esc(word)}</div>'
                  f'<p>{esc(sentence)}</p><div class="tkp-go"><b>Za:</b> {zt} <b>Protiv:</b> {pt}</div></div>')
     elif tracked:
         panel = ('<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">Pratimo</div><div class="ms-name">'
