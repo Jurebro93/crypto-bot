@@ -1135,5 +1135,18 @@
 "🖼 Profilna slika <1/>": "🖼 Profile picture <1/>",
 "🗑 Brisanje računa": "🗑 Deleting the account",
 "🗑 Obriši račun": "🗑 Delete account",
-"🛒 Kupi": "🛒 Buy"
+"🛒 Kupi": "🛒 Buy",
+"Šansa za skok <1>{0}</1>: ocjena prilagođena tome koliko je neovisnih provjera token prošao ({1} od {2} analizirano, {3} palo).": "Jump chance <1>{0}</1>: a score adjusted for how many independent checks the token passed ({1} of {2} analysed, {3} failed).",
+"Šansa za skok <1>{0}</1>:": "Jump chance <1>{0}</1>:",
+"ocjena prilagođena tome koliko je neovisnih provjera token prošao ({0} od {1} analizirano, {2} palo).": "a score adjusted for how many independent checks the token passed ({0} of {1} analysed, {2} failed).",
+"za i protiv, svaki razlog": "for and against, every reason",
+"Zadnji signal {0}-{1}-{2} {3} UTC, ocjena <1>{4}</1>.": "Last signal {0}-{1}-{2} {3} UTC, score <1>{4}</1>.",
+"Zadnji signal {0}-{1}-{2} {3} UTC, ocjena <1>{4}</1>; najviše su je podigli: {5}.": "Last signal {0}-{1}-{2} {3} UTC, score <1>{4}</1>; raised most by: {5}.",
+"Pravila po kojima bot ocjenjuje.": "The rules the bot scores by.",
+"Ocjena profitabilnosti {0}-{1} iz zatvorenih pozicija.": "Profitability score {0}-{1} from closed positions.",
+"Dokazan dvaput: u plusu na starijim tradeovima i opet na novijima koje odabir nije vidio. Kopirljiv: ne trguje prebrzo ni prečesto, nije bot ni sniper.": "Proven twice: in profit on older trades and again on newer ones the selection never saw. Copyable: does not trade too fast or too often, not a bot or sniper.",
+"0 do {0}; s malo zatvorenih pozicija ocjena je oprezna": "0 to {0}; with few closed positions the score is cautious",
+"Ocjena {0}–{1} iz zadnjih {2} dana: koliko pouzdano zarađuje, koliko tipičan trade donese, koliko ga je realno kopirati i koliko je svjež; jedan sretan pogodak ne nosi ocjenu. Ukupna zarada u SOL-u je u retku detalja (dodir na redak), nije u ocjeni. Stupci se poredaju klikom na naslov.": "Score {0}–{1} from the last {2} days: how reliably it earns, what a typical trade brings, how realistic it is to copy and how recent it is; one lucky hit does not carry the score. Total profit in SOL is in the detail row (tap the row), not in the score. Sort the columns by tapping a header.",
+"Još nema podataka: praćenje BNB Chaina se još nije pokrenulo ili je isključeno.": "No data yet: BNB Chain tracking has not started yet or is switched off.",
+"Izvori: javni podaci s lanca i javni tržišni podaci.": "Sources: public on-chain data and public market data."
 }

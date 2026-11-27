@@ -99,7 +99,9 @@ class Roles(unittest.TestCase):
                                         login("Claude", "gledam"))
             # basic user: core pages yes, spend/admin/AI-cost pages and paid actions no
             for p in ("/korisnici", "/usage", "/analitika", "/zahtjevi", "/outputs", "/learn", "/criteria",
-                      "/izvjestaj", "/nas-token"):   # 19.11.: /whatsapp is gone (303 to Pregled, ui/maknuto)
+                      "/izvjestaj", "/nas-token",
+                      # 27.11.: these opened by URL for a basic user although the menu hides them
+                      "/strategije", "/trziste", "/market", "/dugorocno", "/ekipe"):   # 19.11.: /whatsapp is gone (303 to Pregled, ui/maknuto)
                 code, _, body = call(p, cookie=novi)
                 self.assertEqual(code, 403, p)
                 self.assertIn("Ovo nije za tvoj račun", body)
@@ -118,6 +120,9 @@ class Roles(unittest.TestCase):
             self.assertEqual(call("/usage", cookie="x")[0], 401)
             # friend: friend pages yes, admin no
             self.assertEqual(call("/korisnici", cookie=ivan)[0], 403)
+            for p in ("/criteria", "/learn"):   # 27.11.: the rules and the learning (the recipe) are admin-only
+                self.assertEqual(call(p, cookie=ivan)[0], 403, p)
+            self.assertNotEqual(call("/strategije", cookie=ivan)[0], 403)
             self.assertEqual(call("/run/wallets", {"x": "1"}, ivan)[0], 403)
             self.assertNotEqual(call("/whatsapp", cookie=ivan)[0], 403)
             # admin sees the page and changes a role, which the server applies at once

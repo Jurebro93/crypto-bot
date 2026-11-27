@@ -26,7 +26,8 @@ RANK = {"osnovni": 0, "prijatelj": 1, "admin": 2}
 LABEL = {"admin": "Admin", "prijatelj": "Prijatelj", "osnovni": "Osnovni"}
 WHAT = {
     "admin": "Sve: potrošnja, zahtjevi za pristup, uloge korisnika, ručna osvježavanja koja troše kredite, pozivnice.",
-    "prijatelj": "Sve stranice osim administratorskih (potrošnja, zahtjevi, uloge, zapisi modula). Ne pokreće ništa "
+    "prijatelj": "Sve stranice osim administratorskih (potrošnja, zahtjevi, uloge, zapisi modula, pravila i učenje). "
+                 "Ne pokreće ništa "
                  "što troši kredite.",
     "osnovni": "Gleda novčanike, tokene i influencere. Ne vidi potrošnju, pravila bota ni izvještaje i ne pokreće "
                "ništa što troši novac ili opterećuje server.",
@@ -39,7 +40,12 @@ PAGES = {
     "/kol-insajderi": "admin",   # 16.11.: and of the admins only the OWNER (run_ui.py): inferences about named people
     "/novcanici-admin": "admin",   # 19.11.: and of the admins only the OWNER (run_ui.py): the wallet dashboard
     "/pump-tokeni": "admin",     # 25.11.: and of the admins only the OWNER (run_ui.py): our own pump.fun launches
-    "/learn": "prijatelj", "/criteria": "prijatelj", "/izvjestaj": "prijatelj", "/nas-token": "prijatelj",
+    # 27.11. (vlasnik: nitko osim administratora ne vidi recept: pragove, težine, formule): Pravila i Učenje admin
+    "/learn": "admin", "/criteria": "admin", "/izvjestaj": "prijatelj", "/nas-token": "prijatelj",
+    # 27.11. (vlasnik: osnovni gleda samo novčanike, tokene i influencere): these opened by URL for a basic user;
+    # now the server refuses them like the menu hides them (_role_cls in ui/html.py reads this same table)
+    "/strategije": "prijatelj", "/trziste": "prijatelj", "/market": "prijatelj", "/dugorocno": "prijatelj",
+    "/ekipe": "prijatelj", "/izlazi": "prijatelj", "/korelacije": "prijatelj",
 }   # 19.11.: /whatsapp removed (the page is gone; ui/maknuto redirects it)
 # forms (path prefix) and the lowest role that may send them; anything not listed needs only a login
 POSTS = (

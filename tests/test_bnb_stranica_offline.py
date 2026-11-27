@@ -117,7 +117,8 @@ class Page(unittest.TestCase):
         with mock.patch.dict(os.environ, {"BNB_DB": os.path.join(self.tmp.name, "nema.db")}):
             title, html = bnb_stranica.page({}, NOW)
         self.assertEqual(title, "BNB Chain: pumpe i novčanici")
-        self.assertIn("BNB baza još ne postoji", html)
+        self.assertIn("Još nema podataka", html)
+        self.assertNotIn("BNB_ON", html)   # 27.11.: no env names in user text
         self.assertNotIn("<h2 id=pumpe>", html)
 
 

@@ -78,8 +78,7 @@ def _lead_txt(m):
 
 def _empty(why):
     return (CSS + f"<h1>{esc(TITLE)}</h1>" + lead(why)
-            + "<p class=bnb-note>Posao „bnb” čita BNB Smart Chain svaka 3 sata (GeckoTerminal, DexScreener, javni RPC, sve "
-              "besplatno), traži pumpe od 2 M $ naviše i novčanike koji kupe prije njih i prodaju u rast. Kad napravi prvi "
+            + "<p class=bnb-note>Alat redovito čita javne podatke BNB Smart Chaina, traži pumpe od 2 M $ naviše i novčanike koji kupe prije njih i prodaju u rast. Kad napravi prvi "
               "prolaz, ovdje su četiri odjeljka: sažetak, pumpe, novčanici i mjerenje praćenja.</p>")
 
 
@@ -228,16 +227,16 @@ def mjera_html(m, now):
 METHOD = ('<h2 id=metoda>Kako čitati</h2>'
           '<ul class=bnb-note style="margin-left:18px">'
           '<li>Pumpa: token koji je u jednom satu ili danu skočio toliko da mu vrh pređe 2 M $ (razina 2–15 M $) ili 15 M $ (razina 15 M $ i više).</li>'
-          '<li>Novčanik „kupuje prije pumpe”: na barem tri takva tokena kupio je prije skoka i prodao u rast; „potvrđeno” znači da je isto napravio i na novijim podacima koje pravilo nije vidjelo kad je odabran.</li>'
+          '<li>Novčanik „kupuje prije pumpe”: više puta je kupio prije skoka i prodao u rast; „potvrđeno” znači da je isto napravio i na novijim podacima koje pravilo nije vidjelo kad je odabran.</li>'
           '<li>Mjerenje: svaka nova kupnja novčanika s popisa postaje zamišljeni ulaz s našim kašnjenjem i troškom; tek kad je to u plusu s intervalom iznad nule, ima smisla razgovarati o pravom novcu.</li>'
-          '<li>Sve iz besplatnih izvora (GeckoTerminal, DexScreener, javni RPC); dnevni strop poziva drži trošak na nuli.</li></ul>')
+          '<li>Izvori: javni podaci s lanca i javni tržišni podaci.</li></ul>')
 
 
 def page(qs=None, now=None):
     now = now or int(time.time())
     from bnb import pogled, store
     if store.ro() is None:
-        return TITLE, _empty("BNB baza još ne postoji: posao se još nije pokrenuo (ili je isključen s BNB_ON=0).")
+        return TITLE, _empty("Još nema podataka: praćenje BNB Chaina se još nije pokrenulo ili je isključeno.")
     s = pogled.summary()
     f = pogled.funnel()
     ps = pogled.pumps(PUMPS_N)

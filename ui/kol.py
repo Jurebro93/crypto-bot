@@ -1345,7 +1345,7 @@ def more_page(con, k, handle, cfg):
                             "obrisani pozivi i dalje se broje, a brisanje gubitnika oduzima bodove")}
         names = {"hit": "Pogodak", "max24": "Rast 24 h", "r1h": "Rast 1 h", "vol_lift": "Volumen", "first": "Prvi",
                  "no_rug": "Bez ruga", "prepump": "Kasni pozivi", "deletes": "Briše gubitnike"}
-        b.append("<p class=ms-hint>" + esc(
+        b.append('<p class="ms-hint adm-only">' + esc(   # 27.11.: the prior and the trust share are the recipe (admins)
             (f"Doseg: {s['doseg'].get('followers', 0):,} pratitelja, prate ga {s['doseg'].get('followed_by', 0)} naših "
              f"dokazanih KOL-ova, pa početnih {s['doseg'].get('prior', cfg['prior_score'])} bodova. " if s.get("doseg") else "")
             + f"Izmjereni dio daje {s.get('raw', 0):.1f}; s {s.get('measured', 0)} poziva vjerujemo mu "

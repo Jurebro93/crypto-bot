@@ -167,8 +167,8 @@ def explain_html(c, parts):
     from ui.html import esc
     name, _ = level(c)
     return (f"<p>Confidence <b>{c}/100</b> ({name}).</p><ul class=r>"
-            + "".join(f'<li class="{"good" if p > 0 else "bad"}"><b>{p:+.0f}</b> {esc(t)}</li>' for p, t in parts)
-            + "</ul><p class=mut style='font-size:12px'>"
+            + "".join(f'<li class="{"good" if p > 0 else "bad"}"><b class=adm-only>{p:+.0f}</b> {esc(t)}</li>' for p, t in parts)
+            + "</ul><p class='mut adm-only' style='font-size:12px'>"
             + (f"Naučeni model: težine iz {learned()['n']} stvarnih ishoda (50 = prosječan token svoje klase, 75 = tri puta "
                "češći skok). Kalibracija je na stranici Učenje." if learned() else
                "Težine su početna procjena dok model ne nauči iz barem 200 ishoda (stranica Učenje); kalibracija na demo "
