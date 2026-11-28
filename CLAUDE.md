@@ -18,3 +18,7 @@
   dodatni izvori; 3) svaka brojka i tvrdnja iz briefa provjeri se u izvorniku vezanom striktno za tu temu (biblioteka
   čuva sažetke); 4) tekst spaja oba izvora (biblioteka + Google) u jedinstven sadržaj s vrijednošću u svakom dijelu.
   Nijedna brojka ne ide u objavu bez provjerenog izvora.
+- Svaka objava (28.11.): tema iz biblioteke → Google istraživanje za odabranu temu → analiza strukture viralnih postova
+  (uvod, koraci, dužina, poziv na spremanje) → spajanje → korisni vizuali. U odgovoru navedi koje si viralne obrasce
+  primijenio. Detalji u Contentgenerator/CLAUDE.md.
+
