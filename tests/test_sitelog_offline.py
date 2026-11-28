@@ -401,20 +401,15 @@ class LandingBlock(Base):
         html = landing.page_html({}, lang="hr")
         self.assertEqual(html.count("<h1"), 1)
         self.assertLess(html.index("<h1"), html.index("id=dnevnik"))
-        self.assertLess(html.index("id=brojke"), html.index("id=dnevnik"))     # 20.11.: the wallet focus first, the log lower
+        self.assertLess(html.index("id=dokaz"), html.index("id=dnevnik"))      # 28.11.: the measured numbers first, the log lower
         self.assertIn("<h2>MemeSonar je live", html)
         for s in ('rel=canonical href="https://example.com/hr"', "application/ld+json", "hreflang=x-default", "id=pristup"):
             self.assertIn(s, html)
 
-    def test_autopilot_is_one_low_block(self):
-        """20.11. (vlasnik 19.11.: "Autopilot stavi u drugi plan"): no strip at the top, one block low on the page."""
+    def test_no_autopilot_on_the_homepage(self):
+        """28.11. (vlasnik, poslovni plan: podaci, ne bot): Autopilot is gone from the homepage altogether."""
         landing._STATS.update(ts=time.time(), v={}, busy=False)
-        from ui import pauza
-        with mock.patch.object(pauza, "on", return_value=False):
-            html = landing.page_html({}, lang="en")
-        self.assertNotIn("class='w apst'", html)
-        self.assertLess(html.index("id=pristup") - html.index("id=autopilot"), html.index("id=pristup"))
-        self.assertGreater(html.index("id=autopilot"), html.index("id=novcanici"))
-        self.assertIn("Autopilot's results are public.", html)
-        with mock.patch.object(pauza, "on", side_effect=RuntimeError("x")), mock.patch("builtins.print"):
-            self.assertIn("Zatraži pristup", landing.page_html({}, lang="hr"))   # their bug is not our 500
+        for lang in ("en", "hr"):
+            html = landing.page_html({}, lang=lang)
+            self.assertNotIn("id=autopilot", html)
+            self.assertNotIn("autopilot", re.sub(r"<[^>]+>", " ", html).lower())

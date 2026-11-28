@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ui import coins, coinseo, public  # noqa: E402
 from tests.test_coins_offline import LIST  # noqa: E402
+from tests.seo_kandidati import setUpModule, tearDownModule  # noqa: E402,F401   # 28.11.: the candidates, as before the core
 
 PAGES = ["/coin/bonk/price-prediction", "/hr/coin/bonk/prognoza", "/how-to-buy/bonk", "/hr/kako-kupiti/bonk",
          "/rug-check/bonk", "/hr/provjera/bonk", "/how-to-buy", "/hr/kako-kupiti", "/rug-check", "/hr/provjera",

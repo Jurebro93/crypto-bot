@@ -108,58 +108,17 @@ def compute():
         v["players"] = len(store.users())
     except Exception:  # noqa: BLE001
         pass
-    try:   # 20.11. (vlasnik 19.11.: novi fokus): the wallet search's public aggregates, read with the other numbers
-        v["nov"] = wallet_numbers()
+    try:   # 28.11.: the three measured numbers of the homepage's proof strip (ui/naslovnica.proof)
+        from ui import naslovnica
+        v["dokaz"] = naslovnica.proof()
     except Exception as e:  # noqa: BLE001
-        print(f"naslovnica: brojke novčanika nisu pročitane: {type(e).__name__}: {e}", flush=True)
+        print(f"naslovnica: dokaz nije pročitan: {type(e).__name__}: {e}", flush=True)
     try:   # 10.11.: the site log rows (a few rows by primary key) are kept with the numbers, so a visit reads no database
         from ui import sitelog
         v["log"] = sitelog.recent(LOG_READ)
     except Exception as e:  # noqa: BLE001
         print(f"naslovnica: dnevnik weba nije pročitan: {type(e).__name__}: {e}", flush=True)
     return {k: x for k, x in v.items() if x}
-
-
-def wallet_numbers(now=None):
-    """Public-safe aggregates of the wallet search (no address, no name of a wallet, no cost): {"rises" (token rises
-    reviewed), "found" (wallets or groups that bought before and sold into 3+ rises), "confirmed", "examples" (up to 3
-    of the best confirmed: members, tokens, tokens worth 15 M $+), "meas" (the per-entry measurement of those groups:
-    n, mean, lo, hi, token-days, verdict word), "tokens" (tracked midcap pages: slug, symbol, mcap)}."""
-    from ui import novjasno as J
-    from ui import novpodaci as NP
-    out = {"rises": None, "found": None, "confirmed": None, "examples": [], "meas": None, "tokens": []}
-    con = NP.ins_con()
-    if con is not None:
-        try:
-            _s, pp = NP.summary(con)
-            if pp:
-                out["rises"] = int(pp.get("covered15") or 0) + int(pp.get("covered2") or 0)
-            n, c, _k = J._counts(con)
-            if pp or n:
-                out["found"], out["confirmed"] = n, c
-            for g in NP.confirmed_groups(con, 3):
-                out["examples"].append({"k": len(g["members"]) or 1, "n": int(g.get("n_tokens") or 0),
-                                        "b": int(g.get("n_pumps15") or 0)})
-        finally:
-            con.close()
-    st, _first = J.mjera_stats(now=now)
-    if st is not None and st.get("signals"):
-        from league import mjera
-        out["meas"] = {"n": int(st.get("measured") or 0), "mean": st.get("mean01"), "lo": st.get("lo"),
-                       "hi": st.get("hi"), "td": int(st.get("token_days") or 0), "verdict": mjera.verdict(st)}
-    try:
-        from tokenstranice import store as TS
-        tc = TS.ro()
-        if tc is not None:
-            try:
-                out["tokens"] = [{"slug": sl, "symbol": sy, "mcap": mc} for sl, sy, mc in tc.execute(
-                    "SELECT slug, symbol, mcap FROM pages WHERE active=1 AND enough=1 AND slug IS NOT NULL AND "
-                    "COALESCE(mcap, 0) >= 2e6 ORDER BY (mcap >= 15e6 AND mcap <= 200e6) DESC, vol24 DESC LIMIT 8")]
-            finally:
-                tc.close()
-    except Exception:  # noqa: BLE001 - the section says the list is filling up
-        pass
-    return out
 
 
 def _refresh():
@@ -907,116 +866,18 @@ def macro_html(lang):
 
 
 def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
-    qs = qs or {}
-    form = form or {}
-    from ui import public as P
-    from ui import sitenav as SN
+    """28.11. (vlasnik, poslovni plan): the homepage is the data product's page (ui/naslovnica.py): one promise, three
+    measured numbers, the products, how we measure, the prices and the weekly report. The numbers come from the
+    background count (stats(); proof under "dokaz"), the site log from the same rows as before."""
+    from ui import naslovnica
     lang = "en" if lang == "en" else "hr"
-    t = T[lang]
-    en = lang == "en"
-    home = "/" if en else "/hr"
-    v, ts = stats()
-    svg, name = logo(30)
-    base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    from ui import urls
-    app_href, app_label = (urls.app_link("/"), t["app"]) if logged_in else (urls.app_link("/prijava"), t["login"])
-    num = _n_en if en else _n
-
-    age = ""
-    if ts and v:
-        age = ago(ts)[0]
-        if en:
-            age = age.replace("prije ", "").replace(" min", " min ago").replace(" h", " h ago").replace(" d", " d ago")
-    nv = v.get("nov") or {}
-    steps = "".join(f"<li><b>{k}</b><h3>{esc(h)}</h3><p>{esc(d)}</p></li>" for k, (h, d) in enumerate(t["steps"], 1))
-    free_li = "".join(f"<li>{esc(x)}</li>" for x in t["free_li"])
-
-    msg = f"<div class=ok>{t['f_ok']}</div>" if ok else (f"<div class=err>{esc(err)}</div>" if err else "")
-    fv = {k: esc(form.get(k, "")) for k in ("name", "contact")}
-    exp = form.get("experience", "")
-    opts = "".join(f"<option value=\"{val}\"{' selected' if exp == val else ''}>{lab}</option>"
-                   for val, lab in zip(("", "pocetnik", "povremeno", "aktivno", "profi"), t["f_opts"]))
-    request_form = (
-        f"<form class=rq method=post action=/zatrazi-pristup id=forma>{msg}"
-        f"<input type=hidden name=lang value={'en' if en else 'hr'}>"
-        f"<label>{t['f_name']}<input name=name required maxlength=40 autocomplete=name value=\"{fv['name']}\" "
-        f"placeholder='{t['f_ph_name']}'></label>"
-        f"<label>{t['f_contact']}<input name=contact type=email required maxlength=120 autocomplete=email value=\"{fv['contact']}\" "
-        f"placeholder='{t['f_ph_contact']}'></label>"
-        f"<label>{t['f_exp']}<select name=experience>{opts}</select></label>"
-        "<div class=hp aria-hidden=true><label>Web<input name=web tabindex=-1 autocomplete=off></label></div>"
-        f"<input type=hidden name=src value=\"{esc(qs.get('src', qs.get('utm_source', ''))[:40])}\">"
-        f"<button class='btn p' type=submit>{t['req']}</button><p class=fine>{t['f_fine']}</p></form>")
-    faq = "".join(f"<details><summary>{q}</summary><p>{a}</p></details>" for q, a in t["faq"])
+    v, _ts = stats()
     try:   # 10.11.: "MemeSonar je live N dana" from the rows cached with the numbers (no database read here)
         site_log = log_html(v.get("log"), lang)
     except Exception as e:  # noqa: BLE001
         print(f"naslovnica: dnevnik nije prikazan: {type(e).__name__}: {e}", flush=True)
         site_log = ""
-
-    def part(name, fn, *a):
-        try:
-            return fn(*a)
-        except Exception as e:  # noqa: BLE001 - one block never costs the front page
-            print(f"naslovnica: {name}: {type(e).__name__}: {e}", flush=True)
-            return ""
-
-    og_img, og_alt = P.og_card("/", lang)
-    og_img = base + og_img
-    canon = f"{base}{home}"
-    switch = (f"<a class=lnk href=/hr hreflang=hr lang=hr>HR</a>" if en else
-              f"<a class=lnk href=/ hreflang=en lang=en>EN</a>")
-    return f"""<!doctype html><html lang={'en' if en else 'hr'}><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><title>{esc(t['title'])}</title>
-<meta name=description content="{esc(t['desc'])}"><link rel=canonical href="{canon}">
-<link rel=alternate hreflang=en href="{base}/"><link rel=alternate hreflang=hr href="{base}/hr">
-<link rel=alternate hreflang=x-default href="{base}/">
-<meta property="og:type" content="website"><meta property="og:title" content="{esc(t['title'])}">
-<meta property="og:description" content="{esc(t['desc'])}">{P.og_tags(lang, esc(og_img), og_alt)}
-<meta property="og:url" content="{canon}"><meta name="twitter:title" content="{esc(t['title'])}">
-<meta name="twitter:description" content="{esc(t['desc'])}">
-<meta name=theme-color content="#ffffff">{_fav.HEAD}
-<script type="application/ld+json">{{"@context":"https://schema.org","@type":"WebApplication","name":"{esc(name)}",
-"url":"{canon}","applicationCategory":"FinanceApplication","operatingSystem":"Web","description":"{esc(t['desc'])}",
-"offers":{{"@type":"Offer","price":"0","priceCurrency":"USD"}}}}</script>
-<style>{CSS}{P._nav_css()}</style></head><body>
-<nav class=top><div class=w><a class=brand href={home}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
-{P.nav_links(lang)}{switch}
-<a class=lnk href={app_href}>{app_label}</a><a class='btn p sm' href=#pristup>{t['req']}</a>{P.mobile_menu(lang)}</div></nav>
-<header class=hero><div class=hbg style="background-image:url(/static/landing/{'en-' if en else ''}token-midcap.jpg)"></div><div class=w>
-<span class=pill><span class=dot></span>{t['pill']}</span>
-<h1>{t['h1a']} <span class=g>{t['h1b']}</span></h1>
-<p class=sub>{t['sub']}</p>
-<div class=ctas><a class='btn p' href=#pristup>{t['req']}</a><a class='btn g' href={app_href}>{app_label}</a></div>
-{showcase(lang)}
-</div></header>
-
-<section id=kako style='padding-top:56px'><div class=w><div class=center><div class=eyebrow>{t['how_eye']}</div>
-<h2>{t['how_h']}</h2></div><ol class=steps>{steps}</ol></div></section>
-{part("brojke", live_html, lang, nv, age)}
-{part("novcanici", wallets_html, lang, nv, app_href, app_label)}
-{part("tokeni", tokens_html, lang, nv)}
-{part("makro", macro_html, lang)}
-
-<section style='padding-top:40px'><div class=w><div class=eyebrow>{t['ex_eye']}</div><h2>{t['ex_h']}</h2>
-{part("gumbi", data_ctas, lang, v)}{P.explore(lang)}</div></section>
-{site_log}
-{part("autopilot", ap_block, lang)}
-
-<section class=soft id=cijena><div class=w><div class=free><div class=fl><div class=eyebrow>{t['free_eye']}</div>
-<h2>{t['free_h']}</h2><p>{t['free_p']}</p><ul>{free_li}</ul><a class='btn p' href=#pristup>{t['req']}</a></div>
-<div class=fbig><b>{t['free_big']}</b><span>{t['free_sub']}</span></div></div></div></section>
-
-<section id=pristup><div class='w center'><div class=eyebrow>{t['rq_eye']}</div><h2>{t['rq_h']}</h2>
-<p class=lead>{t['rq_p']}</p><div class=req>{request_form}</div></div></section>
-
-<section class=soft><div class=w><div class=faq><h2 class=center style='margin-bottom:24px'>{t['faq_h']}</h2>
-{faq}</div></div></section>
-
-<footer><div class=w>{P._foot_links(lang)}<p style='margin:0 0 10px'>{switch.replace("class=lnk ", "")}</p>
-© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
-<div class='mcta h'><a class='btn p' href=#pristup>{t['req']}</a></div>
-<script>{JS}</script>{P._ga_tag(lang)}</body></html>"""
+    return naslovnica.page_html(qs, logged_in=logged_in, ok=ok, err=err, form=form, lang=lang, v=v, site_log=site_log)
 
 
 def _n_en(x):

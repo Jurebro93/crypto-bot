@@ -39,9 +39,13 @@ class GlossaryPublic(unittest.TestCase):
         self.assertEqual(public.route("/glossary/nope")[0], 404)
         self.assertEqual(public.route("/hr/rjecnik/demo-racun")[0], 404)     # internal terms stay private
         sm = public.route("/sitemap.xml")[1].decode()
-        self.assertIn("https://example.com/glossary/copy-trading", sm)
-        self.assertIn("https://example.com/hr/rjecnik/copy-trading", sm)
+        # 28.11. (vlasnik: crawl budget): reachable, crawlable (robots allows it) but noindex and out of the sitemap
+        self.assertNotIn("/glossary", sm)
+        self.assertNotIn("/rjecnik", sm)
         self.assertIn("Allow: /glossary", public.route("/robots.txt")[1].decode())
+        for p in ("/glossary", "/glossary/rug-pull", "/hr/rjecnik", "/hr/rjecnik/rug"):
+            head = public.route(p)[1].decode().split("</head>")[0]
+            self.assertIn('<meta name=robots content="noindex,follow">', head, p)
 
 
 if __name__ == "__main__":

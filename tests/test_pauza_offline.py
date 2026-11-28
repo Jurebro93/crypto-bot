@@ -143,8 +143,7 @@ class Pages(Base):
             self.assertNotIn("is live", strip)
             with mock.patch.object(landing, "stats", return_value=({}, None)):
                 page = landing.page_html({}, lang=lang)
-            self.assertEqual(note_of(page), want)
-            self.assertIsNone(FORBIDDEN.search(note_of(page)))
+            self.assertIsNone(note_of(page))   # 28.11.: the homepage has no Autopilot place any more (ui/naslovnica)
         self.live()
         self.assertEqual(note_of(apjavno.landing_strip("en")), EN)              # paused wins over "live"
         self.pause(False)

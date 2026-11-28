@@ -7,6 +7,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ui import public, tools, toolsdata as D  # noqa: E402
+from tests.seo_kandidati import setUpModule, tearDownModule  # noqa: E402,F401   # 28.11.: the candidates, as before the core
 
 KEYS = ("best", "free", "paid", "what", "feats", "watch")
 

@@ -33,6 +33,8 @@ PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(
                          r"solana-market|meme-coin-season-index|solana-launchpads|solana-dex-volume|best-time-to-trade-crypto|"
                          r"telegram-channels|telegram/.*|"   # 10.11. (pregled): linked from the landing log and blogs
                          r"macro-influencers?(/.*)?|"   # 15.11. (makroinf/): 404 while the owner switch is off
+                         r"pricing|check-influencer|methodology|cijene|provjeri-influencera|metodologija|"   # 28.11.
+                         r"en/(pricing|cijene|check-influencer|methodology)|"   # 28.11.: old addresses, 301
                          r"embed/.*|static/landing/.*|share/novosti\.png)$")
 
 
@@ -416,6 +418,11 @@ def csrf_token(session_value):
 # POSTs that change money, roles or settings: need a non-empty same-site Origin/Referer AND the form token
 CSRF_STRICT = ("/pravi-trade/", "/korisnici/", "/postavke/", "/zahtjevi/", "/run/", "/pump-tokeni/", "/osobe/",
                "/api-kljucevi/")
+NEW_PUBLIC = ("/pricing", "/hr/cijene", "/check-influencer", "/hr/provjeri-influencera", "/methodology",
+              "/hr/metodologija")   # 28.11. (ui/naslovnica.PATHS)
+NEW_ALIASES = ("/cijene", "/en/pricing", "/en/cijene", "/provjeri-influencera", "/en/check-influencer", "/metodologija",
+               "/en/methodology")
+CHECK_PATHS = ("/check-influencer", "/hr/provjeri-influencera")
 PUMPT = "/pump-tokeni"   # 25.11.: owner-only page (ui/pumptokeni.py)
 
 
@@ -669,6 +676,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/registracija":
             from ui import register
             return self._send(200, register.page_html(qs).encode("utf-8"))
+        if path in NEW_PUBLIC or path in NEW_ALIASES:   # 28.11.: prices, the free check, the methodology
+            return self._new_public(path, qs)
         site = on_site_host(self.headers.get("Host"))
         if path in ("/dobrodosli", "/hr", "/en") or (path == "/" and (site or not ok and not APP_URL)):
             # public sales page (English main); with an own app host, "/" on the site is always this page
@@ -825,6 +834,31 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api":   # 27.11.: docs of the public API, every logged-in user, noindex like every app page
             from ui import javniapistr
             return self._send(200, page(*javniapistr.docs_page(), path).encode("utf-8"))
+        if path in ("/prijave", "/prijave.csv"):
+            # 28.11. (ui/cijene.py): early-access sign-ups and B2B enquiries. The OWNER only, checked here before
+            # anything is read; never cached
+            from trade import settings as tsettings
+            from ui import cijene
+            if not tsettings.is_owner(self.user):
+                body = ("<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ovu stranicu vidi samo vlasnik.</p>"
+                        "<p><a href=/>← Na početnu</a></p></div>")
+                return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
+            if path == "/prijave.csv":
+                name, text = cijene.csv_export("b2b" if qs.get("t") == "b2b" else "cekanje")
+                body = ("\ufeff" + text).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Robots-Tag", "noindex, nofollow")
+                self.end_headers()
+                return self.wfile.write(body)
+            try:
+                html = page(*cijene.owner_page(qs), path)
+            except Exception:
+                html = page("Greška", _error_html(), path)
+            return self._send(200, html.encode("utf-8"))
         if path == "/api-kljucevi":
             # 27.11. (ui/javniapistr.py): API keys per user. The OWNER only, checked here before anything is read; never cached
             from trade import settings as tsettings
@@ -1291,6 +1325,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._register_post()
         if u.path == "/zatrazi-pristup":
             return self._request_post()
+        if u.path in ("/cekanje", "/b2b-upit") or u.path in CHECK_PATHS:   # 28.11.: public forms, every host
+            return self._new_public_post(u.path)
         if on_site_host(self.headers.get("Host")):
             return self._redirect(APP_URL + self.path, code=308)
         if AUTH and not self._authorized():
@@ -1624,6 +1660,87 @@ class Handler(BaseHTTPRequestHandler):
             err = landing.ERR_EN.get(err, err) if lang == "en" else err
             return self._send(400, landing.page_html({}, err=err, form=form, lang=lang).encode("utf-8"))
         return self._redirect(("/" if lang == "en" else "/hr") + "?poslano=1#forma")
+
+    def _client_ip(self):
+        return (self.headers.get("X-Forwarded-For") or self.client_address[0] or "").split(",")[0].strip()
+
+    def _new_public(self, path, qs):
+        """28.11.: /hr/cijene, /pricing, /hr/provjeri-influencera, /check-influencer, /hr/metodologija, /methodology
+        (ui/cijene, ui/provjeri, ui/metodologija); the older addresses move there with a 301."""
+        from ui import naslovnica
+        if path in NEW_ALIASES:
+            to = naslovnica.ALIASES[path]
+            return self._redirect(to + (f"?{urlencode(qs)}" if qs else ""), code=301)
+        self._public = True
+        lang = "en" if not path.startswith("/hr/") else "hr"
+        from ui import seoindex
+        self._index = seoindex.indexable(path)
+        if not self._index:
+            self._robots = "noindex, follow"
+        if path in naslovnica.PATHS["pricing"]:
+            from ui import cijene
+            html = cijene.page(lang, qs)
+        elif path in naslovnica.PATHS["method"]:
+            from ui import metodologija
+            html = metodologija.page(lang)
+        else:
+            from ui import provjeri
+            html = provjeri.page(lang, provjeri.DAILY - provjeri.used(self._cookie(provjeri.COOKIE), self._client_ip()))
+        from ui import public
+        return self._send(200, public.policy(path, html).encode("utf-8"))
+
+    def _cookie(self, name):
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == name and re.fullmatch(r"[0-9a-f]{32}", v):
+                return v
+        return None
+
+    def _new_public_post(self, path):
+        """28.11.: the public forms: early access / weekly report (/cekanje), B2B (/b2b-upit), one free check."""
+        n = int(self.headers.get("Content-Length") or 0)
+        form = dict(parse_qsl(self.rfile.read(min(n, 20_000)).decode("utf-8", "replace")))
+        ip = self._client_ip()
+        self._public = True
+        self._index = False
+        self._robots = "noindex"
+        from ui import naslovnica
+        if path in CHECK_PATHS:
+            from ui import provjeri
+            lang = "hr" if path.startswith("/hr/") else "en"
+            vid = self._cookie(provjeri.COOKIE)
+            cookie = None
+            if not vid:
+                vid = provjeri.new_cookie_id()
+                cookie = (f"{provjeri.COOKIE}={vid}; Max-Age={365 * 86400}; Path=/; HttpOnly; SameSite=Lax"
+                          f"{_secure_flag(self.headers)}")
+            html = provjeri.check(lang, form, vid, ip).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(html)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Robots-Tag", "noindex")
+            if cookie:
+                self.send_header("Set-Cookie", cookie)
+            self.end_headers()
+            return self.wfile.write(html)
+        from ui import cijene
+        lang = "en" if form.get("lang") == "en" else "hr"
+        if path == "/b2b-upit":
+            ok, code = cijene.submit_b2b(form, ip)
+            if ok:
+                return self._redirect(naslovnica.href("pricing", lang) + "?upit=ok#b2b")
+            return self._send(400, cijene.page(lang, {}, form, cijene.err_text(code, lang), "b2b").encode("utf-8"))
+        ok, code = cijene.submit(form, ip)
+        weekly = form.get("plan") == "tjedni"
+        if ok:
+            return self._redirect(naslovnica.href("home", lang) + "?prijava=ok#pristup" if weekly else
+                                  naslovnica.href("pricing", lang) + "?prijava=ok#cekanje")
+        err = cijene.err_text(code, lang)
+        if weekly:
+            from ui import landing
+            return self._send(400, landing.page_html({}, err=err, form=form, lang=lang).encode("utf-8"))
+        return self._send(400, cijene.page(lang, {}, form, err, "cekanje").encode("utf-8"))
 
     def _gone(self, kind, lang):
         """410 of a removed Autopilot address: the simple page (a public one) or an empty body (a fragment / form)."""

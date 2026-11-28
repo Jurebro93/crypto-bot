@@ -47,6 +47,7 @@ PAGES = {
     "/strategije": "prijatelj", "/trziste": "prijatelj", "/market": "prijatelj", "/dugorocno": "prijatelj",
     "/ekipe": "prijatelj", "/izlazi": "prijatelj", "/korelacije": "prijatelj",
     "/api-kljucevi": "admin",    # 27.11.: and of the admins only the OWNER (run_ui.py): public API keys
+    "/prijave": "admin", "/prijave.csv": "admin",   # 28.11.: and of the admins only the OWNER (run_ui.py): sign-ups
 }   # 19.11.: /whatsapp removed (the page is gone; ui/maknuto redirects it)
 # forms (path prefix) and the lowest role that may send them; anything not listed needs only a login
 POSTS = (

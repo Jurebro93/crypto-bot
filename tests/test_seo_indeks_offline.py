@@ -122,7 +122,8 @@ def setUpModule():
         "DATA_DIR": d, "KOL_DB": os.path.join(d, "kol.db"), "TG_DB": os.path.join(d, "tg.db"),
         "TOKENSTRANICE_DB": os.path.join(d, "tokenstranice.db"), "DUGO_DB": os.path.join(d, "dugo.db"),
         "MAKROINF_DB": os.path.join(d, "makroinf.db"), "SEO_DB": os.path.join(d, "public.db"),
-        "ANALYTICS_DB": os.path.join(d, "analytics.db"), "RENDER_EXTERNAL_URL": BASE, "I18N_OFF": "1"}),
+        "ANALYTICS_DB": os.path.join(d, "analytics.db"), "RENDER_EXTERNAL_URL": BASE, "I18N_OFF": "1",
+        "SEO_CORE_MAX": "0"}),   # 28.11.: the candidate sections as before (tests/test_seo_jezgra_offline.py: the core)
         mock.patch.object(coins, "DB", os.path.join(d, "public.db"))]
     for p in ENV["patches"]:
         p.start()
@@ -196,7 +197,7 @@ class Core(unittest.TestCase):
             by[r["section"]] = by.get(r["section"], 0) + 1
         posts = [u for u in blog.urls() if seoindex._is_post(u[0])]
         self.assertEqual(by.get("blog"), len(posts))
-        self.assertEqual(by.get("glossary"), len(GP.ENTRIES))
+        self.assertNotIn("glossary", by)                # 28.11. (vlasnik): the glossary is out of the index
         self.assertEqual(by.get("tools"), len(tools.urls()) - 1)
         self.assertEqual(by.get("coin"), 30)            # the 30 biggest of the 40 rich coins (the thin ones never)
         self.assertEqual(by.get("influencer"), 30)      # 40 with 10+ clean calls, the 30 with the most
@@ -209,21 +210,23 @@ class Core(unittest.TestCase):
         infl = {r["en"] for r in rows if r["section"] == "influencer"}
         self.assertEqual(infl, {f"/influencer/kol{i:02d}" for i in range(15, 45)})   # the most clean calls
         hubs = {r["en"] for r in rows if r["section"] == "hub"}
-        for p in ("/", "/influencers", "/solana-meme-coins", "/solana-meme-coins/trending", "/glossary", "/blog",
-                  "/best-crypto-tools", "/how-to-buy", "/rug-check", "/autopilot", "/solana-market",
-                  "/telegram-channels"):
+        for p in ("/", "/influencers", "/solana-meme-coins", "/solana-meme-coins/trending", "/blog",
+                  "/best-crypto-tools", "/how-to-buy", "/rug-check", "/solana-market", "/pricing", "/check-influencer"):
             self.assertIn(p, hubs, p)
+        for p in ("/glossary", "/autopilot", "/telegram-channels", "/methodology"):   # 28.11.: out of the index
+            self.assertNotIn(p, hubs, p)
         print(f"\n  jezgra na fixtureu: {dict(sorted(by.items()))}, sitemap {len(public.sitemap().split('<url>')) - 1}")
 
     def test_noindex_outside_the_core(self):
         for path in ("/how-to-buy/c1", "/hr/kako-kupiti/c1", "/rug-check/c2", "/hr/provjera/c2",
                      "/coin/c1/price-prediction", "/hr/coin/c1/prognoza", "/coin/c3", "/hr/coin/c3", "/coin/c58",
-                     "/influencer/kol05", "/hr/influencer/kol05", "/telegram/alpha_calls"):
+                     "/influencer/kol05", "/hr/influencer/kol05", "/telegram/alpha_calls", "/hr/rjecnik", "/glossary",
+                     "/telegram-channels"):
             code, h = html(path)
             self.assertEqual(code, 200, path)
             self.assertIn('<meta name=robots content="noindex,follow">', head(h), path)
             self.assertFalse(seoindex.indexable(path), path)
-        for path in ("/coin/c1", "/hr/coin/c1", "/influencer/kol44", "/hr/influencer/kol44", "/blog", "/hr/rjecnik"):
+        for path in ("/coin/c1", "/hr/coin/c1", "/influencer/kol44", "/hr/influencer/kol44", "/blog", "/hr/blog"):
             code, h = html(path)
             self.assertEqual(code, 200, path)
             self.assertNotIn("noindex", head(h), path)
@@ -580,7 +583,7 @@ class Telegram(unittest.TestCase):
         self.assertEqual(got, {"alpha_calls": 12, "Beta_Calls": 12, "gamma_calls": 15})
         code, en = html("/telegram-channels")
         self.assertEqual(code, 200)
-        self.assertNotIn("noindex", head(en))
+        self.assertIn("noindex", head(en))   # 28.11. (vlasnik: thin content): reachable, not indexed
         self.assertEqual(re.findall(r'href="/telegram/([^"]+)"', en), ["Beta_Calls", "alpha_calls", "gamma_calls"])
         self.assertNotIn("cooking_tips", en)
         self.assertNotIn("thin_calls", en)

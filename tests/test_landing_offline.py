@@ -18,40 +18,29 @@ class Landing(unittest.TestCase):
         landing._IPS.clear()
 
     def test_page_renders_with_and_without_numbers(self):
-        """20.11. (vlasnik 19.11.: "promijeniti fokus"): the wallets that buy before a jump first; the live numbers
-        from the stored summaries ("—" and "being computed" without them)."""
+        """28.11. (vlasnik, poslovni plan): the data product's homepage (ui/naslovnica.py); the proof strip says "still
+        measuring" until the background count has numbers, never a made-up one."""
         landing._STATS.update(ts=0, v={}, busy=True)        # nothing counted yet: no crash, honest dashes
         html = landing.page_html({})
-        for s in ("Za sada besplatno", "pristup na zahtjev", "Zatraži pristup", "/prijava", "Novčanici koji kupuju",
-                  "Kako radi", "action=/zatrazi-pristup", "og:image", "/static/landing/token-midcap.jpg", "name=web",
-                  "Prvi rezultati se upravo računaju.", "Prvi nalazi stižu nakon noćne obrade."):
+        for s in ("Izmjereni podaci o Solana memecoinima", "Podaci, ne financijski savjet", "/prijava", "og:image",
+                  "action=/cekanje", "name=web", "id=pristup", "/hr/cijene", "/hr/provjeri-influencera",
+                  "/hr/metodologija", "Mjerenje je u tijeku"):
             self.assertIn(s, html)
-        self.assertEqual(html.split("id=brojke")[1].split("</section>")[0].count("<b>—</b>"), 4)
+        self.assertEqual(html.split("id=dokaz")[1].split("</section>")[0].count("<b class=w>—</b>"), 3)
         import time
-        nv = {"rises": 41, "found": 20, "confirmed": 8, "meas": {"n": 19, "mean": .047, "lo": -.02, "hi": .1, "td": 19,
-                                                                 "verdict": "premalo podataka: n=19 od potrebnih 100"},
-              "examples": [{"k": 70, "n": 7, "b": 6}, {"k": 1, "n": 3, "b": 3}], "tokens": []}
-        landing._STATS.update(ts=time.time(), v={"nov": nv}, busy=False)
-        html = landing.page_html({})
-        live = html.split("id=brojke")[1].split("</section>")[0]
-        for s in ("<b>41</b>", "<b>20</b>", "<b>8</b>", "<b>prerano za reći</b>", "izmjereno 19 kupnji"):
-            self.assertIn(s, live)
-        self.assertIn("Skupina od 70 povezanih novčanika kupila je prije rasta 7 tokena i prodala dok su rasli (6 od "
-                      "njih vrijedilo je 15 milijuna dolara ili više); potvrđeno na novijim podacima.", html)
-        self.assertIn("To je statistika iz javnih podataka s lanca, a ne financijski savjet.", html)
-        nv["meas"] = {"n": 140, "mean": .052, "lo": .011, "hi": .094, "td": 120, "verdict": "u plusu"}
-        landing._STATS.update(ts=time.time(), v={"nov": nv}, busy=False)
-        live = landing.page_html({}).split("id=brojke")[1].split("</section>")[0]
-        self.assertIn("<b>+5,2 %</b><span>po kupnji nakon troška (+1,1 % … +9,4 %)</span>", live)
+        proof = {"kol": {"share": .312, "n": 4210, "day": "2026-11-26"}, "toc": None,
+                 "kop": {"good": 7, "rated": 140, "n": 5120, "day": "2026-11-27"}}
+        landing._STATS.update(ts=time.time(), v={"dokaz": proof}, busy=False)
+        strip = landing.page_html({}).split("id=dokaz")[1].split("</section>")[0]
+        for s in ("<b>31 %</b>", "n = 4.210 poziva", "26. 11. 2026.", "<b>7 od 140</b>", "n = 5.120 kopiranja"):
+            self.assertIn(s, strip)
+        self.assertEqual(strip.count("Mjerenje je u tijeku"), 1)
         self.assertIn("Otvori aplikaciju", landing.page_html({}, logged_in=True))
         en = landing.page_html({}, lang="en")
-        for s in ("Free for now", "access on request", "/static/landing/en-novcanici.jpg", "Wallets that buy",
-                  "<b>+5.2 %</b><span>per buy after costs (+1.1 % … +9.4 %)</span>"):
+        for s in ("Measured data on Solana memecoins", "<b>31%</b>", "n = 4,210 calls", "26 Nov 2026", "<b>7 of 140</b>"):
             self.assertIn(s, en)
         import re
         for f in set(re.findall(r"/static/landing/([\w.-]+\.jpg)", html + en)):   # every image the page uses exists
-            self.assertTrue(os.path.isfile(os.path.join(landing.STATIC, f)), f)
-        for f in landing.SHOTS:   # every screenshot the page links to is in the repo
             self.assertTrue(os.path.isfile(os.path.join(landing.STATIC, f)), f)
 
     def test_share_cards(self):
@@ -63,7 +52,7 @@ class Landing(unittest.TestCase):
                 self.assertTrue(alt)
         self.assertIn("og-kols-hr.jpg", P.og_card("/influencer/x", "hr")[0])
         html = landing.page_html({}, lang="en")
-        for s in ('og:image:width" content="1200"', "og-home.jpg", "twitter:image", "class=pulse"):
+        for s in ('og:image:width" content="1200"', "og-home.jpg", "twitter:image"):
             self.assertIn(s, html)
         self.assertIn("https://memesonar.app/static/landing/og-home-hr.jpg", loginpage.html(site_url="https://memesonar.app", lang="hr"))
 
@@ -87,7 +76,7 @@ class Landing(unittest.TestCase):
         ok, err = landing.submit({"name": "Ana9", "contact": "ana9@mail.hr"}, "1.1.1.1")
         self.assertFalse(ok)
         self.assertIn("Previše", err)
-        self.assertNotIn('value="<script>"', landing.page_html({}, err="x", form={"name": "<script>"}))
+        self.assertNotIn('value="<script>"', landing.page_html({}, err="x", form={"email": "<script>"}))
 
     def test_admin_invite_flow(self):
         landing.submit({"name": "Marko", "contact": "marko@mail.hr"}, "1.1.1.1")

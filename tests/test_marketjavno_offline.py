@@ -129,25 +129,19 @@ class Pages(unittest.TestCase):
         d["critic"]["day"] = d["day"] - 3 * D                    # written for older data: not shown
         self.assertNotIn("Volume fell", marketnotes.boxes("market", d, "en"))
 
-    def test_home_buttons_and_showcase(self):
+    def test_home_links_to_the_data_pages(self):
+        """28.11. (ui/naslovnica): the product blocks link to the public data pages of their language."""
         from ui import landing
-        for lang, paths in (("en", ("/solana-market", "/macro-influencers", "/solana-meme-coins", "/best-time-to-trade-crypto")),
-                            ("hr", ("/hr/solana-trziste", "/hr/makro-influenceri", "/hr/solana-meme-coini",
-                                    "/hr/najbolje-vrijeme-za-trgovanje-kriptom"))):
+        for lang, paths in (("en", ("/solana-market", "/solana-launchpads", "/solana-meme-coins", "/rug-check",
+                                    "/influencers")),
+                            ("hr", ("/hr/solana-trziste", "/hr/solana-launchpadi", "/hr/solana-meme-coini", "/hr/provjera",
+                                    "/hr/influenceri"))):
             html = landing.page_html(lang=lang)
-            cta = html.split("class=dcta")[1].split("</div></div>")[0]
+            prod = html.split("id=proizvodi")[1].split("</section>")[0]
             for p in paths:
-                self.assertIn(f"href={p}>", cta, p)
-            self.assertEqual(cta.count("<a href="), 4)
-            self.assertNotIn("influencer-calls", cta)            # 20.11.: no call leaderboard buttons on the home page
-            self.assertNotIn("pozivi-kripto", cta)
-            self.assertRegex(cta, r"\d+/100")                    # the season index, live
-            show = html.split("<div class=show")[1].split("</header>")[0]
-            self.assertEqual(show.count("<button"), 4)
-            self.assertEqual(show.count(" src="), 1)             # one picture loads with the page, the rest on their turn
-            for f in re.findall(r'(?:data-)?src="/static/landing/([^"]+)"', show):
-                self.assertTrue(os.path.exists(os.path.join(landing.STATIC, f)), f)
-            self.assertIn("class=hbg", html)
+                self.assertIn(f"href={p}>", prod, p)
+            self.assertNotIn("influencer-calls", prod)
+            self.assertNotIn("pozivi-kripto", prod)
 
     def test_blog_links_to_data_pages(self):
         from ui import blog

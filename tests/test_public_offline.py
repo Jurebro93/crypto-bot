@@ -80,10 +80,10 @@ class Public(unittest.TestCase):
 
     def test_landing_english_main(self):
         en = landing.page_html({}, lang="en")
-        self.assertIn("Request access", en)
+        self.assertIn("Weekly report", en)       # 28.11.: the sign-up for the weekly report (ui/naslovnica)
         self.assertIn("lang=en", en)
         self.assertIn('hreflang=x-default href="https://example.com/"', en)
-        self.assertIn("Zatraži pristup", landing.page_html({}, lang="hr"))
+        self.assertIn("Tjedni izvještaj", landing.page_html({}, lang="hr"))
 
 
 if __name__ == "__main__":

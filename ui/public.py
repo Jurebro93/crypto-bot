@@ -68,8 +68,8 @@ L = {
                                               "Price higher 1 hour after the post", "Typical views per post"),
         calls_h="Recent calls", calls_note="Calls older than 24 hours, with their outcome. Fresh calls are for members.",
         ccols=("Date", "Token", "Market cap", "1 h", "24 h", "24h peak", "Post"),
-        locked="{n} new calls in the last 24 hours. Members see them live and can copy them automatically.",
-        lb_lock="Members see every new call live and can copy the best influencers automatically.",
+        locked="{n} new calls in the last 24 hours. Fresh calls are part of the Pro plan, which opens soon.",
+        lb_lock="Calls younger than 24 hours, copyability and the accuracy of every score are part of the Pro plan.",
         cta="Request access", back="← All influencers", similar="Similar influencers", none="No measured calls yet.",
         post="post", foot="Not financial advice. Scores are measurements of past calls, not accusations or "
         "endorsements.", home="/", lb="/influencers", prof="/influencer/", login="Log in"),
@@ -106,8 +106,8 @@ L = {
                                            "Cijena viša sat nakon objave", "Tipičan broj pregleda objave"),
         calls_h="Zadnji pozivi", calls_note="Pozivi stariji od 24 sata, s ishodom. Svježi pozivi su za članove.",
         ccols=("Datum", "Token", "Tržišna vrijednost", "1 h", "24 h", "Vrh 24 h", "Objava"),
-        locked="{n} novih poziva u zadnja 24 sata. Članovi ih vide uživo i mogu ih automatski kopirati.",
-        lb_lock="Članovi vide svaki novi poziv uživo i mogu automatski kopirati najbolje influencere.",
+        locked="{n} novih poziva u zadnja 24 sata. Svježi pozivi dio su paketa Pro, koji se uskoro otvara.",
+        lb_lock="Pozivi mlađi od 24 sata, kopirljivost i točnost svake ocjene dio su paketa Pro.",
         cta="Zatraži pristup", back="← Svi influenceri", similar="Slični influenceri", none="Još nema izmjerenih poziva.",
         post="objava", foot="Nije financijski savjet. Ocjene su mjerenja prošlih poziva, a ne optužbe ili preporuke.",
         home="/hr", lb="/hr/influenceri", prof="/hr/influencer/", login="Prijava"),
@@ -134,8 +134,8 @@ P2 = {
         sess_h="When they post", sess={"asia": "Asia (00–08 UTC)", "eu": "Europe (08–14 UTC)", "us": "US (14–24 UTC)"},
         few="Too little data", few_note="Fewer than {m} clean measured calls: no verdict yet. The page stays out of "
             "search results until there is enough data.",
-        lock="{n} new calls in the last 24 hours. Which token they are calling now, our entry rule for this account "
-             "(when to enter, when not) and how our demo entries on their calls did are in the app.",
+        lock="{n} new calls in the last 24 hours. Fresh calls, the copyability of this account and the measured "
+             "accuracy of its verdict are part of the Pro plan.",
         faq=(("Is @{h} a good crypto caller?", "{verdict}"),
              ("How many of @{h}'s calls reached +15 %?", "{hit} of {n} clean measured calls reached +15 % within 24 "
               "hours; the median account in our data reaches it {bhit} of the time."),
@@ -160,8 +160,8 @@ P2 = {
         sess_h="Kad objavljuje", sess={"asia": "Azija (00–08 UTC)", "eu": "Europa (08–14 UTC)", "us": "SAD (14–24 UTC)"},
         few="Premalo podataka", few_note="Manje od {m} čistih izmjerenih poziva: još nema presude. Stranica ostaje izvan "
             "rezultata pretrage dok ne skupi dovoljno podataka.",
-        lock="{n} novih poziva u zadnja 24 sata. Koji token zove sada, naše pravilo ulaza za ovaj račun (kad ući, kad "
-             "ne) i kako su prošli naši demo ulazi na njegove pozive nalaze se u aplikaciji.",
+        lock="{n} novih poziva u zadnja 24 sata. Svježi pozivi, kopirljivost ovog računa i izmjerena točnost njegove "
+             "presude dio su paketa Pro.",
         faq=(("Je li @{h} dobar kripto caller?", "{verdict}"),
              ("Koliko je poziva od @{h} doseglo +15 %?", "{hit} od {n} čistih izmjerenih poziva doseglo je +15 % unutar "
               "24 sata; medijan računa u našim podacima dosegne ga u {bhit} slučajeva."),
@@ -336,8 +336,8 @@ OG_PREFIX = (("kols", ("/influencer", "/macro-influencer")),   # 15.11.: the mac
              ("coins", ("/solana-meme-coins", "/coin/", "/how-to-buy", "/rug-check", "/solana-", "/meme-coin", "/best-time")),
              ("tools", ("/best-crypto-tools",)),
              ("learn", ("/blog", "/glossary")))
-OG_ALT = {"home": ("MemeSonar: wallets that buy before a Solana token jumps, measured after real costs",   # 20.11.
-                   "MemeSonar: novčanici koji kupuju prije skoka Solana tokena, izmjereno nakon stvarnog troška"),
+OG_ALT = {"home": ("MemeSonar: measured data on Solana memecoins, after real costs",   # 28.11.
+                   "MemeSonar: izmjereni podaci o Solana memecoinima, nakon stvarnog troška"),
           "kols": ("Crypto influencer leaderboard on MemeSonar", "Ljestvica kripto influencera na MemeSonaru"),
           "coins": ("Top 100 Solana meme coins, live, on MemeSonar", "Top 100 Solana meme coina uživo na MemeSonaru"),
           "tools": ("Best crypto tools compared on MemeSonar", "Usporedba kripto alata na MemeSonaru"),
@@ -438,9 +438,9 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <style>{CSS}{EXTRA_CSS}{_nav_css()}{blog.CSS}{blogviz.CSS}{tools.CSS}{botguides.CSS}{calcs.CSS}{secnav.CSS}</style></head><body>
 <nav class='top s'><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {nav_links(lang)}{switch}
-<a class=lnk href={_app_link('/prijava')}>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a>{mobile_menu(lang)}</div></nav>
+<a class=lnk href={_app_link('/prijava')}>{t['login']}</a><a class='btn p sm' href={'/pricing' if lang == 'en' else '/hr/cijene'}>{'Pricing' if lang == 'en' else 'Cijene'}</a>{mobile_menu(lang)}</div></nav>
 <main class=w>{secnav.markup(*SECNAV_L[lang], lang=lang)}{body}</main>
-<footer style='margin-top:64px'><div class=w>{_foot_links(lang)}© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
+<footer style='margin-top:64px'><div class=w>{_foot_links(lang)}{_foot_extra(lang)}© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
 <script>{secnav.JS}</script>{_ga_tag(lang)}</body></html>"""
 
 
@@ -831,6 +831,16 @@ def _nav_css():
 NAV_CSS = ""   # kept for imports; the CSS lives in ui/sitenav.py
 
 
+def _foot_extra(lang):
+    """28.11.: prices, methodology, the free check and the cookie settings under every public page."""
+    from analytics import ga4
+    links = ((("Pricing", "/pricing"), ("Methodology", "/methodology"), ("Check an influencer", "/check-influencer"))
+             if lang == "en" else (("Cijene", "/hr/cijene"), ("Metodologija", "/hr/metodologija"),
+                                   ("Provjeri influencera", "/hr/provjeri-influencera")))
+    return ("<p class=ns-foot style='display:flex;flex-wrap:wrap;justify-content:center;gap:6px 18px;margin:0 0 12px'>"
+            + "".join(f"<a href={h}>{esc(n)}</a>" for n, h in links) + ga4.settings_link(lang) + "</p>")
+
+
 def _foot_links(lang):
     from ui import sitenav
     return sitenav.footer(lang)
@@ -880,6 +890,9 @@ ROBOTS_ALLOW = (
     ("/best-crypto-tools", "/best-crypto-tools"), ("/hr/najbolji-kripto-alati", "/hr/najbolji-kripto-alati"),
     ("/telegram-channels", "/telegram-channels"), ("/telegram/", None), ("/hr/telegram-kanali", "/hr/telegram-kanali"),
     ("/hr/telegram/", None), ("/autopilot$", "/autopilot"), ("/hr/autopilot$", "/hr/autopilot"),
+    ("/pricing$", "/pricing"), ("/hr/cijene$", "/hr/cijene"), ("/check-influencer$", "/check-influencer"),   # 28.11.
+    ("/hr/provjeri-influencera$", "/hr/provjeri-influencera"), ("/methodology$", "/methodology"),
+    ("/hr/metodologija$", "/hr/metodologija"),
 )
 
 

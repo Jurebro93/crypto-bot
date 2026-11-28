@@ -9,7 +9,9 @@ Every public page and the sitemap ask this module:
     tg_listed(name) -> bool       the Telegram channel is on the filtered list (else its page answers 410)
 
 The core (sections):
-    hub         the homepage and the hubs that show real data (influencer ranking, the meme coin list and its daily
+    (28.11.: glossary, tools, how-to-buy, price predictions, the methodology, blog / tools / glossary / Telegram hubs
+    are out of the core: OUT_SECTIONS, OUT_HUB below)
+    hub         the homepage, the prices / free influencer check pages (28.11.), and the hubs that show real data (influencer ranking, the meme coin list and its daily
                 lists, glossary, blog and its categories, best crypto tools, how-to-buy and rug-check hubs, the market
                 pages of ui/marketpub, the macro influencer hub, Autopilot, the Telegram hub while its filtered list
                 is not empty)
@@ -57,6 +59,34 @@ ENSURE_EVERY_S = 6 * 3600  # the UI process recomputes the core this often (star
 SECTIONS = ("hub", "blog", "glossary", "tools", "coin", "influencer", "macro", "buy", "rug", "pp")
 DATA = ("coin", "influencer", "macro", "buy", "rug", "pp")
 CAPS = {"coin": ("SEO_COINS", 30), "influencer": ("SEO_INFLUENCERS", 30), "macro": ("SEO_MACRO", 20)}
+PRODUCT_PAGES = (("/pricing", "/hr/cijene", "0.8"), ("/check-influencer", "/hr/provjeri-influencera", "0.8"))
+# 28.11. (ui/cijene, ui/provjeri). /methodology + /hr/metodologija are public but noindex for now (owner 28.11.)
+
+# 28.11. (vlasnik: glossary out, thin out, "jezgra" of about 40 addresses). Two layers:
+#   candidates  every section as before (hubs, editorial, coin / influencer / macro with their own quality bars:
+#               influencer ui/kolstats.MIN_CLEAN clean measured calls, coin coin_ok = 14+ days of our own data and two
+#               kinds of it, macro 10+ scored episodes, a template only for a coin whose page Google indexed), stored in
+#               seo_core with their 30-day stability. Never in the candidates (OUT_SECTIONS / OUT_HUB): the glossary
+#               (hub and terms), the methodology page, the Telegram hub, Autopilot.
+#   the core    what the sitemap lists and what is indexable (_jezgra, kv "jezgra"): the homepage, prices and the free
+#               check (CORE_ALWAYS); every candidate that had Search Console impressions in the last 28 days or the 28
+#               before (analytics.db gsc_pages: never drop a page that earns impressions); then filled up to
+#               SEO_CORE_MAX addresses (40, English and Croatian counted apart) from the strongest candidates, a quota
+#               per section (CORE_FILL: influencer profiles by clean measured calls, coins by market cap with our own
+#               data, blog posts, the three market pages), round robin, the members of the last core first (stable).
+#               Growth: the weekly step (same gates as before: Search Console fresh, the core's indexed share, the
+#               impressions growing) adds SEO_CORE_GROW_WEEK (10, at most 20) addresses to the size, the best
+#               candidates first. SEO_CORE_MAX=0: the old behaviour (every candidate is in the core).
+# Everything outside the core stays reachable (200, links followed), noindex,follow, out of the sitemap; robots.txt
+# keeps allowing the crawl, so Google sees the noindex.
+OUT_SECTIONS = ("glossary",)
+OUT_HUB = re.compile(r"/(glossary|methodology|telegram-channels|autopilot)")
+CORE_ALWAYS = ("/", "/pricing", "/check-influencer")
+CORE_MARKET = ("/solana-meme-coins", "/rug-check", "/meme-coin-season-index")
+CORE_FILL = (("influencer", "SEO_CORE_INFLUENCERS", 7), ("coin", "SEO_CORE_COINS", 4), ("market", "SEO_CORE_MARKET", 3),
+             ("blog", "SEO_CORE_BLOG", 3))
+CORE_GROW_ORDER = ("influencer", "coin", "blog", "macro", "market", "rug", "hub", "pp", "buy", "tools")
+PRODUCT_DATE = "2026-11-28"    # their last text change
 GLOSSARY_DATE = "2026-11-20"   # the glossary's last text change (git), until ui/glossary_public.py has UPDATED
 COIN_MIN_DAYS = 14
 COIN_MIN_CALLS = 3
@@ -163,6 +193,8 @@ def _hubs(now):
     """[(en, hr, prio, lastmod)] of the hubs with real data."""
     from ui import public
     out = [("/", "/hr", "1.0", _site_day())]
+    # 28.11. (vlasnik, poslovni plan): three hand-written pages of the data product, both languages (6 URLs)
+    out += [(en, hr, pr, PRODUCT_DATE) for en, hr, pr in PRODUCT_PAGES]
     rows = _coin_rows()
     coins_day = _day(max((r.get("updated") or 0 for r in rows), default=0)) if rows else None
     try:   # one broken source must not take the other hubs out
@@ -467,8 +499,105 @@ def _load(con):
 
 
 def _finish(st):
-    st["set"] = frozenset(p for r in st["rows"].values() for p in (r["en"], r["hr"]) if p)
+    """st["core"]: the rows of the core (kv "jezgra"; without it every candidate), st["set"]: its addresses."""
+    pick = None
+    try:
+        pick = json.loads(st["kv"]["jezgra"]) if st["kv"].get("jezgra") else None
+    except (ValueError, TypeError):
+        pick = None
+    rows = st["rows"]
+    st["core"] = {e: rows[e] for e in pick if e in rows} if pick is not None else dict(rows)
+    st["set"] = frozenset(p for r in st["core"].values() for p in (r["en"], r["hr"]) if p)
     return st
+
+
+def core_max():
+    return int(_f("SEO_CORE_MAX", 40))
+
+
+def earning():
+    """{path} with any Search Console impressions in the last 28 days or the 28 before (analytics.db gsc_pages)."""
+    con = _analytics()
+    if con is None:
+        return set()
+    try:
+        return {_path_of(p) for (p,) in con.execute("SELECT page FROM gsc_pages WHERE COALESCE(imp_cur, 0) > 0 OR "
+                                                    "COALESCE(imp_prev, 0) > 0")}
+    except sqlite3.Error:
+        return set()
+    finally:
+        con.close()
+
+
+def _jezgra(rows, kv, earn):
+    """[en path] of the core, in the order picked (see CORE_* above)."""
+    try:
+        prev = set(json.loads(kv.get("jezgra") or "[]"))
+    except ValueError:
+        prev = set()
+    limit = core_max() + int(kv.get("jezgra_extra") or 0)
+    pick, seen = [], set()
+
+    def add(en):
+        if en in rows and en not in seen:
+            seen.add(en)
+            pick.append(en)
+            return True
+        return False
+
+    def size():
+        return sum(1 + bool(rows[e]["hr"]) for e in pick)
+    for en in CORE_ALWAYS:
+        add(en)
+    for en, r in sorted(rows.items(), key=lambda x: (ORDER.get(x[1]["section"], 99), x[1].get("rank") or 0, x[0])):
+        if en in earn or (r["hr"] and r["hr"] in earn):
+            add(en)
+    key = (lambda e: (e not in prev, rows[e].get("rank") or 0, e))
+    queues = {sec: sorted((e for e, r in rows.items() if r["section"] == sec), key=key) for sec in CORE_GROW_ORDER}
+    queues["market"] = [e for e in CORE_MARKET if e in rows]
+    queues["hub"] = [e for e in queues["hub"] if e not in CORE_MARKET]
+    have = {sec: sum(1 for e in q if e in seen) for sec, q in queues.items()}
+    quota = {sec: int(_f(env, n)) for sec, env, n in CORE_FILL}
+
+    def fill(order, capped):
+        while size() < limit:
+            moved = False
+            for sec in order:
+                if size() >= limit:
+                    break
+                if capped and have.get(sec, 0) >= quota.get(sec, 0):
+                    continue
+                nxt = next((e for e in queues.get(sec, []) if e not in seen), None)
+                if nxt and add(nxt):
+                    have[sec] = have.get(sec, 0) + 1
+                    moved = True
+            if not moved:
+                return
+    fill([sec for sec, _e, _n in CORE_FILL], True)
+    fill(CORE_GROW_ORDER, False)   # room left (growth, or a section without enough candidates): the best of any
+    return pick
+
+
+def grow_core(core, kv, now, con):
+    """The weekly step of the core (28.11.): the same gates as grow_step; a healthy week raises the core's size by
+    SEO_CORE_GROW_WEEK addresses (default 10, never more than 20). Never removes anything. -> the log line."""
+    kv["grow_ts"] = str(int(now))
+    if int(_f("SEO_GROW_MAX_WEEK", 25)) <= 0:
+        return "seo jezgra: rast stoji — vlasnik je zaustavio rast (SEO_GROW_MAX_WEEK=0)"
+    h = health(core, now)
+    if h is None or not h.get("fresh"):
+        return "seo jezgra: rast stoji — nema svježih podataka Search Consolea"
+    imp = h["imp"]
+    head = (f"jezgra {sum(1 + bool(r['hr']) for r in core.values())} adresa (indeksirano {h['a']} od {h['b']}); "
+            f"impresije 7 d {imp[0]:.0f} (prije {imp[1]:.0f})")
+    if not h["b"] or (h["share"] or 0) < _f("SEO_GROW_MIN_INDEXED", 0.6):
+        return f"seo jezgra: rast stoji — {head}; premalo indeksiranih adresa jezgre"
+    if imp[0] <= 0 or imp[0] <= imp[1]:
+        return f"seo jezgra: rast stoji — {head}; impresije nisu rasle"
+    n = max(0, min(20, int(_f("SEO_CORE_GROW_WEEK", 10))))
+    kv["jezgra_extra"] = str(int(kv.get("jezgra_extra") or 0) + n)
+    con.execute("INSERT INTO seo_grow (day, section, n) VALUES (?,?,?)", (_today(now), "jezgra", n))
+    return f"seo jezgra: {head}; veličina +{n} adresa"
 
 
 def ensure(now=None, db=None, log=True):
@@ -490,7 +619,7 @@ def ensure(now=None, db=None, log=True):
                 mine = _mem["state"] if _mem["db"] and _mem["db"][1] == src else None
                 st = mine or _empty()
             st["kv"]["sources"] = json.dumps(src)
-            before = frozenset(p for r in st["rows"].values() for p in (r["en"], r["hr"]) if p)
+            before = _finish(dict(st))["set"]
             rows = st["rows"]
             added_today = []
             # hubs and editorial: exactly what the modules list today
@@ -500,15 +629,18 @@ def ensure(now=None, db=None, log=True):
             if tg is not None:
                 st["tg"] = {n.lower(): (n, c) for n, c in tg.items()}
                 st["tg_known"] = bool(tg)
-            if fixed["hub"] is not None and st["tg"]:
-                fixed["hub"].append(("/telegram-channels", "/hr/telegram-kanali", "0.6", _tg_day()))
+            if fixed["hub"] is not None:   # 28.11.: only the important hubs (OUT_HUB stays reachable, noindex)
+                fixed["hub"] = [u for u in fixed["hub"] if not OUT_HUB.fullmatch(norm(u[0]))]
+            for sec in OUT_SECTIONS:
+                if sec in fixed:
+                    fixed[sec] = []
             for sec, urls in fixed.items():
                 if urls is None:
                     continue
                 keep = {}
                 for en, hr, pr, mod in urls:
                     keep.setdefault(norm(en), (norm(hr) if hr else None, pr, mod))
-                unread = _unreadable_hubs() if sec == "hub" else set()
+                unread = {u for u in _unreadable_hubs() if not OUT_HUB.fullmatch(u)} if sec == "hub" else set()
                 for en in [k for k, r in rows.items() if r["section"] == sec and k not in keep and k not in unread]:
                     del rows[en]
                 for i, (en, (hr, pr, mod)) in enumerate(keep.items()):
@@ -531,12 +663,25 @@ def ensure(now=None, db=None, log=True):
             for sec, (elig, base) in (tpl or {}).items():
                 elig_by[sec] = elig
                 added_today += _refresh(rows, st["kv"], sec, elig, base, today, 0)
-            if con is not None and _grow_due(st["kv"], now):
-                line, grown = grow_step(rows, st["kv"], elig_by, now, con)
-                added_today += grown
-                if log:
-                    print(line, flush=True)
-            counts = _counts(st, now)
+            for en in [k for k, r in rows.items() if r["section"] in OUT_SECTIONS or OUT_HUB.fullmatch(k)]:
+                del rows[en]   # 28.11.: out at once, the 30-day stability does not apply
+            if core_max() <= 0:   # the old behaviour: every candidate is in the core, the sections grow
+                st["kv"].pop("jezgra", None)
+                if con is not None and _grow_due(st["kv"], now):
+                    line, grown = grow_step(rows, st["kv"], elig_by, now, con)
+                    added_today += grown
+                    if log:
+                        print(line, flush=True)
+            else:   # 28.11.: the core of about 40 addresses
+                earn = _safe(earning) or set()
+                pick = _jezgra(rows, st["kv"], earn)
+                if con is not None and _grow_due(st["kv"], now):
+                    line = grow_core({e: rows[e] for e in pick}, st["kv"], now, con)
+                    pick = _jezgra(rows, st["kv"], earn)
+                    if log:
+                        print(line, flush=True)
+                st["kv"]["jezgra"] = json.dumps(pick)
+            counts = _counts(_finish(st), now)
             st["kv"]["tg_state"] = "ok" if st["tg_known"] else "unknown"
             if con is not None:
                 _store(con, st)
@@ -944,14 +1089,14 @@ ORDER = {s: i for i, s in enumerate(SECTIONS)}
 def core_urls():
     """[(en, hr or None, priority, lastmod or None)]: the sitemap (hubs first, then each section by rank)."""
     st = state()
-    rows = sorted(st["rows"].values(), key=lambda r: (ORDER.get(r["section"], 99), r.get("rank") or 0, r["en"]))
+    rows = sorted(st["core"].values(), key=lambda r: (ORDER.get(r["section"], 99), r.get("rank") or 0, r["en"]))
     today = _today()
     return [(r["en"], r["hr"], r["prio"], _past(r["lastmod"], today)) for r in rows]
 
 
 def section_of(path):
     p = norm(path)
-    for r in state()["rows"].values():
+    for r in state()["core"].values():
         if p in (r["en"], r["hr"]):
             return r["section"]
     return None
@@ -959,7 +1104,7 @@ def section_of(path):
 
 def section_paths(section, lang="en"):
     """[path] of the core pages of a section in that language, by rank (hubs link to them)."""
-    rows = sorted((r for r in state()["rows"].values() if r["section"] == section), key=lambda r: r.get("rank") or 0)
+    rows = sorted((r for r in state()["core"].values() if r["section"] == section), key=lambda r: r.get("rank") or 0)
     return [r["hr"] if lang == "hr" and r["hr"] else r["en"] for r in rows]
 
 
@@ -981,10 +1126,10 @@ def tg_channels():
 
 def _counts(st, now):
     by = {s: 0 for s in SECTIONS}
-    for r in st["rows"].values():
+    for r in st["core"].values():
         by[r["section"]] = by.get(r["section"], 0) + 1 + (1 if r["hr"] else 0)
     out = {"sitemap": sum(by.values()), **by}
-    core = {s: sum(1 for r in st["rows"].values() if r["section"] == s) for s in DATA}
+    core = {s: sum(1 for r in st["core"].values() if r["section"] == s) for s in DATA}
     top = _coin_rows()
     n_coins = len({r["slug"] for r in top if r.get("slug")} | _ts_slugs())
     out["out_coin"] = 2 * max(0, n_coins - core["coin"])

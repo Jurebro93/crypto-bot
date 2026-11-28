@@ -33,9 +33,11 @@ ITEMS = {
         ("kols", "/influencers", "Influencer ranking", "Hit rate, rugs and late calls"),
         ("kols", "/glossary/call-power", "How we score calls", "What call power means"),
         ("kols", "/glossary/kol", "What is a KOL?", "Crypto influencers explained"),
+        ("kols", "/check-influencer", "Check an influencer", "Free: what their calls returned"),   # 28.11.
         ("tools", "/best-crypto-tools", "All crypto tools", "The full comparison"),
         ("learn", "/blog", "Blog", "All articles"),
         ("learn", "/glossary", "Crypto glossary", "Terms explained in plain words"),
+        ("learn", "/methodology", "How we measure", "Out of sample, after real cost"),   # 28.11.
     ],
     "hr": [
         ("coins", "/hr/solana-meme-coini", "Top 100 Solana meme coina", "Po market capu, s grafovima"),
@@ -47,9 +49,11 @@ ITEMS = {
         ("kols", "/hr/influenceri", "Ljestvica influencera", "Pogodak, rugovi i kasni pozivi"),
         ("kols", "/hr/rjecnik/moc-poziva", "Kako ocjenjujemo pozive", "Što znači moć poziva"),
         ("kols", "/hr/rjecnik/kol", "Što je KOL?", "Kripto influenceri objašnjeni"),
+        ("kols", "/hr/provjeri-influencera", "Provjeri influencera", "Besplatno: što su donijeli pozivi"),   # 28.11.
         ("tools", "/hr/najbolji-kripto-alati", "Svi kripto alati", "Cijela usporedba"),
         ("learn", "/hr/blog", "Blog", "Svi članci"),
         ("learn", "/hr/rjecnik", "Kripto rječnik", "Pojmovi objašnjeni jednostavno"),
+        ("learn", "/hr/metodologija", "Kako mjerimo", "Izvan uzorka, nakon stvarnog troška"),   # 28.11.
     ],
 }
 
@@ -120,11 +124,12 @@ DD_JS = ("<script>(function(){if(window.__dd)return;window.__dd=1;var T=matchMed
 
 def mobile(lang):
     """Phones: ☰ opens all groups (a <details> element, no JS)."""
-    home, req = ("/", "Request access") if lang == "en" else ("/hr", "Zatraži pristup")
+    # 28.11.: the one call to action of the public site is the prices page (no more "request access" to a bot)
+    home, req = ("/pricing", "Pricing") if lang == "en" else ("/hr/cijene", "Cijene")
     groups = "".join(f"<p class=mg>{esc(label)}</p>" + "".join(f"<a href={h}>{esc(n)}</a>" for h, n, _d in rows)
                      for _k, label, _hub, _d, rows in menu(lang))
     return (f"<details class=mnav><summary aria-label=Menu>☰</summary><div>{groups}"
-            f"<a class='btn p sm' href={home}#pristup>{req}</a></div></details>")
+            f"<a class='btn p sm' href={home}>{req}</a></div></details>")
 
 
 def footer(lang):
