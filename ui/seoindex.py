@@ -67,7 +67,7 @@ PRODUCT_PAGES = (("/pricing", "/hr/cijene", "0.8"), ("/check-influencer", "/hr/p
 #               influencer ui/kolstats.MIN_CLEAN clean measured calls, coin coin_ok = 14+ days of our own data and two
 #               kinds of it, macro 10+ scored episodes, a template only for a coin whose page Google indexed), stored in
 #               seo_core with their 30-day stability. Never in the candidates (OUT_SECTIONS / OUT_HUB): the glossary
-#               (hub and terms), the methodology page, the Telegram hub, Autopilot.
+#               (hub and terms), the methodology page, the Telegram hub.
 #   the core    what the sitemap lists and what is indexable (_jezgra, kv "jezgra"): the homepage, prices and the free
 #               check (CORE_ALWAYS); every candidate that had Search Console impressions in the last 28 days or the 28
 #               before (analytics.db gsc_pages: never drop a page that earns impressions); then filled up to
@@ -80,7 +80,7 @@ PRODUCT_PAGES = (("/pricing", "/hr/cijene", "0.8"), ("/check-influencer", "/hr/p
 # Everything outside the core stays reachable (200, links followed), noindex,follow, out of the sitemap; robots.txt
 # keeps allowing the crawl, so Google sees the noindex.
 OUT_SECTIONS = ("glossary",)
-OUT_HUB = re.compile(r"/(glossary|methodology|telegram-channels|autopilot)")
+OUT_HUB = re.compile(r"/(glossary|methodology|telegram-channels)")
 CORE_ALWAYS = ("/", "/pricing", "/check-influencer")
 CORE_MARKET = ("/solana-meme-coins", "/rug-check", "/meme-coin-season-index")
 CORE_FILL = (("influencer", "SEO_CORE_INFLUENCERS", 7), ("coin", "SEO_CORE_COINS", 4), ("market", "SEO_CORE_MARKET", 3),

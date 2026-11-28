@@ -35,6 +35,7 @@ from makroinf import prices, run, store, web  # noqa: E402
 from makroinf import public as mpub  # noqa: E402
 from trade import settings  # noqa: E402
 from ui import assistnotes  # noqa: E402
+from tests.seo_kandidati import setUpModule, tearDownModule  # noqa: E402,F401   # 28.11.: the candidates, as before the core
 
 D = 86400
 NOW = int(time.time())

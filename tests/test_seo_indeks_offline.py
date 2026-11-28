@@ -213,7 +213,7 @@ class Core(unittest.TestCase):
         for p in ("/", "/influencers", "/solana-meme-coins", "/solana-meme-coins/trending", "/blog",
                   "/best-crypto-tools", "/how-to-buy", "/rug-check", "/solana-market", "/pricing", "/check-influencer"):
             self.assertIn(p, hubs, p)
-        for p in ("/glossary", "/autopilot", "/telegram-channels", "/methodology"):   # 28.11.: out of the index
+        for p in ("/glossary", "/telegram-channels", "/methodology"):   # 28.11.: out of the index
             self.assertNotIn(p, hubs, p)
         print(f"\n  jezgra na fixtureu: {dict(sorted(by.items()))}, sitemap {len(public.sitemap().split('<url>')) - 1}")
 

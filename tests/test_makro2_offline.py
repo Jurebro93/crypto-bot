@@ -38,6 +38,7 @@ from makroinf import index as mindex  # noqa: E402
 from makroinf import public as mpub  # noqa: E402
 from tests.test_makroinf_offline import NOW, Base, FakeX, fake_llm, rising  # noqa: E402
 from trade import settings  # noqa: E402
+from tests.seo_kandidati import setUpModule, tearDownModule  # noqa: E402,F401   # 28.11.: the candidates, as before the core
 
 D = 86400
 FORBIDDEN = ("twitterapi", "openai", "gpt-", "api key", "api_key", "_KEY", "MAKROINF_DB", "DATA_DIR", "makroinf.db",

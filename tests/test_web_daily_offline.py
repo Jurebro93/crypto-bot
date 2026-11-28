@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import run_sched  # noqa: E402
 import run_web  # noqa: E402
 from ui import bloglive, coins, landing, public, sitelog  # noqa: E402
+from tests.seo_kandidati import setUpModule, tearDownModule  # noqa: E402,F401   # 28.11.: the candidates, as before the core
 
 UTC = dt.timezone.utc
 ENV = ("KOL_DB", "WALLET_DB", "TG_DB", "HYPE_DB", "WEB_DAILY_NO_NET", "RENDER_EXTERNAL_URL", "SITE_LIVE_SINCE")

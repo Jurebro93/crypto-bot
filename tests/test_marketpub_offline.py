@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from market import regime, store  # noqa: E402
 from ui import marketpub as M  # noqa: E402
 from ui import public, sitenav  # noqa: E402
+from tests.seo_kandidati import setUpModule, tearDownModule  # noqa: E402,F401   # 28.11.: the candidates, as before the core
 
 D = 86400
 NOW = int(time.time())

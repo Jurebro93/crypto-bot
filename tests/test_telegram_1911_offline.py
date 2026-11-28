@@ -443,7 +443,7 @@ class PublicPages(Tmp):
         self.assertIn("Od 19. 11. 2026. pozive više ne mjerimo", hr)
         self.assertIn("+1.000", hr)
 
-    def test_channel_card_is_noindex_and_sitemap_has_the_hub_only(self):
+    def test_channel_card_and_hub_are_noindex_and_out_of_the_sitemap(self):
         from ui import public
         card = public.route("/telegram/alphacalls")[1].decode()
         self.assertIn("noindex", card)
@@ -452,7 +452,8 @@ class PublicPages(Tmp):
         self.assertEqual(public.route("/telegram/candidate1")[0], 410)   # 23.11.: not a filtered channel: gone
         self.assertEqual(public.route("/hr/telegram/nema")[0], 410)
         sm = public.route("/sitemap.xml")[1].decode()
-        self.assertIn("<loc>https://example.com/telegram-channels</loc><lastmod>2026-11-18</lastmod>", sm)
+        self.assertNotIn("/telegram-channels", sm)   # 28.11. (vlasnik: thin content): the hub is reachable, noindex too
+        self.assertIn('content="noindex,follow"', public.route("/telegram-channels")[1].decode().split("</head>")[0])
         self.assertNotIn("/telegram/alphacalls", sm)
 
 
