@@ -41,7 +41,7 @@ T = {
                 "zovu Solana tokene; probaj jedan od ovih ili se prijavi na tjedni izvještaj.",
         signup="Prijavi se na tjedni izvještaj", pricing="Pogledaj paket Pro",
         res_h="@{h}: {n} izmjerenih poziva",
-        since="Mjereno od {d}. Brojimo samo čiste pozive starije od 24 sata.",
+        since="Mjereno od {d} Brojimo samo čiste pozive starije od 24 sata.",   # {d} ends with a period (25. 11. 2026.)
         cards=("U plusu dan kasnije, nakon troška", "Tipičan ishod nakon 24 h, nakon troška", "Cijena viša sat nakon objave",
                "Završilo kao rug (pad 90 %+)"),
         few="Premalo izmjerenih poziva za presudu: brojke su samo orijentacija.",
